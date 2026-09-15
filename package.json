@@ -1,0 +1,13 @@
+{
+  "name": "chat-work-management",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "test:p0": "node --test test/p0-flow.test.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
