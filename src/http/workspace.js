@@ -1,0 +1,12 @@
+import { Permission, requirePermission } from '../rbac.js';
+import { cleanText, json, readJson, allowedPresence } from './helpers.js';
+
+export async function handleWorkspace(req,res,ctx,url,path,method){
+  const {store,requireSession,hub}=ctx;
+  if(path==='/api/v1/tasks'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listTasks(s)});return true}
+  if(path==='/api/v1/tasks'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.TASK_CREATE);const b=await readJson(req),task=await store.createTask(s,{title:cleanText(b.title,240),outcome:b.outcome?cleanText(b.outcome,1000):undefined,ownerId:b.ownerId??s.userId,acceptorId:b.acceptorId??s.userId,sourceMessageId:b.sourceMessageId??null,priority:b.priority??'normal',promisedAt:b.promisedAt??null,forecastAt:b.forecastAt??null});hub.broadcastWorkspace(s.workspaceId,'task.created',task);json(res,201,{task});return true}
+  if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listCalendar(s,url.searchParams.get('from'),url.searchParams.get('to'))});return true}
+  if(path==='/api/v1/calendar-events'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.CALENDAR_CREATE);const b=await readJson(req),startAt=new Date(b.startAt).toISOString(),endAt=b.endAt?new Date(b.endAt).toISOString():null;if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Calendar end must be after start'),{code:'INVALID_CALENDAR_RANGE'});const event=await store.createCalendarEvent(s,{kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:b.timezone??'UTC',allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null});hub.broadcastWorkspace(s.workspaceId,'calendar.created',event);json(res,201,{event});return true}
+  if(path==='/api/v1/presence'&&method==='POST'){const s=await requireSession(req),b=await readJson(req);if(!allowedPresence.has(b.state))throw Object.assign(new Error('Invalid presence state'),{code:'INVALID_PRESENCE'});const presence=await store.setPresence(s,b);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence});json(res,200,{presence});return true}
+  return false;
+}
