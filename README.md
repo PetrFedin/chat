@@ -1,37 +1,47 @@
-# Chat — conversations that become accountable work
+# Chat — корпоративная коммуникация и исполнение в одном приложении
 
-Standalone corporate collaboration and work-management product that unifies employee chats, task/accountability planning, calendar scheduling, execution evidence, acceptance and notifications.
+Chat is a standalone multi-tenant corporate work application: a company registers a workspace, adds employees and runs messages, channels, tasks, calendar, meetings, calls, files, notifications and execution control in one connected work graph.
 
 ## Product invariant
 
-A conversation is not managed work until it can be traced to an explicit commitment with:
+A conversation becomes managed work when it can be traced to an explicit commitment with one accountable owner, expected outcome, promised/forecast dates, scheduling context, evidence, review and an immutable history of consequential changes.
 
-- one accountable owner;
-- a defined outcome;
-- a promised date or explicit unscheduled state;
-- scheduling context;
-- execution evidence;
-- an acceptance decision;
-- an immutable audit trail of consequential changes.
+## Core graph
 
-## Core flow
+`Organization -> Workspace -> People/Teams -> Conversation -> Message -> Work item -> Calendar/Meeting -> Execution -> Evidence -> Review -> Accepted result`
 
-`Message -> Commitment -> Accepted responsibility -> Calendar block/event -> Execution evidence -> Review -> Accepted result`
+Files, calls, notifications, search, integrations and AI are cross-cutting capabilities rather than isolated products.
 
-Chat, tasks and calendar are one work graph rather than three products connected only by links.
+## Current executable baseline
 
-## SYNTH-V2 extraction
+- PostgreSQL multi-tenant schema for organizations/workspaces/memberships.
+- Direct/group/channel/project/task/meeting conversation model.
+- Threads, replies, scheduled/rich message kinds and soft-delete domain semantics.
+- Tasks/commitments with accountability and acceptance lifecycle.
+- General calendar events and task time blocks.
+- Employee profiles, invitations, teams and presence persistence.
+- File assets, generic file linking and voice-message metadata.
+- Projects, collaborators, dependencies and checklists.
+- Audio/video call session model with participant recording consent.
+- Meeting notes/transcript/AI-summary persistence boundary.
+- Notifications, audit, outbox and idempotency primitives.
+- Mobile-first dependency-free PWA shell under `public/`.
 
-A verified source snapshot from `PetrFedin/synth-v2` is kept under `vendor/syntha-v2`. Reusable calendar and notification semantics were adapted into standalone collaboration modules without importing fashion/wholesale entities. The audit and exact extraction decisions are in `docs/SYNTHA_EXTRACTION.md`.
+Run locally:
 
-Important finding: current SYNTH-V2 contains a real calendar/read-model/notification implementation, but no production conversations/messages backend. Messaging in this repository is therefore implemented natively instead of being falsely represented as copied code.
+```bash
+npm start
+```
 
-## Current status
+Then open `http://localhost:3000`. Run tests with `npm test`.
 
-- P0 domain foundation: done.
-- P1 persistence/command safety: in progress.
-- SYNTH-V2 collaboration extraction baseline: done.
-- Independent domain primitives now exist for Conversation/Message, CalendarEvent and Notification.
-- PostgreSQL now distinguishes commitment time blocks from general calendar events and stores conversation members, event participants and user notifications.
+## Product documentation
 
-See `docs/ROADMAP.md`, `docs/ARCHITECTURE.md` and `docs/SYNTHA_EXTRACTION.md`.
+- `docs/PRODUCT_BLUEPRINT.md` — full application scope and delivery sequence.
+- `docs/ARCHITECTURE.md` — architectural invariants and reliability boundaries.
+- `docs/ROADMAP.md` — implementation gates.
+- `docs/SYNTHA_EXTRACTION.md` — SYNTH-V2 source extraction audit.
+
+## SYNTH-V2 relationship
+
+`PetrFedin/synth-v2` remains an independent product and is not modified by Chat development. Chat may keep verified source snapshots/reference material from SYNTH-V2, while all new corporate-product behavior evolves independently in this repository.

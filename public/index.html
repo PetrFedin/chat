@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111214">
+  <title>Chat — рабочее пространство компании</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Основная навигация">
+      <div class="brand"><span class="brand-mark">C</span><span>Chat</span></div>
+      <button class="workspace"><span class="avatar">A</span><span><strong>Acme</strong><small>Рабочее пространство</small></span><span>⌄</span></button>
+      <nav id="desktop-nav" class="nav-list"></nav>
+      <div class="sidebar-section"><span>Каналы</span><button>＋</button></div>
+      <button class="channel active-channel"># общий</button>
+      <button class="channel"># продукт</button>
+      <button class="channel"># продажи</button>
+      <div class="sidebar-section"><span>Личные</span><button>＋</button></div>
+      <button class="person"><span class="presence online"></span>Анна Смирнова</button>
+      <button class="person"><span class="presence busy"></span>Иван Петров</button>
+      <div class="profile"><span class="avatar">П</span><span><strong>Пётр</strong><small>В сети</small></span><button>⚙</button></div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div><small id="eyebrow">Рабочее пространство</small><h1 id="screen-title">Сегодня</h1></div>
+        <div class="top-actions"><button class="icon" aria-label="Поиск">⌕</button><button class="icon" aria-label="Создать">＋</button><button class="avatar compact">П</button></div>
+      </header>
+
+      <section id="screen" class="screen" aria-live="polite"></section>
+    </main>
+
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Мобильная навигация"></nav>
+  </div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

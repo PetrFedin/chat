@@ -1,0 +1,10 @@
+{
+  "name": "Chat — корпоративное рабочее пространство",
+  "short_name": "Chat",
+  "lang": "ru",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f6f8",
+  "theme_color": "#111214",
+  "description": "Корпоративные сообщения, задачи, календарь, встречи и управление исполнением в одном рабочем графе."
+}

@@ -45,7 +45,10 @@ jobs:
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/001_core.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/002_tenant_integrity.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/003_collaboration_primitives.sql
+          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/004_application_platform.sql
       - name: Verify core constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_core.sql
       - name: Verify collaboration constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_collaboration.sql
+      - name: Verify application-platform constraints
+        run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_platform.sql
