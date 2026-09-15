@@ -2,39 +2,77 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#111214">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="theme-color" content="#050505">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Chat">
   <title>Chat — рабочее пространство компании</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar" aria-label="Основная навигация">
-      <div class="brand"><span class="brand-mark">C</span><span>Chat</span></div>
-      <button class="workspace"><span class="avatar">A</span><span><strong>Acme</strong><small>Рабочее пространство</small></span><span>⌄</span></button>
-      <nav id="desktop-nav" class="nav-list"></nav>
-      <div class="sidebar-section"><span>Каналы</span><button>＋</button></div>
-      <button class="channel active-channel"># общий</button>
-      <button class="channel"># продукт</button>
-      <button class="channel"># продажи</button>
-      <div class="sidebar-section"><span>Личные</span><button>＋</button></div>
-      <button class="person"><span class="presence online"></span>Анна Смирнова</button>
-      <button class="person"><span class="presence busy"></span>Иван Петров</button>
-      <div class="profile"><span class="avatar">П</span><span><strong>Пётр</strong><small>В сети</small></span><button>⚙</button></div>
+  <div id="auth-view" class="auth-view" hidden>
+    <div class="auth-brand"><span class="brand-orb">C</span><span>Chat</span></div>
+    <section class="auth-card">
+      <p class="kicker">РАБОЧЕЕ ПРОСТРАНСТВО</p>
+      <h1 id="auth-title">Войти в компанию</h1>
+      <p class="muted auth-copy">Сообщения, задачи, календарь, файлы и встречи — в одном рабочем контексте.</p>
+      <div class="segmented" role="tablist">
+        <button class="segment active" data-auth-mode="login">Войти</button>
+        <button class="segment" data-auth-mode="register">Создать компанию</button>
+      </div>
+      <form id="login-form" class="form-stack">
+        <label>Email<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
+        <label>Пароль<input name="password" type="password" autocomplete="current-password" placeholder="••••••••••••" required></label>
+        <button class="button primary pressable" type="submit">Войти</button>
+      </form>
+      <form id="register-form" class="form-stack" hidden>
+        <label>Компания<input name="companyName" autocomplete="organization" placeholder="Название компании" required></label>
+        <label>Ваше имя<input name="ownerName" autocomplete="name" placeholder="Имя и фамилия" required></label>
+        <label>Рабочий email<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
+        <label>Пароль<input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="Не менее 12 символов и цифра" required></label>
+        <button class="button primary pressable" type="submit">Создать пространство</button>
+      </form>
+      <form id="accept-invite-form" class="form-stack" hidden>
+        <label>Ваше имя<input name="displayName" autocomplete="name" placeholder="Имя и фамилия" required></label>
+        <label>Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="Не менее 12 символов и цифра" required></label>
+        <button class="button primary pressable" type="submit">Присоединиться к компании</button>
+      </form>
+      <p id="auth-error" class="form-error" role="alert"></p>
+    </section>
+  </div>
+
+  <div id="app-view" class="app-shell" hidden>
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-orb">C</span><strong>Chat</strong></div>
+      <button id="workspace-switcher" class="workspace-card pressable"></button>
+      <nav id="desktop-nav" class="desktop-nav"></nav>
+      <div class="sidebar-heading"><span>Каналы</span><button data-action="new-channel" class="mini-button pressable">＋</button></div>
+      <div id="channel-list" class="sidebar-list"></div>
+      <div class="sidebar-heading"><span>Личные</span><button data-action="new-direct" class="mini-button pressable">＋</button></div>
+      <div id="direct-list" class="sidebar-list"></div>
+      <button id="profile-card" class="profile-card pressable"></button>
     </aside>
 
-    <main class="main">
+    <main class="main-area">
       <header class="topbar">
-        <div><small id="eyebrow">Рабочее пространство</small><h1 id="screen-title">Сегодня</h1></div>
-        <div class="top-actions"><button class="icon" aria-label="Поиск">⌕</button><button class="icon" aria-label="Создать">＋</button><button class="avatar compact">П</button></div>
+        <div class="topbar-title"><p id="eyebrow" class="kicker">РАБОЧЕЕ ПРОСТРАНСТВО</p><h1 id="screen-title">Сегодня</h1></div>
+        <div class="top-actions">
+          <button data-action="search" class="round-button pressable" aria-label="Поиск">⌕</button>
+          <button data-action="quick-create" class="round-button pressable" aria-label="Создать">＋</button>
+          <button data-action="profile" id="top-avatar" class="avatar-button pressable">П</button>
+        </div>
       </header>
-
       <section id="screen" class="screen" aria-live="polite"></section>
     </main>
 
-    <nav id="mobile-nav" class="mobile-nav" aria-label="Мобильная навигация"></nav>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Основная навигация"></nav>
   </div>
+
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+  <div id="modal-root"></div>
+  <input id="file-picker" type="file" hidden multiple>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

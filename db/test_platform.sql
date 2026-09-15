@@ -11,6 +11,7 @@ DECLARE
 BEGIN
   INSERT INTO organizations(id, name) VALUES (org, 'Platform Test');
   INSERT INTO workspaces(id, organization_id, name) VALUES (ws, org, 'Main');
+  INSERT INTO users(id, email) VALUES (u1, 'platform-owner@example.com'), (u2, 'platform-member@example.com');
   INSERT INTO memberships(organization_id, workspace_id, user_id, role) VALUES
     (org, ws, u1, 'owner'), (org, ws, u2, 'member');
   INSERT INTO workspace_profiles(organization_id, workspace_id, user_id, display_name, email)
