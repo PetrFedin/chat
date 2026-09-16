@@ -14,6 +14,7 @@ import { cookies, errorJson, json, allowedPresence } from './http/helpers.js';
 import { handleAuth } from './http/auth.js';
 import { handleWorkspace } from './http/workspace.js';
 import { handleMessaging } from './http/messaging.js';
+import { handleDailyWork } from './http/daily-work.js';
 import { createMediaHandler } from './http/media.js';
 import { createCallHandler } from './http/calls.js';
 import { createCallRepository } from './media/call-repository.js';
@@ -56,6 +57,7 @@ export async function createChatServer(options={}){
     if(path==='/vendor/livekit-client.js'&&method==='GET'){const body=await readFile(livekitClientPath);res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=86400'});res.end(body);return}
     if(await handlePreviewDemo(req,res,ctx,path,method))return;
     if(await handleAuth(req,res,ctx,path,method))return;
+    if(await handleDailyWork(req,res,ctx,url,path,method))return;
     if(await handleWorkspace(req,res,ctx,url,path,method))return;
     if(await handleMessaging(req,res,ctx,path,method))return;
     if(await handleCalls(req,res,ctx,path,method))return;
