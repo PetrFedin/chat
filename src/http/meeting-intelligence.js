@@ -27,7 +27,7 @@ async function proposalFor(meeting,session,proposalId){
 
 export function createMeetingIntelligenceHandler(){
   return async function handleMeetingIntelligence(req,res,ctx,path,method){
-    const{store,meeting,requireSession,hub,liveKitWebhook}=ctx;
+    const{store,meeting,meetingProcessor,requireSession,hub,liveKitWebhook}=ctx;
 
     if(path==='/api/v1/media/livekit/webhook'&&method==='POST'){
       const raw=await readRaw(req);
@@ -42,7 +42,7 @@ export function createMeetingIntelligenceHandler(){
           const result=await meeting.reconcileEgress(egress.providerRecordingId,{success:egress.success,error:egress.error});
           await meeting.finishWebhook('livekit',providerEventId,{status:result?'processed':'ignored'});
           if(result?.run){hub.broadcastWorkspace(result.run.workspaceId,'meeting.intelligence.queued',{callId:result.run.callId,runId:result.run.id,recordingId:result.run.recordingId})}
-          json(res,200,{ok:true,matched:Boolean(result)});return true
+          json(res,200,{ok:true,matched:Boolean(result),egress:{status:egress.status,success:egress.success}});return true
         }
         await meeting.finishWebhook('livekit',providerEventId,{status:'ignored'});
         json(res,200,{ok:true,ignored:true});return true
@@ -53,7 +53,7 @@ export function createMeetingIntelligenceHandler(){
     if(match&&method==='GET'){
       const session=await requireSession(req),call=await accessibleMeetingCall(ctx,session,match[1]);
       const intelligence=await meeting.getMeeting(session,call.id);
-      json(res,200,{call,intelligence,processing:{webhook:liveKitWebhook.status()}});
+      json(res,200,{call,intelligence,processing:{webhook:liveKitWebhook.status(),processor:meetingProcessor?.status?.()??{enabled:false}}});
       return true;
     }
 
