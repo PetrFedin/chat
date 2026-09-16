@@ -1,4 +1,4 @@
-import { cleanText, json, noContent, readJson } from './helpers.js';
+import { json, readJson } from './helpers.js';
 
 const SEARCH_TYPES = new Set(['message','conversation','task','file','person','event']);
 
@@ -6,6 +6,12 @@ function parseTypes(value) {
   if (!value) return null;
   const types = String(value).split(',').map((item) => item.trim()).filter((item) => SEARCH_TYPES.has(item));
   return types.length ? [...new Set(types)] : null;
+}
+
+function boundedQuery(value,max=160) {
+  const query=String(value??'').trim();
+  if(query.length>max)throw Object.assign(new Error('Query is too long'),{code:'INVALID_QUERY'});
+  return query;
 }
 
 export async function handleDailyWork(req,res,ctx,url,path,method) {
@@ -47,7 +53,7 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
 
   if (path === '/api/v1/search' && method === 'GET') {
     const session = await requireSession(req);
-    const query = cleanText(url.searchParams.get('q') ?? '',160);
+    const query = boundedQuery(url.searchParams.get('q'));
     if (query.length < 2) return json(res,200,{query,items:[]});
     const types = parseTypes(url.searchParams.get('types'));
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 30),1),60);
@@ -57,7 +63,7 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
 
   if (path === '/api/v1/files' && method === 'GET') {
     const session = await requireSession(req);
-    const query = cleanText(url.searchParams.get('q') ?? '',160);
+    const query = boundedQuery(url.searchParams.get('q'));
     const mime = url.searchParams.get('mime');
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 60),1),100);
     json(res,200,{items:await store.listFiles(session,{query,mime,limit})});
