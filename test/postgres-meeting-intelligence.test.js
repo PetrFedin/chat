@@ -34,7 +34,7 @@ test('Postgres meeting intelligence preserves source evidence and human confirma
 
   const call=await calls.create(owner,{conversationId:general.id,calendarEventId:null,title:'Release review',mode:'video',participantIds:[owner.userId,member.userId],scheduledFor:null,providerRoomName:`mi-${suffix}`});
   await calls.join(owner,call.id);
-  const recording=await calls.startRecording(owner,call.id,{provider:'livekit',providerRecordingId:`EG_${suffix}`,storageKey:`recordings/${owner.workspaceId}/${call.id}/fixture.mp4`});
+  const recording=await calls.startRecording(owner,call.id,{recordingId:randomUUID(),provider:'livekit',providerRecordingId:`EG_${suffix}`,storageKey:`recordings/${owner.workspaceId}/${call.id}/fixture.mp4`});
   await calls.stopRecording(owner,call.id);
 
   const first=await meeting.reconcileEgress(recording.providerRecordingId,{success:true});
