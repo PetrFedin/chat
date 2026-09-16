@@ -1,9 +1,9 @@
 import { json } from '../http/helpers.js';
 import { DEMO_EMAIL, seedDemoWorkspace } from './seed-demo.js';
 
-export async function preparePreviewDemo({ store, mode, enabled }) {
+export async function preparePreviewDemo({ store, objectStore, mode, enabled }) {
   if (!enabled || mode !== 'memory') return { enabled: false };
-  await seedDemoWorkspace(store);
+  await seedDemoWorkspace(store, objectStore);
   return { enabled: true, email: DEMO_EMAIL, label: 'Northstar Studio' };
 }
 
