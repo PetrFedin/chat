@@ -1,5 +1,11 @@
 BEGIN;
 
+-- Upgrade invariant: older/nonstandard installations may have lost the UUID
+-- default even though the canonical base migration defines it. Meeting
+-- Intelligence emits durable outbox events without owning the primary-key
+-- generation policy, so normalize the schema before any new event is written.
+ALTER TABLE outbox_events ALTER COLUMN id SET DEFAULT gen_random_uuid();
+
 CREATE TABLE media_webhook_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   provider text NOT NULL CHECK (provider IN ('livekit')),
