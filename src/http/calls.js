@@ -17,7 +17,7 @@ async function accessibleCall(store, calls, session, callId) {
 
 export function createCallHandler() {
   return async function handleCalls(req, res, ctx, path, method) {
-    const { store, calls, requireSession, hub, mediaProvider, notifyUsers } = ctx;
+    const { store, calls, meeting, requireSession, hub, mediaProvider, notifyUsers } = ctx;
     let match = path.match(new RegExp(`^/api/v1/conversations/${CALL_ID}/calls$`, 'i'));
     if (match && method === 'POST') {
       const session = await requireSession(req);
@@ -143,6 +143,12 @@ export function createCallHandler() {
       let recording;
       try {
         recording = await calls.startRecording(session, call.id, providerResult);
+        await meeting?.registerRecording?.({
+          ...recording,
+          organizationId: session.organizationId,
+          workspaceId: session.workspaceId,
+          callId: call.id,
+        });
       } catch (error) {
         await mediaProvider.stopRecording(providerResult.providerRecordingId).catch(() => {});
         throw error;

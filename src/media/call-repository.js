@@ -221,7 +221,7 @@ export class PostgresCallRepository {
     const participants = (await this.pool.query(`SELECT user_id "userId",joined_at "joinedAt",left_at "leftAt",
       audio_enabled "audioEnabled",video_enabled "videoEnabled",screen_sharing "screenSharing",
       recording_consented_at "recordingConsentedAt",connection_state "connectionState",last_media_at "lastMediaAt"
-      FROM call_participants WHERE workspace_id=$1 AND call_id=$2 ORDER BY created_at,user_id`, [session.workspaceId, callId])).rows;
+      FROM call_participants WHERE workspace_id=$1 AND call_id=$2 ORDER BY joined_at NULLS FIRST,user_id`, [session.workspaceId, callId])).rows;
     const recordings = (await this.pool.query(`SELECT id,provider,provider_recording_id "providerRecordingId",storage_key "storageKey",status,
       started_by "startedBy",started_at "startedAt",stopped_at "stoppedAt",transcript_status "transcriptStatus",
       summary_status "summaryStatus" FROM call_recordings WHERE workspace_id=$1 AND call_id=$2 ORDER BY created_at`, [session.workspaceId, callId])).rows;
