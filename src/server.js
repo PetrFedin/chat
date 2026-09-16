@@ -39,9 +39,9 @@ export async function createChatServer(options={}){
   await mkdir(uploadsRoot,{recursive:true});
   const defaults=options.store?{store:options.store,pool:null,mode:'custom'}:defaultStore();
   const {store,pool,mode}=defaults;
-  const demo=await preparePreviewDemo({store,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
-  const hub=new RealtimeHub(),push=pushConfig(),wss=new WebSocketServer({noServer:true});
   const objectStore=options.objectStore??createObjectStore({uploadsRoot});
+  const demo=await preparePreviewDemo({store,objectStore,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
+  const hub=new RealtimeHub(),push=pushConfig(),wss=new WebSocketServer({noServer:true});
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
   const authenticate=async(req)=>{const token=cookieToken(req);return token?store.getSession(hashToken(token)):null};
