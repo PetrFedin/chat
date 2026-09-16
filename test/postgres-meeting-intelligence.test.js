@@ -64,6 +64,7 @@ test('Postgres meeting intelligence preserves source evidence and human confirma
   assert.equal(first.recording.status, 'ready');
   assert.equal(first.run.status, 'queued');
   assert.equal(first.job.kind, 'transcribe');
+  assert.equal((await calls.get(owner, call.id)).recordingStatus, 'ready');
   const second = await meeting.reconcileEgress(recording.providerRecordingId, { success:true });
   assert.equal(second.run.id, first.run.id);
   assert.equal(second.job.id, first.job.id);
@@ -76,8 +77,16 @@ test('Postgres meeting intelligence preserves source evidence and human confirma
   assert.equal(webhookOne.inserted, true);
   assert.equal(webhookTwo.inserted, false);
 
-  const transcriptionJob = await meeting.claimJob('transcribe');
+  const staleToken = randomUUID();
+  await pool.query(`UPDATE meeting_intelligence_jobs
+    SET status='processing',attempts=1,locked_at=now()-interval '10 minutes',lock_token=$2
+    WHERE id=$1`, [first.job.id, staleToken]);
+  const transcriptionJob = await meeting.claimJob('transcribe', { leaseMs:1000 });
   assert.equal(transcriptionJob.runId, first.run.id);
+  assert.equal(transcriptionJob.attempts, 2);
+  assert.notEqual(transcriptionJob.lockToken, staleToken);
+  assert.equal((await meeting.getMeeting(owner, call.id)).run.status, 'transcribing');
+
   const transcript = await meeting.completeTranscription(transcriptionJob.id, transcriptionJob.lockToken, {
     provider:'fixture',
     model:'fixture-v1',
@@ -92,6 +101,7 @@ test('Postgres meeting intelligence preserves source evidence and human confirma
   assert.equal(transcript.nextJob.kind, 'summarize');
 
   const summaryJob = await meeting.claimJob('summarize');
+  assert.equal((await meeting.getMeeting(owner, call.id)).run.status, 'summarizing');
   const summary = await meeting.completeSummary(summaryJob.id, summaryJob.lockToken, {
     provider:'fixture',
     model:'fixture-v1',
@@ -107,13 +117,17 @@ test('Postgres meeting intelligence preserves source evidence and human confirma
         proposalType:'decision', title:'Выпустить сборку после QA', body:'Релиз разрешён после успешного QA.',
         sourceSegmentIds:[transcript.segments[1].id], confidence:.94,
       },
+      {
+        proposalType:'risk', title:'Неподтверждённый риск', body:'Не должен попадать в review без evidence.',
+        sourceSegmentIds:[randomUUID()], confidence:.80,
+      },
     ],
   });
   assert.equal(summary.runId, first.run.id);
 
   const viewBefore = await meeting.getMeeting(owner, call.id);
   assert.equal(viewBefore.run.status, 'review_ready');
-  assert.equal(viewBefore.proposals.length, 2);
+  assert.equal(viewBefore.proposals.length, 2, 'proposals without valid transcript evidence must be dropped');
   const action = viewBefore.proposals.find((proposal) => proposal.proposalType === 'action');
   assert.ok(action);
   assert.equal(action.status, 'proposed');
@@ -155,4 +169,27 @@ test('Postgres meeting intelligence preserves source evidence and human confirma
   const acceptedAction = viewAfter.proposals.find((proposal) => proposal.id === action.id);
   assert.equal(acceptedAction.status, 'accepted');
   assert.equal(acceptedAction.createdCommitmentId, accepted.task.id);
+
+  const failedCall = await calls.create(owner, {
+    conversationId:general.id,
+    calendarEventId:null,
+    title:'Failed recording review',
+    mode:'video',
+    participantIds:[owner.userId, member.userId],
+    scheduledFor:null,
+    providerRoomName:`mi-failed-${suffix}`,
+  });
+  await calls.join(owner, failedCall.id);
+  const failedRecording = await calls.startRecording(owner, failedCall.id, {
+    recordingId:randomUUID(),
+    provider:'livekit',
+    providerRecordingId:`EG_FAILED_${suffix}`,
+    storageKey:`recordings/${owner.workspaceId}/${failedCall.id}/failed.mp4`,
+  });
+  await calls.stopRecording(owner, failedCall.id);
+  const failed = await meeting.reconcileEgress(failedRecording.providerRecordingId, { success:false, error:'encoder failed' });
+  assert.equal(failed.recording.status, 'failed');
+  assert.equal(failed.run, null);
+  assert.equal(failed.job, null);
+  assert.equal((await calls.get(owner, failedCall.id)).recordingStatus, 'failed');
 });
