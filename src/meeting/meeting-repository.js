@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 const now = () => new Date().toISOString();
 const clone = (value) => value == null ? value : structuredClone(value);
+const DEFAULT_JOB_LEASE_MS = 5 * 60 * 1000;
 
 function cleanSegments(segments = []) {
   return segments.map((segment, index) => ({
@@ -117,7 +118,31 @@ export class MemoryMeetingRepository {
     };
   }
 
-  async claimJob(kind = 'transcribe') {
+  async claimJob(kind = 'transcribe', { leaseMs = DEFAULT_JOB_LEASE_MS } = {}) {
+    const cutoff = Date.now() - Math.max(Number(leaseMs) || DEFAULT_JOB_LEASE_MS, 1000);
+    for (const job of this.jobs.values()) {
+      if (job.kind !== kind || job.status !== 'processing' || !job.lockedAt || Date.parse(job.lockedAt) > cutoff) continue;
+      job.lockedAt = null;
+      job.lockToken = null;
+      job.updatedAt = now();
+      if (job.attempts >= job.maxAttempts) {
+        job.status = 'dead_letter';
+        job.finishedAt = now();
+        job.lastError = job.lastError || 'Worker lease expired after final attempt';
+        const run = this.runs.get(job.runId);
+        if (run) {
+          run.status = 'failed';
+          run.errorCode = 'MEETING_JOB_DEAD_LETTER';
+          run.errorMessage = job.lastError;
+          run.updatedAt = now();
+        }
+      } else {
+        job.status = 'failed';
+        job.availableAt = now();
+        job.lastError = job.lastError || 'Worker lease expired; retrying';
+      }
+    }
+
     const job = [...this.jobs.values()].find((value) => value.kind === kind
       && ['pending','failed'].includes(value.status)
       && Date.parse(value.availableAt) <= Date.now()
@@ -128,6 +153,11 @@ export class MemoryMeetingRepository {
     job.lockToken = randomUUID();
     job.lockedAt = now();
     job.updatedAt = now();
+    const run = this.runs.get(job.runId);
+    if (run) {
+      run.status = kind === 'transcribe' ? 'transcribing' : 'summarizing';
+      run.updatedAt = now();
+    }
     return clone(job);
   }
 
@@ -140,6 +170,16 @@ export class MemoryMeetingRepository {
     job.lockedAt = null;
     job.lockToken = null;
     job.updatedAt = now();
+    if (job.status === 'dead_letter') {
+      job.finishedAt = now();
+      const run = this.runs.get(job.runId);
+      if (run) {
+        run.status = 'failed';
+        run.errorCode = 'MEETING_JOB_DEAD_LETTER';
+        run.errorMessage = job.lastError;
+        run.updatedAt = now();
+      }
+    }
     return clone(job);
   }
 
@@ -183,15 +223,16 @@ export class MemoryMeetingRepository {
       }
     }
     for (const value of proposals) {
+      const sourceSegmentIds = [...new Set(value.sourceSegmentIds ?? [])].filter((id) => segmentIds.has(id));
       const proposal = {
         id:randomUUID(), organizationId:run.organizationId, workspaceId:run.workspaceId, runId:run.id,
         proposalType:value.proposalType, title:String(value.title ?? '').trim(), body:value.body ?? null,
         proposedOwnerId:value.proposedOwnerId ?? null, proposedDueAt:value.proposedDueAt ?? null,
         confidence:value.confidence ?? null, status:'proposed', createdAt:now(), updatedAt:now(),
       };
-      if (!proposal.title || !['decision','action','risk','open_question'].includes(proposal.proposalType)) continue;
+      if (!proposal.title || !['decision','action','risk','open_question'].includes(proposal.proposalType) || sourceSegmentIds.length === 0) continue;
       this.proposals.set(proposal.id, proposal);
-      this.sources.set(proposal.id, new Set((value.sourceSegmentIds ?? []).filter((id) => segmentIds.has(id))));
+      this.sources.set(proposal.id, new Set(sourceSegmentIds));
     }
     run.status = 'review_ready';
     run.summaryOverview = overview;
@@ -298,6 +339,8 @@ export class PostgresMeetingRepository {
         await client.query(`UPDATE call_recordings
           SET status='failed',failed_at=COALESCE(failed_at,now()),transcript_status='failed',updated_at=now()
           WHERE id=$1`, [recording.id]);
+        await client.query(`UPDATE call_sessions SET recording_status='failed',last_activity_at=now()
+          WHERE workspace_id=$1 AND id=$2`, [recording.workspaceId, recording.callId]);
         return { recording:{ ...recording, status:'failed', error }, run:null, job:null };
       }
 
@@ -307,6 +350,8 @@ export class PostgresMeetingRepository {
             transcript_status=CASE WHEN transcript_status='not_requested' THEN 'queued' ELSE transcript_status END,
             updated_at=now()
         WHERE id=$1`, [recording.id]);
+      await client.query(`UPDATE call_sessions SET recording_status='ready',last_activity_at=now()
+        WHERE workspace_id=$1 AND id=$2`, [recording.workspaceId, recording.callId]);
 
       const run = (await client.query(`INSERT INTO meeting_intelligence_runs(organization_id,workspace_id,call_id,recording_id,status)
         VALUES($1,$2,$3,$4,'queued')
@@ -371,30 +416,63 @@ export class PostgresMeetingRepository {
       WHERE p.workspace_id=$1 AND p.id=$2`, [session.workspaceId, proposalId])).rows[0] ?? null;
   }
 
-  async claimJob(kind = 'transcribe') {
+  async claimJob(kind = 'transcribe', { leaseMs = DEFAULT_JOB_LEASE_MS } = {}) {
+    const effectiveLeaseMs = Math.max(Number(leaseMs) || DEFAULT_JOB_LEASE_MS, 1000);
     return this.tx(async (client) => {
+      await client.query(`UPDATE meeting_intelligence_jobs
+        SET status='dead_letter',finished_at=now(),locked_at=NULL,lock_token=NULL,
+            last_error=COALESCE(last_error,'Worker lease expired after final attempt'),updated_at=now()
+        WHERE kind=$1 AND status='processing'
+          AND locked_at<=now()-($2::bigint*interval '1 millisecond') AND attempts>=max_attempts`, [kind, effectiveLeaseMs]);
+      await client.query(`UPDATE meeting_intelligence_runs r
+        SET status='failed',error_code='MEETING_JOB_DEAD_LETTER',
+            error_message=COALESCE(j.last_error,'Worker lease expired after final attempt'),updated_at=now()
+        FROM meeting_intelligence_jobs j
+        WHERE j.workspace_id=r.workspace_id AND j.run_id=r.id AND j.kind=$1 AND j.status='dead_letter'
+          AND r.status NOT IN('review_ready','failed','cancelled')`, [kind]);
+
       const job = (await client.query(`SELECT id FROM meeting_intelligence_jobs
-        WHERE kind=$1 AND status IN('pending','failed') AND available_at<=now() AND attempts<max_attempts
-        ORDER BY available_at,created_at FOR UPDATE SKIP LOCKED LIMIT 1`, [kind])).rows[0];
+        WHERE kind=$1 AND attempts<max_attempts AND (
+          (status IN('pending','failed') AND available_at<=now())
+          OR (status='processing' AND locked_at<=now()-($2::bigint*interval '1 millisecond'))
+        )
+        ORDER BY CASE WHEN status='processing' THEN 0 ELSE 1 END,available_at,created_at
+        FOR UPDATE SKIP LOCKED LIMIT 1`, [kind, effectiveLeaseMs])).rows[0];
       if (!job) return null;
+
       const lockToken = randomUUID();
       const { rows } = await client.query(`UPDATE meeting_intelligence_jobs
         SET status='processing',attempts=attempts+1,locked_at=now(),lock_token=$2,updated_at=now()
         WHERE id=$1
         RETURNING id,organization_id "organizationId",workspace_id "workspaceId",run_id "runId",kind,status,attempts,
           max_attempts "maxAttempts",available_at "availableAt",lock_token "lockToken"`, [job.id, lockToken]);
-      return rows[0];
+      const claimed = rows[0];
+      await client.query(`UPDATE meeting_intelligence_runs
+        SET status=$3,updated_at=now(),error_code=NULL,error_message=NULL
+        WHERE workspace_id=$1 AND id=$2 AND status NOT IN('review_ready','failed','cancelled')`,
+      [claimed.workspaceId, claimed.runId, kind === 'transcribe' ? 'transcribing' : 'summarizing']);
+      return claimed;
     });
   }
 
   async failJob(jobId, lockToken, error, { retryDelayMs = 30000 } = {}) {
-    const { rows } = await this.pool.query(`UPDATE meeting_intelligence_jobs
-      SET status=CASE WHEN attempts>=max_attempts THEN 'dead_letter' ELSE 'failed' END,
-          last_error=$3,available_at=now()+($4::bigint*interval '1 millisecond'),locked_at=NULL,lock_token=NULL,updated_at=now()
-      WHERE id=$1 AND lock_token=$2
-      RETURNING id,status,attempts,max_attempts "maxAttempts",available_at "availableAt"`,
-    [jobId, lockToken, String(error?.message ?? error ?? 'Unknown error').slice(0, 4000), retryDelayMs]);
-    return rows[0] ?? null;
+    const message = String(error?.message ?? error ?? 'Unknown error').slice(0, 4000);
+    return this.tx(async (client) => {
+      const { rows } = await client.query(`UPDATE meeting_intelligence_jobs
+        SET status=CASE WHEN attempts>=max_attempts THEN 'dead_letter' ELSE 'failed' END,
+            last_error=$3,available_at=now()+($4::bigint*interval '1 millisecond'),locked_at=NULL,lock_token=NULL,
+            finished_at=CASE WHEN attempts>=max_attempts THEN now() ELSE finished_at END,updated_at=now()
+        WHERE id=$1 AND lock_token=$2
+        RETURNING id,workspace_id "workspaceId",run_id "runId",kind,status,attempts,max_attempts "maxAttempts",available_at "availableAt"`,
+      [jobId, lockToken, message, retryDelayMs]);
+      const job = rows[0] ?? null;
+      if (job?.status === 'dead_letter') {
+        await client.query(`UPDATE meeting_intelligence_runs
+          SET status='failed',error_code='MEETING_JOB_DEAD_LETTER',error_message=$3,updated_at=now()
+          WHERE workspace_id=$1 AND id=$2 AND status NOT IN('review_ready','cancelled')`, [job.workspaceId, job.runId, message]);
+      }
+      return job;
+    });
   }
 
   async jobContext(job) {
@@ -455,15 +533,17 @@ export class PostgresMeetingRepository {
 
       await client.query('DELETE FROM meeting_proposals WHERE workspace_id=$1 AND run_id=$2', [job.workspaceId, run.id]);
       for (const value of proposals) {
-        if (!['decision','action','risk','open_question'].includes(value.proposalType) || !String(value.title ?? '').trim()) continue;
+        const sourceSegmentIds = [...new Set(value.sourceSegmentIds ?? [])].filter((segmentId) => validSegments.has(segmentId));
+        if (!['decision','action','risk','open_question'].includes(value.proposalType)
+          || !String(value.title ?? '').trim()
+          || sourceSegmentIds.length === 0) continue;
         const id = randomUUID();
         await client.query(`INSERT INTO meeting_proposals(
           id,organization_id,workspace_id,run_id,proposal_type,title,body,proposed_owner_id,proposed_due_at,confidence)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
         [id, job.organizationId, job.workspaceId, run.id, value.proposalType, String(value.title).trim(), value.body ?? null,
           value.proposedOwnerId ?? null, value.proposedDueAt ?? null, value.confidence ?? null]);
-        for (const segmentId of new Set(value.sourceSegmentIds ?? [])) {
-          if (!validSegments.has(segmentId)) continue;
+        for (const segmentId of sourceSegmentIds) {
           await client.query(`INSERT INTO meeting_proposal_sources(organization_id,workspace_id,proposal_id,segment_id)
             VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, [job.organizationId, job.workspaceId, id, segmentId]);
         }
