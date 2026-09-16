@@ -22,6 +22,7 @@ import { createCallRepository } from './media/call-repository.js';
 import { createMediaProvider } from './media/livekit-provider.js';
 import { createLiveKitWebhookReceiver } from './media/livekit-webhook.js';
 import { createMeetingRepository } from './meeting/meeting-repository.js';
+import { createMeetingProcessor } from './meeting/processor.js';
 import { createObjectStore } from './storage/object-store.js';
 import { preparePreviewDemo, handlePreviewDemo } from './demo/preview-demo.js';
 
@@ -49,15 +50,16 @@ export async function createChatServer(options={}){
   const calls=options.calls??createCallRepository(pool);
   const meeting=options.meeting??createMeetingRepository(pool);
   const liveKitWebhook=options.liveKitWebhook??createLiveKitWebhookReceiver();
+  const meetingProcessor=options.meetingProcessor??createMeetingProcessor({repository:meeting,objectStore,transcriptionProvider:options.transcriptionProvider,summaryProvider:options.summaryProvider});
   const authenticate=async(req)=>{const token=cookieToken(req);return token?store.getSession(hashToken(token)):null};
   const requireSession=async(req)=>{const s=await authenticate(req);if(!s)throw Object.assign(new Error('Authentication required'),{code:'UNAUTHENTICATED',statusCode:401});return s};
   const openSession=async(res,req,userId,workspaceId,status=200)=>{const token=createOpaqueToken(),tokenHash=hashToken(token),expiresAt=createSessionExpiry();await store.createSession({userId,workspaceId,tokenHash,expiresAt,userAgent:req.headers['user-agent']??null,ipAddress:String(req.headers['x-forwarded-for']??req.socket.remoteAddress??'').split(',')[0].trim()||null});const s=await store.getSession(tokenHash);json(res,status,{session:{...s,permissions:visiblePermissions(s.role)},storageMode:mode,push,media:mediaProvider.status(),objectStorage:objectStore.status()},{'set-cookie':sessionCookie(token)})};
   const notifyUsers=async(workspaceId,userIds,payload)=>{if(!push.enabled||!userIds.length)return;const subs=await store.listPushSubscriptions(workspaceId,userIds);await Promise.allSettled(subs.map(s=>webpush.sendNotification({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},JSON.stringify(payload),{TTL:60})))};
-  const ctx={store,mode,hub,calls,meeting,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const ctx={store,mode,hub,calls,meeting,meetingProcessor,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
   const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler();
   const server=createServer(async(req,res)=>{try{
     const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`),path=url.pathname,method=req.method??'GET';
-    if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status()},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null}});
+    if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status()},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null}});
     if(path==='/openapi.json'||path==='/api/v1/openapi')return json(res,200,openapi);
     if(path==='/vendor/livekit-client.js'&&method==='GET'){const body=await readFile(livekitClientPath);res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=86400'});res.end(body);return}
     if(await handleMeetingIntelligence(req,res,ctx,path,method))return;
@@ -74,7 +76,7 @@ export async function createChatServer(options={}){
   }catch(error){console.error(error);errorJson(res,error)}});
   server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
   wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});try{const p=await store.setPresence(s,{state:'online'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}ws.on('message',async raw=>{try{const packet=JSON.parse(String(raw));if(packet.event==='typing.start'||packet.event==='typing.stop'){const id=packet.data?.conversationId;if(id&&await store.canAccessConversation(s,id)){const audience=await store.conversationAudience(s,id);hub.broadcastUsers(s.workspaceId,audience.filter(x=>x!==s.userId),packet.event,{conversationId:id,userId:s.userId})}}else if(packet.event==='presence.set'&&allowedPresence.has(packet.data?.state)){const p=await store.setPresence(s,packet.data);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}}catch(error){hub.send(ws,'error',{code:error.code??'INVALID_EVENT',message:error.message})}});ws.on('close',async()=>{remove();try{const p=await store.setPresence(s,{state:'away'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p})}catch{}})});
-  return{server,store,calls,meeting,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
+  return{server,store,calls,meeting,meetingProcessor,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
 }
 
 const isMain=process.argv[1]&&fileURLToPath(import.meta.url)===normalize(process.argv[1]);
