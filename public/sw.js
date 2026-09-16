@@ -1,5 +1,5 @@
-const CACHE='chat-shell-v3';
-const SHELL=['/','/styles.css','/app.js','/manifest.webmanifest','/icon.svg'];
+const CACHE='chat-shell-v4';
+const SHELL=['/','/styles.css','/calls.css','/app.js','/calls-ui.js','/manifest.webmanifest','/icon.svg'];
 
 self.addEventListener('install',(event)=>event.waitUntil(
   caches.open(CACHE).then((cache)=>cache.addAll(SHELL)).then(()=>self.skipWaiting())
@@ -27,12 +27,17 @@ self.addEventListener('fetch',(event)=>{
 self.addEventListener('push',(event)=>{
   let data={title:'Chat',body:'Новое уведомление',url:'/'};
   try{data={...data,...event.data.json()}}catch{}
-  event.waitUntil(self.registration.showNotification(data.title,{
-    body:data.body,
-    icon:'/icon.svg',
-    badge:'/icon.svg',
-    data:{url:data.url||'/'}
-  }));
+  event.waitUntil(Promise.all([
+    self.registration.showNotification(data.title,{
+      body:data.body,
+      icon:'/icon.svg',
+      badge:'/icon.svg',
+      data:{url:data.url||'/'}
+    }),
+    clients.matchAll({type:'window',includeUncontrolled:true}).then((windows)=>
+      Promise.all(windows.map((client)=>client.postMessage({type:'chat.push',payload:data})))
+    )
+  ]));
 });
 
 self.addEventListener('notificationclick',(event)=>{
