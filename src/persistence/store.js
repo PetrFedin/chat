@@ -1,1 +1,2 @@
-export { MemoryStore, PostgresStore } from './daily-work-store.js';
+export { MemoryStore } from './daily-work-store.js';
+export { PostgresStore } from './daily-work-search-store.js';
