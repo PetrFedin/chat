@@ -27,18 +27,18 @@ export function createMeetingIntelligenceHandler(){
       const event=await liveKitWebhook.receive(raw,req.headers.authorization??req.headers.authorize);
       const providerEventId=liveKitEventId(event,raw),eventType=String(event.event??'unknown');
       const recorded=await meeting.recordWebhook({provider:'livekit',providerEventId,eventType,payload:JSON.parse(raw)});
-      if(!recorded.inserted)return json(res,200,{ok:true,duplicate:true});
+      if(!recorded.inserted){json(res,200,{ok:true,duplicate:true});return true}
       try{
         if(eventType==='egress_ended'){
           const egress=normalizeLiveKitEgress(event);
-          if(!egress){await meeting.finishWebhook('livekit',providerEventId,{status:'ignored'});return json(res,200,{ok:true,ignored:true})}
+          if(!egress){await meeting.finishWebhook('livekit',providerEventId,{status:'ignored'});json(res,200,{ok:true,ignored:true});return true}
           const result=await meeting.reconcileEgress(egress.providerRecordingId,{success:egress.success,error:egress.error});
           await meeting.finishWebhook('livekit',providerEventId,{status:result?'processed':'ignored'});
           if(result?.run){hub.broadcastWorkspace(result.run.workspaceId,'meeting.intelligence.queued',{callId:result.run.callId,runId:result.run.id,recordingId:result.run.recordingId})}
-          return json(res,200,{ok:true,matched:Boolean(result)});
+          json(res,200,{ok:true,matched:Boolean(result)});return true
         }
         await meeting.finishWebhook('livekit',providerEventId,{status:'ignored'});
-        return json(res,200,{ok:true,ignored:true});
+        json(res,200,{ok:true,ignored:true});return true
       }catch(error){await meeting.finishWebhook('livekit',providerEventId,{status:'failed',error:error.message}).catch(()=>{});throw error}
     }
 
