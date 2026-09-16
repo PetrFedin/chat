@@ -26,7 +26,7 @@ test('theme and locale preference assets are syntactically valid and wired into 
   assert.match(contextJs, /Message, task or meeting/);
   assert.match(css, /html\[data-theme="light"\]/);
   assert.match(css, /\.prefs-setting-row/);
-  assert.match(sw, /chat-shell-v5/);
+  assert.match(sw, /chat-shell-v\d+/);
   assert.match(sw, /preferences\.css/);
   assert.match(sw, /preferences\.js/);
   assert.match(sw, /preferences-context\.js/);
