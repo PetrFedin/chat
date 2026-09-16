@@ -33,6 +33,7 @@ export function createCallHandler() {
       if (participants.length > 100 || participants.some((id) => !audience.includes(id))) {
         throw Object.assign(new Error('Call participants must belong to this conversation'), { code: 'INVALID_CALL_PARTICIPANTS', statusCode: 400 });
       }
+      const providerRoomName = opaqueRoomName(session.workspaceId, randomUUID());
       const call = await calls.create(session, {
         conversationId,
         calendarEventId: body.calendarEventId ?? null,
@@ -40,7 +41,7 @@ export function createCallHandler() {
         mode,
         participantIds: participants,
         scheduledFor: body.scheduledFor ?? null,
-        providerRoomName: null,
+        providerRoomName,
       });
       const recipients = participants.filter((id) => id !== session.userId);
       hub.broadcastUsers(session.workspaceId, participants, 'call.created', { call });
@@ -69,6 +70,7 @@ export function createCallHandler() {
       const credentials = await mediaProvider.issueJoinCredential({
         workspaceId: session.workspaceId,
         callId: call.id,
+        roomName: call.providerRoomName,
         userId: session.userId,
         displayName: session.displayName,
       });
