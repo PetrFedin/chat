@@ -21,8 +21,8 @@ function clientUrl(url) {
   return value;
 }
 
-export function opaqueRoomName(workspaceId, callId) {
-  const digest = createHash('sha256').update(`${workspaceId}:${callId}`, 'utf8').digest('hex');
+export function opaqueRoomName(workspaceId, seed) {
+  const digest = createHash('sha256').update(`${workspaceId}:${seed}`, 'utf8').digest('hex');
   return `chat-${digest.slice(0, 32)}`;
 }
 
@@ -55,14 +55,14 @@ export class LiveKitMediaProvider {
     };
   }
 
-  async issueJoinCredential({ workspaceId, callId, userId, displayName, canPublish = true }) {
+  async issueJoinCredential({ workspaceId, callId, roomName = null, userId, displayName, canPublish = true }) {
     if (!this.enabled) {
       const error = new Error('Realtime media provider is not configured');
       error.code = 'MEDIA_PROVIDER_UNAVAILABLE';
       error.statusCode = 503;
       throw error;
     }
-    const roomName = opaqueRoomName(workspaceId, callId);
+    const resolvedRoomName = roomName || opaqueRoomName(workspaceId, callId);
     const token = new AccessToken(this.apiKey, this.apiSecret, {
       identity: userId,
       name: displayName || undefined,
@@ -71,14 +71,14 @@ export class LiveKitMediaProvider {
     });
     token.addGrant({
       roomJoin: true,
-      room: roomName,
+      room: resolvedRoomName,
       canPublish,
       canSubscribe: true,
       canPublishData: true,
     });
     return {
       provider: 'livekit',
-      roomName,
+      roomName: resolvedRoomName,
       serverUrl: clientUrl(this.url),
       participantToken: await token.toJwt(),
     };
