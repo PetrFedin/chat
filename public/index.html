@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
@@ -8,9 +8,13 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Chat">
   <title>Chat — рабочее пространство компании</title>
+  <script>
+    (()=>{try{const t=localStorage.getItem('chat.theme'),l=localStorage.getItem('chat.locale');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t==='light'?'light':'dark'}if(l==='ru'||l==='en')document.documentElement.lang=l;if(t==='light')document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#f4f4f2')}catch{}})();
+  </script>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/calls.css">
+  <link rel="stylesheet" href="/preferences.css">
 </head>
 <body>
   <div id="auth-view" class="auth-view" hidden>
@@ -20,13 +24,13 @@
       <h1 id="auth-title">Войти в компанию</h1>
       <p class="muted auth-copy">Сообщения, задачи, календарь, файлы и встречи — в одном рабочем контексте.</p>
       <div class="segmented" role="tablist">
-        <button class="segment active" data-auth-mode="login">Войти</button>
+        <button class="segment active" data-auth-mode="login">Войти в компанию</button>
         <button class="segment" data-auth-mode="register">Создать компанию</button>
       </div>
       <form id="login-form" class="form-stack">
         <label>Email<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
         <label>Пароль<input name="password" type="password" autocomplete="current-password" placeholder="••••••••••••" required></label>
-        <button class="button primary pressable" type="submit">Войти</button>
+        <button class="button primary pressable" type="submit">Войти в компанию</button>
       </form>
       <div id="demo-access" class="form-stack" hidden>
         <p class="muted auth-copy" style="margin:4px 0 0;text-align:center">или сразу посмотреть наполненное пространство</p>
@@ -79,6 +83,7 @@
   <div id="toast-root" class="toast-root" aria-live="polite"></div>
   <div id="modal-root"></div>
   <input id="file-picker" type="file" hidden multiple>
+  <script src="/preferences.js"></script>
   <script src="/vendor/livekit-client.js"></script>
   <script src="/calls-ui.js"></script>
   <script type="module" src="/app.js"></script>
