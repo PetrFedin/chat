@@ -1,10 +1,13 @@
 BEGIN;
 
--- Upgrade invariant: older/nonstandard installations may have lost the UUID
--- default even though the canonical base migration defines it. Meeting
--- Intelligence emits durable outbox events without owning the primary-key
--- generation policy, so normalize the schema before any new event is written.
+-- Upgrade invariants for the durable outbox. Older/nonstandard installations
+-- may have lost the UUID default, and some versions used a closed topic allowlist.
+-- Keep topic names validated while allowing independently evolving bounded contexts.
 ALTER TABLE outbox_events ALTER COLUMN id SET DEFAULT gen_random_uuid();
+ALTER TABLE outbox_events DROP CONSTRAINT IF EXISTS outbox_events_topic_check;
+ALTER TABLE outbox_events
+  ADD CONSTRAINT outbox_events_topic_check
+  CHECK (length(btrim(topic)) BETWEEN 3 AND 120 AND topic ~ '^[A-Za-z0-9][A-Za-z0-9_.:-]*$');
 
 CREATE TABLE media_webhook_events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
