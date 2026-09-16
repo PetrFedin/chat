@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { createOpaqueToken, hashPassword, hashToken } from '../security.js';
 
 export const DEMO_EMAIL = 'demo@northstar.example';
@@ -39,7 +40,31 @@ function setTaskState(store, taskId, status, forecastAt = null) {
   row.updatedAt = new Date().toISOString();
 }
 
-export async function seedDemoWorkspace(store) {
+async function seedDemoFile(store, objectStore, session, conversationId, { name, mimeType, body }) {
+  if (!objectStore) return null;
+  const id = randomUUID();
+  const buffer = Buffer.from(body, 'utf8');
+  const extension = name.includes('.') ? `.${name.split('.').pop().slice(0,10)}` : '';
+  const storageKey = `${session.workspaceId}/${id}${extension}`;
+  await objectStore.put(storageKey, buffer, mimeType);
+  const file = await store.saveFile(session, {
+    id,
+    name,
+    mimeType,
+    sizeBytes: buffer.length,
+    storageKey,
+    sha256: createHash('sha256').update(buffer).digest('hex'),
+    status: 'ready',
+  });
+  await store.createMessage(session, conversationId, {
+    kind: 'file',
+    body: null,
+    metadata: { fileId:file.id, name:file.name, mimeType, size:file.sizeBytes ?? buffer.length },
+  });
+  return file;
+}
+
+export async function seedDemoWorkspace(store, objectStore = null) {
   const existing = await store.findAuthByEmail(DEMO_EMAIL);
   if (existing) return { email: DEMO_EMAIL };
 
@@ -154,16 +179,30 @@ export async function seedDemoWorkspace(store) {
     body: 'WebRTC-панель уже адаптирована под safe-area. Сегодня закрываю поведение при reconnect и переключении камеры.',
     replyToId: productAsk.id,
   });
-  await store.createMessage(anna, product.id, {
-    kind: 'file',
-    body: null,
-    metadata: {
-      name: 'mobile-call-review.pdf',
-      mimeType: 'application/pdf',
-      size: 1_840_000,
-      demo: true,
-    },
-  });
+
+  if (objectStore) {
+    await seedDemoFile(store, objectStore, anna, product.id, {
+      name:'mobile-call-review.svg',
+      mimeType:'image/svg+xml',
+      body:`<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560"><rect width="900" height="560" rx="32" fill="#111214"/><rect x="40" y="38" width="820" height="72" rx="22" fill="#1f2225"/><circle cx="80" cy="74" r="18" fill="#d4a28b"/><rect x="116" y="60" width="230" height="18" rx="9" fill="#e9e7e2"/><rect x="40" y="136" width="520" height="344" rx="28" fill="#24272a"/><rect x="580" y="136" width="280" height="164" rx="28" fill="#2e3135"/><rect x="580" y="320" width="280" height="160" rx="28" fill="#1b1e21"/><rect x="260" y="504" width="380" height="34" rx="17" fill="#e9e7e2"/><text x="450" y="92" text-anchor="middle" fill="#96999d" font-family="Arial" font-size="18">Mobile call QA · safe area · reconnect · controls</text></svg>`,
+    });
+    await seedDemoFile(store, objectStore, anna, product.id, {
+      name:'release-checklist.md',
+      mimeType:'text/markdown',
+      body:'# Mobile release checklist\n\n- iPhone safe-area\n- reconnect state\n- incoming push call\n- camera / microphone permissions\n- background / foreground recovery\n- final visual QA\n',
+    });
+    await seedDemoFile(store, objectStore, ilya, operations.id, {
+      name:'launch-metrics.csv',
+      mimeType:'text/csv',
+      body:'metric,owner,status\nMobile QA,Maxim,in_progress\nUX review,Anna,in_review\nRelease checklist,Ilya,blocked\nRBAC,Elena,accepted\n',
+    });
+  } else {
+    await store.createMessage(anna, product.id, {
+      kind: 'file', body: null,
+      metadata: { name:'mobile-call-review.pdf', mimeType:'application/pdf', size:1_840_000, demo:true },
+    });
+  }
+
   await store.createMessage(anna, product.id, {
     kind: 'voice',
     body: null,

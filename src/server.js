@@ -14,6 +14,7 @@ import { cookies, errorJson, json, allowedPresence } from './http/helpers.js';
 import { handleAuth } from './http/auth.js';
 import { handleWorkspace } from './http/workspace.js';
 import { handleMessaging } from './http/messaging.js';
+import { handleDailyWork } from './http/daily-work.js';
 import { createMediaHandler } from './http/media.js';
 import { createCallHandler } from './http/calls.js';
 import { createCallRepository } from './media/call-repository.js';
@@ -38,9 +39,9 @@ export async function createChatServer(options={}){
   await mkdir(uploadsRoot,{recursive:true});
   const defaults=options.store?{store:options.store,pool:null,mode:'custom'}:defaultStore();
   const {store,pool,mode}=defaults;
-  const demo=await preparePreviewDemo({store,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
-  const hub=new RealtimeHub(),push=pushConfig(),wss=new WebSocketServer({noServer:true});
   const objectStore=options.objectStore??createObjectStore({uploadsRoot});
+  const demo=await preparePreviewDemo({store,objectStore,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
+  const hub=new RealtimeHub(),push=pushConfig(),wss=new WebSocketServer({noServer:true});
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
   const authenticate=async(req)=>{const token=cookieToken(req);return token?store.getSession(hashToken(token)):null};
@@ -56,6 +57,7 @@ export async function createChatServer(options={}){
     if(path==='/vendor/livekit-client.js'&&method==='GET'){const body=await readFile(livekitClientPath);res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=86400'});res.end(body);return}
     if(await handlePreviewDemo(req,res,ctx,path,method))return;
     if(await handleAuth(req,res,ctx,path,method))return;
+    if(await handleDailyWork(req,res,ctx,url,path,method))return;
     if(await handleWorkspace(req,res,ctx,url,path,method))return;
     if(await handleMessaging(req,res,ctx,path,method))return;
     if(await handleCalls(req,res,ctx,path,method))return;
