@@ -2,13 +2,15 @@ export const openapi = Object.freeze({
   openapi: '3.1.0',
   info: {
     title: 'Chat Corporate Workspace API',
-    version: '0.4.0',
-    description: 'Company registration, workspace identity, channels, direct messages, tasks, calendar, realtime collaboration, files, voice messages, push subscriptions and LiveKit-backed audio/video calls.'
+    version: '0.5.0',
+    description: 'Company registration, workspace identity, daily attention, unread and mentions, global search, secure files, channels, direct messages, tasks, calendar, realtime collaboration, voice messages, push subscriptions and LiveKit-backed audio/video calls.'
   },
   servers: [{ url: '/' }],
   tags: [
     { name: 'Auth' },
     { name: 'Workspace' },
+    { name: 'Attention' },
+    { name: 'Search' },
     { name: 'Messaging' },
     { name: 'Realtime' },
     { name: 'Calls' },
@@ -34,6 +36,24 @@ export const openapi = Object.freeze({
     '/api/v1/invitations': {
       post: { tags: ['Workspace'], summary: 'Invite an employee', responses: { '201': { description: 'Invitation created' }, '403': { description: 'Forbidden' } } }
     },
+    '/api/v1/attention': {
+      get: { tags: ['Attention'], summary: 'Get current user attention counters: unread, mentions, overdue and due-soon work', responses: { '200': { description: 'Attention summary' } } }
+    },
+    '/api/v1/notifications': {
+      get: { tags: ['Attention'], summary: 'List current user notification inbox, optionally filtered by status or type', responses: { '200': { description: 'Notification list' } } }
+    },
+    '/api/v1/notifications/read-all': {
+      post: { tags: ['Attention'], summary: 'Mark current notification scope as read', responses: { '200': { description: 'Read count' } } }
+    },
+    '/api/v1/notifications/{notificationId}/read': {
+      post: { tags: ['Attention'], summary: 'Mark one notification as read', responses: { '200': { description: 'Notification read state' }, '404': { description: 'Notification not visible' } } }
+    },
+    '/api/v1/mentions': {
+      get: { tags: ['Attention'], summary: 'List current user mentions', responses: { '200': { description: 'Mention notification list' } } }
+    },
+    '/api/v1/search': {
+      get: { tags: ['Search'], summary: 'Search accessible messages, conversations, tasks, files, people and calendar events', responses: { '200': { description: 'Permission-filtered search results' } } }
+    },
     '/api/v1/tasks': {
       get: { tags: ['Workspace'], summary: 'List tasks relevant to current user', responses: { '200': { description: 'Task list' } } },
       post: { tags: ['Workspace'], summary: 'Create a task with accountable owner and due date', responses: { '201': { description: 'Task created' } } }
@@ -43,18 +63,18 @@ export const openapi = Object.freeze({
       post: { tags: ['Workspace'], summary: 'Create meeting, focus block, deadline or reminder', responses: { '201': { description: 'Calendar event created' } } }
     },
     '/api/v1/conversations': {
-      get: { tags: ['Messaging'], summary: 'List visible conversations', responses: { '200': { description: 'Conversation list' } } },
+      get: { tags: ['Messaging'], summary: 'List visible conversations with computed unread and mention counts', responses: { '200': { description: 'Conversation list' } } },
       post: { tags: ['Messaging'], summary: 'Create a channel, group or direct conversation', responses: { '201': { description: 'Conversation created' } } }
     },
     '/api/v1/conversations/{conversationId}/messages': {
       get: { tags: ['Messaging'], summary: 'List conversation messages', responses: { '200': { description: 'Messages' } } },
-      post: { tags: ['Messaging'], summary: 'Send text or structured message', responses: { '201': { description: 'Message created' } } }
+      post: { tags: ['Messaging'], summary: 'Send text or structured message and resolve supported @mentions', responses: { '201': { description: 'Message created' } } }
     },
     '/api/v1/messages/{messageId}/reactions': {
       post: { tags: ['Messaging'], summary: 'Add or remove a reaction', responses: { '200': { description: 'Reaction state' } } }
     },
     '/api/v1/conversations/{conversationId}/read': {
-      post: { tags: ['Messaging'], summary: 'Move current user read cursor', responses: { '204': { description: 'Read state updated' } } }
+      post: { tags: ['Messaging', 'Attention'], summary: 'Move current user read cursor and clear related conversation notifications', responses: { '204': { description: 'Read state updated' } } }
     },
     '/api/v1/presence': {
       post: { tags: ['Realtime'], summary: 'Set presence and custom status', responses: { '200': { description: 'Presence updated' } } }
@@ -87,13 +107,14 @@ export const openapi = Object.freeze({
       post: { tags: ['Calls'], summary: 'End call for all participants', responses: { '200': { description: 'Call ended' }, '403': { description: 'Only creator or call manager may end' } } }
     },
     '/api/v1/files': {
+      get: { tags: ['Files'], summary: 'List files visible through uploader ownership or accessible work context', responses: { '200': { description: 'File list with linked context' } } },
       post: { tags: ['Files'], summary: 'Upload an authenticated binary file to local or S3 object storage', responses: { '201': { description: 'File stored' } } }
     },
     '/api/v1/files/{fileId}/content': {
-      get: { tags: ['Files'], summary: 'Download an authenticated file', responses: { '200': { description: 'Binary file content' } } }
+      get: { tags: ['Files'], summary: 'Download an authenticated and context-authorized file', responses: { '200': { description: 'Binary file content' }, '404': { description: 'File not visible' } } }
     },
     '/api/v1/files/{fileId}/preview': {
-      get: { tags: ['Files'], summary: 'Preview supported image, PDF or text content inline', responses: { '200': { description: 'Preview content' }, '415': { description: 'Preview unavailable' } } }
+      get: { tags: ['Files'], summary: 'Preview authorized image, PDF or text content inline', responses: { '200': { description: 'Preview content' }, '404': { description: 'File not visible' }, '415': { description: 'Preview unavailable' } } }
     },
     '/api/v1/conversations/{conversationId}/voice': {
       post: { tags: ['Files', 'Messaging'], summary: 'Upload and send a voice message', responses: { '201': { description: 'Voice message created' } } }
