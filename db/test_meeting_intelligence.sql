@@ -11,7 +11,7 @@ DECLARE
   recording_id uuid := gen_random_uuid();
   run_id uuid := gen_random_uuid();
   segment_id uuid := gen_random_uuid();
-  proposal_id uuid := gen_random_uuid();
+  proposal_uuid uuid := gen_random_uuid();
 BEGIN
   INSERT INTO organizations(id,name) VALUES(org,'Meeting Intelligence Test');
   INSERT INTO workspaces(id,organization_id,name) VALUES(ws,org,'Main');
@@ -33,15 +33,15 @@ BEGIN
   INSERT INTO meeting_transcript_segments(id,organization_id,workspace_id,run_id,segment_index,start_ms,end_ms,speaker_user_id,speaker_label,text,confidence)
     VALUES(segment_id,org,ws,run_id,0,1200,6800,member_id,'MI Member','We will ship the release after QA.',0.991);
   INSERT INTO meeting_proposals(id,organization_id,workspace_id,run_id,proposal_type,title,body,proposed_owner_id,status)
-    VALUES(proposal_id,org,ws,run_id,'action','Complete final QA','Verify mobile release before shipment',member_id,'proposed');
+    VALUES(proposal_uuid,org,ws,run_id,'action','Complete final QA','Verify mobile release before shipment',member_id,'proposed');
   INSERT INTO meeting_proposal_sources(organization_id,workspace_id,proposal_id,segment_id)
-    VALUES(org,ws,proposal_id,segment_id);
+    VALUES(org,ws,proposal_uuid,segment_id);
 
   IF NOT EXISTS(
     SELECT 1 FROM meeting_proposals p
     JOIN meeting_proposal_sources ps ON ps.workspace_id=p.workspace_id AND ps.proposal_id=p.id
     JOIN meeting_transcript_segments s ON s.workspace_id=ps.workspace_id AND s.id=ps.segment_id
-    WHERE p.id=proposal_id AND s.start_ms=1200 AND s.end_ms=6800
+    WHERE p.id=proposal_uuid AND s.start_ms=1200 AND s.end_ms=6800
   ) THEN RAISE EXCEPTION 'proposal did not retain transcript evidence source'; END IF;
 
   BEGIN
@@ -52,7 +52,7 @@ BEGIN
   END;
 
   BEGIN
-    UPDATE meeting_proposals SET status='accepted',accepted_at=now() WHERE id=proposal_id;
+    UPDATE meeting_proposals SET status='accepted',accepted_at=now() WHERE id=proposal_uuid;
     RAISE EXCEPTION 'accepted proposal without human actor unexpectedly accepted';
   EXCEPTION WHEN check_violation THEN NULL;
   END;
