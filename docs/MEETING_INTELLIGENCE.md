@@ -15,11 +15,12 @@ The recording and transcript remain the source evidence. AI-generated decisions 
 3. Egress is considered successful only for LiveKit `EGRESS_COMPLETE`; failed, aborted and limit-reached terminal states never queue transcription as if media were valid.
 4. A recording object must exist in object storage and be non-empty before transcription.
 5. Transcript data is stored as ordered, timecoded segments, not only one unstructured text field.
-6. Every proposed decision/action can cite one or more transcript segment IDs.
+6. Every persisted AI proposal must cite at least one valid transcript segment from the same intelligence run. Ungrounded or foreign-segment proposals are dropped before review.
 7. AI cannot assign real responsibility, set an authoritative promised date, create an accepted task result, or accept its own proposal.
 8. An action becomes a real `commitment` only after an authenticated user explicitly accepts the proposal.
-9. Retryable background work has durable job state, attempts, lock tokens and dead-letter state.
+9. Retryable background work has durable job state, attempts, lock tokens, bounded leases, stale-worker recovery and dead-letter state.
 10. External provider absence is fail-closed. Chat must never manufacture a transcript or summary to keep a pipeline looking green.
+11. Read and mutation access for transcript/proposals inherits the source conversation ACL; proposal UUID knowledge never grants access.
 
 ## LiveKit reconciliation
 
@@ -33,11 +34,13 @@ It is intentionally outside normal user-session authentication. Authentication i
 
 For `egress_ended`:
 
-- `EGRESS_COMPLETE (3)` with no error -> recording `ready`, transcription queued;
-- `EGRESS_FAILED (4)` -> recording failed;
-- `EGRESS_ABORTED (5)` -> recording failed;
-- `EGRESS_LIMIT_REACHED (6)` -> recording failed;
+- `EGRESS_COMPLETE (3)` with no error -> recording `ready`, call recording state `ready`, transcription queued;
+- `EGRESS_FAILED (4)` -> recording and call recording state `failed`;
+- `EGRESS_ABORTED (5)` -> recording and call recording state `failed`;
+- `EGRESS_LIMIT_REACHED (6)` -> recording and call recording state `failed`;
 - any unexpected terminal value -> fail-closed rather than assuming success.
+
+Repeated reconciliation of the same successful Egress reuses the same intelligence run and transcription job and does not emit a second `meeting.recording.ready` outbox event.
 
 ## Durable processing
 
@@ -46,7 +49,9 @@ For `egress_ended`:
 - `transcribe`
 - `summarize`
 
-Workers claim jobs using `FOR UPDATE SKIP LOCKED`. Each claim receives a lock token. Results are committed only when the current lock token still owns the job. Failed jobs receive a future `available_at`; the final allowed failure transitions to `dead_letter`.
+Workers claim jobs using `FOR UPDATE SKIP LOCKED`. Each claim receives a lock token and moves the visible run to `transcribing` or `summarizing`. Results are committed only when the current lock token still owns the job. Failed jobs receive a future `available_at`; the final allowed failure transitions both the job to `dead_letter` and the run to `failed`.
+
+A claimed job is a bounded lease, not a permanent lock. If a worker dies after claiming a job, a later worker can reclaim that job after the lease expires with a new lock token and another attempt. A stale final attempt is retired to `dead_letter` rather than remaining in `processing` forever.
 
 The processor contract validates object storage using `head()` before downloading media. It then hashes the actual recording bytes and persists `source_sha256` with the run. This lets later audits prove which media bytes produced a transcript.
 
@@ -72,7 +77,7 @@ This reuses Chat's existing outbox rather than inventing another delivery mechan
 - language;
 - provider segment ID.
 
-Transcript text is searchable with PostgreSQL FTS. A proposal-to-segment edge is stored in `meeting_proposal_sources`.
+Transcript text is searchable with PostgreSQL FTS. A proposal-to-segment edge is stored in `meeting_proposal_sources`. Proposal materialization rejects any proposal whose supplied evidence does not resolve to at least one segment in the same run.
 
 This graph supports UI citations such as:
 
@@ -101,7 +106,7 @@ Those users must be valid workspace members. Only then is a real `commitment` cr
 
 `commitment <- meeting proposal -> transcript evidence -> run -> recording -> call`
 
-The existing `evidence` ledger receives a note when the commitment is materialized. A later schema pass may add a dedicated typed meeting-source edge if richer reverse navigation becomes necessary.
+The existing `evidence` ledger receives a note when the commitment is materialized. If the confirmed owner is another employee, the same `task.assigned` attention projection used by normal tasks is created in the Notification Center, so Meeting Intelligence does not form a parallel task system. A later schema pass may add a dedicated typed meeting-source edge if richer reverse navigation becomes necessary.
 
 ## Provider boundary
 
@@ -120,7 +125,7 @@ A production provider adapter must return deterministic structured data to this 
 - overview;
 - structured summary JSON;
 - proposals;
-- source segment IDs for each evidence-backed proposal.
+- source segment IDs for every persisted proposal.
 
 Provider selection should be made separately against current official documentation for diarization, timestamps, RU/EN quality, asynchronous large-media handling, retention/security and cost.
 
@@ -131,7 +136,7 @@ Provider selection should be made separately against current official documentat
 - `POST /api/v1/meeting-proposals/:proposalId/reject`
 - signed provider endpoint: `POST /api/v1/media/livekit/webhook`
 
-Meeting visibility inherits the source conversation ACL. There is no independent "AI notes" permission island that could leak a private conversation through the transcript.
+Meeting visibility inherits the source conversation ACL for both reads and mutations. There is no independent "AI notes" permission island that could leak a private conversation through a transcript or allow an outsider to accept/reject a private proposal.
 
 ## Next user-visible layer
 
