@@ -1,5 +1,5 @@
 const CACHE='chat-shell-v5';
-const SHELL=['/','/styles.css','/calls.css','/preferences.css','/preferences.js','/app.js','/calls-ui.js','/demo.js','/manifest.webmanifest','/icon.svg'];
+const SHELL=['/','/styles.css','/calls.css','/preferences.css','/preferences.js','/preferences-context.js','/app.js','/calls-ui.js','/demo.js','/manifest.webmanifest','/icon.svg'];
 
 self.addEventListener('install',(event)=>event.waitUntil(
   caches.open(CACHE).then((cache)=>cache.addAll(SHELL)).then(()=>self.skipWaiting())
