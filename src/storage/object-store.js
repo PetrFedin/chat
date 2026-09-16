@@ -1,6 +1,6 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join, normalize } from 'node:path';
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 function boolEnv(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').toLowerCase());
@@ -47,6 +47,16 @@ export class LocalObjectStore {
     return readFile(this.path(key));
   }
 
+  async head(key) {
+    try {
+      const info = await stat(this.path(key));
+      return { exists: info.isFile(), sizeBytes: info.size, lastModified: info.mtime.toISOString() };
+    } catch (error) {
+      if (error?.code === 'ENOENT') return { exists: false, sizeBytes: null, lastModified: null };
+      throw error;
+    }
+  }
+
   async delete(key) {
     await rm(this.path(key), { force: true });
   }
@@ -86,6 +96,24 @@ export class S3ObjectStore {
     const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: safeKey(key) }));
     if (!result.Body) return Buffer.alloc(0);
     return Buffer.from(await result.Body.transformToByteArray());
+  }
+
+  async head(key) {
+    try {
+      const result = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: safeKey(key) }));
+      return {
+        exists: true,
+        sizeBytes: result.ContentLength ?? null,
+        contentType: result.ContentType ?? null,
+        etag: result.ETag ?? null,
+        lastModified: result.LastModified?.toISOString?.() ?? null,
+      };
+    } catch (error) {
+      const code = error?.name || error?.Code || error?.code;
+      const status = error?.$metadata?.httpStatusCode;
+      if (status === 404 || code === 'NotFound' || code === 'NoSuchKey') return { exists: false, sizeBytes: null };
+      throw error;
+    }
   }
 
   async delete(key) {
