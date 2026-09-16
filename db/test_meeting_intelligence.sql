@@ -64,6 +64,13 @@ BEGIN
   EXCEPTION WHEN foreign_key_violation OR check_violation THEN NULL;
   END;
 
+  BEGIN
+    INSERT INTO meeting_intelligence_jobs(organization_id,workspace_id,run_id,kind,status)
+      VALUES(org,ws,run_id,'transcribe','processing');
+    RAISE EXCEPTION 'processing job without lock unexpectedly accepted';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
   INSERT INTO media_webhook_events(provider,provider_event_id,event_type,payload)
     VALUES('livekit','WH_MI_1','egress_ended','{}'::jsonb);
   BEGIN
