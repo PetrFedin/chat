@@ -9,6 +9,7 @@
     screen: false,
     recording: false,
     leaving: false,
+    joining: false,
   };
 
   const esc = (value = '') => String(value).replace(/[&<>'"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;' }[c]));
@@ -43,7 +44,24 @@
     status.timer = setTimeout(() => node.remove(), error ? 5000 : 2200);
   }
 
+  function incomingCall(payload) {
+    const callId = String(payload?.url ?? '').match(/#\/calls\/([0-9a-f-]+)/i)?.[1];
+    if (!callId || state.call?.id === callId) return;
+    document.querySelector('.incoming-call')?.remove();
+    const root = document.createElement('div');
+    root.className = 'incoming-call';
+    root.innerHTML = `<div><strong>${esc(payload.title || 'Входящий звонок')}</strong><span>${esc(payload.body || 'Корпоративный звонок')}</span></div><div class="incoming-actions"><button data-call-answer>Войти</button><button class="dismiss" data-call-dismiss>Не сейчас</button></div>`;
+    document.body.append(root);
+    root.querySelector('[data-call-dismiss]').onclick = () => root.remove();
+    root.querySelector('[data-call-answer]').onclick = () => {
+      root.remove();
+      history.replaceState(null, '', `/#/calls/${callId}`);
+      joinExisting(callId).catch((error) => status(error.message, true));
+    };
+  }
+
   function overlay(call) {
+    document.querySelector('.incoming-call')?.remove();
     document.querySelector('.call-overlay')?.remove();
     const root = document.createElement('section');
     root.className = 'call-overlay';
@@ -241,21 +259,27 @@
   }
 
   async function startOutgoing(mode) {
-    if (state.room) return;
+    if (state.room || state.joining) return;
     const selected = document.querySelector('.conversation-card.active[data-conversation]')?.dataset.conversation
       || document.querySelector('.sidebar-row.active[data-conversation]')?.dataset.conversation;
     if (!selected) throw new Error('Сначала откройте диалог или канал');
-    const created = await api(`/api/v1/conversations/${selected}/calls`, { method:'POST', body:JSON.stringify({ mode }) });
-    const joined = await api(`/api/v1/calls/${created.call.id}/join`, { method:'POST', body:'{}' });
-    await connectCall(joined.call, joined.credentials);
-    history.replaceState(null, '', `/#/calls/${joined.call.id}`);
+    state.joining = true;
+    try {
+      const created = await api(`/api/v1/conversations/${selected}/calls`, { method:'POST', body:JSON.stringify({ mode }) });
+      const joined = await api(`/api/v1/calls/${created.call.id}/join`, { method:'POST', body:'{}' });
+      await connectCall(joined.call, joined.credentials);
+      history.replaceState(null, '', `/#/calls/${joined.call.id}`);
+    } finally { state.joining = false; }
   }
 
   async function joinExisting(callId) {
-    if (!callId || state.room) return;
-    const current = await api(`/api/v1/calls/${callId}`);
-    const joined = await api(`/api/v1/calls/${callId}/join`, { method:'POST', body:'{}' });
-    await connectCall(joined.call || current.call, joined.credentials);
+    if (!callId || state.room || state.joining) return;
+    state.joining = true;
+    try {
+      const current = await api(`/api/v1/calls/${callId}`);
+      const joined = await api(`/api/v1/calls/${callId}/join`, { method:'POST', body:'{}' });
+      await connectCall(joined.call || current.call, joined.credentials);
+    } finally { state.joining = false; }
   }
 
   async function leave() {
@@ -274,6 +298,15 @@
     return location.hash.match(/^#\/calls\/([0-9a-f-]+)$/i)?.[1] || null;
   }
 
+  function resumeHashCall() {
+    const callId = callIdFromHash();
+    const app = document.querySelector('#app-view');
+    if (!callId || state.room || state.joining || !app || app.hidden) return;
+    joinExisting(callId).catch((error) => {
+      if (error.status !== 401) status(error.message, true);
+    });
+  }
+
   document.addEventListener('click', (event) => {
     const button = event.target.closest('[data-action="audio"],[data-action="video"]');
     if (!button) return;
@@ -282,12 +315,17 @@
     startOutgoing(button.dataset.action === 'audio' ? 'audio' : 'video').catch((error) => status(error.message, true));
   }, true);
 
-  window.addEventListener('hashchange', () => joinExisting(callIdFromHash()).catch((error) => status(error.message, true)));
+  window.addEventListener('hashchange', resumeHashCall);
   window.addEventListener('beforeunload', () => {
     if (state.call && !state.leaving) navigator.sendBeacon(`/api/v1/calls/${state.call.id}/leave`, new Blob(['{}'], { type:'application/json' }));
   });
 
-  window.ChatCalls = { startOutgoing, joinExisting, leave, state };
-  const initialCall = callIdFromHash();
-  if (initialCall) setTimeout(() => joinExisting(initialCall).catch((error) => status(error.message, true)), 250);
+  const appView = document.querySelector('#app-view');
+  if (appView) new MutationObserver(resumeHashCall).observe(appView, { attributes:true, attributeFilter:['hidden'] });
+  navigator.serviceWorker?.addEventListener('message', (event) => {
+    if (event.data?.type === 'chat.push') incomingCall(event.data.payload);
+  });
+
+  window.ChatCalls = { startOutgoing, joinExisting, leave, notifyIncoming:incomingCall, resumeHashCall, state };
+  setTimeout(resumeHashCall, 250);
 })();
