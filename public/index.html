@@ -28,6 +28,11 @@
         <label>Пароль<input name="password" type="password" autocomplete="current-password" placeholder="••••••••••••" required></label>
         <button class="button primary pressable" type="submit">Войти</button>
       </form>
+      <div id="demo-access" class="form-stack" hidden>
+        <p class="muted auth-copy" style="margin:4px 0 0;text-align:center">или сразу посмотреть наполненное пространство</p>
+        <button id="demo-login" class="button secondary pressable" type="button">Открыть готовое демо</button>
+        <p class="muted" style="margin:0;text-align:center;font-size:12px">Компания, сотрудники, каналы, задачи, календарь и история работы уже заполнены.</p>
+      </div>
       <form id="register-form" class="form-stack" hidden>
         <label>Компания<input name="companyName" autocomplete="organization" placeholder="Название компании" required></label>
         <label>Ваше имя<input name="ownerName" autocomplete="name" placeholder="Имя и фамилия" required></label>
@@ -77,5 +82,6 @@
   <script src="/vendor/livekit-client.js"></script>
   <script src="/calls-ui.js"></script>
   <script type="module" src="/app.js"></script>
+  <script type="module" src="/demo.js"></script>
 </body>
 </html>
