@@ -34,6 +34,42 @@ ALTER TABLE notifications
     REFERENCES calendar_events(workspace_id, id)
     ON DELETE CASCADE;
 
+-- Backfill context links for files uploaded before the files browser existed.
+-- Message metadata is authoritative for existing file messages; voice_messages is
+-- used as a second source so old voice notes remain accessible to conversation members.
+INSERT INTO file_links(organization_id,workspace_id,file_id,entity_type,entity_id,linked_by,created_at)
+SELECT f.organization_id,f.workspace_id,f.id,'message',m.id,m.author_id,m.created_at
+FROM messages m
+JOIN files f
+  ON f.workspace_id=m.workspace_id
+ AND f.id::text=m.metadata->>'fileId'
+WHERE m.deleted_at IS NULL
+  AND m.metadata ? 'fileId'
+ON CONFLICT DO NOTHING;
+
+INSERT INTO file_links(organization_id,workspace_id,file_id,entity_type,entity_id,linked_by,created_at)
+SELECT v.organization_id,v.workspace_id,v.file_id,'message',v.message_id,m.author_id,v.created_at
+FROM voice_messages v
+JOIN messages m ON m.workspace_id=v.workspace_id AND m.id=v.message_id
+ON CONFLICT DO NOTHING;
+
+-- Historical mentions become first-class attention items. We intentionally do not
+-- backfill every historical DM, which would flood the inbox after an upgrade.
+INSERT INTO notifications(
+  organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,status,
+  actor_user_id,conversation_id,message_id,url,priority,metadata,created_at,updated_at)
+SELECT
+  m.organization_id,m.workspace_id,mm.mentioned_user_id,m.id,
+  'message.mentioned:'||m.id::text||':'||mm.mentioned_user_id::text,
+  'message.mentioned','Упоминание',COALESCE(NULLIF(btrim(m.body),''),'Новое сообщение'),'unread',
+  m.author_id,m.conversation_id,m.id,
+  '/#/chats/'||m.conversation_id::text||'?message='||m.id::text,
+  'high','{}'::jsonb,m.created_at,m.created_at
+FROM message_mentions mm
+JOIN messages m ON m.workspace_id=mm.workspace_id AND m.id=mm.message_id
+WHERE m.deleted_at IS NULL
+ON CONFLICT(workspace_id,dedupe_key) DO NOTHING;
+
 CREATE INDEX notifications_attention_idx
   ON notifications(workspace_id, recipient_user_id, status, archived_at, created_at DESC, id DESC);
 CREATE INDEX notifications_source_idx
