@@ -1,12 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import {
   AccessToken,
-  EncodedFileType,
-  FileOutput,
+  EncodedFileOutput,
   LiveKitAPI,
-  Output,
-  StartEgressRequest,
-  TemplateSource,
+  S3Upload,
 } from 'livekit-server-sdk';
 
 function boolEnv(value) {
@@ -44,7 +41,9 @@ export class LiveKitMediaProvider {
       secret: env.S3_SECRET_ACCESS_KEY ?? env.AWS_SECRET_ACCESS_KEY ?? '',
       forcePathStyle: boolEnv(env.S3_FORCE_PATH_STYLE),
     };
-    this.api = this.enabled ? new LiveKitAPI({ host: apiHost(this.url), apiKey: this.apiKey, secret: this.apiSecret }) : null;
+    this.api = this.enabled
+      ? new LiveKitAPI({ host: apiHost(this.url), apiKey: this.apiKey, secret: this.apiSecret })
+      : null;
   }
 
   status() {
@@ -94,29 +93,24 @@ export class LiveKitMediaProvider {
     }
     const recordingId = randomUUID();
     const filepath = `recordings/${workspaceId}/${callId}/${recordingId}.mp4`;
-    const info = await this.api.egress.startEgress(new StartEgressRequest({
-      roomName,
-      source: { case: 'template', value: new TemplateSource({ layout: 'grid' }) },
-      outputs: [new Output({
-        config: {
-          case: 'file',
-          value: new FileOutput({ fileType: EncodedFileType.MP4, filepath }),
-        },
-      })],
-      storage: {
-        provider: {
-          case: 's3',
-          value: {
-            accessKey: this.s3.accessKey,
-            secret: this.s3.secret,
-            bucket: this.s3.bucket,
-            region: this.s3.region,
-            endpoint: this.s3.endpoint,
-            forcePathStyle: this.s3.forcePathStyle,
-          },
-        },
+    const fileOutput = new EncodedFileOutput({
+      filepath,
+      output: {
+        case: 's3',
+        value: new S3Upload({
+          accessKey: this.s3.accessKey,
+          secret: this.s3.secret,
+          bucket: this.s3.bucket,
+          region: this.s3.region,
+          endpoint: this.s3.endpoint,
+          forcePathStyle: this.s3.forcePathStyle,
+        }),
       },
-    }));
+    });
+    const info = await this.api.egress.startRoomCompositeEgress(roomName, {
+      file: fileOutput,
+      layout: 'grid',
+    });
     return {
       recordingId,
       providerRecordingId: info.egressId,
@@ -126,7 +120,7 @@ export class LiveKitMediaProvider {
   }
 
   async stopRecording(providerRecordingId) {
-    if (!this.enabled) return null;
+    if (!this.enabled || !providerRecordingId) return null;
     return this.api.egress.stopEgress(providerRecordingId);
   }
 }
