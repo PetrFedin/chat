@@ -70,7 +70,9 @@ CREATE TABLE meeting_intelligence_jobs (
   UNIQUE(workspace_id,run_id,kind),
   UNIQUE(workspace_id,id),
   FOREIGN KEY (organization_id,workspace_id) REFERENCES workspaces(organization_id,id) ON DELETE CASCADE,
-  FOREIGN KEY (workspace_id,run_id) REFERENCES meeting_intelligence_runs(workspace_id,id) ON DELETE CASCADE
+  FOREIGN KEY (workspace_id,run_id) REFERENCES meeting_intelligence_runs(workspace_id,id) ON DELETE CASCADE,
+  CHECK ((status='processing' AND locked_at IS NOT NULL AND lock_token IS NOT NULL)
+      OR (status<>'processing' AND lock_token IS NULL))
 );
 
 CREATE TABLE meeting_transcript_segments (
@@ -142,8 +144,10 @@ CREATE TABLE meeting_proposal_sources (
 CREATE INDEX media_webhook_events_status_idx ON media_webhook_events(status,received_at);
 CREATE INDEX meeting_intelligence_runs_call_idx ON meeting_intelligence_runs(workspace_id,call_id,created_at DESC);
 CREATE INDEX meeting_intelligence_jobs_claim_idx ON meeting_intelligence_jobs(status,available_at,created_at) WHERE status IN ('pending','failed');
+CREATE INDEX meeting_intelligence_jobs_lease_idx ON meeting_intelligence_jobs(kind,locked_at) WHERE status='processing';
 CREATE INDEX meeting_transcript_segments_run_time_idx ON meeting_transcript_segments(workspace_id,run_id,start_ms,segment_index);
 CREATE INDEX meeting_transcript_segments_fts_idx ON meeting_transcript_segments USING gin(to_tsvector('simple'::regconfig,text));
 CREATE INDEX meeting_proposals_run_status_idx ON meeting_proposals(workspace_id,run_id,status,proposal_type,created_at);
+CREATE INDEX meeting_proposals_commitment_idx ON meeting_proposals(workspace_id,created_commitment_id) WHERE created_commitment_id IS NOT NULL;
 
 COMMIT;
