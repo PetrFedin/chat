@@ -20,7 +20,7 @@ async function accessibleMeetingCall(ctx,session,callId){
 
 export function createMeetingIntelligenceHandler(){
   return async function handleMeetingIntelligence(req,res,ctx,path,method){
-    const{store,calls,meeting,requireSession,hub,liveKitWebhook}=ctx;
+    const{store,meeting,requireSession,hub,liveKitWebhook}=ctx;
 
     if(path==='/api/v1/media/livekit/webhook'&&method==='POST'){
       const raw=await readRaw(req);
@@ -64,8 +64,11 @@ export function createMeetingIntelligenceHandler(){
         await meeting.attachCommitment(session,proposal.id,task.id);
         result.task=task;
       }
-      if(result.task)hub.broadcastUsers(session.workspaceId,await store.conversationAudience(session,(await calls.get(session,(await meeting.getMeeting(session,(result.callId??''))).run?.callId||'')).catch(()=>[])??[],'task.created',result.task);
-      hub.broadcastWorkspace(session.workspaceId,'meeting.proposal.accepted',{proposalId:proposal.id,task:result.task??null});
+      if(result.task){
+        const recipients=[...new Set([result.task.ownerId,result.task.requesterId,result.task.acceptorId].filter(Boolean))];
+        hub.broadcastUsers(session.workspaceId,recipients,'task.created',result.task);
+      }
+      hub.broadcastUsers(session.workspaceId,[session.userId],'meeting.proposal.accepted',{proposalId:proposal.id,task:result.task??null});
       json(res,200,result);
       return true;
     }
@@ -75,7 +78,7 @@ export function createMeetingIntelligenceHandler(){
       const session=await requireSession(req);requirePermission(session.role,Permission.AI_USE);
       const proposal=await meeting.rejectProposal(session,match[1]);
       if(!proposal)throw notFound('Pending meeting proposal not found');
-      hub.broadcastWorkspace(session.workspaceId,'meeting.proposal.rejected',{proposalId:proposal.id});
+      hub.broadcastUsers(session.workspaceId,[session.userId],'meeting.proposal.rejected',{proposalId:proposal.id});
       json(res,200,{proposal});
       return true;
     }
