@@ -50,6 +50,7 @@ jobs:
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/004_application_platform.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/005_identity_realtime.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/006_realtime_media.sql
+          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/007_daily_work_completion.sql
       - name: Verify core constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_core.sql
       - name: Verify collaboration constraints
@@ -60,3 +61,5 @@ jobs:
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_identity_realtime.sql
       - name: Verify realtime media constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_realtime_media.sql
+      - name: Verify daily work constraints
+        run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_daily_work.sql
