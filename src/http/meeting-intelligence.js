@@ -18,6 +18,13 @@ async function accessibleMeetingCall(ctx,session,callId){
   return call;
 }
 
+async function proposalFor(meeting,session,proposalId){
+  if(typeof meeting.getProposal==='function')return meeting.getProposal(session,proposalId);
+  const value=meeting.proposals?.get?.(proposalId);
+  if(!value||value.workspaceId!==session.workspaceId)return null;
+  return structuredClone(value);
+}
+
 export function createMeetingIntelligenceHandler(){
   return async function handleMeetingIntelligence(req,res,ctx,path,method){
     const{store,meeting,requireSession,hub,liveKitWebhook}=ctx;
@@ -53,7 +60,7 @@ export function createMeetingIntelligenceHandler(){
     match=path.match(new RegExp(`^/api/v1/meeting-proposals/${UUID}/accept$`,'i'));
     if(match&&method==='POST'){
       const session=await requireSession(req);requirePermission(session.role,Permission.AI_USE);
-      const proposal=await meeting.getProposal?.(session,match[1]);
+      const proposal=await proposalFor(meeting,session,match[1]);
       if(!proposal)throw notFound('Meeting proposal not found');
       if(proposal.proposalType==='action')requirePermission(session.role,Permission.TASK_CREATE);
       const body=await readJson(req).catch(()=>({}));
