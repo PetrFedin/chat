@@ -18,6 +18,7 @@ function intEnv(value,fallback,{min=1,max=600000}={}){
 function laneState(kind){
   return{
     kind,
+    generation:0,
     running:false,
     sleeping:false,
     processed:0,
@@ -93,8 +94,10 @@ export class MeetingWorker{
     this.stoppedAt=null;
     const generation=++this.generation;
     for(const kind of this.activeKinds()){
+      const state=this.lanes.get(kind);
+      state.generation=generation;
       const promise=this.runLane(kind,generation).catch((error)=>{
-        const state=this.lanes.get(kind);
+        if(state.generation!==generation)return;
         state.lastError={code:error?.code??'MEETING_WORKER_CRASH',message:error?.message??String(error)};
         this.logger?.error?.(`meeting ${kind} worker crashed`,error);
       });
@@ -106,6 +109,7 @@ export class MeetingWorker{
   async wait(kind,ms,generation){
     if(this.stopping||generation!==this.generation)return;
     const state=this.lanes.get(kind);
+    if(state.generation!==generation)return;
     state.sleeping=true;
     let wake;
     const wakePromise=new Promise((resolve)=>{wake=resolve});
@@ -113,7 +117,7 @@ export class MeetingWorker{
     await Promise.race([sleep(ms),wakePromise]);
     const current=this.wakers.get(kind);
     if(current?.wake===wake)this.wakers.delete(kind);
-    state.sleeping=false;
+    if(state.generation===generation)state.sleeping=false;
   }
 
   kick(kind=null){
@@ -140,15 +144,16 @@ export class MeetingWorker{
         try{
           result=await this.processor.runOnce(kind);
         }catch(error){
+          if(state.generation!==generation)break;
           state.failures++;
           state.lastError={code:error?.code??'MEETING_WORKER_FAILED',message:error?.message??String(error)};
           this.logger?.error?.(`meeting ${kind} worker cycle failed`,error);
           await this.wait(kind,this.pollIntervalMs,generation);
           continue;
         }finally{
-          state.lastFinishedAt=new Date().toISOString();
+          if(state.generation===generation)state.lastFinishedAt=new Date().toISOString();
         }
-        if(generation!==this.generation)break;
+        if(generation!==this.generation||state.generation!==generation)break;
         state.lastResult=result??null;
         if(result?.processed){
           state.processed++;
@@ -175,7 +180,7 @@ export class MeetingWorker{
         await this.wait(kind,this.pollIntervalMs,generation);
       }
     }finally{
-      if(generation===this.generation||this.stopping){
+      if(state.generation===generation){
         state.running=false;
         state.sleeping=false;
       }
