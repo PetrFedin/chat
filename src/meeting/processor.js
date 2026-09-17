@@ -24,12 +24,13 @@ async function contextFor(repository,job){
 }
 
 export class MeetingProcessor{
-  constructor({repository,objectStore,transcriptionProvider=new DisabledTranscriptionProvider(),summaryProvider=new DisabledMeetingSummaryProvider(),retryDelayMs=30_000}={}){
+  constructor({repository,objectStore,transcriptionProvider=new DisabledTranscriptionProvider(),summaryProvider=new DisabledMeetingSummaryProvider(),retryDelayMs=30_000,onReviewReady=null}={}){
     this.repository=repository;
     this.objectStore=objectStore;
     this.transcriptionProvider=transcriptionProvider;
     this.summaryProvider=summaryProvider;
     this.retryDelayMs=retryDelayMs;
+    this.onReviewReady=onReviewReady;
   }
 
   status(){
@@ -107,7 +108,22 @@ export class MeetingProcessor{
       model:result.model??null,
     });
     if(!completed)throw providerError('SUMMARY_COMMIT_REJECTED','Meeting summary could not be committed');
-    return{processed:true,kind:'summarize',jobId:job.id,runId:context.runId,proposalCount:Array.isArray(result.proposals)?result.proposals.length:0};
+    const committed=await this.repository.getMeeting({workspaceId:context.workspaceId},context.callId);
+    const proposalCount=Array.isArray(committed?.proposals)?committed.proposals.length:0;
+    if(this.onReviewReady){
+      try{
+        await this.onReviewReady({
+          organizationId:context.organizationId,
+          workspaceId:context.workspaceId,
+          callId:context.callId,
+          recordingId:context.recordingId,
+          runId:context.runId,
+          proposalCount,
+          overview:committed?.run?.summaryOverview??result.overview,
+        });
+      }catch(error){console.error('meeting review projection failed',error)}
+    }
+    return{processed:true,kind:'summarize',jobId:job.id,runId:context.runId,proposalCount};
   }
 }
 

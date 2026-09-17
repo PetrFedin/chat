@@ -1,6 +1,8 @@
 import { Permission, requirePermission } from '../rbac.js';
 import { json, readJson } from './helpers.js';
 import { liveKitEventId, normalizeLiveKitEgress } from '../media/livekit-webhook.js';
+import { listAccessibleMeetings } from '../meeting/meeting-center.js';
+import { claimWebhookEvent } from '../meeting/webhook-journal.js';
 
 const UUID = '([0-9a-f-]+)';
 
@@ -35,16 +37,16 @@ async function proposalFor(meeting, session, proposalId) {
 
 export function createMeetingIntelligenceHandler() {
   return async function handleMeetingIntelligence(req, res, ctx, path, method) {
-    const { store, meeting, meetingProcessor, requireSession, hub, liveKitWebhook } = ctx;
+    const { store, meeting, meetingProcessor, requireSession, hub, liveKitWebhook, calls } = ctx;
 
     if (path === '/api/v1/media/livekit/webhook' && method === 'POST') {
       const raw = await readRaw(req);
       const event = await liveKitWebhook.receive(raw, req.headers.authorization ?? req.headers.authorize);
       const providerEventId = liveKitEventId(event, raw);
       const eventType = String(event.event ?? 'unknown');
-      const recorded = await meeting.recordWebhook({ provider:'livekit', providerEventId, eventType, payload:JSON.parse(raw) });
-      if (!recorded.inserted) {
-        json(res, 200, { ok:true, duplicate:true });
+      const recorded = await claimWebhookEvent(meeting, { provider:'livekit', providerEventId, eventType, payload:JSON.parse(raw) });
+      if (!recorded.claimed) {
+        json(res, 200, { ok:true, duplicate:true, status:recorded.event?.status ?? null });
         return true;
       }
       try {
@@ -64,7 +66,7 @@ export function createMeetingIntelligenceHandler() {
               recordingId:result.run.recordingId,
             });
           }
-          json(res, 200, { ok:true, matched:Boolean(result), egress:{ status:egress.status, success:egress.success } });
+          json(res, 200, { ok:true, matched:Boolean(result), reclaimed:Boolean(recorded.reclaimed), egress:{ status:egress.status, success:egress.success } });
           return true;
         }
         await meeting.finishWebhook('livekit', providerEventId, { status:'ignored' });
@@ -74,6 +76,14 @@ export function createMeetingIntelligenceHandler() {
         await meeting.finishWebhook('livekit', providerEventId, { status:'failed', error:error.message }).catch(() => {});
         throw error;
       }
+    }
+
+    if (path === '/api/v1/meetings' && method === 'GET') {
+      const session = await requireSession(req);
+      const url = new URL(req.url ?? '/api/v1/meetings', `http://${req.headers.host ?? 'localhost'}`);
+      const items = await listAccessibleMeetings({ calls, meeting, store, session, limit:url.searchParams.get('limit') ?? 40 });
+      json(res, 200, { items });
+      return true;
     }
 
     let match = path.match(new RegExp(`^/api/v1/calls/${UUID}/meeting$`, 'i'));

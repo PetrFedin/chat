@@ -2,8 +2,8 @@ export const openapi = Object.freeze({
   openapi: '3.1.0',
   info: {
     title: 'Chat Corporate Workspace API',
-    version: '0.6.0',
-    description: 'Company workspace API with daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, and an evidence-first meeting intelligence pipeline. AI output remains proposed until explicitly confirmed by a human.'
+    version: '0.7.0',
+    description: 'Company workspace API with daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, and an evidence-first meeting intelligence product surface. AI output remains proposed until explicitly confirmed by a human.'
   },
   servers: [{ url: '/' }],
   tags: [
@@ -63,8 +63,16 @@ export const openapi = Object.freeze({
       post: {
         tags: ['Meeting Intelligence'],
         summary: 'Receive a signed LiveKit webhook and reconcile recording lifecycle',
-        description: 'Authenticated with the official LiveKit webhook JWT/body-SHA contract. Egress completion is idempotently mapped to the persisted recording and queues durable meeting-intelligence work.',
-        responses: { '200': { description: 'Webhook processed, ignored or already seen' }, '401': { description: 'Invalid webhook signature' }, '503': { description: 'LiveKit webhook verification is not configured' } }
+        description: 'Authenticated with the official LiveKit webhook JWT/body-SHA contract. Egress completion is idempotently mapped to the persisted recording. A previously failed webhook journal entry may be atomically reclaimed on provider redelivery; processed events remain duplicates.',
+        responses: { '200': { description: 'Webhook processed, reclaimed, ignored or already seen' }, '401': { description: 'Invalid webhook signature' }, '503': { description: 'LiveKit webhook verification is not configured' } }
+      }
+    },
+    '/api/v1/meetings': {
+      get: {
+        tags: ['Meeting Intelligence'],
+        summary: 'List meeting reviews visible to the current user',
+        description: 'Returns a permission-aware meeting-center projection including processing state, review counts, transcript availability and summary preview. Private conversation boundaries are preserved.',
+        responses: { '200': { description: 'Accessible meeting list' } }
       }
     },
     '/api/v1/calls/{callId}/meeting': {
