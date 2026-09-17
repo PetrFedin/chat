@@ -19,7 +19,9 @@ function plainDecimal(value){
   if(/^[+-]?\d+(?:\.\d+)?$/.test(text))return text;
   const number=Number(text);
   if(!Number.isFinite(number))throw error('INVALID_DECIMAL',`Invalid decimal value: ${text}`);
-  return number.toFixed(MONEY_SCALE).replace(/(\.\d*?[1-9])0+$|\.0+$/,'$1');
+  const fixed=number.toFixed(MONEY_SCALE);
+  if(!/^[+-]?\d+(?:\.\d+)?$/.test(fixed))throw error('INVALID_DECIMAL',`Decimal value is outside supported range: ${text}`);
+  return fixed.replace(/(\.\d*?[1-9])0+$|\.0+$/,'$1');
 }
 function decimalFraction(value){
   const text=plainDecimal(value);
@@ -33,6 +35,7 @@ function decimalFraction(value){
 function formatScaled(integer,scale=MONEY_SCALE){
   const negative=integer<0n;
   const value=negative?-integer:integer;
+  if(scale===0)return `${negative?'-':''}${value.toString()}`;
   const raw=value.toString().padStart(scale+1,'0');
   const whole=raw.slice(0,-scale)||'0';
   const fraction=raw.slice(-scale).replace(/0+$/,'');
@@ -74,12 +77,14 @@ function normalizePriceInput(value){
   const normalizedItems=items.map((item)=>{
     const metricName=String(item.metricName??'').trim();
     const usagePath=String(item.usagePath??'').trim();
-    const unitQuantity=Number(item.unitQuantity);
-    const unitPrice=Number(item.unitPrice);
+    const unitQuantity=plainDecimal(item.unitQuantity);
+    const unitPrice=plainDecimal(item.unitPrice);
+    const unitQuantityFraction=decimalFraction(unitQuantity);
+    const unitPriceFraction=decimalFraction(unitPrice);
     if(!METRIC_NAME.test(metricName))throw error('INVALID_PRICE_ITEM',`Invalid metric name: ${metricName||'(empty)'}`);
     if(!PRICE_PATH.test(usagePath))throw error('INVALID_PRICE_ITEM',`Invalid usage path: ${usagePath||'(empty)'}`);
-    if(!Number.isFinite(unitQuantity)||unitQuantity<=0)throw error('INVALID_PRICE_ITEM','unitQuantity must be greater than zero');
-    if(!Number.isFinite(unitPrice)||unitPrice<0)throw error('INVALID_PRICE_ITEM','unitPrice cannot be negative');
+    if(unitQuantityFraction.numerator<=0n)throw error('INVALID_PRICE_ITEM','unitQuantity must be greater than zero');
+    if(unitPriceFraction.numerator<0n)throw error('INVALID_PRICE_ITEM','unitPrice cannot be negative');
     if(seenMetrics.has(metricName)||seenPaths.has(usagePath))throw error('INVALID_PRICE_ITEM','Metric names and usage paths must be unique within a price version');
     seenMetrics.add(metricName);seenPaths.add(usagePath);
     return{metricName,usagePath,unitQuantity,unitPrice};
@@ -170,14 +175,15 @@ export class MemoryMeetingOperationsRepository{
     if(!['failed','dead_letter'].includes(job.status))throw error('JOB_NOT_RETRYABLE','Only failed or dead-letter jobs can be retried',409);
     const previous={status:job.status,attempts:job.attempts,maxAttempts:job.maxAttempts,lastError:job.lastError??null};
     const extra=Math.min(3,Math.max(1,Math.round(Number(extraAttempts)||1)));
-    if(job.status==='dead_letter'||job.attempts>=job.maxAttempts)job.maxAttempts+=extra;
+    const extend=job.status==='dead_letter'||job.attempts>=job.maxAttempts;
+    if(extend)job.maxAttempts+=extra;
     job.status='pending';job.availableAt=now();job.finishedAt=null;job.lockedAt=null;job.lockToken=null;job.updatedAt=now();
     const run=this.meeting.runs?.get?.(job.runId);if(run){run.status='queued';run.errorCode=null;run.errorMessage=null;run.updatedAt=now()}
     const recording=[...(this.meeting.recordings?.values?.()??[])].find((value)=>value.id===run?.recordingId);
     if(recording){if(job.kind==='transcribe')recording.transcriptStatus='queued';else recording.summaryStatus='queued'}
     const prior=this.audit.filter((item)=>item.workspaceId===session.workspaceId&&item.aggregateType==='meeting_job'&&item.aggregateId===job.id);
     const sequence=prior.reduce((max,item)=>Math.max(max,Number(item.sequence)||0),0)+1;
-    this.audit.push({id:randomUUID(),workspaceId:session.workspaceId,aggregateType:'meeting_job',aggregateId:job.id,eventType:'meeting.job.retried',actorId:session.userId,sequence,payload:{reason:text.slice(0,1000),previous,extraAttempts:extra},createdAt:now()});
+    this.audit.push({id:randomUUID(),workspaceId:session.workspaceId,aggregateType:'meeting_job',aggregateId:job.id,eventType:'meeting.job.retried',actorId:session.userId,sequence,payload:{reason:text.slice(0,1000),previous,extraAttempts:extend?extra:0},createdAt:now()});
     return clone({id:job.id,runId:job.runId,kind:job.kind,status:job.status,attempts:job.attempts,maxAttempts:job.maxAttempts,availableAt:job.availableAt,lastError:job.lastError??null});
   }
 
