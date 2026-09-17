@@ -29,8 +29,75 @@ test('media provider is explicitly disabled without LiveKit secrets', () => {
     provider: 'livekit',
     enabled: false,
     recordingEnabled: false,
+    transcriptionSidecarEnabled: false,
     serverUrl: null,
   });
+});
+
+test('recording can explicitly add an audio-only OGG transcription sidecar without replacing archive MP4', async () => {
+  const provider = new LiveKitMediaProvider({
+    LIVEKIT_URL: 'https://livekit.example.com',
+    LIVEKIT_API_KEY: 'api-key',
+    LIVEKIT_API_SECRET: 'api-secret',
+    LIVEKIT_EGRESS_ENABLED: 'true',
+    LIVEKIT_TRANSCRIPTION_EGRESS_ENABLED: 'true',
+    S3_BUCKET: 'meeting-bucket',
+    S3_REGION: 'test-region',
+    S3_ENDPOINT: 'https://s3.example.com',
+    S3_ACCESS_KEY_ID: 'access',
+    S3_SECRET_ACCESS_KEY: 'secret',
+  });
+  const starts = [];
+  const stops = [];
+  provider.api = {
+    egress: {
+      async startRoomCompositeEgress(...args) {
+        starts.push(args);
+        return { egressId: `EG_${starts.length}` };
+      },
+      async stopEgress(id) { stops.push(id); return { egressId:id, status:3 }; },
+      async listEgress() { return []; },
+    },
+  };
+
+  const result = await provider.startRecording({
+    workspaceId: session.workspaceId,
+    callId: 'call-1',
+    roomName: 'room-1',
+  });
+
+  assert.equal(provider.status().transcriptionSidecarEnabled, true);
+  assert.equal(starts.length, 2);
+  assert.equal(starts[0][0], 'room-1');
+  assert.equal(starts[0][2].layout, 'grid');
+  assert.equal(starts[0][2].audioOnly, undefined);
+  assert.match(starts[0][1].file.filepath, /\.mp4$/);
+  assert.equal(starts[1][0], 'room-1');
+  assert.equal(starts[1][2].audioOnly, true);
+  assert.match(starts[1][1].file.filepath, /\.transcription\.ogg$/);
+  assert.equal(result.providerRecordingId, 'EG_1');
+  assert.equal(result.transcriptionProviderRecordingId, 'EG_2');
+  assert.equal(result.transcriptionSourceStatus, 'recording');
+
+  await provider.stopRecording(result.providerRecordingId, result.transcriptionProviderRecordingId);
+  assert.deepEqual(stops, ['EG_1', 'EG_2']);
+});
+
+test('archive recording remains single-egress when transcription sidecar is not explicitly enabled', async () => {
+  const provider = new LiveKitMediaProvider({
+    LIVEKIT_URL: 'https://livekit.example.com',
+    LIVEKIT_API_KEY: 'api-key',
+    LIVEKIT_API_SECRET: 'api-secret',
+    LIVEKIT_EGRESS_ENABLED: 'true',
+    S3_BUCKET: 'meeting-bucket',
+  });
+  const starts = [];
+  provider.api = { egress:{ async startRoomCompositeEgress(...args){starts.push(args);return{egressId:'EG_ARCHIVE'}} } };
+  const result = await provider.startRecording({ workspaceId:session.workspaceId, callId:'call-2', roomName:'room-2' });
+  assert.equal(starts.length, 1);
+  assert.equal(result.transcriptionProviderRecordingId, null);
+  assert.equal(result.transcriptionStorageKey, null);
+  assert.equal(result.transcriptionSourceStatus, 'not_requested');
 });
 
 test('call repository tracks join, media state, consent and automatic end', async () => {
