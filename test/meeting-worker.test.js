@@ -23,7 +23,7 @@ test('meeting worker remains dormant when providers are not configured',async()=
 });
 
 test('successful transcription wakes summary lane without waiting for the long poll interval',async()=>{
-  let transcriptCalls=0,summaryCalls=0,summaryReady=false;
+  let transcriptCalls=0,summaryCalls=0,summaryReady=false,summaryCompleted=false;
   const processor={
     status:()=>({transcription:providerStatus(true),summary:providerStatus(true)}),
     async runOnce(kind){
@@ -37,7 +37,10 @@ test('successful transcription wakes summary lane without waiting for the long p
         return{processed:false,reason:'no_job'};
       }
       summaryCalls++;
-      if(summaryReady&&summaryCalls>=2)return{processed:true,kind:'summarize'};
+      if(summaryReady&&!summaryCompleted){
+        summaryCompleted=true;
+        return{processed:true,kind:'summarize'};
+      }
       return{processed:false,reason:'no_job'};
     },
   };
@@ -67,6 +70,7 @@ test('timed-out shutdown invalidates the worker generation so a late job cannot 
   await delay(180);
   assert.equal(calls,1,'late completion from an invalidated generation must not continue polling');
   assert.equal(worker.status().running,false);
+  assert.equal(worker.status().lanes.transcribe.running,false);
 });
 
 test('worker environment configuration is bounded and explicit',()=>{
