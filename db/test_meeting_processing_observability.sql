@@ -72,6 +72,14 @@ BEGIN
 
   BEGIN
     INSERT INTO meeting_provider_calls(
+      organization_id,workspace_id,run_id,job_id,kind,attempt_number,provider,model,status)
+      VALUES(org,ws,run_uuid,job_uuid,'summarize',2,'openai','fixture','started');
+    RAISE EXCEPTION 'provider call with kind different from durable job unexpectedly accepted';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+
+  BEGIN
+    INSERT INTO meeting_provider_calls(
       organization_id,workspace_id,run_id,job_id,kind,attempt_number,provider,model,status,finished_at,latency_ms)
       VALUES(org,ws,run_uuid,job_uuid,'transcribe',2,'openai','fixture','started',now(),1);
     RAISE EXCEPTION 'started provider call with finished timestamp unexpectedly accepted';
