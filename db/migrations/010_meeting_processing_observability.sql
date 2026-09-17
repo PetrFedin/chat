@@ -28,6 +28,12 @@ CREATE INDEX call_recordings_transcription_source_idx
   ON call_recordings(workspace_id, transcription_source_status, updated_at)
   WHERE transcription_provider_recording_id IS NOT NULL;
 
+-- Provider attempts duplicate run/kind for efficient operational queries. Bind those values
+-- back to the exact durable job so telemetry can never claim a different run or job family.
+ALTER TABLE meeting_intelligence_jobs
+  ADD CONSTRAINT meeting_intelligence_jobs_provider_call_identity_uq
+  UNIQUE(workspace_id,run_id,id,kind);
+
 -- One row per actual external provider attempt. This deliberately stores provider-reported
 -- usage rather than a hard-coded money amount: historical cost can later be calculated
 -- against a versioned price catalog without rewriting the source measurement.
@@ -54,8 +60,8 @@ CREATE TABLE meeting_provider_calls (
   UNIQUE(workspace_id,id),
   UNIQUE(workspace_id,job_id,attempt_number),
   FOREIGN KEY (organization_id,workspace_id) REFERENCES workspaces(organization_id,id) ON DELETE CASCADE,
-  FOREIGN KEY (workspace_id,run_id) REFERENCES meeting_intelligence_runs(workspace_id,id) ON DELETE CASCADE,
-  FOREIGN KEY (workspace_id,job_id) REFERENCES meeting_intelligence_jobs(workspace_id,id) ON DELETE CASCADE,
+  FOREIGN KEY (workspace_id,run_id,job_id,kind)
+    REFERENCES meeting_intelligence_jobs(workspace_id,run_id,id,kind) ON DELETE CASCADE,
   CHECK (
     (status='started' AND finished_at IS NULL AND latency_ms IS NULL AND error_code IS NULL AND error_message IS NULL)
     OR
