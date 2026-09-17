@@ -37,7 +37,7 @@ async function proposalFor(meeting, session, proposalId) {
 
 export function createMeetingIntelligenceHandler() {
   return async function handleMeetingIntelligence(req, res, ctx, path, method) {
-    const { store, meeting, meetingProcessor, requireSession, hub, liveKitWebhook, calls } = ctx;
+    const { store, meeting, meetingProcessor, meetingWorker, requireSession, hub, liveKitWebhook, calls } = ctx;
 
     if (path === '/api/v1/media/livekit/webhook' && method === 'POST') {
       const raw = await readRaw(req);
@@ -60,6 +60,7 @@ export function createMeetingIntelligenceHandler() {
           const result = await meeting.reconcileEgress(egress.providerRecordingId, { success:egress.success, error:egress.error });
           await meeting.finishWebhook('livekit', providerEventId, { status:result ? 'processed' : 'ignored' });
           if (result?.run) {
+            meetingWorker?.kick?.('transcribe');
             hub.broadcastWorkspace(result.run.workspaceId, 'meeting.intelligence.queued', {
               callId:result.run.callId,
               runId:result.run.id,
@@ -94,7 +95,11 @@ export function createMeetingIntelligenceHandler() {
       json(res, 200, {
         call,
         intelligence,
-        processing:{ webhook:liveKitWebhook.status(), processor:meetingProcessor?.status?.() ?? { enabled:false } },
+        processing:{
+          webhook:liveKitWebhook.status(),
+          processor:meetingProcessor?.status?.() ?? { enabled:false },
+          worker:meetingWorker?.status?.() ?? { configured:false, running:false },
+        },
       });
       return true;
     }

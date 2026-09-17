@@ -23,6 +23,9 @@ import { createMediaProvider } from './media/livekit-provider.js';
 import { createLiveKitWebhookReceiver } from './media/livekit-webhook.js';
 import { createMeetingRepository } from './meeting/meeting-repository.js';
 import { createMeetingProcessor } from './meeting/processor.js';
+import { createConfiguredMeetingProviders } from './meeting/openai-providers.js';
+import { createMeetingReviewProjector } from './meeting/review-projection.js';
+import { createMeetingWorker } from './meeting/worker.js';
 import { createObjectStore } from './storage/object-store.js';
 import { preparePreviewDemo, handlePreviewDemo } from './demo/preview-demo.js';
 import { seedDemoMeetingIntelligence } from './demo/seed-meeting-intelligence.js';
@@ -51,48 +54,20 @@ export async function createChatServer(options={}){
   const calls=options.calls??createCallRepository(pool);
   const meeting=options.meeting??createMeetingRepository(pool);
   const liveKitWebhook=options.liveKitWebhook??createLiveKitWebhookReceiver();
+  const configuredMeetingProviders=createConfiguredMeetingProviders(process.env);
+  const transcriptionProvider=options.transcriptionProvider??configuredMeetingProviders.transcriptionProvider;
+  const summaryProvider=options.summaryProvider??configuredMeetingProviders.summaryProvider;
   const authenticate=async(req)=>{const token=cookieToken(req);return token?store.getSession(hashToken(token)):null};
   const requireSession=async(req)=>{const s=await authenticate(req);if(!s)throw Object.assign(new Error('Authentication required'),{code:'UNAUTHENTICATED',statusCode:401});return s};
   const openSession=async(res,req,userId,workspaceId,status=200)=>{const token=createOpaqueToken(),tokenHash=hashToken(token),expiresAt=createSessionExpiry();await store.createSession({userId,workspaceId,tokenHash,expiresAt,userAgent:req.headers['user-agent']??null,ipAddress:String(req.headers['x-forwarded-for']??req.socket.remoteAddress??'').split(',')[0].trim()||null});const s=await store.getSession(tokenHash);json(res,status,{session:{...s,permissions:visiblePermissions(s.role)},storageMode:mode,push,media:mediaProvider.status(),objectStorage:objectStore.status()},{'set-cookie':sessionCookie(token)})};
   const notifyUsers=async(workspaceId,userIds,payload)=>{if(!push.enabled||!userIds.length)return;const subs=await store.listPushSubscriptions(workspaceId,userIds);await Promise.allSettled(subs.map(s=>webpush.sendNotification({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},JSON.stringify(payload),{TTL:60})))};
-
-  const projectMeetingReviewReady=async(value)=>{
-    const systemSession={workspaceId:value.workspaceId,organizationId:value.organizationId};
-    const call=await calls.get(systemSession,value.callId);
-    if(!call)return;
-    const participantIds=[...new Set((call.participants??[]).map((participant)=>participant.userId).filter(Boolean))];
-    const audience=participantIds.length?participantIds:await store.conversationAudience(systemSession,call.conversationId);
-    const body=String(value.overview??'').trim()||'Проверьте решения, действия и источники в стенограмме.';
-    const title=`Итоги встречи готовы${call.title?`: ${call.title}`:''}`;
-    for(const userId of audience){
-      const notificationValue={
-        organizationId:value.organizationId,
-        workspaceId:value.workspaceId,
-        recipientUserId:userId,
-        sourceEventId:value.runId,
-        dedupeKey:`meeting.review_ready:${value.runId}:${userId}`,
-        type:'meeting.review_ready',
-        title,
-        body:body.slice(0,1000),
-        actorUserId:call.createdBy??null,
-        conversationId:call.conversationId,
-        url:`/#/meetings/${value.callId}`,
-        priority:value.proposalCount>0?'high':'normal',
-        metadata:{callId:value.callId,runId:value.runId,proposalCount:value.proposalCount},
-      };
-      const notification=typeof store.insertNotification==='function'
-        ?await store.insertNotification(notificationValue)
-        :store.putNotification?.(notificationValue)??null;
-      if(notification)hub.broadcastUsers(value.workspaceId,[userId],'notification.created',notification);
-    }
-    await notifyUsers(value.workspaceId,audience,{title,body:body.slice(0,180),url:`/#/meetings/${value.callId}`});
-  };
+  const projectMeetingReviewReady=createMeetingReviewProjector({store,calls,hub,notifyUsers});
 
   const meetingProcessor=options.meetingProcessor??createMeetingProcessor({
     repository:meeting,
     objectStore,
-    transcriptionProvider:options.transcriptionProvider,
-    summaryProvider:options.summaryProvider,
+    transcriptionProvider,
+    summaryProvider,
     onReviewReady:projectMeetingReviewReady,
   });
 
@@ -100,11 +75,17 @@ export async function createChatServer(options={}){
     try{demo.meeting=await seedDemoMeetingIntelligence({store,calls,meeting})}catch(error){console.error('meeting demo seed failed',error)}
   }
 
-  const ctx={store,mode,hub,calls,meeting,meetingProcessor,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const meetingWorker=options.meetingWorker??createMeetingWorker(meetingProcessor,process.env,{
+    enabled:options.meetingWorkerEnabled??mode!=='custom',
+  });
+  const startMeetingWorker=options.startMeetingWorker??mode!=='custom';
+  if(startMeetingWorker)meetingWorker.start?.();
+
+  const ctx={store,mode,hub,calls,meeting,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
   const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler();
   const server=createServer(async(req,res)=>{try{
     const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`),path=url.pathname,method=req.method??'GET';
-    if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status()},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,meeting:Boolean(demo.meeting)}});
+    if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,meeting:Boolean(demo.meeting)}});
     if(path==='/openapi.json'||path==='/api/v1/openapi')return json(res,200,openapi);
     if(path==='/vendor/livekit-client.js'&&method==='GET'){const body=await readFile(livekitClientPath);res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=86400'});res.end(body);return}
     if(await handleMeetingIntelligence(req,res,ctx,path,method))return;
@@ -121,8 +102,22 @@ export async function createChatServer(options={}){
   }catch(error){console.error(error);errorJson(res,error)}});
   server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
   wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});try{const p=await store.setPresence(s,{state:'online'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}ws.on('message',async raw=>{try{const packet=JSON.parse(String(raw));if(packet.event==='typing.start'||packet.event==='typing.stop'){const id=packet.data?.conversationId;if(id&&await store.canAccessConversation(s,id)){const audience=await store.conversationAudience(s,id);hub.broadcastUsers(s.workspaceId,audience.filter(x=>x!==s.userId),packet.event,{conversationId:id,userId:s.userId})}}else if(packet.event==='presence.set'&&allowedPresence.has(packet.data?.state)){const p=await store.setPresence(s,packet.data);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}}catch(error){hub.send(ws,'error',{code:error.code??'INVALID_EVENT',message:error.message})}});ws.on('close',async()=>{remove();try{const p=await store.setPresence(s,{state:'away'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p})}catch{}})});
-  return{server,store,calls,meeting,meetingProcessor,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
+  return{server,store,calls,meeting,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
 }
 
 const isMain=process.argv[1]&&fileURLToPath(import.meta.url)===normalize(process.argv[1]);
-if(isMain){const app=await createChatServer(),port=Number(process.env.PORT??3000);app.server.listen(port,'0.0.0.0',()=>console.log(`Chat workspace: http://localhost:${port} [${app.mode}]${app.demo.enabled?' [demo]':''}`))}
+if(isMain){
+  const app=await createChatServer(),port=Number(process.env.PORT??3000);
+  app.server.listen(port,'0.0.0.0',()=>console.log(`Chat workspace: http://localhost:${port} [${app.mode}]${app.demo.enabled?' [demo]':''}`));
+  let closing=false;
+  const shutdown=async(signal)=>{
+    if(closing)return;
+    closing=true;
+    console.log(`Chat shutdown requested by ${signal}`);
+    const hardStop=setTimeout(()=>{console.error('Chat graceful shutdown timed out');process.exit(1)},15000);
+    hardStop.unref?.();
+    try{await app.close();clearTimeout(hardStop);process.exit(0)}catch(error){clearTimeout(hardStop);console.error('Chat shutdown failed',error);process.exit(1)}
+  };
+  process.once('SIGTERM',()=>void shutdown('SIGTERM'));
+  process.once('SIGINT',()=>void shutdown('SIGINT'));
+}
