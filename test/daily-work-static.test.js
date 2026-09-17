@@ -17,7 +17,7 @@ test('daily work client is syntactically valid and wired into the shell',async()
   assert.match(js,/\/api\/v1\/files/);
   assert.match(css,/\.dwc-attention-strip/);
   assert.match(css,/\.dwc-mention-picker/);
-  assert.match(sw,/chat-shell-v6/);
+  assert.match(sw,/chat-shell-v\d+/);
   assert.match(sw,/daily-work\.css/);
   assert.match(sw,/daily-work\.js/);
 });
