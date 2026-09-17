@@ -2,8 +2,6 @@ const DEFAULT_POLL_MS=1500;
 const DEFAULT_PROVIDER_WAIT_MS=30000;
 const DEFAULT_SHUTDOWN_MS=5000;
 
-const sleep=(ms)=>new Promise((resolve)=>setTimeout(resolve,Math.max(0,Number(ms)||0)));
-
 function boolEnv(value,defaultValue=true){
   if(value==null||value==='')return defaultValue;
   return ['1','true','yes','on'].includes(String(value).toLowerCase());
@@ -111,12 +109,20 @@ export class MeetingWorker{
     const state=this.lanes.get(kind);
     if(state.generation!==generation)return;
     state.sleeping=true;
-    let wake;
-    const wakePromise=new Promise((resolve)=>{wake=resolve});
-    this.wakers.set(kind,{wake,generation});
-    await Promise.race([sleep(ms),wakePromise]);
-    const current=this.wakers.get(kind);
-    if(current?.wake===wake)this.wakers.delete(kind);
+    await new Promise((resolve)=>{
+      let done=false;
+      let timer;
+      const wake=()=>{
+        if(done)return;
+        done=true;
+        if(timer)clearTimeout(timer);
+        const current=this.wakers.get(kind);
+        if(current?.wake===wake)this.wakers.delete(kind);
+        resolve();
+      };
+      timer=setTimeout(wake,Math.max(0,Number(ms)||0));
+      this.wakers.set(kind,{wake,generation});
+    });
     if(state.generation===generation)state.sleeping=false;
   }
 
@@ -124,7 +130,7 @@ export class MeetingWorker{
     const kinds=kind?[kind]:['transcribe','summarize'];
     for(const value of kinds){
       const entry=this.wakers.get(value);
-      if(entry){this.wakers.delete(value);entry.wake()}
+      if(entry)entry.wake();
     }
   }
 
@@ -185,7 +191,7 @@ export class MeetingWorker{
         state.sleeping=false;
       }
       const entry=this.wakers.get(kind);
-      if(entry?.generation===generation)this.wakers.delete(kind);
+      if(entry?.generation===generation)entry.wake();
     }
   }
 
@@ -198,12 +204,13 @@ export class MeetingWorker{
     const pending=[...this.promises.values()];
     let drained=true;
     if(pending.length){
-      const marker={timeout:true};
-      const result=await Promise.race([
-        Promise.allSettled(pending).then(()=>({timeout:false})),
-        sleep(Math.max(100,Number(timeoutMs)||this.shutdownTimeoutMs)).then(()=>marker),
-      ]);
-      drained=!result.timeout;
+      const waitMs=Math.max(100,Number(timeoutMs)||this.shutdownTimeoutMs);
+      let timeoutHandle;
+      const timedOut=new Promise((resolve)=>{timeoutHandle=setTimeout(()=>resolve(true),waitMs)});
+      const settled=Promise.allSettled(pending).then(()=>false);
+      const timeoutWon=await Promise.race([settled,timedOut]);
+      clearTimeout(timeoutHandle);
+      drained=!timeoutWon;
     }
     this.started=false;
     this.stopping=false;
