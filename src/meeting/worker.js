@@ -51,6 +51,7 @@ export class MeetingWorker{
     this.stopping=false;
     this.startedAt=null;
     this.stoppedAt=null;
+    this.generation=0;
     this.promises=new Map();
     this.wakers=new Map();
     this.lanes=new Map([
@@ -90,8 +91,9 @@ export class MeetingWorker{
     this.stopping=false;
     this.startedAt=new Date().toISOString();
     this.stoppedAt=null;
+    const generation=++this.generation;
     for(const kind of this.activeKinds()){
-      const promise=this.runLane(kind).catch((error)=>{
+      const promise=this.runLane(kind,generation).catch((error)=>{
         const state=this.lanes.get(kind);
         state.lastError={code:error?.code??'MEETING_WORKER_CRASH',message:error?.message??String(error)};
         this.logger?.error?.(`meeting ${kind} worker crashed`,error);
@@ -101,35 +103,36 @@ export class MeetingWorker{
     return this.status();
   }
 
-  async wait(kind,ms){
-    if(this.stopping)return;
+  async wait(kind,ms,generation){
+    if(this.stopping||generation!==this.generation)return;
     const state=this.lanes.get(kind);
     state.sleeping=true;
     let wake;
     const wakePromise=new Promise((resolve)=>{wake=resolve});
-    this.wakers.set(kind,wake);
+    this.wakers.set(kind,{wake,generation});
     await Promise.race([sleep(ms),wakePromise]);
-    if(this.wakers.get(kind)===wake)this.wakers.delete(kind);
+    const current=this.wakers.get(kind);
+    if(current?.wake===wake)this.wakers.delete(kind);
     state.sleeping=false;
   }
 
   kick(kind=null){
     const kinds=kind?[kind]:['transcribe','summarize'];
     for(const value of kinds){
-      const wake=this.wakers.get(value);
-      if(wake){this.wakers.delete(value);wake()}
+      const entry=this.wakers.get(value);
+      if(entry){this.wakers.delete(value);entry.wake()}
     }
   }
 
-  async runLane(kind){
+  async runLane(kind,generation){
     const state=this.lanes.get(kind);
     state.running=true;
     try{
-      while(!this.stopping){
+      while(!this.stopping&&generation===this.generation){
         const provider=this.providerStatus(kind);
         if(!provider?.enabled){
           state.lastResult={processed:false,reason:kind==='transcribe'?'transcription_provider_unavailable':'summary_provider_unavailable'};
-          await this.wait(kind,this.providerWaitMs);
+          await this.wait(kind,this.providerWaitMs,generation);
           continue;
         }
         state.lastStartedAt=new Date().toISOString();
@@ -140,45 +143,52 @@ export class MeetingWorker{
           state.failures++;
           state.lastError={code:error?.code??'MEETING_WORKER_FAILED',message:error?.message??String(error)};
           this.logger?.error?.(`meeting ${kind} worker cycle failed`,error);
-          await this.wait(kind,this.pollIntervalMs);
+          await this.wait(kind,this.pollIntervalMs,generation);
           continue;
         }finally{
           state.lastFinishedAt=new Date().toISOString();
         }
+        if(generation!==this.generation)break;
         state.lastResult=result??null;
         if(result?.processed){
           state.processed++;
           state.lastProcessedAt=new Date().toISOString();
           state.lastError=null;
+          if(kind==='transcribe')this.kick('summarize');
           continue;
         }
         if(result?.error){
           state.failures++;
           state.lastError=result.error;
-          await this.wait(kind,this.pollIntervalMs);
+          await this.wait(kind,this.pollIntervalMs,generation);
           continue;
         }
         if(result?.reason==='no_job'){
           state.noJob++;
-          await this.wait(kind,this.pollIntervalMs);
+          await this.wait(kind,this.pollIntervalMs,generation);
           continue;
         }
         if(String(result?.reason??'').includes('provider_unavailable')){
-          await this.wait(kind,this.providerWaitMs);
+          await this.wait(kind,this.providerWaitMs,generation);
           continue;
         }
-        await this.wait(kind,this.pollIntervalMs);
+        await this.wait(kind,this.pollIntervalMs,generation);
       }
     }finally{
-      state.running=false;
-      state.sleeping=false;
-      this.wakers.delete(kind);
+      if(generation===this.generation||this.stopping){
+        state.running=false;
+        state.sleeping=false;
+      }
+      const entry=this.wakers.get(kind);
+      if(entry?.generation===generation)this.wakers.delete(kind);
     }
   }
 
   async stop({timeoutMs=this.shutdownTimeoutMs}={}){
     if(!this.started){this.stoppedAt??=new Date().toISOString();return{drained:true,...this.status()}}
     this.stopping=true;
+    const stoppedGeneration=this.generation;
+    this.generation++;
     this.kick();
     const pending=[...this.promises.values()];
     let drained=true;
@@ -194,6 +204,7 @@ export class MeetingWorker{
     this.stopping=false;
     this.promises.clear();
     this.stoppedAt=new Date().toISOString();
+    if(!drained)this.logger?.warn?.(`meeting worker generation ${stoppedGeneration} did not drain before shutdown timeout; durable leases will recover unfinished jobs`);
     return{drained,...this.status()};
   }
 }
