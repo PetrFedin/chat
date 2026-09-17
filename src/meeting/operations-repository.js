@@ -4,6 +4,7 @@ const clone=(value)=>value==null?value:structuredClone(value);
 const now=()=>new Date().toISOString();
 const PRICE_PATH=/^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)*$/;
 const METRIC_NAME=/^[a-z][a-z0-9_]{0,63}$/;
+const MONEY_SCALE=18;
 
 function error(code,message,statusCode=400){const value=new Error(message);value.code=code;value.statusCode=statusCode;return value}
 function boundedLimit(value,fallback=50,max=200){const parsed=Number(value);return Number.isFinite(parsed)?Math.min(max,Math.max(1,Math.round(parsed))):fallback}
@@ -11,7 +12,51 @@ function nestedNumber(value,path){
   let cursor=value;
   for(const part of String(path).split('.')){if(cursor==null||typeof cursor!=='object')return null;cursor=cursor[part]}
   const number=Number(cursor);
-  return Number.isFinite(number)?number:null;
+  return Number.isFinite(number)&&number>=0?number:null;
+}
+function plainDecimal(value){
+  const text=String(value??'0').trim();
+  if(/^[+-]?\d+(?:\.\d+)?$/.test(text))return text;
+  const number=Number(text);
+  if(!Number.isFinite(number))throw error('INVALID_DECIMAL',`Invalid decimal value: ${text}`);
+  return number.toFixed(MONEY_SCALE).replace(/(\.\d*?[1-9])0+$|\.0+$/,'$1');
+}
+function decimalFraction(value){
+  const text=plainDecimal(value);
+  const negative=text.startsWith('-');
+  const unsigned=text.replace(/^[+-]/,'');
+  const [whole='0',fraction='']=unsigned.split('.');
+  const denominator=10n**BigInt(fraction.length);
+  const numerator=BigInt(`${whole||'0'}${fraction}`||'0')*(negative?-1n:1n);
+  return{numerator,denominator};
+}
+function formatScaled(integer,scale=MONEY_SCALE){
+  const negative=integer<0n;
+  const value=negative?-integer:integer;
+  const raw=value.toString().padStart(scale+1,'0');
+  const whole=raw.slice(0,-scale)||'0';
+  const fraction=raw.slice(-scale).replace(/0+$/,'');
+  return `${negative?'-':''}${whole}${fraction?`.${fraction}`:''}`;
+}
+function decimalCost(quantity,unitQuantity,unitPrice){
+  const q=decimalFraction(quantity),u=decimalFraction(unitQuantity),p=decimalFraction(unitPrice);
+  if(q.numerator<0n||u.numerator<=0n||p.numerator<0n)throw error('INVALID_PRICE_CALCULATION','Price calculation requires non-negative usage and positive units');
+  const numerator=q.numerator*p.numerator*u.denominator;
+  const denominator=q.denominator*p.denominator*u.numerator;
+  const factor=10n**BigInt(MONEY_SCALE);
+  let scaled=numerator*factor/denominator;
+  const remainder=numerator*factor%denominator;
+  if(remainder*2n>=denominator)scaled+=1n;
+  return formatScaled(scaled);
+}
+function addDecimalStrings(left,right){
+  const a=decimalFraction(left),b=decimalFraction(right);
+  const denominator=a.denominator>b.denominator?a.denominator:b.denominator;
+  const aScaled=a.numerator*(denominator/a.denominator);
+  const bScaled=b.numerator*(denominator/b.denominator);
+  const sum=aScaled+bScaled;
+  const scale=denominator.toString().length-1;
+  return formatScaled(sum,scale);
 }
 function normalizePriceInput(value){
   const provider=String(value.provider??'').trim().toLowerCase();
@@ -52,12 +97,12 @@ function priceCallMemory(call,versions){
     .sort((a,b)=>Date.parse(b.effectiveFrom)-Date.parse(a.effectiveFrom)||String(b.createdAt).localeCompare(String(a.createdAt)));
   const version=matches[0]??null;
   if(!version)return{...call,pricing:{priced:false,reason:'no_price_version',priceVersionId:null,currency:null,amount:null,matchedMetrics:0,components:[]}};
-  let total=0,matched=0;
+  let total='0',matched=0;
   const components=version.items.map((item)=>{
     const quantity=nestedNumber(call.usage,item.usagePath);
-    const amount=quantity==null?0:(quantity/item.unitQuantity)*item.unitPrice;
+    const amount=quantity==null?'0':decimalCost(quantity,item.unitQuantity,item.unitPrice);
     if(quantity!=null)matched++;
-    total+=amount;
+    total=addDecimalStrings(total,amount);
     return{metricName:item.metricName,usagePath:item.usagePath,quantity,unitQuantity:item.unitQuantity,unitPrice:item.unitPrice,amount};
   });
   return{...call,pricing:{priced:matched>0,reason:matched>0?null:'usage_schema_mismatch',priceVersionId:version.id,currency:version.currency,amount:matched>0?total:null,matchedMetrics:matched,components}};
@@ -70,10 +115,10 @@ function rollupPricedCalls(calls){
     if(call.pricing?.priced){
       pricedCalls++;
       const currency=call.pricing.currency;
-      currencyMap.set(currency,(currencyMap.get(currency)??0)+Number(call.pricing.amount||0));
+      currencyMap.set(currency,addDecimalStrings(currencyMap.get(currency)??'0',call.pricing.amount??'0'));
       const key=`${call.provider}\u0000${call.model}\u0000${call.kind}\u0000${currency}`;
-      const current=providerMap.get(key)??{provider:call.provider,model:call.model,kind:call.kind,currency,amount:0,calls:0};
-      current.amount+=Number(call.pricing.amount||0);current.calls++;providerMap.set(key,current);
+      const current=providerMap.get(key)??{provider:call.provider,model:call.model,kind:call.kind,currency,amount:'0',calls:0};
+      current.amount=addDecimalStrings(current.amount,call.pricing.amount??'0');current.calls++;providerMap.set(key,current);
     }else unpricedCalls++;
   }
   return{
@@ -93,7 +138,7 @@ export class MemoryMeetingOperationsRepository{
     }
     const row={id:randomUUID(),organizationId:session.organizationId,workspaceId:session.workspaceId,createdBy:session.userId,createdAt:now(),...input};
     this.priceVersions.push(row);
-    this.audit.push({id:randomUUID(),workspaceId:session.workspaceId,aggregateType:'meeting_price_version',aggregateId:row.id,eventType:'meeting.price_version.created',actorId:session.userId,payload:{provider:row.provider,model:row.model,kind:row.kind,currency:row.currency,effectiveFrom:row.effectiveFrom},createdAt:now()});
+    this.audit.push({id:randomUUID(),workspaceId:session.workspaceId,aggregateType:'meeting_price_version',aggregateId:row.id,eventType:'meeting.price_version.created',actorId:session.userId,sequence:1,payload:{provider:row.provider,model:row.model,kind:row.kind,currency:row.currency,effectiveFrom:row.effectiveFrom},createdAt:now()});
     return clone(row);
   }
 
@@ -130,11 +175,16 @@ export class MemoryMeetingOperationsRepository{
     const run=this.meeting.runs?.get?.(job.runId);if(run){run.status='queued';run.errorCode=null;run.errorMessage=null;run.updatedAt=now()}
     const recording=[...(this.meeting.recordings?.values?.()??[])].find((value)=>value.id===run?.recordingId);
     if(recording){if(job.kind==='transcribe')recording.transcriptStatus='queued';else recording.summaryStatus='queued'}
-    this.audit.push({id:randomUUID(),workspaceId:session.workspaceId,aggregateType:'meeting_job',aggregateId:job.id,eventType:'meeting.job.retried',actorId:session.userId,payload:{reason:text.slice(0,1000),previous,extraAttempts:extra},createdAt:now()});
+    const prior=this.audit.filter((item)=>item.workspaceId===session.workspaceId&&item.aggregateType==='meeting_job'&&item.aggregateId===job.id);
+    const sequence=prior.reduce((max,item)=>Math.max(max,Number(item.sequence)||0),0)+1;
+    this.audit.push({id:randomUUID(),workspaceId:session.workspaceId,aggregateType:'meeting_job',aggregateId:job.id,eventType:'meeting.job.retried',actorId:session.userId,sequence,payload:{reason:text.slice(0,1000),previous,extraAttempts:extra},createdAt:now()});
     return clone({id:job.id,runId:job.runId,kind:job.kind,status:job.status,attempts:job.attempts,maxAttempts:job.maxAttempts,availableAt:job.availableAt,lastError:job.lastError??null});
   }
 
-  async jobAudit(session,jobId,limit=50){return clone(this.audit.filter((item)=>item.workspaceId===session.workspaceId&&item.aggregateType==='meeting_job'&&item.aggregateId===jobId).slice(-boundedLimit(limit)).reverse())}
+  async jobAudit(session,jobId,limit=50){
+    return clone(this.audit.filter((item)=>item.workspaceId===session.workspaceId&&item.aggregateType==='meeting_job'&&item.aggregateId===jobId)
+      .sort((a,b)=>(Number(b.sequence)||0)-(Number(a.sequence)||0)).slice(0,boundedLimit(limit)));
+  }
 }
 
 export class PostgresMeetingOperationsRepository{
@@ -214,14 +264,13 @@ export class PostgresMeetingOperationsRepository{
       }
       if(row.metricName){
         const quantity=row.quantity==null?null:Number(row.quantity);
-        const amount=Number(row.amount??0);
         if(quantity!=null)call.pricing.matchedMetrics++;
         call.pricing.components.push({metricName:row.metricName,usagePath:row.usagePath,quantity,unitQuantity:row.unitQuantity,unitPrice:row.unitPrice,amount:row.amount});
-        call._amount=(call._amount??0)+amount;
+        call._amount=addDecimalStrings(call._amount??'0',row.amount??'0');
       }
     }
     const calls=[...byCall.values()].map((call)=>{
-      if(call.pricing.priceVersionId&&call.pricing.matchedMetrics>0){call.pricing.priced=true;call.pricing.reason=null;call.pricing.amount=String(call._amount??0)}
+      if(call.pricing.priceVersionId&&call.pricing.matchedMetrics>0){call.pricing.priced=true;call.pricing.reason=null;call.pricing.amount=call._amount??'0'}
       else if(call.pricing.priceVersionId){call.pricing.reason='usage_schema_mismatch'}
       delete call._amount;return call;
     });
@@ -262,8 +311,10 @@ export class PostgresMeetingOperationsRepository{
       if(current.kind==='transcribe')await client.query(`UPDATE call_recordings SET transcript_status='queued',updated_at=now() WHERE workspace_id=$1 AND id=$2`,[session.workspaceId,current.recording_id]);
       else await client.query(`UPDATE call_recordings SET summary_status='queued',updated_at=now() WHERE workspace_id=$1 AND id=$2`,[session.workspaceId,current.recording_id]);
       const payload={reason:text.slice(0,1000),previous,extraAttempts:extend?extra:0,kind:current.kind,runId:current.run_id,callId:current.call_id};
-      await client.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
-        VALUES($1,$2,'meeting_job',$3,'meeting.job.retried',$4,$5)`,[session.organizationId,session.workspaceId,jobId,session.userId,payload]);
+      const sequence=Number((await client.query(`SELECT COALESCE(max(sequence),0)+1 AS next_sequence FROM audit_events
+        WHERE workspace_id=$1 AND aggregate_type='meeting_job' AND aggregate_id=$2`,[session.workspaceId,jobId])).rows[0].next_sequence);
+      await client.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,sequence,payload)
+        VALUES($1,$2,'meeting_job',$3,'meeting.job.retried',$4,$5,$6)`,[session.organizationId,session.workspaceId,jobId,session.userId,sequence,payload]);
       await client.query(`INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload)
         VALUES($1,$2,'meeting.job.retried',$3,$4)`,[session.organizationId,session.workspaceId,jobId,payload]);
       return job;
