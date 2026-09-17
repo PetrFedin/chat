@@ -16,6 +16,7 @@ import { handleWorkspace } from './http/workspace.js';
 import { handleMessaging } from './http/messaging.js';
 import { handleDailyWork } from './http/daily-work.js';
 import { createMeetingIntelligenceHandler } from './http/meeting-intelligence.js';
+import { createMeetingOperationsHandler } from './http/meeting-operations.js';
 import { createMediaHandler } from './http/media.js';
 import { createCallHandler } from './http/calls.js';
 import { createCallRepository } from './media/call-repository.js';
@@ -23,6 +24,7 @@ import { createMediaProvider } from './media/livekit-provider.js';
 import { createLiveKitWebhookReceiver } from './media/livekit-webhook.js';
 import { createMeetingRepository } from './meeting/meeting-repository.js';
 import { createProcessingAwareMeetingRepository } from './meeting/processing-repository.js';
+import { createMeetingOperationsRepository } from './meeting/operations-repository.js';
 import { createMeetingProcessor } from './meeting/processor.js';
 import { createConfiguredMeetingProviders } from './meeting/openai-providers.js';
 import { createMeetingReviewProjector } from './meeting/review-projection.js';
@@ -54,6 +56,7 @@ export async function createChatServer(options={}){
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
   const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
+  const meetingOps=options.meetingOps??createMeetingOperationsRepository(meeting,pool);
   const liveKitWebhook=options.liveKitWebhook??createLiveKitWebhookReceiver();
   const configuredMeetingProviders=createConfiguredMeetingProviders(process.env);
   const transcriptionProvider=options.transcriptionProvider??configuredMeetingProviders.transcriptionProvider;
@@ -83,13 +86,14 @@ export async function createChatServer(options={}){
   const startMeetingWorker=options.startMeetingWorker??mode!=='custom';
   if(startMeetingWorker)meetingWorker.start?.();
 
-  const ctx={store,mode,hub,calls,meeting,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler();
+  const ctx={store,mode,hub,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const server=createServer(async(req,res)=>{try{
     const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`),path=url.pathname,method=req.method??'GET';
     if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,meeting:Boolean(demo.meeting)}});
     if(path==='/openapi.json'||path==='/api/v1/openapi')return json(res,200,openapi);
     if(path==='/vendor/livekit-client.js'&&method==='GET'){const body=await readFile(livekitClientPath);res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=86400'});res.end(body);return}
+    if(await handleMeetingOperations(req,res,ctx,url,path,method))return;
     if(await handleMeetingIntelligence(req,res,ctx,path,method))return;
     if(await handlePreviewDemo(req,res,ctx,path,method))return;
     if(await handleAuth(req,res,ctx,path,method))return;
@@ -104,7 +108,7 @@ export async function createChatServer(options={}){
   }catch(error){console.error(error);errorJson(res,error)}});
   server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
   wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});try{const p=await store.setPresence(s,{state:'online'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}ws.on('message',async raw=>{try{const packet=JSON.parse(String(raw));if(packet.event==='typing.start'||packet.event==='typing.stop'){const id=packet.data?.conversationId;if(id&&await store.canAccessConversation(s,id)){const audience=await store.conversationAudience(s,id);hub.broadcastUsers(s.workspaceId,audience.filter(x=>x!==s.userId),packet.event,{conversationId:id,userId:s.userId})}}else if(packet.event==='presence.set'&&allowedPresence.has(packet.data?.state)){const p=await store.setPresence(s,packet.data);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}}catch(error){hub.send(ws,'error',{code:error.code??'INVALID_EVENT',message:error.message})}});ws.on('close',async()=>{remove();try{const p=await store.setPresence(s,{state:'away'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p})}catch{}})});
-  return{server,store,calls,meeting,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
+  return{server,store,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
 }
 
 const isMain=process.argv[1]&&fileURLToPath(import.meta.url)===normalize(process.argv[1]);
