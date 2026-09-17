@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   AccessToken,
   EncodedFileOutput,
+  EncodedFileType,
   LiveKitAPI,
   S3Upload,
 } from 'livekit-server-sdk';
@@ -33,6 +34,7 @@ export class LiveKitMediaProvider {
     this.apiSecret = env.LIVEKIT_API_SECRET ?? null;
     this.enabled = Boolean(this.url && this.apiKey && this.apiSecret);
     this.recordingEnabled = this.enabled && boolEnv(env.LIVEKIT_EGRESS_ENABLED) && Boolean(env.S3_BUCKET);
+    this.transcriptionSidecarEnabled = this.recordingEnabled && boolEnv(env.LIVEKIT_TRANSCRIPTION_EGRESS_ENABLED);
     this.s3 = {
       bucket: env.S3_BUCKET ?? null,
       region: env.S3_REGION ?? '',
@@ -51,8 +53,27 @@ export class LiveKitMediaProvider {
       provider: 'livekit',
       enabled: this.enabled,
       recordingEnabled: this.recordingEnabled,
+      transcriptionSidecarEnabled: this.transcriptionSidecarEnabled,
       serverUrl: this.enabled ? clientUrl(this.url) : null,
     };
+  }
+
+  s3Output(filepath, fileType) {
+    return new EncodedFileOutput({
+      fileType,
+      filepath,
+      output: {
+        case: 's3',
+        value: new S3Upload({
+          accessKey: this.s3.accessKey,
+          secret: this.s3.secret,
+          bucket: this.s3.bucket,
+          region: this.s3.region,
+          endpoint: this.s3.endpoint,
+          forcePathStyle: this.s3.forcePathStyle,
+        }),
+      },
+    });
   }
 
   async issueJoinCredential({ workspaceId, callId, roomName = null, userId, displayName, canPublish = true }) {
@@ -84,6 +105,20 @@ export class LiveKitMediaProvider {
     };
   }
 
+  async stopEgressIdempotent(egressId) {
+    if (!this.enabled || !egressId) return null;
+    try {
+      return await this.api.egress.stopEgress(egressId);
+    } catch (error) {
+      try {
+        const items = await this.api.egress.listEgress({ egressId });
+        const current = items?.[0] ?? null;
+        if (current && Number(current.status) >= 3) return current;
+      } catch {}
+      throw error;
+    }
+  }
+
   async startRecording({ workspaceId, callId, roomName }) {
     if (!this.recordingEnabled) {
       const error = new Error('Call recording is not configured');
@@ -92,36 +127,62 @@ export class LiveKitMediaProvider {
       throw error;
     }
     const recordingId = randomUUID();
-    const filepath = `recordings/${workspaceId}/${callId}/${recordingId}.mp4`;
-    const fileOutput = new EncodedFileOutput({
-      filepath,
-      output: {
-        case: 's3',
-        value: new S3Upload({
-          accessKey: this.s3.accessKey,
-          secret: this.s3.secret,
-          bucket: this.s3.bucket,
-          region: this.s3.region,
-          endpoint: this.s3.endpoint,
-          forcePathStyle: this.s3.forcePathStyle,
-        }),
-      },
-    });
-    const info = await this.api.egress.startRoomCompositeEgress(roomName, {
-      file: fileOutput,
-      layout: 'grid',
-    });
+    const archivePath = `recordings/${workspaceId}/${callId}/${recordingId}.mp4`;
+    const archiveInfo = await this.api.egress.startRoomCompositeEgress(
+      roomName,
+      { file: this.s3Output(archivePath, EncodedFileType.MP4) },
+      { layout: 'grid' },
+    );
+
+    let transcriptionInfo = null;
+    let transcriptionPath = null;
+    if (this.transcriptionSidecarEnabled) {
+      transcriptionPath = `recordings/${workspaceId}/${callId}/${recordingId}.transcription.ogg`;
+      try {
+        transcriptionInfo = await this.api.egress.startRoomCompositeEgress(
+          roomName,
+          { file: this.s3Output(transcriptionPath, EncodedFileType.OGG) },
+          { audioOnly: true },
+        );
+      } catch (error) {
+        await this.stopEgressIdempotent(archiveInfo.egressId).catch(() => {});
+        throw error;
+      }
+    }
+
     return {
       recordingId,
-      providerRecordingId: info.egressId,
-      storageKey: filepath,
+      providerRecordingId: archiveInfo.egressId,
+      storageKey: archivePath,
+      transcriptionProviderRecordingId: transcriptionInfo?.egressId ?? null,
+      transcriptionStorageKey: transcriptionPath,
+      transcriptionSourceStatus: transcriptionInfo ? 'recording' : 'not_requested',
       status: 'recording',
     };
   }
 
-  async stopRecording(providerRecordingId) {
+  async stopRecording(providerRecordingId, transcriptionProviderRecordingId = null) {
     if (!this.enabled || !providerRecordingId) return null;
-    return this.api.egress.stopEgress(providerRecordingId);
+    const entries = [
+      ['archive', providerRecordingId],
+      ['transcription', transcriptionProviderRecordingId],
+    ].filter(([, id]) => Boolean(id));
+    const settled = await Promise.allSettled(entries.map(([, id]) => this.stopEgressIdempotent(id)));
+    const result = {};
+    const failures = [];
+    settled.forEach((entry, index) => {
+      const [kind] = entries[index];
+      if (entry.status === 'fulfilled') result[kind] = entry.value;
+      else failures.push({ kind, error: entry.reason });
+    });
+    if (failures.length) {
+      const error = new Error(`Unable to stop ${failures.map((value) => value.kind).join(' and ')} recording egress`);
+      error.code = 'RECORDING_STOP_PARTIAL';
+      error.statusCode = 502;
+      error.failures = failures;
+      throw error;
+    }
+    return result;
   }
 }
 
