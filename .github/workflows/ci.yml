@@ -59,6 +59,7 @@ jobs:
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/008_meeting_intelligence.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/009_meeting_product_surface.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/010_meeting_processing_observability.sql
+          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/011_meeting_ops_cost_control.sql
       - name: Verify core constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_core.sql
       - name: Verify collaboration constraints
@@ -77,6 +78,8 @@ jobs:
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_meeting_product_surface.sql
       - name: Verify meeting processing observability constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_meeting_processing_observability.sql
+      - name: Verify meeting operations and cost constraints
+        run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_meeting_ops_cost_control.sql
       - name: Verify daily work Postgres runtime
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
@@ -89,3 +92,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
         run: node --test test/postgres-meeting-processing-observability.test.js
+      - name: Verify meeting operations and cost Postgres runtime
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
+        run: node --test test/postgres-meeting-ops-cost-control.test.js
