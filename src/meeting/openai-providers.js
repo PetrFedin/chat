@@ -39,10 +39,15 @@ function timeoutSignal(ms){
   return undefined;
 }
 
+function requestId(response){return response?.headers?.get?.('x-request-id')??response?.headers?.get?.('request-id')??null}
+
 async function responseError(response){
   const payload=await response.json().catch(()=>null);
   const message=payload?.error?.message||payload?.message||`Provider request failed with HTTP ${response.status}`;
-  return {message,status:response.status,type:payload?.error?.type??null,providerCode:payload?.error?.code??null};
+  return {
+    message,status:response.status,type:payload?.error?.type??null,providerCode:payload?.error?.code??null,
+    requestId:requestId(response),
+  };
 }
 
 function outputText(payload){
@@ -141,10 +146,11 @@ export class OpenAITranscriptionProvider{
       language:payload?.language??payload?.languages?.[0]?.code??null,
       providerSegmentId:segment.id==null?String(index):String(segment.id),
     })).filter((segment)=>segment.text&&segment.endMs>=segment.startMs);
-    if(!segments.length)throw providerError('OPENAI_TRANSCRIPT_EMPTY','OpenAI returned no diarized transcript segments');
+    if(!segments.length)throw providerError('OPENAI_TRANSCRIPT_EMPTY','OpenAI returned no diarized transcript segments',502,{requestId:requestId(response),usage:payload?.usage??null});
     return{
       provider:'openai',
       model:this.model,
+      requestId:requestId(response),
       language:payload?.language??payload?.languages?.[0]?.code??null,
       segments,
       usage:payload?.usage??null,
@@ -209,13 +215,14 @@ export class OpenAIMeetingSummaryProvider{
     }
     const payload=await response.json();
     const text=outputText(payload);
-    if(!text)throw providerError('OPENAI_SUMMARY_EMPTY','OpenAI returned no structured meeting summary');
+    if(!text)throw providerError('OPENAI_SUMMARY_EMPTY','OpenAI returned no structured meeting summary',502,{requestId:requestId(response),usage:payload?.usage??null});
     let parsed;
-    try{parsed=JSON.parse(text)}catch{throw providerError('OPENAI_SUMMARY_INVALID_JSON','OpenAI returned invalid structured meeting JSON')}
-    if(typeof parsed?.overview!=='string'||!Array.isArray(parsed?.proposals))throw providerError('OPENAI_SUMMARY_INVALID','OpenAI meeting summary did not match the expected contract');
+    try{parsed=JSON.parse(text)}catch{throw providerError('OPENAI_SUMMARY_INVALID_JSON','OpenAI returned invalid structured meeting JSON',502,{requestId:requestId(response),usage:payload?.usage??null})}
+    if(typeof parsed?.overview!=='string'||!Array.isArray(parsed?.proposals))throw providerError('OPENAI_SUMMARY_INVALID','OpenAI meeting summary did not match the expected contract',502,{requestId:requestId(response),usage:payload?.usage??null});
     return{
       provider:'openai',
       model:this.model,
+      requestId:requestId(response),
       overview:parsed.overview,
       summaryJson:{source:'openai_structured_output',responseId:payload?.id??null},
       proposals:parsed.proposals,

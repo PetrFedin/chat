@@ -34,6 +34,8 @@
 - Meeting Center с review-ready состоянием и переходом к конкретному фрагменту стенограммы;
 - AI action не создаёт реальную задачу без отдельного подтверждения человеком;
 - автоматический production worker для `transcribe` и `summarize` с durable claim, lease recovery, retry/dead-letter и graceful shutdown;
+- optional audio-only transcription sidecar для длинных встреч, при этом MP4 остаётся review/evidence archive;
+- provider-attempt telemetry: provider/model, attempt, request usage, latency и failure state без фиксации меняющейся цены в source event;
 - Web Push infrastructure при настроенных VAPID-ключах;
 - задачи и календарные события через тот же API;
 - installable mobile-first PWA, RU/EN и dark/light themes.
@@ -47,7 +49,7 @@ npm start
 
 Откройте `http://localhost:3000` и зарегистрируйте компанию.
 
-Без `DATABASE_URL` используется in-memory development store — данные сбрасываются после рестарта. Для постоянного многопользовательского режима примените миграции `001`–`009` по порядку и задайте:
+Без `DATABASE_URL` используется in-memory development store — данные сбрасываются после рестарта. Для постоянного многопользовательского режима примените миграции `001`–`010` по порядку и задайте:
 
 ```bash
 DATABASE_URL=postgres://...
@@ -84,7 +86,17 @@ S3_FORCE_PATH_STYLE=false
 LIVEKIT_EGRESS_ENABLED=true
 ```
 
-LiveKit Egress пишет composite MP4 в тот же S3-compatible контур. `egress_ended` принимается только через подписанный LiveKit webhook; после успешного terminal state запись переводится в `ready` и durable transcription job становится доступен worker'у.
+По умолчанию LiveKit Egress сохраняет один composite MP4 в тот же S3-compatible контур. Он остаётся архивом встречи и источником доказательства.
+
+Для более лёгкого speech-to-text источника можно **явно** включить параллельный audio-only OGG sidecar:
+
+```bash
+LIVEKIT_TRANSCRIPTION_EGRESS_ENABLED=true
+```
+
+Это отдельный Egress и поэтому не включается скрыто. При включении Chat хранит два связанных provider recording ID: MP4 archive и OGG transcription source. Если OGG готов — транскрипция предпочитает его. Если sidecar завершился ошибкой, но MP4 готов, pipeline детерминированно возвращается к MP4. Если MP4 упал, но OGG готов, транскрипция может продолжиться, при этом архив встречи честно остаётся в состоянии `failed`.
+
+`egress_ended` принимается только через подписанный LiveKit webhook. Job создаётся один раз при появлении первого пригодного transcription source.
 
 ## Meeting Intelligence provider runtime
 
@@ -119,7 +131,23 @@ MEETING_WORKER_SHUTDOWN_MS=5000
 
 Несколько экземпляров приложения могут polling-ить одну PostgreSQL queue: claim использует `FOR UPDATE SKIP LOCKED`, а lock token + bounded lease не дают двум workers подтвердить один job. При аварийном завершении stale processing job восстанавливается после lease timeout.
 
-`GET /healthz` показывает отдельно webhook, processor и worker state, включая активные provider lanes и последний результат обработки.
+## Processing safety и экономика
+
+Текущий provider adapter принимает media bytes как multipart body, поэтому Chat вводит собственный fail-safe до загрузки крупного объекта в память:
+
+```bash
+MEETING_PROCESSING_MAX_IN_MEMORY_BYTES=67108864
+```
+
+Default — 64 MiB. Object storage сначала проверяется через `head()`. Если выбранный archive/sidecar превышает лимит, job завершается контролируемой ошибкой `RECORDING_OBJECT_TOO_LARGE`; provider не вызывается и приложение не пытается неограниченно аллоцировать RAM. Для длинных встреч предпочтителен audio-only sidecar.
+
+Каждый фактический внешний provider attempt записывается отдельно в `meeting_provider_calls`: `provider`, `model`, `attempt_number`, provider request ID, source metadata, provider-reported `usage`, latency и failure state. Повторная попытка не перезаписывает предыдущую.
+
+Денежная стоимость намеренно не зашивается в историческую provider-call запись: тарифы меняются. Экономика должна рассчитываться из сохранённого usage через версионированный price catalog, чтобы историческая себестоимость была воспроизводимой.
+
+Пользовательский Meeting Center получает безопасные операционные метрики, но не provider request IDs и не внутренние source metadata.
+
+`GET /healthz` показывает отдельно webhook, processor и worker state, включая активные provider lanes, media memory ceiling и последний результат обработки.
 
 ## Web Push
 
@@ -140,7 +168,7 @@ VAPID_SUBJECT=mailto:admin@example.com
 - LiveKit join credential короткоживущий и выдаётся только authenticated member;
 - consequential call recording требует server-side consent всех активных участников;
 - LiveKit webhook проверяется официальным JWT + exact-body SHA contract;
-- запись валидируется в object storage до transcription, а SHA-256 исходных bytes сохраняется в intelligence run;
+- запись валидируется в object storage до transcription, а SHA-256 фактически выбранного source сохраняется в intelligence run;
 - AI proposals не являются authoritative work: responsibility, promised date и создание task подтверждаются человеком;
 - Chat/PostgreSQL остаётся authoritative для lifecycle и work graph; LiveKit отвечает за media transport/Egress, AI provider — только за предложенную интерпретацию доказательств.
 

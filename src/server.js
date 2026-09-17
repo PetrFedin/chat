@@ -22,6 +22,7 @@ import { createCallRepository } from './media/call-repository.js';
 import { createMediaProvider } from './media/livekit-provider.js';
 import { createLiveKitWebhookReceiver } from './media/livekit-webhook.js';
 import { createMeetingRepository } from './meeting/meeting-repository.js';
+import { createProcessingAwareMeetingRepository } from './meeting/processing-repository.js';
 import { createMeetingProcessor } from './meeting/processor.js';
 import { createConfiguredMeetingProviders } from './meeting/openai-providers.js';
 import { createMeetingReviewProjector } from './meeting/review-projection.js';
@@ -52,7 +53,7 @@ export async function createChatServer(options={}){
   const hub=new RealtimeHub(),push=pushConfig(),wss=new WebSocketServer({noServer:true});
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
-  const meeting=options.meeting??createMeetingRepository(pool);
+  const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
   const liveKitWebhook=options.liveKitWebhook??createLiveKitWebhookReceiver();
   const configuredMeetingProviders=createConfiguredMeetingProviders(process.env);
   const transcriptionProvider=options.transcriptionProvider??configuredMeetingProviders.transcriptionProvider;
@@ -69,6 +70,7 @@ export async function createChatServer(options={}){
     transcriptionProvider,
     summaryProvider,
     onReviewReady:projectMeetingReviewReady,
+    maxInMemoryBytes:Number(process.env.MEETING_PROCESSING_MAX_IN_MEMORY_BYTES||64*1024*1024),
   });
 
   if(demo.enabled){

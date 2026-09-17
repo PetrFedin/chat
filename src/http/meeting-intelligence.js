@@ -35,6 +35,14 @@ async function proposalFor(meeting, session, proposalId) {
   return { ...structuredClone(value), callId:run?.callId ?? null };
 }
 
+function newlyQueuedSource(result) {
+  if (!result?.run) return false;
+  // With an optional sidecar two distinct Egress events belong to one intelligence run.
+  // If the sidecar is already ready, a later archive terminal event is lifecycle evidence,
+  // not a second queue transition. Archive fallback (sidecar failed/absent) still emits once.
+  return !(result.sidecar === false && result.recording?.transcriptionSourceStatus === 'ready');
+}
+
 export function createMeetingIntelligenceHandler() {
   return async function handleMeetingIntelligence(req, res, ctx, path, method) {
     const { store, meeting, meetingProcessor, meetingWorker, requireSession, hub, liveKitWebhook, calls } = ctx;
@@ -59,7 +67,8 @@ export function createMeetingIntelligenceHandler() {
           }
           const result = await meeting.reconcileEgress(egress.providerRecordingId, { success:egress.success, error:egress.error });
           await meeting.finishWebhook('livekit', providerEventId, { status:result ? 'processed' : 'ignored' });
-          if (result?.run) {
+          const queued = newlyQueuedSource(result);
+          if (queued) {
             meetingWorker?.kick?.('transcribe');
             hub.broadcastWorkspace(result.run.workspaceId, 'meeting.intelligence.queued', {
               callId:result.run.callId,
@@ -67,7 +76,7 @@ export function createMeetingIntelligenceHandler() {
               recordingId:result.run.recordingId,
             });
           }
-          json(res, 200, { ok:true, matched:Boolean(result), reclaimed:Boolean(recorded.reclaimed), egress:{ status:egress.status, success:egress.success } });
+          json(res, 200, { ok:true, matched:Boolean(result), queued, reclaimed:Boolean(recorded.reclaimed), egress:{ status:egress.status, success:egress.success } });
           return true;
         }
         await meeting.finishWebhook('livekit', providerEventId, { status:'ignored' });

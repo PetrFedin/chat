@@ -150,7 +150,7 @@ export function createCallHandler() {
           callId: call.id,
         });
       } catch (error) {
-        await mediaProvider.stopRecording(providerResult.providerRecordingId).catch(() => {});
+        await mediaProvider.stopRecording(providerResult.providerRecordingId, providerResult.transcriptionProviderRecordingId).catch(() => {});
         throw error;
       }
       const audience = await store.conversationAudience(session, call.conversationId);
@@ -166,7 +166,7 @@ export function createCallHandler() {
       const call = await accessibleCall(store, calls, session, match[1]);
       const activeRecording = [...(call.recordings ?? [])].reverse().find((r) => r.status === 'recording');
       if (!activeRecording) throw Object.assign(new Error('No active recording'), { code: 'NO_ACTIVE_RECORDING', statusCode: 409 });
-      await mediaProvider.stopRecording(activeRecording.providerRecordingId);
+      await mediaProvider.stopRecording(activeRecording.providerRecordingId, activeRecording.transcriptionProviderRecordingId);
       const recording = await calls.stopRecording(session, call.id);
       const audience = await store.conversationAudience(session, call.conversationId);
       hub.broadcastUsers(session.workspaceId, audience, 'call.recording.stopped', { callId: call.id, recording });
@@ -183,7 +183,7 @@ export function createCallHandler() {
       }
       const activeRecording = [...(call.recordings ?? [])].reverse().find((r) => r.status === 'recording');
       if (activeRecording) {
-        await mediaProvider.stopRecording(activeRecording.providerRecordingId).catch(() => {});
+        await mediaProvider.stopRecording(activeRecording.providerRecordingId, activeRecording.transcriptionProviderRecordingId).catch(() => {});
         await calls.stopRecording(session, call.id).catch(() => {});
       }
       const ended = await calls.end(session, call.id);

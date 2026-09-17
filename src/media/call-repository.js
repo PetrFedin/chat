@@ -137,6 +137,10 @@ export class MemoryCallRepository {
       provider: 'livekit',
       providerRecordingId: value.providerRecordingId,
       storageKey: value.storageKey,
+      transcriptionProviderRecordingId: value.transcriptionProviderRecordingId ?? null,
+      transcriptionStorageKey: value.transcriptionStorageKey ?? null,
+      transcriptionSourceStatus: value.transcriptionProviderRecordingId ? (value.transcriptionSourceStatus ?? 'recording') : 'not_requested',
+      transcriptionSourceError: null,
       status: 'recording',
       startedBy: session.userId,
       startedAt: now(),
@@ -153,6 +157,7 @@ export class MemoryCallRepository {
     const recording = [...this.recordings.values()].filter((r) => r.callId === callId && r.status === 'recording').at(-1);
     if (!recording) return null;
     recording.status = 'processing';
+    if (recording.transcriptionProviderRecordingId && recording.transcriptionSourceStatus === 'recording') recording.transcriptionSourceStatus = 'processing';
     recording.stoppedAt = now();
     const call = this.calls.get(callId);
     if (call) call.recordingStatus = 'processing';
@@ -223,6 +228,8 @@ export class PostgresCallRepository {
       recording_consented_at "recordingConsentedAt",connection_state "connectionState",last_media_at "lastMediaAt"
       FROM call_participants WHERE workspace_id=$1 AND call_id=$2 ORDER BY joined_at NULLS FIRST,user_id`, [session.workspaceId, callId])).rows;
     const recordings = (await this.pool.query(`SELECT id,provider,provider_recording_id "providerRecordingId",storage_key "storageKey",status,
+      transcription_provider_recording_id "transcriptionProviderRecordingId",transcription_storage_key "transcriptionStorageKey",
+      transcription_source_status "transcriptionSourceStatus",transcription_source_error "transcriptionSourceError",
       started_by "startedBy",started_at "startedAt",stopped_at "stoppedAt",transcript_status "transcriptStatus",
       summary_status "summaryStatus" FROM call_recordings WHERE workspace_id=$1 AND call_id=$2 ORDER BY created_at`, [session.workspaceId, callId])).rows;
     return callView(rows[0], participants, recordings);
@@ -282,18 +289,28 @@ export class PostgresCallRepository {
 
   async startRecording(session, callId, value) {
     const { rows } = await this.pool.query(`INSERT INTO call_recordings(
-      id,organization_id,workspace_id,call_id,provider,provider_recording_id,storage_key,status,started_by
-      ) VALUES($1,$2,$3,$4,'livekit',$5,$6,'recording',$7)
-      RETURNING id,provider,provider_recording_id "providerRecordingId",storage_key "storageKey",status,started_at "startedAt"`,
-    [value.recordingId, session.organizationId, session.workspaceId, callId, value.providerRecordingId, value.storageKey, session.userId]);
+      id,organization_id,workspace_id,call_id,provider,provider_recording_id,storage_key,status,started_by,
+      transcription_provider_recording_id,transcription_storage_key,transcription_source_status
+      ) VALUES($1,$2,$3,$4,'livekit',$5,$6,'recording',$7,$8,$9,$10)
+      RETURNING id,provider,provider_recording_id "providerRecordingId",storage_key "storageKey",status,
+        transcription_provider_recording_id "transcriptionProviderRecordingId",transcription_storage_key "transcriptionStorageKey",
+        transcription_source_status "transcriptionSourceStatus",started_at "startedAt"`,
+    [value.recordingId, session.organizationId, session.workspaceId, callId, value.providerRecordingId, value.storageKey, session.userId,
+      value.transcriptionProviderRecordingId ?? null, value.transcriptionStorageKey ?? null,
+      value.transcriptionProviderRecordingId ? (value.transcriptionSourceStatus ?? 'recording') : 'not_requested']);
     await this.pool.query(`UPDATE call_sessions SET recording_status='recording',last_activity_at=now() WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, callId]);
     return rows[0];
   }
 
   async stopRecording(session, callId) {
-    const { rows } = await this.pool.query(`UPDATE call_recordings SET status='processing',stopped_at=now(),updated_at=now()
+    const { rows } = await this.pool.query(`UPDATE call_recordings SET status='processing',stopped_at=now(),updated_at=now(),
+      transcription_source_status=CASE
+        WHEN transcription_provider_recording_id IS NOT NULL AND transcription_source_status='recording' THEN 'processing'
+        ELSE transcription_source_status END
       WHERE id=(SELECT id FROM call_recordings WHERE workspace_id=$1 AND call_id=$2 AND status='recording' ORDER BY created_at DESC LIMIT 1)
-      RETURNING id,provider_recording_id "providerRecordingId",storage_key "storageKey",status,stopped_at "stoppedAt"`, [session.workspaceId, callId]);
+      RETURNING id,provider_recording_id "providerRecordingId",storage_key "storageKey",status,stopped_at "stoppedAt",
+        transcription_provider_recording_id "transcriptionProviderRecordingId",transcription_storage_key "transcriptionStorageKey",
+        transcription_source_status "transcriptionSourceStatus"`, [session.workspaceId, callId]);
     if (rows[0]) await this.pool.query(`UPDATE call_sessions SET recording_status='processing',last_activity_at=now() WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, callId]);
     return rows[0] ?? null;
   }
