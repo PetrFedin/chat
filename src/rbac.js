@@ -17,7 +17,10 @@ export const Permission = Object.freeze({
   FILE_UPLOAD: 'file.upload',
   PUSH_SUBSCRIBE: 'push.subscribe',
   AUDIT_READ: 'audit.read',
-  AI_USE: 'ai.use'
+  AI_USE: 'ai.use',
+  MEETING_OPS_MANAGE: 'meeting.ops.manage',
+  MEETING_COST_READ: 'meeting.cost.read',
+  MEETING_COST_MANAGE: 'meeting.cost.manage'
 });
 
 const all = new Set(Object.values(Permission));
