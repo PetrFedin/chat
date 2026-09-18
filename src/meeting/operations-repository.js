@@ -14,6 +14,7 @@ function nestedNumber(value,path){
   const number=Number(cursor);
   return Number.isFinite(number)&&number>=0?number:null;
 }
+function hasUsage(value){return Boolean(value&&typeof value==='object'&&Object.keys(value).length)}
 function plainDecimal(value){
   const text=String(value??'0').trim();
   if(/^[+-]?\d+(?:\.\d+)?$/.test(text))return text;
@@ -110,7 +111,8 @@ function priceCallMemory(call,versions){
     total=addDecimalStrings(total,amount);
     return{metricName:item.metricName,usagePath:item.usagePath,quantity,unitQuantity:item.unitQuantity,unitPrice:item.unitPrice,amount};
   });
-  return{...call,pricing:{priced:matched>0,reason:matched>0?null:'usage_schema_mismatch',priceVersionId:version.id,currency:version.currency,amount:matched>0?total:null,matchedMetrics:matched,components}};
+  const reason=matched>0?null:(hasUsage(call.usage)?'usage_schema_mismatch':'usage_unavailable');
+  return{...call,pricing:{priced:matched>0,reason,priceVersionId:version.id,currency:version.currency,amount:matched>0?total:null,matchedMetrics:matched,components}};
 }
 
 function rollupPricedCalls(calls){
@@ -151,11 +153,12 @@ export class MemoryMeetingOperationsRepository{
 
   async costReport(session,{from=null,to=null,limit=200}={}){
     const start=from?Date.parse(from):-Infinity,end=to?Date.parse(to):Infinity;
-    const providerCalls=[...(this.meeting.providerCalls?.values?.()??[])].filter((call)=>call.workspaceId===session.workspaceId&&call.status==='succeeded'&&Date.parse(call.startedAt)>=start&&Date.parse(call.startedAt)<=end)
-      .sort((a,b)=>Date.parse(b.startedAt)-Date.parse(a.startedAt)).slice(0,boundedLimit(limit,200,1000))
+    const providerCalls=[...(this.meeting.providerCalls?.values?.()??[])].filter((call)=>
+      call.workspaceId===session.workspaceId&&['succeeded','failed'].includes(call.status)&&Date.parse(call.startedAt)>=start&&Date.parse(call.startedAt)<=end)
+      .sort((a,b)=>Date.parse(b.startedAt)-Date.parse(a.startedAt))
       .map(({providerRequestId,inputMetadata,...call})=>call);
     const priced=providerCalls.map((call)=>priceCallMemory(call,this.priceVersions.filter((version)=>version.workspaceId===session.workspaceId)));
-    return{period:{from:from??null,to:to??null},rollup:rollupPricedCalls(priced),calls:priced};
+    return{period:{from:from??null,to:to??null},rollup:rollupPricedCalls(priced),calls:priced.slice(0,boundedLimit(limit,200,1000))};
   }
 
   async listJobs(session,{statuses=['failed','dead_letter'],limit=50}={}){
@@ -240,10 +243,10 @@ export class PostgresMeetingOperationsRepository{
     const {rows}=await this.pool.query(`WITH calls AS (
         SELECT pc.id,pc.kind,pc.provider,pc.model,pc.status,pc.usage,pc.started_at,pc.finished_at,pc.latency_ms
         FROM meeting_provider_calls pc
-        WHERE pc.workspace_id=$1 AND pc.status='succeeded'
+        WHERE pc.workspace_id=$1 AND pc.status IN('succeeded','failed')
           AND ($2::timestamptz IS NULL OR pc.started_at >= $2::timestamptz)
           AND ($3::timestamptz IS NULL OR pc.started_at <= $3::timestamptz)
-        ORDER BY pc.started_at DESC,pc.id DESC LIMIT $4
+        ORDER BY pc.started_at DESC,pc.id DESC
       )
       SELECT c.id,c.kind,c.provider,c.model,c.status,c.usage,c.started_at "startedAt",c.finished_at "finishedAt",c.latency_ms "latencyMs",
         v.id "priceVersionId",v.currency,v.effective_from "priceEffectiveFrom",
@@ -259,7 +262,7 @@ export class PostgresMeetingOperationsRepository{
         ORDER BY pv.effective_from DESC,pv.created_at DESC LIMIT 1
       ) v ON true
       LEFT JOIN meeting_price_items i ON i.workspace_id=$1 AND i.price_version_id=v.id
-      ORDER BY c.started_at DESC,c.id,i.metric_name`,[session.workspaceId,from,to,max]);
+      ORDER BY c.started_at DESC,c.id,i.metric_name`,[session.workspaceId,from,to]);
 
     const byCall=new Map();
     for(const row of rows){
@@ -277,10 +280,10 @@ export class PostgresMeetingOperationsRepository{
     }
     const calls=[...byCall.values()].map((call)=>{
       if(call.pricing.priceVersionId&&call.pricing.matchedMetrics>0){call.pricing.priced=true;call.pricing.reason=null;call.pricing.amount=call._amount??'0'}
-      else if(call.pricing.priceVersionId){call.pricing.reason='usage_schema_mismatch'}
+      else if(call.pricing.priceVersionId){call.pricing.reason=hasUsage(call.usage)?'usage_schema_mismatch':'usage_unavailable'}
       delete call._amount;return call;
     });
-    return{period:{from:from??null,to:to??null},rollup:rollupPricedCalls(calls),calls};
+    return{period:{from:from??null,to:to??null},rollup:rollupPricedCalls(calls),calls:calls.slice(0,max)};
   }
 
   async listJobs(session,{statuses=['failed','dead_letter'],limit=50}={}){
@@ -317,10 +320,8 @@ export class PostgresMeetingOperationsRepository{
       if(current.kind==='transcribe')await client.query(`UPDATE call_recordings SET transcript_status='queued',updated_at=now() WHERE workspace_id=$1 AND id=$2`,[session.workspaceId,current.recording_id]);
       else await client.query(`UPDATE call_recordings SET summary_status='queued',updated_at=now() WHERE workspace_id=$1 AND id=$2`,[session.workspaceId,current.recording_id]);
       const payload={reason:text.slice(0,1000),previous,extraAttempts:extend?extra:0,kind:current.kind,runId:current.run_id,callId:current.call_id};
-      const sequence=Number((await client.query(`SELECT COALESCE(max(sequence),0)+1 AS next_sequence FROM audit_events
-        WHERE workspace_id=$1 AND aggregate_type='meeting_job' AND aggregate_id=$2`,[session.workspaceId,jobId])).rows[0].next_sequence);
-      await client.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,sequence,payload)
-        VALUES($1,$2,'meeting_job',$3,'meeting.job.retried',$4,$5,$6)`,[session.organizationId,session.workspaceId,jobId,session.userId,sequence,payload]);
+      await client.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+        VALUES($1,$2,'meeting_job',$3,'meeting.job.retried',$4,$5)`,[session.organizationId,session.workspaceId,jobId,session.userId,payload]);
       await client.query(`INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload)
         VALUES($1,$2,'meeting.job.retried',$3,$4)`,[session.organizationId,session.workspaceId,jobId,payload]);
       return job;
