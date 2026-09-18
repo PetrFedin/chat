@@ -40,7 +40,7 @@ test('preview demo is seeded and opens a populated owner workspace in one click'
   assert.equal(health.payload.persistence.database.durable, false);
   assert.equal(health.payload.persistence.objects.provider, 'local');
   assert.equal(health.payload.persistence.objects.durable, false);
-  assert.equal(health.payload.persistence.productionReady, false);
+  assert.equal(health.payload.persistence.durabilityConfigured, false);
 
   const login = await request(base, '/api/v1/auth/demo', { method: 'POST' });
   assert.equal(login.response.status, 200);
