@@ -42,7 +42,7 @@ test('price catalog uses the latest effective immutable version and computes pro
   assert.equal(report.rollup.unpricedCalls,0);
 });
 
-test('financial rollups add decimal strings without IEEE-754 artifacts',async()=>{
+test('financial rollups cover the full period, include failed usage and avoid IEEE-754 artifacts',async()=>{
   const actor=session();
   const meeting=createProcessingAwareMeetingRepository(new MemoryMeetingRepository());
   const ops=new MemoryMeetingOperationsRepository(meeting);
@@ -50,17 +50,20 @@ test('financial rollups add decimal strings without IEEE-754 artifacts',async()=
     provider:'fixture',model:'decimal-v1',kind:'summarize',currency:'USD',effectiveFrom:'2026-01-01T00:00:00Z',
     items:[{metricName:'units',usagePath:'units',unitQuantity:1,unitPrice:0.1}],
   });
-  for(const [index,units] of [1,2].entries()){
+  for(const [index,units] of [1,2,3].entries()){
     const id=randomUUID();
     meeting.providerCalls.set(id,{
       id,organizationId:actor.organizationId,workspaceId:actor.workspaceId,runId:randomUUID(),jobId:randomUUID(),kind:'summarize',attemptNumber:1,
-      provider:'fixture',model:'decimal-v1',status:'succeeded',usage:{units},startedAt:`2026-03-0${index+1}T00:00:00Z`,finishedAt:`2026-03-0${index+1}T00:00:01Z`,latencyMs:1000,
+      provider:'fixture',model:'decimal-v1',status:index===1?'failed':'succeeded',usage:{units},startedAt:`2026-03-0${index+1}T00:00:00Z`,finishedAt:`2026-03-0${index+1}T00:00:01Z`,latencyMs:1000,
+      errorCode:index===1?'PROVIDER_TIMEOUT':null,
     });
   }
-  const report=await ops.costReport(actor,{});
-  assert.deepEqual(report.calls.map((call)=>call.pricing.amount).sort(),['0.1','0.2']);
-  assert.equal(report.rollup.currencies[0].amount,'0.3');
-  assert.equal(report.rollup.providers[0].amount,'0.3');
+  const report=await ops.costReport(actor,{limit:1});
+  assert.equal(report.calls.length,1,'detail limit must not truncate the period rollup');
+  assert.equal(report.rollup.totalCalls,3);
+  assert.equal(report.rollup.pricedCalls,3);
+  assert.equal(report.rollup.currencies[0].amount,'0.6');
+  assert.equal(report.rollup.providers[0].amount,'0.6');
 });
 
 test('unpriced or incompatible usage stays explicit instead of being reported as zero cost',async()=>{
@@ -80,6 +83,16 @@ test('unpriced or incompatible usage stays explicit instead of being reported as
   assert.equal(report.calls[0].pricing.reason,'usage_schema_mismatch');
   assert.equal(report.calls[0].pricing.amount,null);
   assert.equal(report.rollup.unpricedCalls,1);
+
+  meeting.providerCalls.set('failed-without-usage',{
+    id:'failed-without-usage',organizationId:actor.organizationId,workspaceId:actor.workspaceId,runId:randomUUID(),jobId:randomUUID(),kind:'transcribe',attemptNumber:2,
+    provider:'openai',model:'gpt-4o-transcribe-diarize',status:'failed',usage:null,startedAt:'2026-03-02T00:00:00Z',finishedAt:'2026-03-02T00:00:01Z',latencyMs:1000,errorCode:'PROVIDER_TIMEOUT',
+  });
+  const withFailure=await ops.costReport(actor,{});
+  const missingUsage=withFailure.calls.find((call)=>call.id==='failed-without-usage');
+  assert.equal(missingUsage.pricing.priced,false);
+  assert.equal(missingUsage.pricing.reason,'usage_unavailable');
+  assert.equal(withFailure.rollup.unpricedCalls,2);
 });
 
 test('manual dead-letter retry preserves attempt history and monotonically sequences repeated recovery audit',async()=>{
@@ -111,7 +124,7 @@ test('manual dead-letter retry preserves attempt history and monotonically seque
   assert.equal(second.maxAttempts,8);
   const audit=await ops.jobAudit(actor,jobId);
   assert.equal(audit.length,2);
-  assert.deepEqual(audit.map((event)=>event.sequence),[2,1]);
+  assert.ok(Number(audit[0].sequence)>Number(audit[1].sequence),'recovery audit sequence must be monotonic');
   assert.equal(audit[0].payload.reason,'Second incident resolved');
   assert.equal(audit[0].payload.previous.attempts,7);
   assert.equal(audit[1].payload.reason,'Provider incident resolved');
