@@ -35,9 +35,12 @@ test('Postgres cost report chooses the effective catalog and keeps exact provide
   await pool.query(`INSERT INTO meeting_intelligence_runs(id,organization_id,workspace_id,call_id,recording_id,status)
     VALUES($1,$2,$3,$4,$5,'review_ready')`,[runId,owner.organizationId,owner.workspaceId,callId,recordingId]);
   await pool.query(`INSERT INTO meeting_intelligence_jobs(id,organization_id,workspace_id,run_id,kind,status,attempts,max_attempts,finished_at)
-    VALUES($1,$2,$3,$4,'summarize','succeeded',1,5,now())`,[jobId,owner.organizationId,owner.workspaceId,runId]);
+    VALUES($1,$2,$3,$4,'summarize','succeeded',2,5,now())`,[jobId,owner.organizationId,owner.workspaceId,runId]);
+  await pool.query(`INSERT INTO meeting_provider_calls(id,organization_id,workspace_id,run_id,job_id,kind,attempt_number,provider,model,status,usage,started_at,finished_at,latency_ms,error_code,error_message)
+    VALUES($1,$2,$3,$4,$5,'summarize',1,'openai','gpt-5.6','failed',$6,'2026-03-01T11:59:00Z','2026-03-01T11:59:01Z',1000,'PROVIDER_TIMEOUT','temporary failure')`,
+  [randomUUID(),owner.organizationId,owner.workspaceId,runId,jobId,{input_tokens:500,output_tokens:0}]);
   await pool.query(`INSERT INTO meeting_provider_calls(id,organization_id,workspace_id,run_id,job_id,kind,attempt_number,provider,model,status,usage,started_at,finished_at,latency_ms)
-    VALUES($1,$2,$3,$4,$5,'summarize',1,'openai','gpt-5.6','succeeded',$6,'2026-03-01T12:00:00Z','2026-03-01T12:00:01Z',1000)`,
+    VALUES($1,$2,$3,$4,$5,'summarize',2,'openai','gpt-5.6','succeeded',$6,'2026-03-01T12:00:00Z','2026-03-01T12:00:01Z',1000)`,
   [providerCallId,owner.organizationId,owner.workspaceId,runId,jobId,{input_tokens:1000,output_tokens:200}]);
 
   const version=await ops.createPriceVersion(owner,{
@@ -55,12 +58,14 @@ test('Postgres cost report chooses the effective catalog and keeps exact provide
     ],
   });
 
-  const report=await ops.costReport(owner,{from:'2026-01-01T00:00:00Z',to:'2026-12-31T23:59:59Z'});
-  assert.equal(report.calls.length,1);
+  const report=await ops.costReport(owner,{from:'2026-01-01T00:00:00Z',to:'2026-12-31T23:59:59Z',limit:1});
+  assert.equal(report.calls.length,1,'detail limit must not truncate the period rollup');
   assert.equal(report.calls[0].pricing.priceVersionId,version.id);
   assert.equal(report.calls[0].pricing.priced,true);
   assert.equal(report.calls[0].pricing.amount,'0.004');
-  assert.equal(report.rollup.currencies[0].amount,'0.004');
+  assert.equal(report.rollup.totalCalls,2);
+  assert.equal(report.rollup.pricedCalls,2);
+  assert.equal(report.rollup.currencies[0].amount,'0.005');
   assert.deepEqual(report.calls[0].usage,{input_tokens:1000,output_tokens:200});
   assert.equal(report.calls[0].providerRequestId,undefined);
 
@@ -114,7 +119,7 @@ test('Postgres manual retry preserves attempt sequence and monotonically audits 
 
   const audit=await ops.jobAudit(owner,jobId);
   assert.equal(audit.length,2);
-  assert.deepEqual(audit.map((event)=>event.sequence),[2,1]);
+  assert.ok(Number(audit[0].sequence)>Number(audit[1].sequence),'Postgres identity sequence must advance across repeated recovery');
   assert.equal(audit[0].payload.reason,'Second incident resolved');
   assert.equal(audit[0].payload.previous.attempts,7);
   assert.equal(audit[1].payload.reason,'Provider incident resolved');
