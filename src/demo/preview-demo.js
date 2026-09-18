@@ -2,9 +2,9 @@ import { json } from '../http/helpers.js';
 import { DEMO_EMAIL, seedDemoWorkspace } from './seed-demo.js';
 
 export async function preparePreviewDemo({ store, objectStore, mode, enabled }) {
-  if (!enabled || mode !== 'memory') return { enabled: false };
-  await seedDemoWorkspace(store, objectStore);
-  return { enabled: true, email: DEMO_EMAIL, label: 'Northstar Studio' };
+  if (!enabled || !['memory','postgres'].includes(mode)) return { enabled:false };
+  const seed=await seedDemoWorkspace(store,objectStore);
+  return { enabled:true, email:DEMO_EMAIL, label:'Northstar Studio', persistent:mode==='postgres', seed };
 }
 
 export async function handlePreviewDemo(req, res, ctx, path, method) {
