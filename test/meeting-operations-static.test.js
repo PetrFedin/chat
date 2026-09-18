@@ -40,16 +40,23 @@ test('cost surface distinguishes full rollup from limited details and explicit u
   assert.match(js,/usage_schema_mismatch/);
   assert.match(js,/no_price_version/);
   assert.match(js,/limit=100/);
-  assert.match(js,/Failed attempt учитывается/);
+  assert.match(js,/Неуспешная попытка учитывается/);
 });
 
 test('pricing form creates a new effective version without default money values',()=>{
-  assert.match(js,/НОВАЯ EFFECTIVE VERSION/);
+  assert.match(js,/НОВАЯ ВЕРСИЯ ТАРИФА/);
   assert.match(js,/effectiveFrom/);
   assert.match(js,/unitQuantity/);
   assert.match(js,/unitPrice/);
   assert.doesNotMatch(js,/name="unitPrice"[^>]*value=/);
   assert.doesNotMatch(js,/name="currency"[^>]*value=/);
+});
+
+
+test('Meeting Review and Meeting Operations own separate overlay lifecycles',()=>{
+  assert.match(js,/mio-overlay/);
+  assert.match(js,/O\.permissions=new Set\(\)/);
+  assert.match(js,/location\.hash==='\\#\/meeting-operations'/);
 });
 
 test('Meeting Operations has responsive themed styles and is cached by the PWA shell',()=>{
