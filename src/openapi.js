@@ -2,8 +2,8 @@ export const openapi = Object.freeze({
   openapi: '3.1.0',
   info: {
     title: 'Chat Corporate Workspace API',
-    version: '0.7.0',
-    description: 'Company workspace API with daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, and an evidence-first meeting intelligence product surface. AI output remains proposed until explicitly confirmed by a human.'
+    version: '0.8.0',
+    description: 'Company workspace API with daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, evidence-first meeting intelligence, governed processing recovery and versioned provider cost accounting. AI output remains proposed until explicitly confirmed by a human.'
   },
   servers: [{ url: '/' }],
   tags: [
@@ -15,6 +15,7 @@ export const openapi = Object.freeze({
     { name: 'Realtime' },
     { name: 'Calls' },
     { name: 'Meeting Intelligence' },
+    { name: 'Meeting Operations' },
     { name: 'Files' },
     { name: 'Push' }
   ],
@@ -63,7 +64,7 @@ export const openapi = Object.freeze({
       post: {
         tags: ['Meeting Intelligence'],
         summary: 'Receive a signed LiveKit webhook and reconcile recording lifecycle',
-        description: 'Authenticated with the official LiveKit webhook JWT/body-SHA contract. Egress completion is idempotently mapped to the persisted recording. A previously failed webhook journal entry may be atomically reclaimed on provider redelivery; processed events remain duplicates.',
+        description: 'Authenticated with the official LiveKit webhook JWT/body-SHA contract. Egress completion is idempotently mapped to persisted archive/transcription sources. A previously failed webhook journal entry may be atomically reclaimed on provider redelivery; processed events remain duplicates.',
         responses: { '200': { description: 'Webhook processed, reclaimed, ignored or already seen' }, '401': { description: 'Invalid webhook signature' }, '503': { description: 'LiveKit webhook verification is not configured' } }
       }
     },
@@ -78,8 +79,8 @@ export const openapi = Object.freeze({
     '/api/v1/calls/{callId}/meeting': {
       get: {
         tags: ['Meeting Intelligence'],
-        summary: 'Get meeting recording intelligence, transcript segments, proposals and evidence links',
-        description: 'Visibility is inherited from the call conversation. Proposed actions and decisions remain non-authoritative until a human explicitly accepts or rejects them.',
+        summary: 'Get meeting recording intelligence, transcript segments, proposals, evidence links and safe provider-attempt telemetry',
+        description: 'Visibility is inherited from the call conversation. Provider request IDs and internal input metadata are not exposed. Proposed actions and decisions remain non-authoritative until a human explicitly accepts or rejects them.',
         responses: { '200': { description: 'Meeting intelligence state' }, '404': { description: 'Meeting not visible' } }
       }
     },
@@ -96,6 +97,50 @@ export const openapi = Object.freeze({
         tags: ['Meeting Intelligence'],
         summary: 'Reject an AI-proposed meeting item',
         responses: { '200': { description: 'Proposal rejected by authenticated user' }, '404': { description: 'Pending proposal not visible' } }
+      }
+    },
+    '/api/v1/admin/meeting-jobs': {
+      get: {
+        tags: ['Meeting Operations'],
+        summary: 'List durable meeting processing jobs for owner/admin operations',
+        description: 'Returns operational job metadata only; transcript and private meeting content are not exposed by this admin projection.',
+        responses: { '200': { description: 'Processing jobs and worker state' }, '403': { description: 'Meeting operations permission required' } }
+      }
+    },
+    '/api/v1/admin/meeting-jobs/{jobId}/retry': {
+      post: {
+        tags: ['Meeting Operations'],
+        summary: 'Explicitly retry a failed or dead-letter meeting job',
+        description: 'Requires a human reason. Past attempts are never reset. Dead-letter recovery adds a bounded future attempt budget, requeues the same durable job and writes audit/outbox evidence.',
+        responses: { '200': { description: 'Job requeued' }, '403': { description: 'Meeting operations permission required' }, '404': { description: 'Job not found' }, '409': { description: 'Job is not retryable' } }
+      }
+    },
+    '/api/v1/admin/meeting-jobs/{jobId}/audit': {
+      get: {
+        tags: ['Meeting Operations'],
+        summary: 'Read meeting job recovery audit trail',
+        responses: { '200': { description: 'Audit events' }, '403': { description: 'Audit permission required' } }
+      }
+    },
+    '/api/v1/admin/meeting-prices': {
+      get: {
+        tags: ['Meeting Operations'],
+        summary: 'List immutable provider price catalog versions',
+        responses: { '200': { description: 'Price versions and usage mappings' }, '403': { description: 'Meeting cost permission required' } }
+      },
+      post: {
+        tags: ['Meeting Operations'],
+        summary: 'Create a new provider price catalog version',
+        description: 'Price versions are append-only through the application API. Each item maps a provider usage JSON path to a unit quantity and unit price.',
+        responses: { '201': { description: 'Price version created and audited' }, '403': { description: 'Meeting cost management permission required' }, '409': { description: 'Version already exists at effective timestamp' } }
+      }
+    },
+    '/api/v1/admin/meeting-costs': {
+      get: {
+        tags: ['Meeting Operations'],
+        summary: 'Calculate meeting provider costs from persisted usage and effective price versions',
+        description: 'Provider usage remains the immutable source measurement. Calls without a matching price version or compatible usage schema are reported as unpriced rather than silently treated as zero cost.',
+        responses: { '200': { description: 'Cost rollup and priced/unpriced provider attempts' }, '403': { description: 'Meeting cost permission required' } }
       }
     },
     '/api/v1/files': {
