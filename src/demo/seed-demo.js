@@ -41,9 +41,10 @@ async function inviteDemoMember(store, ownerSession, { displayName, email, role,
   return accepted.user.id;
 }
 
-async function setTaskState(store, taskId, status, forecastAt = null) {
+async function setTaskState(store, workspaceId, taskId, status, forecastAt = null) {
   if (store.pool?.query) {
-    await store.pool.query(`UPDATE commitments SET status=$2,forecast_at=COALESCE($3,forecast_at),updated_at=now() WHERE id=$1`, [taskId, status, forecastAt]);
+    await store.pool.query(`UPDATE commitments SET status=$3,forecast_at=COALESCE($4,forecast_at),updated_at=now()
+      WHERE workspace_id=$1 AND id=$2`, [workspaceId, taskId, status, forecastAt]);
     return;
   }
   const row = store.tasks?.get(taskId);
@@ -307,12 +308,12 @@ export async function seedDemoWorkspace(store, objectStore = null) {
     promisedAt: plusMinutes(2 * 24 * 60),
   }));
 
-  await setTaskState(store, tasks[0].id, 'in_progress', plusMinutes(150));
-  await setTaskState(store, tasks[1].id, 'in_review');
-  await setTaskState(store, tasks[2].id, 'scheduled');
-  await setTaskState(store, tasks[3].id, 'accepted');
-  await setTaskState(store, tasks[4].id, 'blocked', plusMinutes(36 * 60));
-  await setTaskState(store, tasks[5].id, 'proposed');
+  await setTaskState(store, owner.workspaceId, tasks[0].id, 'in_progress', plusMinutes(150));
+  await setTaskState(store, owner.workspaceId, tasks[1].id, 'in_review');
+  await setTaskState(store, owner.workspaceId, tasks[2].id, 'scheduled');
+  await setTaskState(store, owner.workspaceId, tasks[3].id, 'accepted');
+  await setTaskState(store, owner.workspaceId, tasks[4].id, 'blocked', plusMinutes(36 * 60));
+  await setTaskState(store, owner.workspaceId, tasks[5].id, 'proposed');
 
   await store.createCalendarEvent(owner, {
     kind: 'meeting',
