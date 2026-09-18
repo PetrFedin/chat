@@ -49,11 +49,25 @@ npm start
 
 Откройте `http://localhost:3000` и зарегистрируйте компанию.
 
-Без `DATABASE_URL` используется in-memory development store — данные сбрасываются после рестарта. Для постоянного многопользовательского режима примените миграции `001`–`010` по порядку и задайте:
+Без `DATABASE_URL` используется in-memory development store — данные сбрасываются после рестарта. Для постоянного многопользовательского режима примените миграции `001`–`011` по порядку и задайте:
 
 ```bash
 DATABASE_URL=postgres://...
 ```
+
+### Demo и persistence
+
+Demo включается только явно:
+
+```bash
+DEMO_MODE=true
+```
+
+В memory-режиме Northstar Studio пересоздаётся после каждого рестарта. При одновременно заданных `DEMO_MODE=true` и `DATABASE_URL` тот же demo tenant хранится в PostgreSQL, повторный startup использует существующий workspace и не должен дублировать сотрудников, задачи, календарь или synthetic Meeting Intelligence.
+
+Встроенные demo-файлы имеют fixture catalog: если PostgreSQL сохранился, а локальный ephemeral filesystem был очищен, эти демонстрационные SVG/Markdown/CSV могут быть восстановлены в прежние storage keys. Это **не** делает локальное файловое хранилище production-durable: обычные пользовательские загрузки и реальные записи встреч требуют S3-compatible storage.
+
+`GET /healthz` отдельно показывает durability database и object storage. `persistence.productionReady=true` только когда authoritative database — PostgreSQL и object storage объявлен durable.
 
 ## Реальные аудио/видеозвонки
 
@@ -69,7 +83,7 @@ Browser получает только short-lived participant token. `LIVEKIT_AP
 
 ## S3-compatible storage и запись встреч
 
-Если `S3_BUCKET` не задан, обычные файлы сохраняются локально в `data/uploads` или `UPLOAD_DIR`. Если задан — файловый adapter автоматически переключается на S3-compatible storage:
+Если `S3_BUCKET` не задан, обычные файлы сохраняются локально в `data/uploads` или `UPLOAD_DIR`. Такое хранилище считается недолговечным для production и на ephemeral hosting может быть очищено при redeploy/restart. Если `S3_BUCKET` задан — файловый adapter автоматически переключается на durable S3-compatible storage:
 
 ```bash
 S3_BUCKET=chat-production
@@ -147,7 +161,7 @@ Default — 64 MiB. Object storage сначала проверяется чер�
 
 Пользовательский Meeting Center получает безопасные операционные метрики, но не provider request IDs и не внутренние source metadata.
 
-`GET /healthz` показывает отдельно webhook, processor и worker state, включая активные provider lanes, media memory ceiling и последний результат обработки.
+`GET /healthz` показывает webhook, processor и worker state, а также отдельный `persistence` блок: durability базы, durability object storage и итоговый `productionReady`.
 
 ## Web Push
 
