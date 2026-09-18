@@ -96,3 +96,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
         run: node --test test/postgres-meeting-ops-cost-control.test.js
+      - name: Verify persistent preview Postgres runtime
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
+        run: node --test test/postgres-preview-demo.test.js
