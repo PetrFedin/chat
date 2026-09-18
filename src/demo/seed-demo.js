@@ -11,6 +11,49 @@ function actor(base, userId, displayName, role = 'member') {
   return { ...base, userId, displayName, role };
 }
 
+async function postgresDemoSeedCompleted(store, workspaceId) {
+  if (!store.pool?.query) return true;
+  const { rows } = await store.pool.query(`SELECT EXISTS(
+    SELECT 1 FROM audit_events
+    WHERE workspace_id=$1 AND aggregate_type='demo_seed' AND aggregate_id=$1 AND event_type='demo.seed.completed'
+  ) complete`, [workspaceId]);
+  return Boolean(rows[0]?.complete);
+}
+
+async function resetIncompletePostgresDemo(store, existing) {
+  if (!store.pool?.connect || !existing?.workspaceId) return false;
+  const client = await store.pool.connect();
+  try {
+    await client.query('BEGIN');
+    const workspace = (await client.query('SELECT organization_id FROM workspaces WHERE id=$1 FOR UPDATE', [existing.workspaceId])).rows[0];
+    if (!workspace) { await client.query('COMMIT'); return false; }
+    const users = (await client.query('SELECT user_id FROM memberships WHERE workspace_id=$1', [existing.workspaceId])).rows.map((row) => row.user_id);
+    await client.query('DELETE FROM organizations WHERE id=$1', [workspace.organization_id]);
+    if (users.length) {
+      await client.query(`DELETE FROM users u WHERE u.id=ANY($1::uuid[])
+        AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.user_id=u.id)`, [users]);
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markPostgresDemoSeedCompleted(store, owner) {
+  if (!store.pool?.query) return;
+  await store.pool.query(`INSERT INTO audit_events(
+    organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+    SELECT $1,$2,'demo_seed',$2,'demo.seed.completed',$3,$4
+    WHERE NOT EXISTS(
+      SELECT 1 FROM audit_events
+      WHERE workspace_id=$2 AND aggregate_type='demo_seed' AND aggregate_id=$2 AND event_type='demo.seed.completed'
+    )`, [owner.organizationId, owner.workspaceId, owner.userId, { version:1, demo:'northstar' }]);
+}
+
 async function setProfileTitle(store, workspaceId, userId, title) {
   if (store.pool?.query) {
     await store.pool.query('UPDATE workspace_profiles SET title=$3,updated_at=now() WHERE workspace_id=$1 AND user_id=$2', [workspaceId, userId, title]);
@@ -97,10 +140,18 @@ async function seedDemoFile(store, objectStore, session, conversationId, { name,
 }
 
 export async function seedDemoWorkspace(store, objectStore = null) {
-  const existing = await store.findAuthByEmail(DEMO_EMAIL);
+  let existing = await store.findAuthByEmail(DEMO_EMAIL);
   if (existing) {
-    const files = await rehydrateDemoFiles(store, objectStore, existing.workspaceId);
-    return { email:DEMO_EMAIL, existing:true, files };
+    if (await postgresDemoSeedCompleted(store, existing.workspaceId)) {
+      const files = await rehydrateDemoFiles(store, objectStore, existing.workspaceId);
+      return { email:DEMO_EMAIL, existing:true, complete:true, files };
+    }
+    if (store.pool?.connect) {
+      await resetIncompletePostgresDemo(store, existing);
+      existing = null;
+    } else {
+      return { email:DEMO_EMAIL, existing:true, complete:true };
+    }
   }
 
   const password = hashPassword(DEMO_PASSWORD);
@@ -357,5 +408,6 @@ export async function seedDemoWorkspace(store, objectStore = null) {
   await store.setPresence(maxim, { state: 'online' });
   await store.setPresence(elena, { state: 'do_not_disturb', statusText: 'Проверка доступов' });
 
-  return { email: DEMO_EMAIL };
+  await markPostgresDemoSeedCompleted(store, owner);
+  return { email:DEMO_EMAIL, existing:false, complete:true };
 }
