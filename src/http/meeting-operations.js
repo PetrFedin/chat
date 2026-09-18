@@ -51,7 +51,7 @@ export function createMeetingOperationsHandler(){
     match=path.match(new RegExp(`^/api/v1/admin/meeting-jobs/${UUID}/audit$`,'i'));
     if(match&&method==='GET'){
       const session=await requireSession(req);
-      requirePermission(session.role,Permission.AUDIT_READ);
+      requirePermission(session.role,Permission.MEETING_OPS_MANAGE);
       const items=await meetingOps.jobAudit(session,match[1],url.searchParams.get('limit')??50);
       json(res,200,{items});
       return true;
