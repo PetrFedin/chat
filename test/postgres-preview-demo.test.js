@@ -67,7 +67,7 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   assert.equal(healthOne.payload.persistence.database.durable,true);
   assert.equal(healthOne.payload.persistence.objects.provider,'local');
   assert.equal(healthOne.payload.persistence.objects.durable,false);
-  assert.equal(healthOne.payload.persistence.productionReady,false);
+  assert.equal(healthOne.payload.persistence.durabilityConfigured,false);
 
   const loginOne=await request(first.base,'/api/v1/auth/demo',{method:'POST'});
   assert.equal(loginOne.response.status,200);
