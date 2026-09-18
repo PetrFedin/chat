@@ -37,9 +37,9 @@ function statusLabel(status){return({failed:tr('Ошибка','Failed'),dead_let
 function kindLabel(kind){return kind==='transcribe'?tr('Стенограмма','Transcription'):tr('Итоги','Summary')}
 function unpricedLabel(reason){return({no_price_version:tr('Нет тарифа на дату вызова','No price version for call date'),usage_schema_mismatch:tr('Тариф не совпадает со схемой usage','Pricing does not match usage schema'),usage_unavailable:tr('Провайдер не вернул usage','Provider returned no usage')})[reason]||tr('Не рассчитано','Not priced')}
 function workerCopy(worker){
-  if(worker?.running)return tr('Worker запущен','Worker is running');
-  if(worker?.configured===false)return tr('Worker отключён','Worker is disabled');
-  return worker?.reason||tr('Worker ожидает доступный AI-провайдер','Worker is waiting for an available AI provider');
+  if(worker?.running)return tr('Фоновая обработка запущена','Worker is running');
+  if(worker?.configured===false)return tr('Фоновая обработка отключена','Worker is disabled');
+  return worker?.reason||tr('Фоновая обработка ожидает доступный AI-провайдер','Worker is waiting for an available AI provider');
 }
 
 async function decorateMeetingCenter(){
@@ -122,8 +122,8 @@ async function renderJobs(){
     root.innerHTML=`<div class="mi-stack">
       <section class="mio-health"><div><span class="mio-dot ${payload.worker?.running?'ok':''}"></span><strong>${esc(workerCopy(payload.worker))}</strong></div><span>${(payload.worker?.activeKinds||[]).map(kindLabel).join(' · ')}</span></section>
       <section class="mi-section">
-        <div class="mi-section-head"><div><h3>${tr('Требуют вмешательства','Needs intervention')}</h3><span>${tr('Только failed и dead-letter jobs; история попыток не сбрасывается','Failed/dead-letter jobs only; attempt history is never reset')}</span></div><span>${payload.items?.length||0}</span></div>
-        <div class="mi-stack">${payload.items?.length?payload.items.map(jobCard).join(''):`<div class="mi-empty"><strong>${tr('Ошибок обработки нет','No processing failures')}</strong>${tr('Здесь появятся только jobs, где действительно требуется ручное решение.','Only jobs requiring manual intervention appear here.')}</div>`}</div>
+        <div class="mi-section-head"><div><h3>${tr('Требуют вмешательства','Needs intervention')}</h3><span>${tr('Только ошибки, требующие ручного вмешательства; история попыток не сбрасывается','Failed/dead-letter jobs only; attempt history is never reset')}</span></div><span>${payload.items?.length||0}</span></div>
+        <div class="mi-stack">${payload.items?.length?payload.items.map(jobCard).join(''):`<div class="mi-empty"><strong>${tr('Ошибок обработки нет','No processing failures')}</strong>${tr('Здесь появятся только случаи, где действительно требуется ручное решение.','Only jobs requiring manual intervention appear here.')}</div>`}</div>
       </section>
     </div>`;
   }catch(error){errorState(error)}
@@ -149,7 +149,7 @@ async function retryJob(jobId){
   try{
     await api(`/api/v1/admin/meeting-jobs/${jobId}/retry`,{method:'POST',body:JSON.stringify({reason,extraAttempts})});
     $('.mi-sheet-wrap')?.remove();
-    toast(tr('Job возвращён в очередь','Job returned to the queue'));
+    toast(tr('Обработка возвращена в очередь','Job returned to the queue'));
     await renderJobs();
   }catch(error){toast(error.message);if(button)button.disabled=false}
 }
@@ -205,7 +205,7 @@ async function renderCosts(query=null){
       <div class="mio-note">${tr('Итог считается по всему выбранному периоду. Ниже показывается только ограниченная детализация provider attempts. Неуспешная попытка учитывается, если провайдер фактически вернул usage.','The rollup covers the full selected period. Only provider-attempt detail is limited below. A failed attempt is costed when the provider actually returned usage.')}</div>
       ${rollupHtml(report.rollup)}
       ${providerRollupHtml(report.rollup?.providers)}
-      <section class="mi-section"><div class="mi-section-head"><div><h3>${tr('Последние вызовы','Recent provider calls')}</h3><span>${tr('Без provider request IDs и внутренних source metadata','No provider request IDs or internal source metadata')}</span></div><span>${report.calls?.length||0}</span></div><div class="mio-call-list">${report.calls?.length?report.calls.map(costCallCard).join(''):`<div class="mi-empty">${tr('Provider usage за период отсутствует','No provider usage in this period')}</div>`}</div></section>
+      <section class="mi-section"><div class="mi-section-head"><div><h3>${tr('Последние вызовы','Recent provider calls')}</h3><span>${tr('Без provider request IDs и внутренних source metadata','No provider request IDs or internal source metadata')}</span></div><span>${report.calls?.length||0}</span></div><div class="mio-call-list">${report.calls?.length?report.calls.map(costCallCard).join(''):`<div class="mi-empty">${tr('Данные об использовании AI-провайдера за период отсутствуют','No provider usage in this period')}</div>`}</div></section>
     </div>`;
   }catch(error){errorState(error)}
 }
@@ -218,7 +218,7 @@ async function renderPrices(){
   try{
     const payload=await api('/api/v1/admin/meeting-prices');O.prices=payload.items||[];
     const root=$('#mio-content');if(!root)return;
-    root.innerHTML=`<div class="mi-stack"><section class="mi-section"><div class="mi-section-head"><div><h3>${tr('Версии тарифов','Pricing versions')}</h3><span>${tr('История не редактируется: изменение тарифа создаёт новую effective version','History is immutable: a price change creates a new effective version')}</span></div>${has(PERM.costManage)?`<button class="mi-button" data-mio-price-new>${tr('Новая версия','New version')}</button>`:''}</div><div class="mi-stack">${O.prices.length?O.prices.map(priceVersionCard).join(''):`<div class="mi-empty"><strong>${tr('Тарифы ещё не заведены','No pricing versions yet')}</strong>${tr('Пока версия тарифа отсутствует, стоимость provider call честно остаётся нерассчитанной.','Until a pricing version exists, provider call cost remains explicitly unpriced.')}</div>`}</div></section></div>`;
+    root.innerHTML=`<div class="mi-stack"><section class="mi-section"><div class="mi-section-head"><div><h3>${tr('Версии тарифов','Pricing versions')}</h3><span>${tr('История не редактируется: изменение тарифа создаёт новую effective version','History is immutable: a price change creates a new effective version')}</span></div>${has(PERM.costManage)?`<button class="mi-button" data-mio-price-new>${tr('Новая версия','New version')}</button>`:''}</div><div class="mi-stack">${O.prices.length?O.prices.map(priceVersionCard).join(''):`<div class="mi-empty"><strong>${tr('Тарифы ещё не заведены','No pricing versions yet')}</strong>${tr('Пока версия тарифа отсутствует, стоимость вызова провайдера остаётся нерассчитанной.','Until a pricing version exists, provider call cost remains explicitly unpriced.')}</div>`}</div></section></div>`;
   }catch(error){errorState(error)}
 }
 function priceItemRow(){
