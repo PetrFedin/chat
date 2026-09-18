@@ -51,6 +51,14 @@ export async function createChatServer(options={}){
   const defaults=options.store?{store:options.store,pool:options.pool??null,mode:'custom'}:defaultStore();
   const {store,pool,mode}=defaults;
   const objectStore=options.objectStore??createObjectStore({uploadsRoot});
+  const persistenceStatus=()=>{
+    const objects=objectStore.status?.()??{provider:'unknown',enabled:false,durable:false};
+    return{
+      database:{provider:mode==='postgres'?'postgres':mode,durable:mode==='postgres'},
+      objects:{...objects,durable:Boolean(objects.durable)},
+      productionReady:mode==='postgres'&&Boolean(objects.durable),
+    };
+  };
   const demo=await preparePreviewDemo({store,objectStore,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
   const hub=new RealtimeHub(),push=pushConfig(),wss=new WebSocketServer({noServer:true});
   const mediaProvider=options.mediaProvider??createMediaProvider();
@@ -90,7 +98,7 @@ export async function createChatServer(options={}){
   const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const server=createServer(async(req,res)=>{try{
     const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`),path=url.pathname,method=req.method??'GET';
-    if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,meeting:Boolean(demo.meeting)}});
+    if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,persistence:persistenceStatus(),realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,persistent:Boolean(demo.persistent),meeting:Boolean(demo.meeting)}});
     if(path==='/openapi.json'||path==='/api/v1/openapi')return json(res,200,openapi);
     if(path==='/vendor/livekit-client.js'&&method==='GET'){const body=await readFile(livekitClientPath);res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=86400'});res.end(body);return}
     if(await handleMeetingOperations(req,res,ctx,url,path,method))return;
