@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import pg from 'pg';
 import { createChatServer } from '../src/server.js';
 import { LocalObjectStore } from '../src/storage/object-store.js';
+import { PostgresStore } from '../src/persistence/store.js';
+import { hashPassword } from '../src/security.js';
 
 const databaseUrl=process.env.DATABASE_URL;
 
@@ -51,6 +53,22 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   const objectStore=new LocalObjectStore(root);
   const probe=new pg.Pool({connectionString:databaseUrl});
   let firstApp=null,secondApp=null;
+
+  const partialStore=new PostgresStore(probe);
+  const partialPassword=hashPassword('DemoWorkspace2026');
+  const partial=await partialStore.createCompany({
+    companyName:'Northstar Studio',
+    workspaceName:'Частично созданное пространство',
+    ownerName:'Алексей Воронцов',
+    email:'demo@northstar.example',
+    passwordHash:partialPassword.hash,
+    passwordSalt:partialPassword.salt,
+  });
+  const partialWorkspaceId=partial.workspace.id;
+  assert.equal(Number((await probe.query('SELECT count(*) FROM memberships WHERE workspace_id=$1',[partialWorkspaceId])).rows[0].count),1);
+  assert.equal(Number((await probe.query(`SELECT count(*) FROM audit_events
+    WHERE workspace_id=$1 AND event_type='demo.seed.completed'`,[partialWorkspaceId])).rows[0].count),0);
+
   t.after(async()=>{
     if(firstApp)await firstApp.close().catch(()=>{});
     if(secondApp)await secondApp.close().catch(()=>{});
@@ -75,6 +93,10 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   assert.equal(loginOne.payload.session.role,'owner');
   assert.equal(loginOne.payload.session.organizationName,'Northstar Studio');
   const workspaceId=loginOne.payload.session.workspaceId;
+  assert.notEqual(workspaceId,partialWorkspaceId,'incomplete seed without completion marker must be replaced');
+  assert.equal(Number((await probe.query('SELECT count(*) FROM workspaces WHERE id=$1',[partialWorkspaceId])).rows[0].count),0);
+  assert.equal(Number((await probe.query(`SELECT count(*) FROM audit_events
+    WHERE workspace_id=$1 AND event_type='demo.seed.completed'`,[workspaceId])).rows[0].count),1);
 
   const bootstrapOne=await request(first.base,'/api/v1/bootstrap',{cookie:loginOne.cookie});
   assert.equal(bootstrapOne.response.status,200);
