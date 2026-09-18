@@ -56,7 +56,7 @@ export async function createChatServer(options={}){
     return{
       database:{provider:mode==='postgres'?'postgres':mode,durable:mode==='postgres'},
       objects:{...objects,durable:Boolean(objects.durable)},
-      productionReady:mode==='postgres'&&Boolean(objects.durable),
+      durabilityConfigured:mode==='postgres'&&Boolean(objects.durable),
     };
   };
   const demo=await preparePreviewDemo({store,objectStore,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
