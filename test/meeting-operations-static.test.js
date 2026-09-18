@@ -2,15 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
-const [html,js,css,sw]=await Promise.all([
+const [html,js,meetingJs,css,sw]=await Promise.all([
   readFile(new URL('../public/index.html',import.meta.url),'utf8'),
   readFile(new URL('../public/meeting-operations.js',import.meta.url),'utf8'),
+  readFile(new URL('../public/meeting-intelligence.js',import.meta.url),'utf8'),
   readFile(new URL('../public/meeting-intelligence.css',import.meta.url),'utf8'),
   readFile(new URL('../public/sw.js',import.meta.url),'utf8'),
 ]);
 
 test('Meeting Operations browser module parses and is loaded after Meeting Intelligence',()=>{
   assert.doesNotThrow(()=>new Function(js));
+  assert.doesNotThrow(()=>new Function(meetingJs));
   const intelligence=html.indexOf('/meeting-intelligence.js');
   const operations=html.indexOf('/meeting-operations.js');
   const daily=html.indexOf('/daily-work.js');
@@ -52,11 +54,11 @@ test('pricing form creates a new effective version without default money values'
   assert.doesNotMatch(js,/name="currency"[^>]*value=/);
 });
 
-
 test('Meeting Review and Meeting Operations own separate overlay lifecycles',()=>{
   assert.match(js,/mio-overlay/);
   assert.match(js,/O\.permissions=new Set\(\)/);
-  assert.match(js,/location\.hash==='\\#\/meeting-operations'/);
+  assert.match(js,/location\.hash==='#\/meeting-operations'/);
+  assert.ok(meetingJs.includes('.mi-overlay:not(.mio-overlay)'),'Meeting Review Escape handler must ignore the operations overlay');
 });
 
 test('Meeting Operations has responsive themed styles and is cached by the PWA shell',()=>{
