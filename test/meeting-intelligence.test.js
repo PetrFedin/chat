@@ -78,6 +78,23 @@ test('meeting intelligence keeps transcript evidence and requires human acceptan
   assert.equal(accepted.createdCommitmentId,undefined);
 });
 
+test('exact meeting job claim never consumes a different queued job',async()=>{
+  const repo=new MemoryMeetingRepository();
+  const workspaceId=crypto.randomUUID(),organizationId=crypto.randomUUID();
+  const first={id:crypto.randomUUID(),organizationId,workspaceId,callId:crypto.randomUUID(),providerRecordingId:'EG_EXACT_A',storageKey:'recordings/a.mp4',status:'processing',transcriptStatus:'not_requested'};
+  const second={id:crypto.randomUUID(),organizationId,workspaceId,callId:crypto.randomUUID(),providerRecordingId:'EG_EXACT_B',storageKey:'recordings/b.mp4',status:'processing',transcriptStatus:'not_requested'};
+  await repo.registerRecording(first);
+  await repo.registerRecording(second);
+  const queuedA=await repo.reconcileEgress(first.providerRecordingId,{success:true});
+  const queuedB=await repo.reconcileEgress(second.providerRecordingId,{success:true});
+
+  const claimed=await repo.claimJobById(queuedB.job.id);
+  assert.equal(claimed.id,queuedB.job.id);
+  assert.equal(claimed.runId,queuedB.run.id);
+  assert.equal(repo.jobs.get(queuedA.job.id).status,'pending');
+  assert.equal(repo.jobs.get(queuedB.job.id).status,'processing');
+});
+
 test('meeting processor validates the recording object before transcription and preserves evidence',async()=>{
   const repo=new MemoryMeetingRepository();
   const workspaceId=crypto.randomUUID(),organizationId=crypto.randomUUID(),callId=crypto.randomUUID(),recordingId=crypto.randomUUID();
