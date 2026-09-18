@@ -63,7 +63,7 @@ document.addEventListener('click',event=>{const target=event.target;
   const conversation=target.closest('[data-mi-conversation]');if(conversation){openConversation(conversation.dataset.miConversation);return}
 },true);
 
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('.mi-overlay'))closeMeetingOverlay()},true);
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('.mi-overlay:not(.mio-overlay)'))closeMeetingOverlay()},true);
 window.addEventListener('hashchange',()=>routeHash());window.addEventListener('focus',()=>loadMeetings(true));document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadMeetings(true)});window.addEventListener('chat:localechange',()=>{if($('.mi-overlay'))routeHash(true);decorate()});
 const observer=new MutationObserver(()=>{if(appVisible()){decorate();if(Date.now()-M.loadedAt>5000)loadMeetings()}});observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden','class']});
 function routeHash(force=false){if(!appVisible()&&!force)return;const match=location.hash.match(/^#\/meetings\/([0-9a-f-]+)$/i);if(match){if(M.current?.call?.id!==match[1]||!$('.mi-overlay'))openMeeting(match[1],{updateHash:false});return}if(location.hash==='#/meetings'){if(!$('.mi-overlay')||M.current)openMeetingCenter(M.filter,{updateHash:false});return}}
