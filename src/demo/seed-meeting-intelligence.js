@@ -57,13 +57,14 @@ async function existingSyntheticMeeting(store,meeting,workspaceId){
 }
 
 async function cleanupIncompleteDemoCalls(store,workspaceId){
-  if(!store.pool?.query)return;
-  await store.pool.query('BEGIN');
+  if(!store.pool?.connect)return;
+  const client=await store.pool.connect();
   try{
-    const {rows}=await store.pool.query(`SELECT c.id call_id,r.id run_id
+    await client.query('BEGIN');
+    const {rows}=await client.query(`SELECT c.id call_id,r.id run_id
       FROM call_sessions c
       LEFT JOIN meeting_intelligence_runs r ON r.workspace_id=c.workspace_id AND r.call_id=c.id
-      WHERE c.workspace_id=$1 AND c.title=$2
+      WHERE c.workspace_id=$1 AND c.title=$2 AND c.provider_room_name LIKE 'demo-%'
         AND NOT EXISTS(
           SELECT 1 FROM meeting_intelligence_runs ready
           WHERE ready.workspace_id=c.workspace_id AND ready.call_id=c.id AND ready.status='review_ready'
@@ -71,12 +72,14 @@ async function cleanupIncompleteDemoCalls(store,workspaceId){
         ) FOR UPDATE OF c`,[workspaceId,DEMO_CALL_TITLE]);
     const callIds=[...new Set(rows.map((row)=>row.call_id).filter(Boolean))];
     const runIds=[...new Set(rows.map((row)=>row.run_id).filter(Boolean))];
-    if(runIds.length)await store.pool.query('DELETE FROM outbox_events WHERE workspace_id=$1 AND aggregate_id=ANY($2::uuid[])',[workspaceId,runIds]);
-    if(callIds.length)await store.pool.query('DELETE FROM call_sessions WHERE workspace_id=$1 AND id=ANY($2::uuid[])',[workspaceId,callIds]);
-    await store.pool.query('COMMIT');
+    if(runIds.length)await client.query('DELETE FROM outbox_events WHERE workspace_id=$1 AND aggregate_id=ANY($2::uuid[])',[workspaceId,runIds]);
+    if(callIds.length)await client.query('DELETE FROM call_sessions WHERE workspace_id=$1 AND id=ANY($2::uuid[])',[workspaceId,callIds]);
+    await client.query('COMMIT');
   }catch(error){
-    try{await store.pool.query('ROLLBACK')}catch{}
+    try{await client.query('ROLLBACK')}catch{}
     throw error;
+  }finally{
+    client.release();
   }
 }
 
