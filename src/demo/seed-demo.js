@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createOpaqueToken, hashPassword, hashToken } from '../security.js';
+import { DEMO_FILE_FIXTURES } from './demo-file-fixtures.js';
 
 export const DEMO_EMAIL = 'demo@northstar.example';
 export const DEMO_PASSWORD = 'DemoWorkspace2026';
@@ -8,6 +9,16 @@ const plusMinutes = (minutes) => new Date(Date.now() + minutes * 60_000).toISOSt
 
 function actor(base, userId, displayName, role = 'member') {
   return { ...base, userId, displayName, role };
+}
+
+async function setProfileTitle(store, workspaceId, userId, title) {
+  if (store.pool?.query) {
+    await store.pool.query('UPDATE workspace_profiles SET title=$3,updated_at=now() WHERE workspace_id=$1 AND user_id=$2', [workspaceId, userId, title]);
+    return;
+  }
+  const profileKey = store.membershipKey?.(workspaceId, userId);
+  const profile = profileKey ? store.profiles?.get(profileKey) : null;
+  if (profile) profile.title = title;
 }
 
 async function inviteDemoMember(store, ownerSession, { displayName, email, role, title }) {
@@ -26,18 +37,38 @@ async function inviteDemoMember(store, ownerSession, { displayName, email, role,
     passwordHash: password.hash,
     passwordSalt: password.salt,
   });
-  const profileKey = store.membershipKey?.(ownerSession.workspaceId, accepted.user.id);
-  const profile = profileKey ? store.profiles?.get(profileKey) : null;
-  if (profile) profile.title = title;
+  await setProfileTitle(store, ownerSession.workspaceId, accepted.user.id, title);
   return accepted.user.id;
 }
 
-function setTaskState(store, taskId, status, forecastAt = null) {
+async function setTaskState(store, taskId, status, forecastAt = null) {
+  if (store.pool?.query) {
+    await store.pool.query(`UPDATE commitments SET status=$2,forecast_at=COALESCE($3,forecast_at),updated_at=now() WHERE id=$1`, [taskId, status, forecastAt]);
+    return;
+  }
   const row = store.tasks?.get(taskId);
   if (!row) return;
   row.status = status;
   if (forecastAt) row.forecastAt = forecastAt;
   row.updatedAt = new Date().toISOString();
+}
+
+async function rehydrateDemoFiles(store, objectStore, workspaceId) {
+  if (!objectStore?.head || !objectStore?.put || !store.pool?.query || !workspaceId) return { checked:0, restored:0 };
+  const names = DEMO_FILE_FIXTURES.map((fixture) => fixture.name);
+  const { rows } = await store.pool.query(`SELECT name,storage_key "storageKey" FROM files
+    WHERE workspace_id=$1 AND deleted_at IS NULL AND name=ANY($2::text[])`, [workspaceId, names]);
+  const fixtures = new Map(DEMO_FILE_FIXTURES.map((fixture) => [fixture.name, fixture]));
+  let restored = 0;
+  for (const row of rows) {
+    const fixture = fixtures.get(row.name);
+    if (!fixture) continue;
+    const state = await objectStore.head(row.storageKey);
+    if (state?.exists) continue;
+    await objectStore.put(row.storageKey, Buffer.from(fixture.body, 'utf8'), fixture.mimeType);
+    restored++;
+  }
+  return { checked:rows.length, restored };
 }
 
 async function seedDemoFile(store, objectStore, session, conversationId, { name, mimeType, body }) {
@@ -66,7 +97,10 @@ async function seedDemoFile(store, objectStore, session, conversationId, { name,
 
 export async function seedDemoWorkspace(store, objectStore = null) {
   const existing = await store.findAuthByEmail(DEMO_EMAIL);
-  if (existing) return { email: DEMO_EMAIL };
+  if (existing) {
+    const files = await rehydrateDemoFiles(store, objectStore, existing.workspaceId);
+    return { email:DEMO_EMAIL, existing:true, files };
+  }
 
   const password = hashPassword(DEMO_PASSWORD);
   const created = await store.createCompany({
@@ -181,21 +215,14 @@ export async function seedDemoWorkspace(store, objectStore = null) {
   });
 
   if (objectStore) {
-    await seedDemoFile(store, objectStore, anna, product.id, {
-      name:'mobile-call-review.svg',
-      mimeType:'image/svg+xml',
-      body:`<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560"><rect width="900" height="560" rx="32" fill="#111214"/><rect x="40" y="38" width="820" height="72" rx="22" fill="#1f2225"/><circle cx="80" cy="74" r="18" fill="#d4a28b"/><rect x="116" y="60" width="230" height="18" rx="9" fill="#e9e7e2"/><rect x="40" y="136" width="520" height="344" rx="28" fill="#24272a"/><rect x="580" y="136" width="280" height="164" rx="28" fill="#2e3135"/><rect x="580" y="320" width="280" height="160" rx="28" fill="#1b1e21"/><rect x="260" y="504" width="380" height="34" rx="17" fill="#e9e7e2"/><text x="450" y="92" text-anchor="middle" fill="#96999d" font-family="Arial" font-size="18">Mobile call QA · safe area · reconnect · controls</text></svg>`,
-    });
-    await seedDemoFile(store, objectStore, anna, product.id, {
-      name:'release-checklist.md',
-      mimeType:'text/markdown',
-      body:'# Mobile release checklist\n\n- iPhone safe-area\n- reconnect state\n- incoming push call\n- camera / microphone permissions\n- background / foreground recovery\n- final visual QA\n',
-    });
-    await seedDemoFile(store, objectStore, ilya, operations.id, {
-      name:'launch-metrics.csv',
-      mimeType:'text/csv',
-      body:'metric,owner,status\nMobile QA,Maxim,in_progress\nUX review,Anna,in_review\nRelease checklist,Ilya,blocked\nRBAC,Elena,accepted\n',
-    });
+    const actors = { anna, ilya };
+    const conversations = { product, operations };
+    for (const fixture of DEMO_FILE_FIXTURES) {
+      const uploader = actors[fixture.uploader];
+      const conversation = conversations[fixture.conversationSlug];
+      if (!uploader || !conversation) throw new Error(`Invalid demo file fixture: ${fixture.name}`);
+      await seedDemoFile(store, objectStore, uploader, conversation.id, fixture);
+    }
   } else {
     await store.createMessage(anna, product.id, {
       kind: 'file', body: null,
@@ -280,12 +307,12 @@ export async function seedDemoWorkspace(store, objectStore = null) {
     promisedAt: plusMinutes(2 * 24 * 60),
   }));
 
-  setTaskState(store, tasks[0].id, 'in_progress', plusMinutes(150));
-  setTaskState(store, tasks[1].id, 'in_review');
-  setTaskState(store, tasks[2].id, 'scheduled');
-  setTaskState(store, tasks[3].id, 'accepted');
-  setTaskState(store, tasks[4].id, 'blocked', plusMinutes(36 * 60));
-  setTaskState(store, tasks[5].id, 'proposed');
+  await setTaskState(store, tasks[0].id, 'in_progress', plusMinutes(150));
+  await setTaskState(store, tasks[1].id, 'in_review');
+  await setTaskState(store, tasks[2].id, 'scheduled');
+  await setTaskState(store, tasks[3].id, 'accepted');
+  await setTaskState(store, tasks[4].id, 'blocked', plusMinutes(36 * 60));
+  await setTaskState(store, tasks[5].id, 'proposed');
 
   await store.createCalendarEvent(owner, {
     kind: 'meeting',
