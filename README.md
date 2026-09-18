@@ -67,7 +67,7 @@ DEMO_MODE=true
 
 Встроенные demo-файлы имеют fixture catalog: если PostgreSQL сохранился, а локальный ephemeral filesystem был очищен, эти демонстрационные SVG/Markdown/CSV могут быть восстановлены в прежние storage keys. Это **не** делает локальное файловое хранилище production-durable: обычные пользовательские загрузки и реальные записи встреч требуют S3-compatible storage.
 
-`GET /healthz` отдельно показывает durability database и object storage. `persistence.productionReady=true` только когда authoritative database — PostgreSQL и object storage объявлен durable.
+`GET /healthz` отдельно показывает durability database и object storage. `persistence.durabilityConfigured=true` только когда authoritative database — PostgreSQL и выбран durable object-storage adapter. Это признак конфигурации durability, а не утверждение о полной production readiness остальных зависимостей.
 
 ## Реальные аудио/видеозвонки
 
@@ -161,7 +161,7 @@ Default — 64 MiB. Object storage сначала проверяется чер�
 
 Пользовательский Meeting Center получает безопасные операционные метрики, но не provider request IDs и не внутренние source metadata.
 
-`GET /healthz` показывает webhook, processor и worker state, а также отдельный `persistence` блок: durability базы, durability object storage и итоговый `productionReady`.
+`GET /healthz` показывает webhook, processor и worker state, а также отдельный `persistence` блок: durability базы, durability object storage и итоговый `durabilityConfigured`.
 
 ## Web Push
 
