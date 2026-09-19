@@ -23,7 +23,7 @@ export class LocalObjectStore {
   }
 
   status() {
-    return { provider: 'local', enabled: true };
+    return { provider: 'local', enabled: true, durable: false };
   }
 
   path(key) {
@@ -79,7 +79,7 @@ export class S3ObjectStore {
   }
 
   status() {
-    return { provider: 's3', enabled: true, bucketConfigured: Boolean(this.bucket) };
+    return { provider: 's3', enabled: true, durable: true, bucketConfigured: Boolean(this.bucket) };
   }
 
   async put(key, body, contentType = 'application/octet-stream') {

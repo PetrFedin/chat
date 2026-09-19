@@ -161,6 +161,24 @@ export class MemoryMeetingRepository {
     return clone(job);
   }
 
+  async claimJobById(jobId) {
+    const job = this.jobs.get(jobId);
+    if (!job || !['pending','failed'].includes(job.status) || Date.parse(job.availableAt) > Date.now() || job.attempts >= job.maxAttempts) return null;
+    job.status = 'processing';
+    job.attempts++;
+    job.lockToken = randomUUID();
+    job.lockedAt = now();
+    job.updatedAt = now();
+    const run = this.runs.get(job.runId);
+    if (run) {
+      run.status = job.kind === 'transcribe' ? 'transcribing' : 'summarizing';
+      run.errorCode = null;
+      run.errorMessage = null;
+      run.updatedAt = now();
+    }
+    return clone(job);
+  }
+
   async failJob(jobId, lockToken, error, { retryDelayMs = 30000 } = {}) {
     const job = this.jobs.get(jobId);
     if (!job || job.lockToken !== lockToken) return null;
@@ -451,6 +469,24 @@ export class PostgresMeetingRepository {
         SET status=$3,updated_at=now(),error_code=NULL,error_message=NULL
         WHERE workspace_id=$1 AND id=$2 AND status NOT IN('review_ready','failed','cancelled')`,
       [claimed.workspaceId, claimed.runId, kind === 'transcribe' ? 'transcribing' : 'summarizing']);
+      return claimed;
+    });
+  }
+
+  async claimJobById(jobId) {
+    return this.tx(async (client) => {
+      const lockToken = randomUUID();
+      const { rows } = await client.query(`UPDATE meeting_intelligence_jobs
+        SET status='processing',attempts=attempts+1,locked_at=now(),lock_token=$2,updated_at=now()
+        WHERE id=$1 AND status IN('pending','failed') AND available_at<=now() AND attempts<max_attempts
+        RETURNING id,organization_id "organizationId",workspace_id "workspaceId",run_id "runId",kind,status,attempts,
+          max_attempts "maxAttempts",available_at "availableAt",lock_token "lockToken"`, [jobId, lockToken]);
+      const claimed = rows[0] ?? null;
+      if (!claimed) return null;
+      await client.query(`UPDATE meeting_intelligence_runs
+        SET status=$3,updated_at=now(),error_code=NULL,error_message=NULL
+        WHERE workspace_id=$1 AND id=$2 AND status NOT IN('review_ready','cancelled')`,
+      [claimed.workspaceId, claimed.runId, claimed.kind === 'transcribe' ? 'transcribing' : 'summarizing']);
       return claimed;
     });
   }

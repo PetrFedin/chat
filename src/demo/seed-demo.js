@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { createOpaqueToken, hashPassword, hashToken } from '../security.js';
+import { DEMO_FILE_FIXTURES } from './demo-file-fixtures.js';
 
 export const DEMO_EMAIL = 'demo@northstar.example';
 export const DEMO_PASSWORD = 'DemoWorkspace2026';
@@ -8,6 +9,59 @@ const plusMinutes = (minutes) => new Date(Date.now() + minutes * 60_000).toISOSt
 
 function actor(base, userId, displayName, role = 'member') {
   return { ...base, userId, displayName, role };
+}
+
+async function postgresDemoSeedCompleted(store, workspaceId) {
+  if (!store.pool?.query) return true;
+  const { rows } = await store.pool.query(`SELECT EXISTS(
+    SELECT 1 FROM audit_events
+    WHERE workspace_id=$1 AND aggregate_type='demo_seed' AND aggregate_id=$1 AND event_type='demo.seed.completed'
+  ) complete`, [workspaceId]);
+  return Boolean(rows[0]?.complete);
+}
+
+async function resetIncompletePostgresDemo(store, existing) {
+  if (!store.pool?.connect || !existing?.workspaceId) return false;
+  const client = await store.pool.connect();
+  try {
+    await client.query('BEGIN');
+    const workspace = (await client.query('SELECT organization_id FROM workspaces WHERE id=$1 FOR UPDATE', [existing.workspaceId])).rows[0];
+    if (!workspace) { await client.query('COMMIT'); return false; }
+    const users = (await client.query('SELECT user_id FROM memberships WHERE workspace_id=$1', [existing.workspaceId])).rows.map((row) => row.user_id);
+    await client.query('DELETE FROM organizations WHERE id=$1', [workspace.organization_id]);
+    if (users.length) {
+      await client.query(`DELETE FROM users u WHERE u.id=ANY($1::uuid[])
+        AND NOT EXISTS(SELECT 1 FROM memberships m WHERE m.user_id=u.id)`, [users]);
+    }
+    await client.query('COMMIT');
+    return true;
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function markPostgresDemoSeedCompleted(store, owner) {
+  if (!store.pool?.query) return;
+  await store.pool.query(`INSERT INTO audit_events(
+    organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+    SELECT $1,$2,'demo_seed',$2,'demo.seed.completed',$3,$4
+    WHERE NOT EXISTS(
+      SELECT 1 FROM audit_events
+      WHERE workspace_id=$2 AND aggregate_type='demo_seed' AND aggregate_id=$2 AND event_type='demo.seed.completed'
+    )`, [owner.organizationId, owner.workspaceId, owner.userId, { version:1, demo:'northstar' }]);
+}
+
+async function setProfileTitle(store, workspaceId, userId, title) {
+  if (store.pool?.query) {
+    await store.pool.query('UPDATE workspace_profiles SET title=$3,updated_at=now() WHERE workspace_id=$1 AND user_id=$2', [workspaceId, userId, title]);
+    return;
+  }
+  const profileKey = store.membershipKey?.(workspaceId, userId);
+  const profile = profileKey ? store.profiles?.get(profileKey) : null;
+  if (profile) profile.title = title;
 }
 
 async function inviteDemoMember(store, ownerSession, { displayName, email, role, title }) {
@@ -26,18 +80,39 @@ async function inviteDemoMember(store, ownerSession, { displayName, email, role,
     passwordHash: password.hash,
     passwordSalt: password.salt,
   });
-  const profileKey = store.membershipKey?.(ownerSession.workspaceId, accepted.user.id);
-  const profile = profileKey ? store.profiles?.get(profileKey) : null;
-  if (profile) profile.title = title;
+  await setProfileTitle(store, ownerSession.workspaceId, accepted.user.id, title);
   return accepted.user.id;
 }
 
-function setTaskState(store, taskId, status, forecastAt = null) {
+async function setTaskState(store, workspaceId, taskId, status, forecastAt = null) {
+  if (store.pool?.query) {
+    await store.pool.query(`UPDATE commitments SET status=$3,forecast_at=COALESCE($4,forecast_at),updated_at=now()
+      WHERE workspace_id=$1 AND id=$2`, [workspaceId, taskId, status, forecastAt]);
+    return;
+  }
   const row = store.tasks?.get(taskId);
   if (!row) return;
   row.status = status;
   if (forecastAt) row.forecastAt = forecastAt;
   row.updatedAt = new Date().toISOString();
+}
+
+async function rehydrateDemoFiles(store, objectStore, workspaceId) {
+  if (!objectStore?.head || !objectStore?.put || !store.pool?.query || !workspaceId) return { checked:0, restored:0 };
+  const names = DEMO_FILE_FIXTURES.map((fixture) => fixture.name);
+  const { rows } = await store.pool.query(`SELECT name,storage_key "storageKey" FROM files
+    WHERE workspace_id=$1 AND deleted_at IS NULL AND name=ANY($2::text[])`, [workspaceId, names]);
+  const fixtures = new Map(DEMO_FILE_FIXTURES.map((fixture) => [fixture.name, fixture]));
+  let restored = 0;
+  for (const row of rows) {
+    const fixture = fixtures.get(row.name);
+    if (!fixture) continue;
+    const state = await objectStore.head(row.storageKey);
+    if (state?.exists) continue;
+    await objectStore.put(row.storageKey, Buffer.from(fixture.body, 'utf8'), fixture.mimeType);
+    restored++;
+  }
+  return { checked:rows.length, restored };
 }
 
 async function seedDemoFile(store, objectStore, session, conversationId, { name, mimeType, body }) {
@@ -65,8 +140,19 @@ async function seedDemoFile(store, objectStore, session, conversationId, { name,
 }
 
 export async function seedDemoWorkspace(store, objectStore = null) {
-  const existing = await store.findAuthByEmail(DEMO_EMAIL);
-  if (existing) return { email: DEMO_EMAIL };
+  let existing = await store.findAuthByEmail(DEMO_EMAIL);
+  if (existing) {
+    if (await postgresDemoSeedCompleted(store, existing.workspaceId)) {
+      const files = await rehydrateDemoFiles(store, objectStore, existing.workspaceId);
+      return { email:DEMO_EMAIL, existing:true, complete:true, files };
+    }
+    if (store.pool?.connect) {
+      await resetIncompletePostgresDemo(store, existing);
+      existing = null;
+    } else {
+      return { email:DEMO_EMAIL, existing:true, complete:true };
+    }
+  }
 
   const password = hashPassword(DEMO_PASSWORD);
   const created = await store.createCompany({
@@ -181,21 +267,14 @@ export async function seedDemoWorkspace(store, objectStore = null) {
   });
 
   if (objectStore) {
-    await seedDemoFile(store, objectStore, anna, product.id, {
-      name:'mobile-call-review.svg',
-      mimeType:'image/svg+xml',
-      body:`<svg xmlns="http://www.w3.org/2000/svg" width="900" height="560" viewBox="0 0 900 560"><rect width="900" height="560" rx="32" fill="#111214"/><rect x="40" y="38" width="820" height="72" rx="22" fill="#1f2225"/><circle cx="80" cy="74" r="18" fill="#d4a28b"/><rect x="116" y="60" width="230" height="18" rx="9" fill="#e9e7e2"/><rect x="40" y="136" width="520" height="344" rx="28" fill="#24272a"/><rect x="580" y="136" width="280" height="164" rx="28" fill="#2e3135"/><rect x="580" y="320" width="280" height="160" rx="28" fill="#1b1e21"/><rect x="260" y="504" width="380" height="34" rx="17" fill="#e9e7e2"/><text x="450" y="92" text-anchor="middle" fill="#96999d" font-family="Arial" font-size="18">Mobile call QA · safe area · reconnect · controls</text></svg>`,
-    });
-    await seedDemoFile(store, objectStore, anna, product.id, {
-      name:'release-checklist.md',
-      mimeType:'text/markdown',
-      body:'# Mobile release checklist\n\n- iPhone safe-area\n- reconnect state\n- incoming push call\n- camera / microphone permissions\n- background / foreground recovery\n- final visual QA\n',
-    });
-    await seedDemoFile(store, objectStore, ilya, operations.id, {
-      name:'launch-metrics.csv',
-      mimeType:'text/csv',
-      body:'metric,owner,status\nMobile QA,Maxim,in_progress\nUX review,Anna,in_review\nRelease checklist,Ilya,blocked\nRBAC,Elena,accepted\n',
-    });
+    const actors = { anna, ilya };
+    const conversations = { product, operations };
+    for (const fixture of DEMO_FILE_FIXTURES) {
+      const uploader = actors[fixture.uploader];
+      const conversation = conversations[fixture.conversationSlug];
+      if (!uploader || !conversation) throw new Error(`Invalid demo file fixture: ${fixture.name}`);
+      await seedDemoFile(store, objectStore, uploader, conversation.id, fixture);
+    }
   } else {
     await store.createMessage(anna, product.id, {
       kind: 'file', body: null,
@@ -280,12 +359,12 @@ export async function seedDemoWorkspace(store, objectStore = null) {
     promisedAt: plusMinutes(2 * 24 * 60),
   }));
 
-  setTaskState(store, tasks[0].id, 'in_progress', plusMinutes(150));
-  setTaskState(store, tasks[1].id, 'in_review');
-  setTaskState(store, tasks[2].id, 'scheduled');
-  setTaskState(store, tasks[3].id, 'accepted');
-  setTaskState(store, tasks[4].id, 'blocked', plusMinutes(36 * 60));
-  setTaskState(store, tasks[5].id, 'proposed');
+  await setTaskState(store, owner.workspaceId, tasks[0].id, 'in_progress', plusMinutes(150));
+  await setTaskState(store, owner.workspaceId, tasks[1].id, 'in_review');
+  await setTaskState(store, owner.workspaceId, tasks[2].id, 'scheduled');
+  await setTaskState(store, owner.workspaceId, tasks[3].id, 'accepted');
+  await setTaskState(store, owner.workspaceId, tasks[4].id, 'blocked', plusMinutes(36 * 60));
+  await setTaskState(store, owner.workspaceId, tasks[5].id, 'proposed');
 
   await store.createCalendarEvent(owner, {
     kind: 'meeting',
@@ -329,5 +408,6 @@ export async function seedDemoWorkspace(store, objectStore = null) {
   await store.setPresence(maxim, { state: 'online' });
   await store.setPresence(elena, { state: 'do_not_disturb', statusText: 'Проверка доступов' });
 
-  return { email: DEMO_EMAIL };
+  await markPostgresDemoSeedCompleted(store, owner);
+  return { email:DEMO_EMAIL, existing:false, complete:true };
 }
