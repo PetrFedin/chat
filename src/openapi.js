@@ -2,8 +2,8 @@ export const openapi = Object.freeze({
   openapi: '3.1.0',
   info: {
     title: 'Chat Corporate Workspace API',
-    version: '0.9.0',
-    description: 'Company workspace API with server-authoritative conversation membership, announcement publishing policy, daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, evidence-first meeting intelligence, governed processing recovery and versioned provider cost accounting. AI output remains proposed until explicitly confirmed by a human.'
+    version: '0.10.0',
+    description: 'Company workspace API with server-authoritative conversation membership, versioned accountable task execution, evidence-gated review and acceptance, daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, evidence-first meeting intelligence, governed processing recovery and versioned provider cost accounting. AI output remains proposed until explicitly confirmed by a human.'
   },
   servers: [{ url: '/' }],
   tags: [
@@ -33,8 +33,34 @@ export const openapi = Object.freeze({
     '/api/v1/mentions': { get: { tags: ['Attention'], summary: 'List current user mentions', responses: { '200': { description: 'Mention notification list' } } } },
     '/api/v1/search': { get: { tags: ['Search'], summary: 'Search accessible messages, conversations, tasks, files, people and calendar events', responses: { '200': { description: 'Permission-filtered search results' } } } },
     '/api/v1/tasks': {
-      get: { tags: ['Workspace'], summary: 'List tasks relevant to current user', responses: { '200': { description: 'Task list' } } },
-      post: { tags: ['Workspace'], summary: 'Create a task with accountable owner and due date', responses: { '201': { description: 'Task created' } } }
+      get: { tags: ['Workspace'], summary: 'List tasks visible to the current accountable workflow participant', responses: { '200': { description: 'Task list with current version and allowed transitions' } } },
+      post: { tags: ['Workspace'], summary: 'Create a proposed task with one accountable owner and designated result acceptor', responses: { '201': { description: 'Task created at version 1' }, '400': { description: 'Invalid task participant or payload' } } }
+    },
+    '/api/v1/tasks/{taskId}': {
+      get: { tags: ['Workspace'], summary: 'Get authoritative task detail, evidence, acceptance decisions and audit history', responses: { '200': { description: 'Task detail' }, '404': { description: 'Task is not visible' } } }
+    },
+    '/api/v1/tasks/{taskId}/transitions': {
+      post: {
+        tags: ['Workspace'],
+        summary: 'Perform an actor-authorized, optimistic-version task state transition',
+        description: 'The server enforces the accountable owner, requester and designated acceptor roles. Review requires execution evidence. Blocking, deferral, cancellation and review return/reopen paths require explicit reasons. expectedVersion rejects stale actions.',
+        responses: { '200': { description: 'Updated task with next allowed transitions' }, '400': { description: 'Reason or transition input required' }, '403': { description: 'Actor is not authorized for this transition' }, '404': { description: 'Task is not visible' }, '409': { description: 'Stale version, missing evidence or invalid state transition' } }
+      }
+    },
+    '/api/v1/tasks/{taskId}/evidence': {
+      post: {
+        tags: ['Workspace'],
+        summary: 'Attach auditable execution evidence to a visible task',
+        description: 'Evidence is append-only through this endpoint and advances the task version so stale review actions cannot race with new evidence.',
+        responses: { '201': { description: 'Evidence appended and task version advanced' }, '403': { description: 'Evidence authority denied' }, '404': { description: 'Task is not visible' }, '409': { description: 'Stale or terminal task' } }
+      }
+    },
+    '/api/v1/tasks/{taskId}/schedule': {
+      patch: {
+        tags: ['Workspace'],
+        summary: 'Reschedule promised/forecast time with a mandatory audited reason',
+        responses: { '200': { description: 'Task schedule and version updated' }, '400': { description: 'Reason required' }, '403': { description: 'Scheduling authority denied' }, '404': { description: 'Task is not visible' }, '409': { description: 'Stale or terminal task' } }
+      }
     },
     '/api/v1/calendar-events': {
       get: { tags: ['Workspace'], summary: 'List calendar events', responses: { '200': { description: 'Calendar events' } } },
