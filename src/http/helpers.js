@@ -9,7 +9,12 @@ export const cleanText=(value,max=500)=>{const s=String(value??'').trim();if(!s|
 export const cookies=(req)=>Object.fromEntries(String(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');return i<0?[x,'']:[x.slice(0,i),decodeURIComponent(x.slice(i+1))]}));
 export const json=(res,status,value,headers={})=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers});res.end(JSON.stringify(value))};
 export const noContent=(res,headers={})=>{res.writeHead(204,{'cache-control':'no-store',...headers});res.end()};
-export const errorJson=(res,error)=>{const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers=error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{},hide=status>=500&&!error.expose;json(res,status,{error:{code:error.code??'BAD_REQUEST',message:hide?'Internal server error':error.message}},headers)};
+// A driver error (a 5-digit SQLSTATE, a constraint name) is internal detail:
+// it names our tables to anyone who can POST. Map the ones a client can
+// legitimately provoke, hide the rest behind a generic 400.
+const PG_CODES={'23505':{code:'ALREADY_EXISTS',statusCode:409,message:'A record with these values already exists'},'23503':{code:'REFERENCE_NOT_FOUND',statusCode:400,message:'A referenced record does not exist'},'23514':{code:'INVALID_VALUE',statusCode:400,message:'A value failed a validation rule'},'22P02':{code:'INVALID_VALUE',statusCode:400,message:'A value has the wrong format'}};
+export const normalizeError=(error)=>{if(!/^[0-9A-Z]{5}$/.test(String(error?.code??''))||error.statusCode)return error;const mapped=PG_CODES[error.code]??{code:'STORAGE_ERROR',statusCode:500,message:'Internal server error'};return Object.assign(new Error(mapped.message),mapped)};
+export const errorJson=(res,rawError)=>{const error=normalizeError(rawError);const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers=error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{},hide=status>=500&&!error.expose;json(res,status,{error:{code:error.code??'BAD_REQUEST',message:hide?'Internal server error':error.message}},headers)};
 export const clientAddress=(req)=>String(req.headers['x-forwarded-for']??req.socket?.remoteAddress??'').split(',')[0].trim()||null;
 // camera/microphone stay permitted: the product is a calling app.
 // frameAncestors defaults to denying every embed. Set CSP_FRAME_ANCESTORS to a

@@ -94,7 +94,11 @@ export class MemoryStore {
 
   async getBootstrap(session) {
     const conversations = await this.listConversations(session);
-    const people = [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId).map((m) => ({ ...clone(this.profiles.get(this.membershipKey(m.workspaceId, m.userId))), userId: m.userId, role: m.role, presence: clone(this.presence.get(this.membershipKey(m.workspaceId, m.userId)) ?? { state: 'offline' }) }));
+    const sharesRoomWith = (userId) => [...this.conversationMembers.values()]
+      .filter((cm) => cm.userId === session.userId)
+      .some((cm) => this.conversationMembers.has(this.conversationMemberKey(cm.conversationId, userId)));
+    const people = [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId)
+      .filter((m) => session.role !== 'guest' || m.userId === session.userId || sharesRoomWith(m.userId)).map((m) => ({ ...clone(this.profiles.get(this.membershipKey(m.workspaceId, m.userId))), userId: m.userId, role: m.role, presence: clone(this.presence.get(this.membershipKey(m.workspaceId, m.userId)) ?? { state: 'offline' }) }));
     return { session, conversations, people };
   }
 
@@ -112,7 +116,7 @@ export class MemoryStore {
     this.users.set(userId,user);this.userByEmail.set(invitation.email,userId);this.credentials.set(userId,{passwordHash,passwordSalt});
     this.memberships.set(this.membershipKey(invitation.workspaceId,userId),{organizationId:invitation.organizationId,workspaceId:invitation.workspaceId,userId,role:invitation.role,createdAt});
     this.profiles.set(this.membershipKey(invitation.workspaceId,userId),{workspaceId:invitation.workspaceId,userId,displayName,email:invitation.email,timezone:'UTC'});
-    for(const conversation of this.conversations.values()) if(conversation.workspaceId===invitation.workspaceId && conversation.kind==='channel' && conversation.visibility==='workspace') this.conversationMembers.set(this.conversationMemberKey(conversation.id,userId),{conversationId:conversation.id,workspaceId:invitation.workspaceId,userId,role:'member'});
+    if(invitation.role!=='guest')for(const conversation of this.conversations.values()) if(conversation.workspaceId===invitation.workspaceId && conversation.kind==='channel' && conversation.visibility==='workspace') this.conversationMembers.set(this.conversationMemberKey(conversation.id,userId),{conversationId:conversation.id,workspaceId:invitation.workspaceId,userId,role:'member'});
     invitation.status='accepted';invitation.acceptedBy=userId;invitation.acceptedAt=createdAt;
     return {user,workspace:this.workspaces.get(invitation.workspaceId),membership:this.memberships.get(this.membershipKey(invitation.workspaceId,userId))};
   }
@@ -235,7 +239,7 @@ export class MemoryStore {
   async conversationAudience(session, conversationId) {
     const conversation=this.conversations.get(conversationId);
     if(!conversation || conversation.workspaceId!==session.workspaceId) return [];
-    if(conversation.visibility==='workspace' || conversation.visibility==='organization') return [...new Set([...this.memberships.values()].filter((m)=>m.workspaceId===session.workspaceId).map((m)=>m.userId))];
+    if(conversation.visibility==='workspace' || conversation.visibility==='organization') return [...new Set([...this.memberships.values()].filter((m)=>m.workspaceId===session.workspaceId&&m.role!=='guest').map((m)=>m.userId))];
     return [...new Set([...this.conversationMembers.values()].filter((m)=>m.workspaceId===session.workspaceId && m.conversationId===conversationId).map((m)=>m.userId))];
   }
 
@@ -243,7 +247,7 @@ export class MemoryStore {
     for (const userId of new Set([session.userId,...participantIds])) this.assertConversationUser(session,userId);
     const row = { id: randomUUID(), organizationId: session.organizationId, workspaceId: session.workspaceId, kind, title, slug, visibility, purpose, announcementOnly:Boolean(announcementOnly), createdBy: session.userId, createdAt: nowIso(), archivedAt:null };
     this.conversations.set(row.id, row); this.messages.set(row.id, []);
-    const memberIds = visibility === 'workspace' && kind === 'channel' ? [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId).map((m) => m.userId) : [session.userId, ...participantIds];
+    const memberIds = visibility === 'workspace' && kind === 'channel' ? [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId && m.role !== 'guest').map((m) => m.userId) : [session.userId, ...participantIds];
     for (const userId of new Set(memberIds)) this.conversationMembers.set(this.conversationMemberKey(row.id, userId), { conversationId: row.id, workspaceId: session.workspaceId, userId, role: userId === session.userId ? 'owner' : 'member', joinedAt:nowIso() });
     return clone(row);
   }
