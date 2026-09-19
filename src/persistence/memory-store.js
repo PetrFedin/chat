@@ -252,7 +252,8 @@ export class MemoryStore {
       const sourceList=[...this.messages.values()].find(list=>list.some(item=>item.id===forward.sourceMessageId))??[];
       const source=sourceList.find(item=>item.id===forward.sourceMessageId);
       const sourceConversation=source?this.conversations.get(source.conversationId):null;
-      forwardedFrom=source?{messageId:source.id,conversationId:source.conversationId,conversationTitle:sourceConversation?.title??null,authorId:source.authorId,createdAt:source.createdAt}:null;
+      const sourceVisible=Boolean(sourceConversation&&sourceConversation.workspaceId===session.workspaceId&&(sourceConversation.visibility!=='private'||this.conversationMembers.has(this.conversationMemberKey(sourceConversation.id,session.userId))));
+      forwardedFrom=sourceVisible?{messageId:source.id,conversationId:source.conversationId,conversationTitle:sourceConversation?.title??null,authorId:source.authorId,createdAt:source.createdAt}:{restricted:true};
     }
     return clone({
       ...message,
