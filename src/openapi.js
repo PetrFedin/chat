@@ -2,8 +2,8 @@ export const openapi = Object.freeze({
   openapi: '3.1.0',
   info: {
     title: 'Chat Corporate Workspace API',
-    version: '0.10.0',
-    description: 'Company workspace API with server-authoritative conversation membership, versioned accountable task execution, evidence-gated review and acceptance, daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, evidence-first meeting intelligence, governed processing recovery and versioned provider cost accounting. AI output remains proposed until explicitly confirmed by a human.'
+    version: '0.11.0',
+    description: 'Company workspace API with server-authoritative conversation membership, personal archive/mute, saved and pinned messages, immutable forward provenance, controlled message editing/deletion, versioned accountable task execution, evidence-gated review and acceptance, daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, evidence-first meeting intelligence, governed processing recovery and versioned provider cost accounting. AI output remains proposed until explicitly confirmed by a human.'
   },
   servers: [{ url: '/' }],
   tags: [
@@ -70,6 +70,18 @@ export const openapi = Object.freeze({
       get: { tags: ['Messaging'], summary: 'List visible conversations with computed unread and mention counts', responses: { '200': { description: 'Conversation list' } } },
       post: { tags: ['Messaging'], summary: 'Create a channel, group or direct conversation', responses: { '201': { description: 'Conversation created' } } }
     },
+    '/api/v1/conversations/archived': {
+      get: { tags: ['Messaging'], summary: 'List conversations personally archived by the current user', responses: { '200': { description: 'Personal archive' } } }
+    },
+    '/api/v1/conversations/{conversationId}/preferences': {
+      patch: { tags: ['Messaging'], summary: 'Update personal archive and mute state for one conversation', description: 'Archive and mute state are per-user. They do not archive the shared conversation or remove realtime membership.', responses: { '200': { description: 'Updated personal preferences' }, '404': { description: 'Conversation not visible' } } }
+    },
+    '/api/v1/conversations/{conversationId}/pins': {
+      get: { tags: ['Messaging'], summary: 'List non-deleted messages pinned in a visible conversation', responses: { '200': { description: 'Pinned messages' }, '404': { description: 'Conversation not visible' } } }
+    },
+    '/api/v1/saved-messages': {
+      get: { tags: ['Messaging'], summary: 'List messages personally saved by the current user', responses: { '200': { description: 'Saved messages in still-visible contexts' } } }
+    },
     '/api/v1/conversations/{conversationId}/members': {
       get: { tags: ['Messaging'], summary: 'List visible conversation members and current management authority', responses: { '200': { description: 'Conversation members' }, '404': { description: 'Conversation not visible' } } },
       post: { tags: ['Messaging'], summary: 'Add workspace members to a managed group or channel', responses: { '200': { description: 'Updated conversation members' }, '403': { description: 'Conversation management permission required' }, '409': { description: 'Direct conversation membership is immutable' } } }
@@ -81,6 +93,21 @@ export const openapi = Object.freeze({
     '/api/v1/conversations/{conversationId}/messages': {
       get: { tags: ['Messaging'], summary: 'List conversation messages', responses: { '200': { description: 'Messages' } } },
       post: { tags: ['Messaging'], summary: 'Send text or structured message and resolve supported @mentions', responses: { '201': { description: 'Message created' } } }
+    },
+    '/api/v1/messages/{messageId}': {
+      patch: { tags: ['Messaging'], summary: 'Edit an authored text message', description: 'Forwarded copies are immutable so their copied content cannot diverge from provenance.', responses: { '200': { description: 'Edited message' }, '403': { description: 'Only the author may edit' }, '409': { description: 'Forwarded or non-text message is not editable' } } },
+      delete: { tags: ['Messaging'], summary: 'Soft-delete a message under author/admin authority', responses: { '200': { description: 'Deleted message projection' }, '403': { description: 'Delete authority denied' } } }
+    },
+    '/api/v1/messages/{messageId}/save': {
+      post: { tags: ['Messaging'], summary: 'Save a visible message for the current user', responses: { '200': { description: 'Saved' }, '404': { description: 'Message not visible' } } },
+      delete: { tags: ['Messaging'], summary: 'Remove a message from the current user saved list', responses: { '200': { description: 'Unsaved' } } }
+    },
+    '/api/v1/messages/{messageId}/pin': {
+      post: { tags: ['Messaging'], summary: 'Pin a visible message in its conversation', description: 'Direct participants may pin in direct chats. Other conversation kinds require conversation management authority.', responses: { '200': { description: 'Pinned' }, '403': { description: 'Pin authority denied' } } },
+      delete: { tags: ['Messaging'], summary: 'Unpin a message under the same shared-state authority', responses: { '200': { description: 'Unpinned' }, '403': { description: 'Pin authority denied' } } }
+    },
+    '/api/v1/messages/{messageId}/forward': {
+      post: { tags: ['Messaging'], summary: 'Forward a visible message into another visible conversation', description: 'Creates a new message plus immutable server-side provenance. Provenance details are redacted for viewers who cannot access the source conversation. Announcement-only policy is enforced on the target.', responses: { '201': { description: 'Forwarded message' }, '403': { description: 'Target publishing policy denied' }, '404': { description: 'Source or target not visible' } } }
     },
     '/api/v1/messages/{messageId}/reactions': { post: { tags: ['Messaging'], summary: 'Add or remove a reaction', responses: { '200': { description: 'Reaction state' } } } },
     '/api/v1/conversations/{conversationId}/read': { post: { tags: ['Messaging', 'Attention'], summary: 'Move current user read cursor and clear related conversation notifications', responses: { '204': { description: 'Read state updated' } } } },
