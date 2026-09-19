@@ -93,14 +93,15 @@ test('conversation authority closes announcement, membership and reaction gaps',
   assert.equal((await request(base,`/api/v1/conversations/${privateId}/messages`,{cookie:bob.cookie})).response.status,200);
 });
 
-test('group conversations require two colleagues in addition to the creator',async(t)=>{
+test('managed group conversation can start with one colleague and grow later',async(t)=>{
   const app=await createChatServer({store:new MemoryStore()});
   await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
   t.after(()=>app.close());
   const base=`http://127.0.0.1:${app.server.address().port}`;
   const owner=await request(base,'/api/v1/auth/register-company',{method:'POST',body:{companyName:'Group Co',ownerName:'Owner',email:'owner@group.test',password:'OwnerPassword42'}});
   const alice=await invite(base,owner.cookie,'alice@group.test','Alice');
-  const invalid=await request(base,'/api/v1/conversations',{cookie:owner.cookie,method:'POST',body:{kind:'group',title:'Not a group',participantIds:[alice.userId]}});
-  assert.equal(invalid.response.status,400);
-  assert.equal(invalid.payload.error.code,'GROUP_REQUIRES_THREE_PARTICIPANTS');
+  const created=await request(base,'/api/v1/conversations',{cookie:owner.cookie,method:'POST',body:{kind:'group',title:'Managed group',participantIds:[alice.userId]}});
+  assert.equal(created.response.status,201);
+  const members=await request(base,`/api/v1/conversations/${created.payload.conversation.id}/members`,{cookie:owner.cookie});
+  assert.equal(members.payload.items.length,2);
 });
