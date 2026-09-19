@@ -12,7 +12,8 @@ ALTER TABLE notifications
       'task.rescheduled',
       'calendar.invited',
       'calendar.reminder',
-      'review.requested'
+      'review.requested',
+      'meeting.review_ready'
     )
   );
 
