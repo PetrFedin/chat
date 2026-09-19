@@ -4,6 +4,7 @@ import { cleanText, json, readJson, allowedPresence } from './helpers.js';
 const TASK_ID='([0-9a-f-]+)';
 const TASK_EVIDENCE_TYPES=new Set(['url','file','message','metric','note']);
 const taskAudience=(task)=>[...new Set([task?.ownerId,task?.requesterId,task?.acceptorId].filter(Boolean))];
+const taskRealtime=(task)=>{const {allowedTransitions,...state}=task??{};return state};
 const taskLabel=(status)=>({
   accepted:'Ответственность принята',
   in_progress:'Задача в работе',
@@ -23,14 +24,14 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
   if(path==='/api/v1/tasks'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listTasks(s)});return true}
   if(path==='/api/v1/tasks'&&method==='POST'){
     const s=await requireSession(req);requirePermission(s.role,Permission.TASK_CREATE);const b=await readJson(req),task=await store.createTask(s,{title:cleanText(b.title,240),outcome:b.outcome?cleanText(b.outcome,1000):undefined,ownerId:b.ownerId??s.userId,acceptorId:b.acceptorId??s.userId,sourceMessageId:b.sourceMessageId??null,priority:b.priority??'normal',promisedAt:b.promisedAt??null,forecastAt:b.forecastAt??null});
-    const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.created',task);json(res,201,{task});return true
+    const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.created',taskRealtime(task));json(res,201,{task});return true
   }
   let m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}$`,'i'));
   if(m&&method==='GET'){const s=await requireSession(req),task=await store.getTaskDetail(s,m[1]);if(!task)throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});json(res,200,{task});return true}
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/transitions$`,'i'));
   if(m&&method==='POST'){
     const s=await requireSession(req),b=await readJson(req),task=await store.transitionTask(s,m[1],{to:String(b.to??''),reason:b.reason??null,expectedVersion:b.expectedVersion});
-    const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',task);
+    const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(task));
     const recipients=audience.filter(id=>id!==s.userId);
     await notifyUsers(s.workspaceId,recipients,{title:taskLabel(task.status),body:task.title,url:`/#/tasks/${task.id}`});
     json(res,200,{task});return true
@@ -38,7 +39,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/evidence$`,'i'));
   if(m&&method==='POST'){
     const s=await requireSession(req),b=await readJson(req),type=String(b.type??'note');if(!TASK_EVIDENCE_TYPES.has(type))throw Object.assign(new Error('Unsupported evidence type'),{code:'INVALID_EVIDENCE_TYPE',statusCode:400});const value=cleanText(b.value,4000),result=await store.addTaskEvidence(s,m[1],{type,value,expectedVersion:b.expectedVersion});
-    const audience=taskAudience(result.task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',result.task);json(res,201,result);return true
+    const audience=taskAudience(result.task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(result.task));json(res,201,result);return true
   }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule$`,'i'));
   if(m&&method==='PATCH'){
