@@ -11,7 +11,10 @@
   function apply() {
     const locale = window.ChatPreferences?.locale || 'ru';
     for (const [selector, attribute, ru, en] of pairs) {
-      document.querySelectorAll(selector).forEach((node) => node.setAttribute(attribute, locale === 'en' ? en : ru));
+      const value = locale === 'en' ? en : ru;
+      document.querySelectorAll(selector).forEach((node) => {
+        if (node.getAttribute(attribute) !== value) node.setAttribute(attribute, value);
+      });
     }
   }
 

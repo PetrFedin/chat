@@ -114,6 +114,22 @@ test('every response carries the security header set', async (t) => {
   assert.match(csp, /frame-ancestors 'none'/);
 });
 
+test('embedding stays denied by default and opens only when configured', async (t) => {
+  const denied = await startServer();
+  t.after(denied.close);
+  const strict = await denied.call('/healthz');
+  assert.match(strict.headers.get('content-security-policy'), /frame-ancestors 'none'/);
+  assert.equal(strict.headers.get('x-frame-options'), 'DENY');
+
+  process.env.CSP_FRAME_ANCESTORS = "'self' https://portal.example.com";
+  t.after(() => { delete process.env.CSP_FRAME_ANCESTORS; });
+  const embedded = await startServer();
+  t.after(embedded.close);
+  const relaxed = await embedded.call('/healthz');
+  assert.match(relaxed.headers.get('content-security-policy'), /frame-ancestors 'self' https:\/\/portal\.example\.com/);
+  assert.equal(relaxed.headers.get('x-frame-options'), null, 'DENY would veto the configured allowance');
+});
+
 test('the served page has no inline script for CSP to block', async (t) => {
   const { call, close } = await startServer();
   t.after(close);

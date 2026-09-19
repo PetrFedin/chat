@@ -270,9 +270,16 @@
     return translateDynamic(original);
   }
 
+  const NON_PROSE = new Set(['TITLE', 'SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+
   function shouldSkip(node) {
     const parent = node.parentElement;
-    return Boolean(parent?.closest(userContentSelector));
+    if (!parent) return false;
+    // <title> is written by applyDocumentTitle, not walked: rewriting it here
+    // replaces the element's text node, which is a childList mutation that
+    // re-enters this observer forever.
+    if (NON_PROSE.has(parent.tagName)) return true;
+    return Boolean(parent.closest(userContentSelector));
   }
 
   function translateTextNode(node, refreshOriginal = false) {
@@ -312,7 +319,14 @@
       if (node.nodeType === Node.TEXT_NODE) translateTextNode(node);
       else translateAttributes(node);
     }
-    document.title = locale === 'en' ? 'Chat — company workspace' : 'Chat — рабочее пространство компании';
+    applyDocumentTitle();
+  }
+
+  function applyDocumentTitle() {
+    const next = locale === 'en' ? 'Chat — company workspace' : 'Chat — рабочее пространство компании';
+    // Assigning an unchanged title still replaces the text node under <title>,
+    // so the equality check is what stops the observer feeding itself.
+    if (document.title !== next) document.title = next;
   }
 
   function applyTheme() {
@@ -379,11 +393,22 @@
     updateLauncher(button);
   }
 
+  // Every writer below compares before it writes. These run from the mutation
+  // observer, so an unconditional write is a childList mutation that calls the
+  // observer again — the page then never reaches idle.
+  function setMarkup(element, markup) {
+    if (element && element.innerHTML !== markup) element.innerHTML = markup;
+  }
+
+  function setAttributeIfChanged(element, name, value) {
+    if (element && element.getAttribute(name) !== value) element.setAttribute(name, value);
+  }
+
   function updateLauncher(button) {
     if (!button) return;
-    button.innerHTML = `<span>${locale.toUpperCase()}</span><span aria-hidden="true">${theme === 'dark' ? '●' : '○'}</span>`;
-    button.setAttribute('aria-label', copy().preferences);
-    button.setAttribute('title', copy().preferences);
+    setMarkup(button, `<span>${locale.toUpperCase()}</span><span aria-hidden="true">${theme === 'dark' ? '●' : '○'}</span>`);
+    setAttributeIfChanged(button, 'aria-label', copy().preferences);
+    setAttributeIfChanged(button, 'title', copy().preferences);
   }
 
   function openPanel() {
@@ -409,7 +434,7 @@
       if (actions) modal.insertBefore(block, actions);
       else modal.append(block);
     }
-    block.innerHTML = preferenceControls();
+    setMarkup(block, preferenceControls());
   }
 
   function refreshOwnedUi() {

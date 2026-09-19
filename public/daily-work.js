@@ -17,15 +17,21 @@ async function refreshAttention(force=false){if(!appVisible()||D.refreshing)retu
 
 function ensureBell(){const actions=$('.top-actions');if(!actions||$('#dwc-bell'))return;const button=document.createElement('button');button.id='dwc-bell';button.className='round-button pressable dwc-bell';button.type='button';button.setAttribute('aria-label',tr('Центр уведомлений','Notification center'));button.innerHTML='<span aria-hidden="true">◎</span><span class="dwc-badge" hidden>0</span>';const quick=actions.querySelector('[data-action="quick-create"]');actions.insertBefore(button,quick||actions.lastElementChild);button.onclick=()=>openNotifications()}
 
-function setCountBadge(root,count){if(!root)return;let badge=root.querySelector('.dwc-inline-badge');if(!count){badge?.remove();return}if(!badge){badge=document.createElement('span');badge.className='dwc-inline-badge';root.append(badge)}badge.textContent=count>99?'99+':String(count)}
+// These run from a body-wide MutationObserver. Writing a value that already
+// matches is still a mutation, which calls the observer again and pins the
+// main thread, so every writer below compares first.
+const setText=(el,value)=>{if(el&&el.textContent!==value)el.textContent=value};
+const setHtml=(el,value)=>{if(el&&el.innerHTML!==value)el.innerHTML=value};
+const setHidden=(el,value)=>{if(el&&el.hidden!==value)el.hidden=value};
+function setCountBadge(root,count){if(!root)return;let badge=root.querySelector('.dwc-inline-badge');if(!count){badge?.remove();return}if(!badge){badge=document.createElement('span');badge.className='dwc-inline-badge';root.append(badge)}setText(badge,count>99?'99+':String(count))}
 
-function applyUnreadBadges(){const total=D.conversations.reduce((sum,c)=>sum+Number(c.unreadCount||0),0);for(const row of $$('[data-conversation]')){const c=D.conversations.find(x=>x.id===row.dataset.conversation);if(!c)continue;setCountBadge(row,Number(c.unreadCount||0));let dot=row.querySelector('.dwc-mention-dot');if(c.mentionCount>0&&!dot){dot=document.createElement('span');dot.className='dwc-mention-dot';row.append(dot)}else if(!c.mentionCount)dot?.remove()}for(const nav of $$('[data-nav="chats"]'))setCountBadge(nav,total);const bell=$('#dwc-bell .dwc-badge'),count=Number(D.attention?.unreadNotifications||0);if(bell){bell.hidden=!count;bell.textContent=count>99?'99+':String(count)}}
+function applyUnreadBadges(){const total=D.conversations.reduce((sum,c)=>sum+Number(c.unreadCount||0),0);for(const row of $$('[data-conversation]')){const c=D.conversations.find(x=>x.id===row.dataset.conversation);if(!c)continue;setCountBadge(row,Number(c.unreadCount||0));let dot=row.querySelector('.dwc-mention-dot');if(c.mentionCount>0&&!dot){dot=document.createElement('span');dot.className='dwc-mention-dot';row.append(dot)}else if(!c.mentionCount)dot?.remove()}for(const nav of $$('[data-nav="chats"]'))setCountBadge(nav,total);const bell=$('#dwc-bell .dwc-badge'),count=Number(D.attention?.unreadNotifications||0);if(bell){setHidden(bell,!count);setText(bell,count>99?'99+':String(count))}}
 
-function ensureAttentionStrip(){const screen=$('#screen');if(!screen||!D.attention)return;const today=$('[data-nav="today"].active');if(!today){screen.querySelector('.dwc-attention-strip')?.remove();return}let strip=screen.querySelector('.dwc-attention-strip');if(!strip){strip=document.createElement('div');strip.className='dwc-attention-strip';screen.prepend(strip)}const a=D.attention;strip.innerHTML=`
+function ensureAttentionStrip(){const screen=$('#screen');if(!screen||!D.attention)return;const today=$('[data-nav="today"].active');if(!today){screen.querySelector('.dwc-attention-strip')?.remove();return}let strip=screen.querySelector('.dwc-attention-strip');if(!strip){strip=document.createElement('div');strip.className='dwc-attention-strip';screen.prepend(strip)}const a=D.attention;setHtml(strip,`
 <button class="dwc-attention-card pressable" data-dwc-attention="unread"><strong>${Number(a.unreadMessages||0)}</strong><span>${tr('непрочитанных сообщений','unread messages')}</span></button>
 <button class="dwc-attention-card pressable warm" data-dwc-attention="mentions"><strong>${Number(a.mentions||0)}</strong><span>${tr('упоминаний','mentions')}</span></button>
 <button class="dwc-attention-card pressable ${a.overdueTasks?'hot':''}" data-dwc-attention="overdue"><strong>${Number(a.overdueTasks||0)}</strong><span>${tr('просроченных задач','overdue tasks')}</span></button>
-<button class="dwc-attention-card pressable" data-dwc-attention="soon"><strong>${Number(a.dueSoonTasks||0)}</strong><span>${tr('срок в 24 часа','due in 24 hours')}</span></button>`}
+<button class="dwc-attention-card pressable" data-dwc-attention="soon"><strong>${Number(a.dueSoonTasks||0)}</strong><span>${tr('срок в 24 часа','due in 24 hours')}</span></button>`)}
 
 function decorate(){ensureBell();applyUnreadBadges();ensureAttentionStrip()}
 

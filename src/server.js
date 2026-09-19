@@ -98,7 +98,7 @@ export async function createChatServer(options={}){
 
   const ctx={store,mode,hub,authThrottle,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
   const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
-  const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production'});
+  const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{try{
     for(const [name,value] of Object.entries(baseHeaders))res.setHeader(name,value);
     const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`),path=url.pathname,method=req.method??'GET';

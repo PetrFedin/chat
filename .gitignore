@@ -6,3 +6,6 @@ data/
 !.env.example
 .DS_Store
 coverage/
+
+# local port override, not a project default
+.claude/launch.json
