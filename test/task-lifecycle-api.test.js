@@ -36,6 +36,14 @@ test('task lifecycle is authoritative from assignment through accepted close',as
   const reviewer=await invite(base,ownerCookie,'reviewer@work-cycle.test','Reviewer');
   const outsider=await invite(base,ownerCookie,'outsider@work-cycle.test','Outsider');
 
+  const privateGroup=await request(base,'/api/v1/conversations',{cookie:ownerCookie,method:'POST',body:{kind:'group',title:'Private task context',participantIds:[worker.userId]}});
+  assert.equal(privateGroup.response.status,201);
+  const source=await request(base,`/api/v1/conversations/${privateGroup.payload.conversation.id}/messages`,{cookie:ownerCookie,method:'POST',body:{body:'Prepare the monthly report from this confidential context.'}});
+  assert.equal(source.response.status,201);
+  const forbiddenSource=await request(base,'/api/v1/tasks',{cookie:outsider.cookie,method:'POST',body:{title:'Leaked source task',sourceMessageId:source.payload.message.id}});
+  assert.equal(forbiddenSource.response.status,404);
+  assert.equal(forbiddenSource.payload.error.code,'TASK_SOURCE_NOT_FOUND');
+
   const created=await request(base,'/api/v1/tasks',{cookie:ownerCookie,method:'POST',body:{
     title:'Close the monthly report',
     outcome:'Approved report is ready for distribution',
@@ -43,10 +51,12 @@ test('task lifecycle is authoritative from assignment through accepted close',as
     acceptorId:reviewer.userId,
     priority:'high',
     promisedAt:'2026-09-25T12:00:00.000Z',
+    sourceMessageId:source.payload.message.id,
   }});
   assert.equal(created.response.status,201);
   assert.equal(created.payload.task.status,'proposed');
   assert.equal(created.payload.task.version,1);
+  assert.equal(created.payload.task.sourceMessageId,source.payload.message.id);
   const taskId=created.payload.task.id;
 
   const outsiderRead=await request(base,`/api/v1/tasks/${taskId}`,{cookie:outsider.cookie});
