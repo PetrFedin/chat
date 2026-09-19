@@ -1,4 +1,4 @@
-const CACHE='chat-shell-v12';
+const CACHE='chat-shell-v13';
 const SHELL=['/','/styles.css','/calls.css','/preferences.css','/daily-work.css','/meeting-intelligence.css','/preferences.js','/preferences-context.js','/app.js','/meeting-intelligence.js','/meeting-operations.js','/daily-work.js','/calls-ui.js','/demo.js','/manifest.webmanifest','/icon.svg'];
 
 self.addEventListener('install',(event)=>event.waitUntil(

@@ -144,9 +144,18 @@ test('controls that look pressable have handlers, and icons have names', async (
   assert.match(html, /id="top-avatar"[^>]*aria-label=/);
 });
 
-test('the answer-needed marker survives a phone screen', async () => {
+test('the answer-needed marker survives a phone screen, in the right column', async () => {
   const css = await read('public/styles.css');
   // The mobile rule hides a calendar row's trailing chip, which is also where
-  // «нужен ответ» lives.
-  assert.match(css, /@media \(max-width: 980px\) \{\s*\.calendar-event > \.chip\.pulse \{ display: inline-grid; \}/);
+  // «нужен ответ» lives, so the marker has to be brought back.
+  const rule = css.match(/\.calendar-event > \.chip\.pulse\s*\{([^}]*)\}/);
+  assert.ok(rule, 'правило для метки «нужен ответ» пропало');
+  assert.doesNotMatch(rule[1], /display:\s*none/);
+
+  // Bringing it back is not enough. The mobile row is a three-column grid and
+  // the chip is its fourth child, so it wrapped into the 55px time column and
+  // «нужен ответ» was cut to «нужен о».
+  assert.match(rule[1], /grid-column:\s*3/, 'метка снова попадёт в колонку времени');
+  assert.match(css, /\.calendar-event\{grid-template-columns:55px 3px minmax\(0,1fr\)\}/,
+    'мобильная сетка изменилась — проверь, в какой колонке окажется метка');
 });
