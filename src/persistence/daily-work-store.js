@@ -118,6 +118,25 @@ export class MemoryStore extends BaseMemoryStore {
     return task;
   }
 
+  async projectTaskLifecycleNotification(session, task, { type='task.updated', title='Задача обновлена', body=null } = {}) {
+    const recipients=[...new Set([task.ownerId,task.requesterId,task.acceptorId].filter((id)=>id&&id!==session.userId))];
+    return recipients.map((recipientUserId)=>this.putNotification({
+      organizationId:session.organizationId,
+      workspaceId:session.workspaceId,
+      recipientUserId,
+      sourceEventId:task.id,
+      dedupeKey:`${type}:${task.id}:v${task.version}:${recipientUserId}`,
+      type,
+      title,
+      body:body||task.title,
+      actorUserId:session.userId,
+      commitmentId:task.id,
+      url:`/#/tasks/${task.id}`,
+      priority:['urgent','high'].includes(task.priority)?'high':'normal',
+      metadata:{status:task.status,version:task.version},
+    }));
+  }
+
   putNotification(value) {
     const existing = [...this.dailyNotifications.values()].find((n) => n.workspaceId === value.workspaceId && n.dedupeKey === value.dedupeKey);
     if (existing) return clone(existing);
@@ -339,6 +358,20 @@ export class PostgresStore extends BasePostgresStore {
       }).catch((error)=>console.error('task notification projection failed',error));
     }
     return task;
+  }
+
+  async projectTaskLifecycleNotification(session, task, { type='task.updated', title='Задача обновлена', body=null } = {}) {
+    const recipients=[...new Set([task.ownerId,task.requesterId,task.acceptorId].filter((id)=>id&&id!==session.userId))],rows=[];
+    for(const recipientUserId of recipients){
+      const row=await this.insertNotification({
+        organizationId:session.organizationId,workspaceId:session.workspaceId,recipientUserId,
+        sourceEventId:task.id,dedupeKey:`${type}:${task.id}:v${task.version}:${recipientUserId}`,type,title,
+        body:body||task.title,actorUserId:session.userId,commitmentId:task.id,url:`/#/tasks/${task.id}`,
+        priority:['urgent','high'].includes(task.priority)?'high':'normal',metadata:{status:task.status,version:task.version},
+      }).catch((error)=>{console.error('task lifecycle notification projection failed',error);return null});
+      if(row)rows.push(row);
+    }
+    return rows;
   }
 
   async insertNotification(value) {
