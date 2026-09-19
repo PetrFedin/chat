@@ -283,12 +283,17 @@ export class MemoryStore {
     this.messages.get(conversationId).push(message); return this.messageView(session,message);
   }
 
-  async getMessage(session,messageId){
+  async messageRecord(session,messageId){
     for(const [conversationId,list] of this.messages.entries()){
       const message=list.find((item)=>item.id===messageId);
       if(message&&message.workspaceId===session.workspaceId&&await this.canAccessConversation(session,conversationId))return message;
     }
     return null;
+  }
+
+  async getMessage(session,messageId){
+    const message=await this.messageRecord(session,messageId);
+    return message?this.messageView(session,message):null;
   }
 
   async messageConversation(session,messageId) { for(const [conversationId,list] of this.messages.entries()){ const message=list.find((m)=>m.id===messageId); if(message && message.workspaceId===session.workspaceId) return conversationId; } return null; }
@@ -344,12 +349,12 @@ export class MemoryStore {
   }
 
   async editMessage(session,messageId,body){
-    const message=await this.getMessage(session,messageId);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
+    const message=await this.messageRecord(session,messageId);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
     message.body=body;message.editedAt=nowIso();return this.messageView(session,message);
   }
 
   async deleteMessage(session,messageId){
-    const message=await this.getMessage(session,messageId);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
+    const message=await this.messageRecord(session,messageId);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
     message.deletedAt=nowIso();this.messagePins.delete(this.messagePinKey(session.workspaceId,messageId));return this.messageView(session,message);
   }
 
