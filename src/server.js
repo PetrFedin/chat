@@ -116,7 +116,17 @@ export async function createChatServer(options={}){
     if(await handleMedia(req,res,ctx,url,path,method))return;
     if(path.startsWith('/api/'))throw Object.assign(new Error('API route not found'),{code:'NOT_FOUND',statusCode:404});
     const relative=path==='/'?'index.html':path.replace(/^\/+/,''),candidate=normalize(join(publicRoot,relative));if(!candidate.startsWith(normalize(publicRoot)))throw Object.assign(new Error('Bad request'),{code:'BAD_PATH',statusCode:400});
-    try{const info=await stat(candidate),file=info.isDirectory()?join(candidate,'index.html'):candidate,body=await readFile(file);res.writeHead(200,{'content-type':mime.get(extname(file))??'application/octet-stream','cache-control':file.endsWith('index.html')?'no-store':'public, max-age=300'});res.end(body)}catch{const body=await readFile(join(publicRoot,'index.html'));res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(body)}
+    try{
+      const info=await stat(candidate),file=info.isDirectory()?join(candidate,'index.html'):candidate,stats=info.isDirectory()?await stat(file):info;
+      // Asset URLs carry no content hash, so a max-age served stale JS and CSS
+      // to every user for its whole window after a deploy. Revalidate instead:
+      // an unchanged file costs a 304, a changed one is picked up immediately.
+      const etag=`W/"${stats.size.toString(16)}-${Math.floor(stats.mtimeMs).toString(16)}"`;
+      if(req.headers['if-none-match']===etag){res.writeHead(304,{etag,'cache-control':'no-cache'});res.end();return}
+      const body=await readFile(file);
+      res.writeHead(200,{'content-type':mime.get(extname(file))??'application/octet-stream','cache-control':file.endsWith('index.html')?'no-store':'no-cache',etag});
+      res.end(body);
+    }catch{const body=await readFile(join(publicRoot,'index.html'));res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(body)}
   }catch(error){console.error(error);errorJson(res,error)}});
   server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
   wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});try{const p=await store.setPresence(s,{state:'online'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}ws.on('message',async raw=>{try{const packet=JSON.parse(String(raw));if(packet.event==='typing.start'||packet.event==='typing.stop'){const id=packet.data?.conversationId;if(id&&await store.canAccessConversation(s,id)){const audience=await store.conversationAudience(s,id);hub.broadcastUsers(s.workspaceId,audience.filter(x=>x!==s.userId),packet.event,{conversationId:id,userId:s.userId})}}else if(packet.event==='presence.set'&&allowedPresence.has(packet.data?.state)){const p=await store.setPresence(s,packet.data);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}}catch(error){hub.send(ws,'error',{code:error.code??'INVALID_EVENT',message:error.message})}});ws.on('close',async()=>{remove();try{const p=await store.setPresence(s,{state:'away'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p})}catch{}})});

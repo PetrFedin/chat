@@ -1,7 +1,17 @@
 const S={view:'today',boot:null,conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-const nav=[['today','⌂','Сегодня'],['chats','●','Сообщения'],['tasks','✓','Задачи'],['calendar','□','Календарь'],['more','•••','Ещё']];
+// Stroke icons on currentColor: the nav sits on both themes and the glyphs it
+// used before ('●' for messages, '□' for calendar) named nothing.
+const svg=(body)=>`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+const navIcon={
+  today:svg('<path d="M3.6 10.4 12 3.8l8.4 6.6"/><path d="M5.6 9.2V19a1.2 1.2 0 0 0 1.2 1.2h10.4a1.2 1.2 0 0 0 1.2-1.2V9.2"/><path d="M9.8 20.2v-5.4h4.4v5.4"/>'),
+  chats:svg('<path d="M20.2 12.4c0 3.9-3.7 7-8.2 7a9.4 9.4 0 0 1-2.6-.35L4.4 20.4l1.2-3.5A6.6 6.6 0 0 1 3.8 12.4c0-3.9 3.7-7 8.2-7s8.2 3.1 8.2 7Z"/>'),
+  tasks:svg('<path d="M4.6 6.6h6.2M4.6 12h6.2M4.6 17.4h6.2"/><path d="m14.4 6.2 1.9 1.9 3.5-3.5"/><path d="m14.4 15.6 1.9 1.9 3.5-3.5"/>'),
+  calendar:svg('<rect x="3.6" y="5.2" width="16.8" height="15.2" rx="2.4"/><path d="M3.6 10h16.8M8.4 3.6v3.2M15.6 3.6v3.2"/>'),
+  more:svg('<circle cx="5.4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.6" cy="12" r="1.5" fill="currentColor" stroke="none"/>'),
+};
+const nav=[['today',navIcon.today,'Сегодня'],['chats',navIcon.chats,'Сообщения'],['tasks',navIcon.tasks,'Задачи'],['calendar',navIcon.calendar,'Календарь'],['more',navIcon.more,'Ещё']];
 const me=()=>S.boot?.session,can=permission=>(S.boot?.permissions||[]).includes(permission),person=id=>S.people.find(p=>p.userId===id),name=id=>person(id)?.displayName||person(id)?.email||(id===me()?.userId?me()?.displayName:'Сотрудник');
 const initials=(v='?')=>v.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]?.toUpperCase()).join('')||'?';
 const time=v=>v?new Intl.DateTimeFormat('ru',{hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'',dateTime=v=>v?new Intl.DateTimeFormat('ru',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'Без срока';
