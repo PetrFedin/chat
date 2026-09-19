@@ -22,7 +22,19 @@ function setAuth(mode){$('.segmented').hidden=false;$('#accept-invite-form').hid
 async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
 async function routeFromHash(){if(!S.boot)return;const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?'),parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}}
 window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
-async function loadTasks(){try{S.tasks=(await api('/api/v1/tasks')).items||[]}catch{}}
+// The task list is paged now. The screen still shows one backlog, so it walks
+// the cursor to the end — bounded, so a runaway cursor cannot spin forever.
+async function loadTasks(){
+  try{
+    const items=[];let cursor=null,pages=0;
+    do{
+      const page=await api(`/api/v1/tasks?limit=100${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`);
+      items.push(...(page.items||[]));
+      cursor=page.nextCursor||null;
+    }while(cursor&&++pages<20);
+    S.tasks=items;
+  }catch{}
+}
 async function loadCalendar(){await loadCalendarRange()}
 async function loadMessages(id){if(id&&!S.messages.has(id))S.messages.set(id,(await api(`/api/v1/conversations/${id}/messages`)).items||[])}
 function shell(){const s=me();$('#workspace-switcher').innerHTML=`<span class="avatar">${esc(initials(s.organizationName))}</span><span><strong>${esc(s.organizationName)}</strong><small>${esc(s.workspaceName)}</small></span><span class="muted">⌄</span>`;$('#profile-card').innerHTML=`<span class="avatar dark">${esc(initials(s.displayName))}</span><span><strong>${esc(s.displayName)}</strong><small>${esc(s.role)}</small></span><span class="presence-dot online"></span>`;$('#top-avatar').textContent=initials(s.displayName);

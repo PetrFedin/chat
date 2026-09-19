@@ -15,7 +15,7 @@ const TRANSITIONS = new Map([
 ]);
 
 const TERMINAL = new Set(['closed','rejected','cancelled']);
-const TEAM_MANAGERS = new Set(['owner','admin','manager']);
+export const TEAM_MANAGERS = new Set(['owner','admin','manager']);
 const REASON_REQUIRED = new Set(['blocked','deferred','cancelled']);
 
 export class TaskAuthorityError extends Error {

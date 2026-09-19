@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
+import { compareTasks, encodeTaskCursor, decodeTaskCursor, taskPageSize } from '../task/task-page.js';
 
 function nowIso() { return new Date().toISOString(); }
 function clone(value) { return value == null ? value : structuredClone(value); }
@@ -431,6 +432,23 @@ export class MemoryStore {
     return [...this.tasks.values()].filter((row)=>canViewTask(row,session))
       .sort((a,b)=>String(a.promisedAt??'9999').localeCompare(String(b.promisedAt??'9999')))
       .map((row)=>this.taskView(session,row));
+  }
+
+  // Same page as the Postgres store, over the same ordering, so the two
+  // backends answer /api/v1/tasks identically.
+  async listTasksPage(session,{limit=50,cursor=null}={}){
+    const size=taskPageSize(limit);
+    const key=decodeTaskCursor(cursor);
+    const ordered=[...this.tasks.values()]
+      .filter((row)=>canViewTask(row,session))
+      .sort(compareTasks);
+    const start=key?ordered.findIndex((row)=>row.id===key.id)+1:0;
+    const slice=ordered.slice(start||0,(start||0)+size+1);
+    const page=slice.slice(0,size);
+    return{
+      items:page.map((row)=>this.taskView(session,row)),
+      nextCursor:slice.length>size&&page.length?encodeTaskCursor(page[page.length-1]):null,
+    };
   }
 
   async getTask(session,id){return this.taskView(session,this.tasks.get(id))}

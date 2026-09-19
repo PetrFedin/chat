@@ -33,7 +33,12 @@ export const openapi = Object.freeze({
     '/api/v1/mentions': { get: { tags: ['Attention'], summary: 'List current user mentions', responses: { '200': { description: 'Mention notification list' } } } },
     '/api/v1/search': { get: { tags: ['Search'], summary: 'Search accessible messages, conversations, tasks, files, people and calendar events', responses: { '200': { description: 'Permission-filtered search results' } } } },
     '/api/v1/tasks': {
-      get: { tags: ['Workspace'], summary: 'List tasks visible to the current accountable workflow participant', responses: { '200': { description: 'Task list with current version and allowed transitions' } } },
+      get: { tags: ['Workspace'], summary: 'List tasks visible to the current accountable workflow participant',
+        parameters: [
+          { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 200, default: 50 }, description: 'Page size, clamped to 200' },
+          { name: 'cursor', in: 'query', schema: { type: 'string' }, description: 'Keyset cursor from a previous page\'s nextCursor: promisedAt|createdAt|id, with "-" for an undated task' },
+        ],
+        responses: { '200': { description: 'One page of tasks with current version and allowed transitions, plus nextCursor (null on the last page)' }, '400': { description: 'Malformed cursor' } } },
       post: { tags: ['Workspace'], summary: 'Create a proposed task with one accountable owner and designated result acceptor', responses: { '201': { description: 'Task created at version 1' }, '400': { description: 'Invalid task participant or payload' } } }
     },
     '/api/v1/tasks/{taskId}': {
@@ -51,8 +56,8 @@ export const openapi = Object.freeze({
       post: {
         tags: ['Workspace'],
         summary: 'Attach auditable execution evidence to a visible task',
-        description: 'Evidence is append-only through this endpoint and advances the task version so stale review actions cannot race with new evidence.',
-        responses: { '201': { description: 'Evidence appended and task version advanced' }, '403': { description: 'Evidence authority denied' }, '404': { description: 'Task is not visible' }, '409': { description: 'Stale or terminal task' } }
+        description: 'Evidence is append-only through this endpoint and advances the task version so stale review actions cannot race with new evidence. The value is checked against the declared type: a url must be http or https, a metric must start with a number, and a file or message must resolve to something the actor can see.',
+        responses: { '201': { description: 'Evidence appended and task version advanced' }, '400': { description: 'Unsupported evidence type, or a value that does not match its type (INVALID_EVIDENCE_VALUE)' }, '403': { description: 'Evidence authority denied' }, '404': { description: 'Task is not visible' }, '409': { description: 'Stale or terminal task' } }
       }
     },
     '/api/v1/tasks/{taskId}/schedule': {

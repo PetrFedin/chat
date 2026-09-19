@@ -1,6 +1,8 @@
-import { openConversationSql } from './visibility.js';
+import { openConversationSql, isGuest } from './visibility.js';
 import { randomUUID } from 'node:crypto';
-import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
+import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask, TEAM_MANAGERS as TASK_MANAGER_ROLES } from '../task/task-authority.js';
+
+import { encodeTaskCursor, decodeTaskCursor, taskPageSize } from '../task/task-page.js';
 
 export class PostgresStore {
   constructor(pool){this.pool=pool}
@@ -82,6 +84,35 @@ export class PostgresStore {
   taskSelect(){return `SELECT c.id,c.organization_id "organizationId",c.workspace_id "workspaceId",c.title,c.outcome,c.owner_id "ownerId",c.requester_id "requesterId",c.acceptor_id "acceptorId",c.source_message_id "sourceMessageId",c.status,c.priority,c.promised_at "promisedAt",c.forecast_at "forecastAt",c.version,c.created_at "createdAt",c.updated_at "updatedAt",(SELECT count(*)::int FROM evidence e WHERE e.workspace_id=c.workspace_id AND e.commitment_id=c.id) "evidenceCount" FROM commitments c`}
   taskView(s,row){if(!row||!canViewTask(row,s))return null;return{...row,allowedTransitions:allowedTaskTransitions(row,s,Number(row.evidenceCount||0))}}
   async listTasks(s){const{rows}=await this.pool.query(`${this.taskSelect()} WHERE c.workspace_id=$1 ORDER BY c.promised_at NULLS LAST,c.created_at DESC`,[s.workspaceId]);return rows.filter(row=>canViewTask(row,s)).map(row=>this.taskView(s,row))}
+  // listTasks loads a workspace's whole backlog, which is fine for search but
+  // not for an API. This page pushes the visibility rule into SQL so LIMIT
+  // counts rows the caller can actually see, and walks a keyset over the same
+  // (promised_at NULLS LAST, created_at DESC, id DESC) order.
+  async listTasksPage(s,{limit=50,cursor=null}={}){
+    if(isGuest(s))return{items:[],nextCursor:null};
+    const params=[s.workspaceId],where=['c.workspace_id=$1'];
+    if(!TASK_MANAGER_ROLES.has(s.role)){
+      params.push(s.userId);
+      where.push(`(c.owner_id=$${params.length} OR c.requester_id=$${params.length} OR c.acceptor_id=$${params.length})`);
+    }
+    const key=decodeTaskCursor(cursor);
+    if(key){
+      params.push(key.createdAt,key.id);
+      const created=`$${params.length-1}::timestamptz`,id=`$${params.length}::uuid`;
+      if(key.promisedAt===null){
+        where.push(`(c.promised_at IS NULL AND (c.created_at,c.id)<(${created},${id}))`);
+      }else{
+        params.push(key.promisedAt);
+        const promised=`$${params.length}::timestamptz`;
+        where.push(`(c.promised_at>${promised} OR c.promised_at IS NULL OR (c.promised_at=${promised} AND (c.created_at,c.id)<(${created},${id})))`);
+      }
+    }
+    params.push(taskPageSize(limit)+1);
+    const{rows}=await this.pool.query(
+      `${this.taskSelect()} WHERE ${where.join(' AND ')} ORDER BY c.promised_at NULLS LAST,c.created_at DESC,c.id DESC LIMIT $${params.length}`,params);
+    const size=params[params.length-1]-1,page=rows.slice(0,size);
+    return{items:page.map(row=>this.taskView(s,row)),nextCursor:rows.length>size?encodeTaskCursor(page[page.length-1]):null};
+  }
   async getTask(s,id){const{rows}=await this.pool.query(`${this.taskSelect()} WHERE c.workspace_id=$1 AND c.id=$2`,[s.workspaceId,id]);return this.taskView(s,rows[0])}
   async createTask(s,v){if(v.sourceMessageId){const conversationId=await this.messageConversation(s,v.sourceMessageId);if(!conversationId||!await this.canAccessConversation(s,conversationId))throw Object.assign(new Error('Task source message not found'),{code:'TASK_SOURCE_NOT_FOUND',statusCode:404})}return this.tx(async c=>{const ownerId=v.ownerId||s.userId,acceptorId=v.acceptorId||s.userId;for(const userId of new Set([ownerId,acceptorId,s.userId]))if(!(await c.query('SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2',[s.workspaceId,userId])).rowCount)throw Object.assign(new Error('Task participant must belong to the workspace'),{code:'INVALID_TASK_MEMBER',statusCode:400});const id=randomUUID(),{rows}=await c.query(`INSERT INTO commitments(id,organization_id,workspace_id,title,outcome,owner_id,requester_id,acceptor_id,source_message_id,status,priority,promised_at,forecast_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'proposed',$10,$11,$12) RETURNING id,organization_id "organizationId",workspace_id "workspaceId",title,outcome,owner_id "ownerId",requester_id "requesterId",acceptor_id "acceptorId",source_message_id "sourceMessageId",status,priority,promised_at "promisedAt",forecast_at "forecastAt",version,created_at "createdAt",updated_at "updatedAt"`,[id,s.organizationId,s.workspaceId,v.title,v.outcome||v.title,ownerId,s.userId,acceptorId,v.sourceMessageId,v.priority||'normal',v.promisedAt,v.forecastAt]);await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload) VALUES($1,$2,'commitment',$3,'commitment.created',$4,$5)`,[s.organizationId,s.workspaceId,id,s.userId,{ownerId,acceptorId,sourceMessageId:v.sourceMessageId??null}]);
     await c.query(`INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload) VALUES($1,$2,'task.created',$3,$4)`,[s.organizationId,s.workspaceId,id,{taskId:id,ownerId,acceptorId,requesterId:s.userId,status:rows[0].status,promisedAt:rows[0].promisedAt??null}]);return this.taskView(s,{...rows[0],evidenceCount:0})})}

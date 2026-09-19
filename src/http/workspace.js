@@ -3,6 +3,37 @@ import { cleanText, json, readJson, allowedPresence } from './helpers.js';
 
 const TASK_ID='([0-9a-f-]+)';
 const TASK_EVIDENCE_TYPES=new Set(['url','file','message','metric','note']);
+
+const invalidEvidence=(message)=>Object.assign(new Error(message),{code:'INVALID_EVIDENCE_VALUE',statusCode:400});
+
+// The type was checked but the value never was, so a «url» could hold prose, a
+// «metric» could hold anything, and a «file» or «message» could point at an id
+// that does not exist — or at one in a conversation the actor cannot see.
+// Evidence is what an acceptor reads before accepting a result, so a reference
+// that resolves to nothing is worse than no evidence at all.
+async function assertEvidenceValue(store, session, type, value) {
+  if (type === 'url') {
+    let parsed;
+    try { parsed = new URL(value); } catch { throw invalidEvidence('Evidence URL is not a valid address'); }
+    if (!['http:', 'https:'].includes(parsed.protocol)) throw invalidEvidence('Evidence URL must be http or https');
+    return;
+  }
+  if (type === 'metric') {
+    // A measurement starts with its number; a unit or a comment may follow.
+    if (!/^[+-]?\d+(\.\d+)?/.test(value.trim())) throw invalidEvidence('Evidence metric must start with a number');
+    return;
+  }
+  if (type === 'message') {
+    const message = await store.getMessage(session, value.trim()).catch(() => null);
+    if (!message || message.deletedAt) throw invalidEvidence('Evidence message is not available');
+    return;
+  }
+  if (type === 'file') {
+    // A malformed id reaches Postgres as a cast error, not a miss.
+    const file = await store.getFile(session, value.trim()).catch(() => null);
+    if (!file) throw invalidEvidence('Evidence file is not available');
+  }
+}
 const taskAudience=(task)=>[...new Set([task?.ownerId,task?.requesterId,task?.acceptorId].filter(Boolean))];
 const taskRealtime=(task)=>{const {allowedTransitions,...state}=task??{};return state};
 const taskLabel=(status)=>({
@@ -32,7 +63,12 @@ const toDateOrNull=(value)=>{
 
 export async function handleWorkspace(req,res,ctx,url,path,method){
   const {store,requireSession,hub,notifyUsers}=ctx;
-  if(path==='/api/v1/tasks'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listTasks(s)});return true}
+  if(path==='/api/v1/tasks'&&method==='GET'){
+    const s=await requireSession(req);
+    // The list used to return a workspace's whole backlog in one answer.
+    const page=await store.listTasksPage(s,{limit:url.searchParams.get('limit')??50,cursor:url.searchParams.get('cursor')});
+    json(res,200,{items:page.items,nextCursor:page.nextCursor});return true
+  }
   if(path==='/api/v1/tasks'&&method==='POST'){
     const s=await requireSession(req);requirePermission(s.role,Permission.TASK_CREATE);const b=await readJson(req),task=await store.createTask(s,{title:cleanText(b.title,240),outcome:b.outcome?cleanText(b.outcome,1000):undefined,ownerId:b.ownerId??s.userId,acceptorId:b.acceptorId??s.userId,sourceMessageId:b.sourceMessageId??null,priority:b.priority??'normal',promisedAt:b.promisedAt??null,forecastAt:b.forecastAt??null});
     const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.created',taskRealtime(task));json(res,201,{task});return true
@@ -50,7 +86,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
   }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/evidence$`,'i'));
   if(m&&method==='POST'){
-    const s=await requireSession(req),b=await readJson(req),type=String(b.type??'note');if(!TASK_EVIDENCE_TYPES.has(type))throw Object.assign(new Error('Unsupported evidence type'),{code:'INVALID_EVIDENCE_TYPE',statusCode:400});const value=cleanText(b.value,4000),result=await store.addTaskEvidence(s,m[1],{type,value,expectedVersion:b.expectedVersion});
+    const s=await requireSession(req),b=await readJson(req),type=String(b.type??'note');if(!TASK_EVIDENCE_TYPES.has(type))throw Object.assign(new Error('Unsupported evidence type'),{code:'INVALID_EVIDENCE_TYPE',statusCode:400});const value=cleanText(b.value,4000);await assertEvidenceValue(store,s,type,value);const result=await store.addTaskEvidence(s,m[1],{type,value,expectedVersion:b.expectedVersion});
     const audience=taskAudience(result.task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(result.task));json(res,201,result);return true
   }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule$`,'i'));
