@@ -35,6 +35,27 @@ export async function handleAuth(req,res,ctx,path,method){
   if(method==='POST'&&path==='/api/v1/auth/logout'){const t=cookieToken(req);if(t)await store.revokeSession(hashToken(t));noContent(res,{'set-cookie':clearSession()});return true}
   if(method==='GET'&&path==='/api/v1/me'){const s=await requireSession(req);json(res,200,{...s,permissions:ctx.permissions(s.role)});return true}
   if(method==='GET'&&path==='/api/v1/bootstrap'){const s=await requireSession(req),data=await store.getBootstrap(s);json(res,200,{...data,permissions:ctx.permissions(s.role),storageMode:ctx.mode,push:ctx.push});return true}
+  // Recovery has no mail channel, so an administrator issues the link and
+  // hands it over. The person who forgot cannot ask for it themselves —
+  // asking is a conversation with their administrator, not an endpoint.
+  if(method==='POST'&&path==='/api/v1/password-resets'){
+    const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);
+    if(!store.createPasswordReset)throw Object.assign(new Error('Password recovery requires a database deployment'),{code:'RESET_UNAVAILABLE',statusCode:503,expose:true});
+    const b=await readJson(req),token=createOpaqueToken();
+    const reset=await store.createPasswordReset(s,{userId:String(b.userId??''),tokenHash:hashToken(token),expiresAt:new Date(Date.now()+86400000).toISOString()});
+    const proto=String((trustsProxy()&&req.headers['x-forwarded-proto'])||(req.socket.encrypted?'https':'http')).split(',')[0],host=req.headers.host??'localhost';
+    json(res,201,{reset:{...reset,resetUrl:`${proto}://${host}/?reset=${encodeURIComponent(token)}`}});return true;
+  }
+
+  if(method==='POST'&&path==='/api/v1/password-resets/redeem'){
+    if(!store.redeemPasswordReset)throw Object.assign(new Error('Password recovery requires a database deployment'),{code:'RESET_UNAVAILABLE',statusCode:503,expose:true});
+    const b=await readJson(req),p=hashPassword(b.password);
+    await store.redeemPasswordReset({tokenHash:hashToken(cleanText(b.token,200)),passwordHash:p.hash,passwordSalt:p.salt});
+    // The new password is set but no session is handed out: signing in with
+    // it is the proof it arrived where it was meant to.
+    noContent(res);return true;
+  }
+
   if(method==='POST'&&path==='/api/v1/invitations'){
     const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);const b=await readJson(req),token=createOpaqueToken(),i=await store.createInvitation(s,{email:normalizeEmail(b.email),role:b.role??'member',tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*86400000).toISOString()});
     const proto=String((trustsProxy()&&req.headers['x-forwarded-proto'])||(req.socket.encrypted?'https':'http')).split(',')[0],host=req.headers.host??'localhost';json(res,201,{invitation:{...i,inviteUrl:`${proto}://${host}/?invite=${encodeURIComponent(token)}`}});return true;

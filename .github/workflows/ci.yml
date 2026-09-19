@@ -69,6 +69,7 @@ jobs:
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/018_labels.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/019_personal_planning.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/020_message_idempotency.sql
+          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/021_password_reset.sql
       - name: Verify core constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_core.sql
       - name: Verify collaboration constraints
@@ -103,6 +104,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
         run: node --test test/postgres-task-paging.test.js
+      - name: Verify password recovery Postgres runtime
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
+        run: node --test test/postgres-password-reset.test.js
       - name: Verify message work actions Postgres runtime
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test

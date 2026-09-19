@@ -17,8 +17,67 @@ const initials=(v='?')=>v.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]?.t
 const time=v=>v?new Intl.DateTimeFormat('ru',{hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'',dateTime=v=>v?new Intl.DateTimeFormat('ru',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'Без срока';
 async function api(path,o={}){const r=await fetch(path,{credentials:'same-origin',...o,headers:{...(typeof o.body==='string'?{'content-type':'application/json'}:{}),...(o.headers||{})}});if(r.status===204)return null;const p=(r.headers.get('content-type')||'').includes('json')?await r.json():await r.text();if(!r.ok){const e=new Error(p?.error?.message||`HTTP ${r.status}`);e.status=r.status;e.code=p?.error?.code;throw e}return p}
 function toast(t){const n=document.createElement('div');n.className='toast';n.textContent=t;$('#toast-root').append(n);setTimeout(()=>n.remove(),2400)}
-function auth(mode='login'){$('#app-view').hidden=true;$('#auth-view').hidden=false;const token=new URLSearchParams(location.search).get('invite');if(token){$('.segmented').hidden=true;$('#login-form').hidden=$('#register-form').hidden=true;$('#accept-invite-form').hidden=false;$('#accept-invite-form').dataset.token=token;$('#auth-title').textContent='Присоединиться к компании';return}setAuth(mode)}
+function auth(mode='login'){
+  $('#app-view').hidden=true;$('#auth-view').hidden=false;
+  const params=new URLSearchParams(location.search);
+  const token=params.get('invite'),reset=params.get('reset');
+  if(token){
+    $('.segmented').hidden=true;$('#login-form').hidden=$('#register-form').hidden=true;
+    $('#reset-password-form').hidden=true;
+    $('#accept-invite-form').hidden=false;$('#accept-invite-form').dataset.token=token;
+    $('#auth-title').textContent='Присоединиться к компании';
+    bindAuthExtras();
+    return;
+  }
+  // A recovery link is the third way through this screen, beside signing in
+  // and registering a company.
+  if(reset){
+    $('.segmented').hidden=true;$('#login-form').hidden=$('#register-form').hidden=true;
+    $('#accept-invite-form').hidden=true;
+    $('#reset-password-form').hidden=false;$('#reset-password-form').dataset.token=reset;
+    $('#auth-title').textContent='Новый пароль';
+    $('#auth-help').hidden=true;
+    bindAuthExtras();
+    return;
+  }
+  setAuth(mode);
+  bindAuthExtras();
+}
+function bindAuthExtras(){
+  const forgot=$('[data-forgot]');
+  if(forgot)forgot.onclick=forgotPasswordModal;
+  const form=$('#reset-password-form');
+  if(form)form.onsubmit=async(event)=>{
+    event.preventDefault();
+    const password=new FormData(event.currentTarget).get('password');
+    try{
+      await api('/api/v1/password-resets/redeem',{method:'POST',body:JSON.stringify({token:form.dataset.token,password})});
+      // The new password is set but no session was handed out: signing in
+      // with it is the proof it reached the right person.
+      history.replaceState(null,'',location.pathname);
+      $('#reset-password-form').hidden=true;$('#auth-help').hidden=false;
+      setAuth('login');
+      $('#auth-title').textContent='Войти в компанию';
+      toast('Пароль изменён — войдите с новым');
+    }catch(error){$('#auth-error').textContent=error.message}
+  };
+}
+
 function setAuth(mode){$('.segmented').hidden=false;$('#accept-invite-form').hidden=true;$('#login-form').hidden=mode!=='login';$('#register-form').hidden=mode!=='register';$('#auth-title').textContent=mode==='login'?'Войти в компанию':'Создать компанию';$$('[data-auth-mode]').forEach(b=>b.classList.toggle('active',b.dataset.authMode===mode));$('#auth-error').textContent=''}
+/**
+ * Recovery has no mail channel, so the person who forgot asks the one party
+ * who already knows who works here. Saying so beats an empty screen: before
+ * this there was no «forgot» affordance at all.
+ */
+function forgotPasswordModal(){
+  modal('Забыли пароль?',`
+    <p class="muted">Ссылку на смену пароля выписывает владелец или администратор компании: почтовый канал у рабочего пространства не настроен, и отправить письмо некому.</p>
+    <p class="muted" style="margin-top:10px">Напишите администратору любым доступным способом — он откроет вашу карточку в разделе «Команда» и создаст ссылку. Она живёт сутки и срабатывает один раз.</p>
+    <button data-close-help class="button secondary" style="width:100%;margin-top:14px">Понятно</button>`,()=>{
+    $('[data-close-help]').onclick=closeModal;
+  });
+}
+
 async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadPlan()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
 async function routeFromHash(){if(!S.boot)return;const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?'),parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}}
 window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
@@ -995,12 +1054,38 @@ async function personPage(userId){
     <h3 class="person-section">Подчиняется</h3><div class="person-chips">${reports}</div>
     <h3 class="person-section"><span>Задачи в работе</span> — ${person.workload.open}</h3><div class="person-chips">${load}</div>
     <h3 class="person-section">История действий</h3><div class="person-feed">${feed}</div>
+    ${!person.isSelf&&can('member.invite')?'<div class="stack" style="margin-top:16px"><button data-reset class="button secondary">Выписать ссылку для смены пароля</button></div>':''}
     ${person.isSelf?'<div class="stack" style="margin-top:16px"><button data-edit class="button secondary">Редактировать карточку</button><button data-push class="button secondary">Включить push</button><button data-logout class="button danger">Выйти</button></div>':''}
   `,()=>{
+    const reset=$('[data-reset]');
+    if(reset)reset.onclick=()=>issueResetModal(person);
     if(!person.isSelf)return;
     $('[data-edit]').onclick=()=>editProfile(person);
     $('[data-push]').onclick=enablePush;
     $('[data-logout]').onclick=logout;
+  });
+}
+
+/** The administrator's half of recovery: make the link, hand it over. */
+function issueResetModal(person){
+  modal('Смена пароля',`
+    <p class="muted">Ссылка позволит ${esc(person.displayName||person.email)} задать новый пароль. Она живёт сутки, срабатывает один раз и обрывает все открытые сессии этого человека.</p>
+    <p class="muted" style="margin-top:10px">Передайте её лично: тот, у кого она окажется, войдёт в рабочее пространство.</p>
+    <button id="issue-reset" class="button primary" style="width:100%;margin-top:14px">Выписать ссылку</button>`,()=>{
+    $('#issue-reset').onclick=async()=>{
+      try{
+        const{reset}=await api('/api/v1/password-resets',{method:'POST',body:JSON.stringify({userId:person.userId})});
+        replaceModal(()=>modal('Ссылка готова',`
+          <p class="muted">Действует сутки, срабатывает один раз.</p>
+          <input id="reset-link" class="field" readonly value="${esc(reset.resetUrl)}">
+          <button data-copy class="button primary" style="width:100%;margin-top:12px">Скопировать</button>`,()=>{
+          $('[data-copy]').onclick=async()=>{
+            try{await navigator.clipboard.writeText($('#reset-link').value);toast('Ссылка скопирована')}
+            catch{$('#reset-link').select()}
+          };
+        }));
+      }catch(error){toast(error.message)}
+    };
   });
 }
 

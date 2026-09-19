@@ -14,6 +14,68 @@ export class PostgresStore {
   async getSession(tokenHash){const{rows}=await this.pool.query(`SELECT s.id session_id,s.user_id,s.workspace_id,w.organization_id,m.role,u.email,p.display_name,w.name workspace_name,o.name organization_name,p.title,p.department,p.avatar_url,p.locale,p.timezone FROM user_sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.workspace_id=s.workspace_id AND m.user_id=s.user_id JOIN workspaces w ON w.id=s.workspace_id JOIN organizations o ON o.id=w.organization_id LEFT JOIN workspace_profiles p ON p.workspace_id=s.workspace_id AND p.user_id=s.user_id WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.disabled_at IS NULL`,[tokenHash]);const r=rows[0];return r?{sessionId:r.session_id,userId:r.user_id,workspaceId:r.workspace_id,organizationId:r.organization_id,role:r.role,email:r.email,displayName:r.display_name||r.email,workspaceName:r.workspace_name,organizationName:r.organization_name,profile:{displayName:r.display_name,email:r.email,title:r.title,department:r.department,avatarUrl:r.avatar_url,locale:r.locale,timezone:r.timezone}}:null}
   async revokeSession(tokenHash){await this.pool.query('UPDATE user_sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL',[tokenHash])}
   async getBootstrap(s){const conversations=await this.listConversations(s),{rows}=await this.pool.query(`SELECT m.user_id,m.role,p.display_name,p.email,p.title,p.department,p.avatar_url,COALESCE(pr.state,'offline') state,pr.status_emoji,pr.status_text FROM memberships m LEFT JOIN workspace_profiles p ON p.workspace_id=m.workspace_id AND p.user_id=m.user_id LEFT JOIN user_presence pr ON pr.workspace_id=m.workspace_id AND pr.user_id=m.user_id WHERE m.workspace_id=$1 AND($2::uuid IS NULL OR m.user_id=ANY(SELECT cm2.user_id FROM conversation_members cm1 JOIN conversation_members cm2 ON cm2.conversation_id=cm1.conversation_id AND cm2.workspace_id=cm1.workspace_id WHERE cm1.workspace_id=$1 AND cm1.user_id=$2)) ORDER BY p.display_name NULLS LAST`,[s.workspaceId,s.role==='guest'?s.userId:null]);return{session:s,conversations,people:rows.map(r=>({userId:r.user_id,role:r.role,displayName:r.display_name,email:r.email,title:r.title,department:r.department,avatarUrl:r.avatar_url,presence:{state:r.state,statusEmoji:r.status_emoji,statusText:r.status_text}}))}}
+  /**
+   * Password recovery without a mail server.
+   *
+   * A corporate workspace has something a consumer product does not: an
+   * administrator who already knows who works here. They issue the link and
+   * hand it over. Only one live link per person — a second replaces the
+   * first rather than leaving two keys to the same door.
+   */
+  async createPasswordReset(s,{userId,tokenHash,expiresAt}){
+    return this.tx(async c=>{
+      const{rows:member}=await c.query('SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2',[s.workspaceId,userId]);
+      if(!member.length)throw Object.assign(new Error('Person not found'),{code:'PERSON_NOT_FOUND',statusCode:404});
+      await c.query("UPDATE password_resets SET status='revoked' WHERE workspace_id=$1 AND user_id=$2 AND status='pending'",[s.workspaceId,userId]);
+      const{rows}=await c.query(
+        `INSERT INTO password_resets(organization_id,workspace_id,user_id,issued_by,token_hash,expires_at)
+         VALUES($1,$2,$3,$4,$5,$6) RETURNING id,user_id "userId",status,expires_at "expiresAt",created_at "createdAt"`,
+        [s.organizationId,s.workspaceId,userId,s.userId,tokenHash,expiresAt]);
+      await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+        VALUES($1,$2,'membership',$3,'password.reset.issued',$4,$5)`,[s.organizationId,s.workspaceId,userId,s.userId,{expiresAt}]);
+      return rows[0];
+    });
+  }
+
+  /** Single use, and the clock decides when it stops working. */
+  async redeemPasswordReset({tokenHash,passwordHash,passwordSalt}){
+    // The expiry is settled before the transaction opens. Marking a link
+    // expired and then throwing inside one transaction rolls the mark back
+    // with everything else, so the link stayed «pending» for ever; and a
+    // second connection cannot do the marking while the first holds the row
+    // locked.
+    const{rows:found}=await this.pool.query(
+      `SELECT id,expires_at "expiresAt" FROM password_resets WHERE token_hash=$1 AND status='pending'`,[tokenHash]);
+    if(!found[0])throw Object.assign(new Error('This recovery link is not valid'),{code:'RESET_NOT_FOUND',statusCode:404});
+    if(Date.parse(found[0].expiresAt)<=Date.now()){
+      await this.pool.query("UPDATE password_resets SET status='expired' WHERE id=$1 AND status='pending'",[found[0].id]);
+      throw Object.assign(new Error('This recovery link has expired'),{code:'RESET_EXPIRED',statusCode:410});
+    }
+
+    return this.tx(async c=>{
+      const{rows}=await c.query(
+        `SELECT id,organization_id "organizationId",workspace_id "workspaceId",user_id "userId",expires_at "expiresAt"
+         FROM password_resets WHERE token_hash=$1 AND status='pending' FOR UPDATE`,[tokenHash]);
+      const row=rows[0];
+      // Two people redeeming the same link at once: the loser finds it gone.
+      if(!row||Date.parse(row.expiresAt)<=Date.now()){
+        throw Object.assign(new Error('This recovery link is not valid'),{code:'RESET_NOT_FOUND',statusCode:404});
+      }
+      // Credentials live beside the user, not on it. Recovery also clears the
+      // failed-attempt lock: an account locked by someone guessing at it is
+      // exactly the account whose owner is asking for a new password.
+      await c.query(
+        `UPDATE auth_credentials SET password_hash=$2,password_salt=$3,password_changed_at=now(),failed_attempts=0,locked_until=NULL
+         WHERE user_id=$1`,[row.userId,passwordHash,passwordSalt]);
+      await c.query("UPDATE password_resets SET status='used',used_at=now() WHERE id=$1",[row.id]);
+      // A recovered password is worth nothing if the old sessions keep working.
+      await c.query('DELETE FROM user_sessions WHERE user_id=$1',[row.userId]);
+      await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+        VALUES($1,$2,'membership',$3,'password.reset.used',$3,$4)`,[row.organizationId,row.workspaceId,row.userId,{}]);
+      return {userId:row.userId,workspaceId:row.workspaceId};
+    });
+  }
+
   async createInvitation(s,v){const id=randomUUID(),{rows}=await this.pool.query(`INSERT INTO workspace_invitations(id,organization_id,workspace_id,email,role,invited_by,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,email,role,status,expires_at "expiresAt",created_at "createdAt"`,[id,s.organizationId,s.workspaceId,v.email,v.role,s.userId,v.tokenHash,v.expiresAt]);return rows[0]}
   async acceptInvitation(v){return this.tx(async c=>{const{rows}=await c.query("SELECT * FROM workspace_invitations WHERE token_hash=$1 AND status='pending' FOR UPDATE",[v.tokenHash]);const i=rows[0];if(!i)throw Object.assign(new Error('Invitation is not available'),{code:'INVITATION_NOT_FOUND',statusCode:404});if(Date.parse(i.expires_at)<=Date.now()){await c.query("UPDATE workspace_invitations SET status='expired' WHERE id=$1",[i.id]);throw Object.assign(new Error('Invitation has expired'),{code:'INVITATION_EXPIRED',statusCode:410})}if((await c.query('SELECT 1 FROM users WHERE lower(email)=lower($1)',[i.email])).rowCount)throw Object.assign(new Error('This email already has an account; sign in before joining another workspace'),{code:'EXISTING_ACCOUNT_LOGIN_REQUIRED',statusCode:409});const userId=randomUUID();await c.query('INSERT INTO users(id,email) VALUES($1,$2)',[userId,i.email]);await c.query('INSERT INTO memberships(organization_id,workspace_id,user_id,role) VALUES($1,$2,$3,$4)',[i.organization_id,i.workspace_id,userId,i.role]);await c.query('INSERT INTO workspace_profiles(organization_id,workspace_id,user_id,display_name,email) VALUES($1,$2,$3,$4,$5)',[i.organization_id,i.workspace_id,userId,v.displayName,i.email]);await c.query('INSERT INTO auth_credentials(user_id,password_hash,password_salt) VALUES($1,$2,$3)',[userId,v.passwordHash,v.passwordSalt]);await c.query(`INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role) SELECT organization_id,workspace_id,id,$2,'member' FROM conversations WHERE workspace_id=$1 AND kind='channel' AND visibility='workspace' AND $3<>'guest' AND archived_at IS NULL ON CONFLICT DO NOTHING`,[i.workspace_id,userId,i.role]);await c.query("UPDATE workspace_invitations SET status='accepted',accepted_by=$2,accepted_at=now() WHERE id=$1",[i.id,userId]);const w=(await c.query('SELECT id,organization_id,name FROM workspaces WHERE id=$1',[i.workspace_id])).rows[0];return{user:{id:userId,email:i.email},workspace:{id:w.id,organizationId:w.organization_id,name:w.name},membership:{organizationId:i.organization_id,workspaceId:i.workspace_id,userId,role:i.role}}})}
   async listConversations(s,{archived=false}={}){const{rows}=await this.pool.query(`SELECT c.id,c.kind,c.title,c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_at "createdAt",cm.archived_at "archivedAt",cm.muted_until "mutedUntil",cm.role "memberRole",(SELECT jsonb_build_object('id',m.id,'body',m.body,'kind',m.kind,'authorId',m.author_id,'createdAt',m.created_at) FROM messages m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.deleted_at IS NULL ORDER BY m.created_at DESC,m.id DESC LIMIT 1) "lastMessage" FROM conversations c LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$2 WHERE c.workspace_id=$1 AND c.archived_at IS NULL AND(${openConversationSql(s,'c')} OR cm.user_id IS NOT NULL) AND(($3::boolean AND cm.archived_at IS NOT NULL) OR (NOT $3::boolean AND cm.archived_at IS NULL)) ORDER BY COALESCE((SELECT max(created_at) FROM messages m2 WHERE m2.workspace_id=c.workspace_id AND m2.conversation_id=c.id),c.created_at) DESC`,[s.workspaceId,s.userId,Boolean(archived)]);return rows.map(r=>({...r,unreadCount:0}))}

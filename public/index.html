@@ -44,12 +44,17 @@
         <label>Пароль<input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="Не менее 12 символов и цифра" required></label>
         <button class="button primary pressable" type="submit">Создать пространство</button>
       </form>
+      <form id="reset-password-form" class="form-stack" hidden>
+        <label>Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="Не менее 12 символов и цифра" required></label>
+        <button class="button primary pressable" type="submit">Задать новый пароль</button>
+      </form>
       <form id="accept-invite-form" class="form-stack" hidden>
         <label>Ваше имя<input name="displayName" autocomplete="name" placeholder="Имя и фамилия" required></label>
         <label>Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="Не менее 12 символов и цифра" required></label>
         <button class="button primary pressable" type="submit">Присоединиться к компании</button>
       </form>
       <p id="auth-error" class="form-error" role="alert"></p>
+      <p id="auth-help" class="auth-help"><button type="button" class="text-button" data-forgot>Забыли пароль?</button></p>
     </section>
   </div>
 
