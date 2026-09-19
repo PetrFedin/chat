@@ -98,4 +98,8 @@ const observer=new MutationObserver(scheduleRefresh);observer.observe(document.b
 window.addEventListener('focus',()=>refreshAttention(true));document.addEventListener('visibilitychange',()=>{if(!document.hidden)refreshAttention(true)});window.addEventListener('chat:localechange',()=>{closeOverlay();decorate()});navigator.serviceWorker?.addEventListener('message',()=>refreshAttention(true));
 setInterval(()=>{if(!document.hidden)refreshAttention(true)},12000);
 
+// The top bar needs to open these; without an export its search button had
+// no handler at all and simply did nothing when tapped.
+window.ChatDailyWork={openSearch,openFiles,openNotifications};
+
 (async function start(){await refreshPeople();await refreshAttention(true);decorate()})();

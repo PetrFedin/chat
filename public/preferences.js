@@ -396,8 +396,17 @@
   // Every writer below compares before it writes. These run from the mutation
   // observer, so an unconditional write is a childList mutation that calls the
   // observer again — the page then never reaches idle.
+  // Compare what we last wrote, not what the DOM serialises back. The browser
+  // normalises markup — a valueless `data-prefs-owned` comes back as
+  // `data-prefs-owned=""` — so an innerHTML comparison never matches and the
+  // write repeats on every observer batch, which pins the main thread for as
+  // long as the panel is open.
+  const lastMarkup = new WeakMap();
+
   function setMarkup(element, markup) {
-    if (element && element.innerHTML !== markup) element.innerHTML = markup;
+    if (!element || lastMarkup.get(element) === markup) return;
+    lastMarkup.set(element, markup);
+    element.innerHTML = markup;
   }
 
   function setAttributeIfChanged(element, name, value) {

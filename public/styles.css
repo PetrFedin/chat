@@ -29,3 +29,22 @@
 .org-kind.own{color:var(--warm);border-color:var(--warm-soft)}
 .org-meta{display:flex;gap:12px;margin-top:3px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
 .org-meta .org-full{color:var(--warning)}
+
+/* Employee card. Facts first, then where they sit, then what they have done. */
+.person-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.person-head .avatar{width:48px;height:48px;font-size:17px}
+.person-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.person-field{display:flex;flex-direction:column;gap:2px;min-width:0}
+.person-field span{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2)}
+.person-field strong{font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.person-about{margin:14px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+.person-section{margin:18px 0 8px;font-size:12px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-2);font-weight:600}
+.person-chips{display:flex;flex-wrap:wrap;gap:6px;font-size:12px;color:var(--muted)}
+.person-chip{border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:var(--surface-2);color:var(--text);font-size:11px}
+.person-feed{display:flex;flex-direction:column;gap:1px;max-height:260px;overflow:auto}
+.person-event{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px}
+.person-event:first-child{border-top:0}
+.person-event time{color:var(--muted-2);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+.field input,.field textarea{border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--text);padding:9px 11px;font:inherit;font-size:14px;outline:0}
+.field input:focus-visible,.field textarea:focus-visible{border-color:var(--warm)}

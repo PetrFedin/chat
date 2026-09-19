@@ -78,3 +78,30 @@ test('file sizes carry units in the interface language', async () => {
   assert.match(source, /SIZE_UNITS=\{ru:\['Б','КБ','МБ','ГБ'\],en:\['B','KB','MB','GB'\]\}/);
   assert.doesNotMatch(source, /return`\$\{n\} B`/, "'124 B' in a Russian sentence reads as volts");
 });
+
+test('the top bar buttons all have handlers', async () => {
+  const [html, app] = await Promise.all([read('public/index.html'), read('public/app.js')]);
+  const wired = [...app.matchAll(/(?:^|[,{])\s*'?([a-z-]+)'?\s*:/gm)].map((m) => m[1]);
+  for (const match of html.matchAll(/data-action="([a-z-]+)"/g)) {
+    assert.ok(wired.includes(match[1]), `data-action="${match[1]}" has no entry in the action map`);
+  }
+  assert.doesNotMatch(html, /data-action="quick-create"/, 'the markup said quick-create while the map said quick, so the button did nothing');
+});
+
+test('preferences compares what it wrote, not what the DOM serialises back', async () => {
+  const source = await read('public/preferences.js');
+  // innerHTML round-trips through the browser's normaliser — a valueless
+  // attribute comes back as name="" — so comparing against it never matches
+  // and the write repeats on every observer batch.
+  assert.match(source, /const lastMarkup = new WeakMap\(\)/);
+  assert.match(source, /if \(!element \|\| lastMarkup\.get\(element\) === markup\) return;/);
+  assert.doesNotMatch(source, /element\.innerHTML !== markup/);
+});
+
+test('overlays keep a stack so a person can step back the way they came', async () => {
+  const source = await read('public/app.js');
+  assert.match(source, /const overlayStack=\[\]/);
+  assert.match(source, /history\.pushState\(\{overlay:overlayStack\.length\}/);
+  assert.match(source, /window\.addEventListener\('popstate'/);
+  assert.match(source, /data-back/, 'a stacked overlay offers back, not only close');
+});

@@ -45,14 +45,14 @@ function bind(){$$('[data-nav]').forEach(b=>b.onclick=()=>go(b.dataset.nav));$$(
 function go(v){S.view=v;if(v!=='chats')S.mobileChat=false;render()}
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,profile:profileModal,push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 // Read-only chart for now: the tree, who runs each unit and how the planned
 // headcount compares with the people actually in it.
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
 async function orgModal(){
   let data;
-  try{data=await api('/api/v1/org/units')}catch(error){toast(error.code==='ORG_STRUCTURE_UNAVAILABLE'?tr('Оргструктура доступна в режиме с базой данных','The org chart needs a database deployment'):error.message);return}
+  try{data=await api('/api/v1/org/units')}catch(error){toast(error.code==='ORG_STRUCTURE_UNAVAILABLE'?'Оргструктура доступна в режиме с базой данных':error.message);return}
   const units=data.items||[];
   if(!units.length){modal('Оргструктура','<p class="muted">Структура ещё не заведена. Владелец или администратор создаёт департаменты и отделы через <code>POST /api/v1/org/units</code>.</p>');return}
   const managed=new Set(data.canManage?[]:(data.managedUnitIds||[]));
@@ -68,6 +68,87 @@ async function orgModal(){
   }).join('');
   const planned=units.reduce((n,u)=>n+(u.seats.limit??0),0),taken=units.reduce((n,u)=>n+u.seats.used,0);
   modal('Оргструктура',`<div class="org-tree">${branch(null,0)}</div><p class="muted" style="margin-top:12px">Занято ${taken} мест из ${planned} запланированных${data.canManage?'':' · у вас права только на чтение'}</p>`);
+}
+
+
+// ── employee card ───────────────────────────────────────────────────────────
+const WORK_STATUS={proposed:'ожидает принятия',accepted:'принята',scheduled:'запланирована',in_progress:'в работе',blocked:'заблокирована',in_review:'на проверке',accepted_result:'результат принят',closed:'закрыта',deferred:'отложена',cancelled:'отменена',rejected:'отклонена'};
+const PRESENCE={online:'в сети',away:'отошёл',busy:'занят',do_not_disturb:'не беспокоить',offline:'не в сети'};
+const when=(v)=>v?new Intl.DateTimeFormat('ru',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'';
+
+async function personPage(userId){
+  let person,activity=[];
+  try{
+    person=(await api(`/api/v1/people/${userId}`)).person;
+    activity=(await api(`/api/v1/people/${userId}/activity?limit=25`)).items||[];
+  }catch(error){
+    toast(error.code==='PEOPLE_UNAVAILABLE'?'Личные карточки доступны в режиме с базой данных':error.message);
+    return;
+  }
+  const field=(label,value)=>value?`<div class="person-field"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`:'';
+  const units=person.units.length
+    ? person.units.map(u=>`<span class="person-chip">${esc(u.name)}${u.role!=='member'?` · ${u.role==='head'?'руководитель':'администратор'}`:''}</span>`).join('')
+    : `<span class="muted">не состоит в подразделениях</span>`;
+  const reports=person.reportsTo.length
+    ? person.reportsTo.map(r=>`${esc(r.headName||'—')} <span class="muted">(${esc(r.unit)})</span>`).join(' · ')
+    : '<span class="muted">не назначено</span>';
+  const load=Object.entries(person.workload.byStatus||{}).map(([k,v])=>`<span class="person-chip">${esc(WORK_STATUS[k]||k)}: ${v}</span>`).join('') || '<span class="muted">задач нет</span>';
+  const feed=activity.length
+    ? activity.map(a=>`<div class="person-event"><span>${esc(a.label)}${a.subject?` · ${esc(a.subject)}`:''}</span><time>${esc(when(a.createdAt))}</time></div>`).join('')
+    : '<p class="muted">Действий пока не записано.</p>';
+
+  modal(person.displayName||person.email,`
+    <div class="person-head">
+      <span class="avatar dark">${esc(initials(person.displayName||person.email))}</span>
+      <div>
+        <div class="row-title">${esc(person.title||'Должность не указана')}</div>
+        <div class="row-sub">${esc(person.department||'Подразделение не указано')} · ${esc(PRESENCE[person.presenceState]||'не в сети')}</div>
+      </div>
+    </div>
+    <div class="person-fields">
+      ${field('Почта',person.email)}
+      ${field('Роль в системе',person.workspaceRole)}
+      ${field('Город',person.location)}
+      ${field('Телефон',person.phone)}
+      ${field('В команде с',person.startedOn?String(person.startedOn).slice(0,10):null)}
+      ${field('Часовой пояс',person.timezone)}
+    </div>
+    ${person.about?`<p class="person-about">${esc(person.about)}</p>`:''}
+    <h3 class="person-section">Подразделения</h3><div class="person-chips">${units}</div>
+    <h3 class="person-section">Подчиняется</h3><div class="person-chips">${reports}</div>
+    <h3 class="person-section">Задачи в работе — ${person.workload.open}</h3><div class="person-chips">${load}</div>
+    <h3 class="person-section">История действий</h3><div class="person-feed">${feed}</div>
+    ${person.isSelf?'<div class="stack" style="margin-top:16px"><button data-edit class="button secondary">Редактировать карточку</button><button data-push class="button secondary">Включить push</button><button data-logout class="button danger">Выйти</button></div>':''}
+  `,()=>{
+    if(!person.isSelf)return;
+    $('[data-edit]').onclick=()=>editProfile(person);
+    $('[data-push]').onclick=enablePush;
+    $('[data-logout]').onclick=logout;
+  });
+}
+
+function editProfile(person){
+  const input=(name,label,value='')=>`<label class="field"><span>${esc(label)}</span><input name="${name}" value="${esc(value??'')}" maxlength="120"></label>`;
+  modal('Редактировать карточку',`<form id="profile-form" class="stack">
+    ${input('displayName','Имя и фамилия',person.displayName)}
+    ${input('title','Должность',person.title)}
+    ${input('department','Подразделение',person.department)}
+    ${input('location','Город',person.location)}
+    ${input('phone','Телефон',person.phone)}
+    <label class="field"><span>О себе</span><textarea name="about" rows="3" maxlength="2000">${esc(person.about??'')}</textarea></label>
+    <button class="button primary" type="submit">Сохранить</button>
+  </form>`,()=>{
+    $('#profile-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const data=Object.fromEntries(new FormData(event.target).entries());
+      try{
+        await api(`/api/v1/people/${person.userId}`,{method:'PATCH',body:JSON.stringify(data)});
+        toast('Карточка обновлена');
+        history.back();
+        await bootstrap();
+      }catch(error){toast(error.message)}
+    };
+  });
 }
 
 async function action(a){await actions[a]?.()}
@@ -86,8 +167,28 @@ async function toggleMute(){const c=S.conversations.find(x=>x.id===S.selected);i
 async function archiveCurrent(){const c=S.conversations.find(x=>x.id===S.selected);if(!c)return;try{await api(`/api/v1/conversations/${c.id}/preferences`,{method:'PATCH',body:JSON.stringify({archived:true})});S.conversations=S.conversations.filter(x=>x.id!==c.id);S.selected=S.conversations[0]?.id||null;S.mobileChat=false;render();toast('Чат перемещён в личный архив')}catch(e){toast(e.message)}}
 async function archivedModal(){try{const{items}=await api('/api/v1/conversations/archived');modal('Архив чатов',items.length?items.map(c=>`<div class="row"><span class="avatar dark">${c.kind==='channel'?'#':esc(initials(c.title||'D'))}</span><span><div class="row-title">${esc(c.title||'Диалог')}</div><div class="row-sub">${esc(c.purpose||'Архивировано только для вас')}</div></span><button class="button secondary small" data-restore-conversation="${c.id}">Вернуть</button></div>`).join(''):'<div class="empty">Архив пуст.</div>');$$('[data-restore-conversation]').forEach(b=>b.onclick=async()=>{try{await api(`/api/v1/conversations/${b.dataset.restoreConversation}/preferences`,{method:'PATCH',body:JSON.stringify({archived:false})});const restored=items.find(x=>x.id===b.dataset.restoreConversation);if(restored&&!S.conversations.some(x=>x.id===restored.id))S.conversations.unshift({...restored,archivedAt:null});toast('Чат возвращён');await archivedModal();lists()}catch(e){toast(e.message)}})}catch(e){toast(e.message)}}
 let typingTimer;function typing(){if(S.ws?.readyState!==1)return;S.ws.send(JSON.stringify({event:'typing.start',data:{conversationId:S.selected}}));clearTimeout(typingTimer);typingTimer=setTimeout(()=>S.ws?.send(JSON.stringify({event:'typing.stop',data:{conversationId:S.selected}})),1000)}
-function modal(title,body){$('#modal-root').innerHTML=`<div class="modal-backdrop"><section class="modal"><div class="modal-head"><h2>${esc(title)}</h2><button data-close class="close-button">×</button></div>${body}</section></div>`;$('[data-close]').onclick=closeModal;$('.modal-backdrop').onclick=e=>{if(e.target===e.currentTarget)closeModal()}}
-function closeModal(){$('#modal-root').innerHTML=''}
+// Overlays keep a stack, so a person who went Ещё → Команда → карточка can
+// step back the way they came instead of being dumped on the home screen.
+// The stack is mirrored into browser history, which is what makes the phone's
+// back gesture close an overlay rather than leave the app.
+const overlayStack=[];
+function renderOverlay(){
+  const top=overlayStack[overlayStack.length-1];
+  if(!top){$('#modal-root').innerHTML='';return}
+  const back=overlayStack.length>1;
+  $('#modal-root').innerHTML=`<div class="modal-backdrop"><section class="modal"><div class="modal-head">${back?'<button data-back class="close-button" aria-label="Назад">‹</button>':''}<h2>${esc(top.title)}</h2><button data-close class="close-button" aria-label="Закрыть">×</button></div>${top.body}</section></div>`;
+  const backButton=$('[data-back]');if(backButton)backButton.onclick=()=>history.back();
+  $('[data-close]').onclick=closeModal;
+  $('.modal-backdrop').onclick=e=>{if(e.target===e.currentTarget)closeModal()};
+  top.after?.();
+}
+function modal(title,body,after){
+  overlayStack.push({title,body,after});
+  try{history.pushState({overlay:overlayStack.length},'',location.href)}catch{}
+  renderOverlay();
+}
+window.addEventListener('popstate',()=>{if(overlayStack.length){overlayStack.pop();renderOverlay()}});
+function closeModal(){const depth=overlayStack.length;overlayStack.length=0;renderOverlay();try{if(depth)history.go(-depth)}catch{}}
 function quick(){modal('Создать',`<div class="module-grid"><button class="module-card" data-q="dm"><span class="module-icon">●</span><strong>Сообщение</strong></button><button class="module-card" data-q="group"><span class="module-icon">◎</span><strong>Группа</strong></button><button class="module-card" data-q="task"><span class="module-icon">✓</span><strong>Задача</strong></button><button class="module-card" data-q="event"><span class="module-icon">□</span><strong>Событие</strong></button><button class="module-card" data-q="channel"><span class="module-icon">#</span><strong>Канал</strong></button></div>`);$$('[data-q]').forEach(b=>b.onclick=()=>{const x=b.dataset.q;closeModal();({dm:directModal,group:groupModal,task:()=>taskModal(),event:eventModal,channel:channelModal})[x]()})}
 function taskModal(sourceMessageId=null){modal('Новая задача',`<form id="task-form" class="form-stack"><label>Что нужно сделать<input name="title" required></label><label>Ожидаемый результат<textarea name="outcome" rows="3" placeholder="Как понять, что задача выполнена?"></textarea></label><label>Ответственный<select name="ownerId" class="field">${S.people.map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Кто принимает результат<select name="acceptorId" class="field">${S.people.map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Срок<input name="promisedAt" type="datetime-local"></label><label>Приоритет<select name="priority" class="field"><option value="normal">Обычный</option><option value="high">Высокий</option><option value="urgent">Срочный</option><option value="low">Низкий</option></select></label><button class="button primary">Создать</button></form>`);$('#task-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget),{task}=await api('/api/v1/tasks',{method:'POST',body:JSON.stringify({title:f.get('title'),outcome:f.get('outcome')||undefined,ownerId:f.get('ownerId'),acceptorId:f.get('acceptorId'),priority:f.get('priority'),promisedAt:f.get('promisedAt')?new Date(f.get('promisedAt')).toISOString():null,sourceMessageId})});upsertTask(task);closeModal();render();toast('Задача создана')}}
 
@@ -127,7 +228,9 @@ async function membersModal(){const conversation=S.conversations.find(x=>x.id===
 
 function directModal(){const others=S.people.filter(p=>p.userId!==me().userId);modal('Новое сообщение',others.map(p=>`<button class="conversation-card" data-person="${p.userId}"><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><strong>${esc(p.displayName||p.email)}</strong><div class="preview">${esc(p.title||p.role)}</div></span></button>`).join('')||'<div class="empty">Сначала пригласите сотрудников.</div>');$$('[data-person]').forEach(b=>b.onclick=async()=>{const p=person(b.dataset.person),{conversation}=await api('/api/v1/conversations',{method:'POST',body:JSON.stringify({kind:'direct',title:p?.displayName||null,participantIds:[b.dataset.person]})});S.conversations.unshift(conversation);closeModal();openChat(conversation.id)})}
 function inviteModal(){modal('Пригласить сотрудника',`<form id="invite-form" class="form-stack"><label>Email<input name="email" type="email" required></label><label>Роль<select name="role" class="field"><option value="member">Сотрудник</option><option value="manager">Руководитель</option><option value="admin">Администратор</option><option value="guest">Гость</option></select></label><button class="button primary">Создать приглашение</button></form>`);$('#invite-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget),{invitation}=await api('/api/v1/invitations',{method:'POST',body:JSON.stringify({email:f.get('email'),role:f.get('role')})});modal('Приглашение готово',`<p class="muted">Ссылка действует 7 дней.</p><input id="invite-link" class="field" readonly value="${esc(invitation.inviteUrl)}"><button data-copy class="button primary" style="width:100%;margin-top:12px">Скопировать</button>`);$('[data-copy]').onclick=async()=>{await navigator.clipboard.writeText(invitation.inviteUrl);toast('Ссылка скопирована')}}}
-function teamModal(){modal('Команда',S.people.map(p=>`<div class="row"><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||p.role)}</div></span><span class="presence-dot ${esc(p.presence?.state||'offline')}"></span></div>`).join(''))}
+function teamModal(){modal('Команда',S.people.map(p=>`<button class="row pressable" data-person="${esc(p.userId)}" style="width:100%;text-align:left"><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||p.role)}</div></span><span class="presence-dot ${esc(p.presence?.state||'offline')}"></span></button>`).join(''),()=>{
+  $$('[data-person]').forEach(b=>{b.onclick=()=>personPage(b.dataset.person)});
+})}
 function profileModal(){modal('Профиль и безопасность',`<div class="row"><span class="avatar">${esc(initials(me().displayName))}</span><span><div class="row-title">${esc(me().displayName)}</div><div class="row-sub">${esc(me().email)} · ${esc(me().role)}</div></span></div><div class="stack" style="margin-top:14px"><button data-push class="button secondary">Включить push</button><button data-logout class="button danger">Выйти</button></div>`);$('[data-push]').onclick=enablePush;$('[data-logout]').onclick=logout}
 async function logout(){await api('/api/v1/auth/logout',{method:'POST'}).catch(()=>{});S.ws?.close();S.boot=null;closeModal();auth()}
 async function enablePush(){try{if(!S.boot?.push?.enabled)return toast('На сервере ещё не настроены VAPID-ключи.');if(await Notification.requestPermission()!=='granted')return toast('Push не разрешён.');const r=await navigator.serviceWorker.ready;let sub=await r.pushManager.getSubscription();if(!sub)sub=await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key(S.boot.push.publicKey)});await api('/api/v1/push-subscriptions',{method:'POST',body:JSON.stringify(sub)});toast('Push включён')}catch(e){toast(e.message)}}

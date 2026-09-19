@@ -22,6 +22,8 @@ import { createMediaHandler } from './http/media.js';
 import { createCallHandler } from './http/calls.js';
 import { createIntegrationsHandler } from './http/integrations.js';
 import { createOrgHandler } from './http/org.js';
+import { createPeopleHandler } from './http/people.js';
+import { createPeopleRepository } from './people/people-repository.js';
 import { createOrgRepository } from './org/org-repository.js';
 import { createWebhookRepository } from './integrations/webhook-repository.js';
 import { createDeliveryWorker } from './integrations/delivery-worker.js';
@@ -75,6 +77,7 @@ export async function createChatServer(options={}){
   const authThrottle=options.authThrottle??createAuthThrottle(process.env);
   const webhooks=options.webhooks??createWebhookRepository(pool);
   const org=options.org??createOrgRepository(pool);
+  const people=options.people??createPeopleRepository(pool,org);
   const deliveryWorker=options.deliveryWorker??createDeliveryWorker(webhooks,process.env,{enabled:options.deliveryWorkerEnabled??mode!=='custom'});
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
@@ -110,8 +113,8 @@ export async function createChatServer(options={}){
   const startMeetingWorker=options.startMeetingWorker??mode!=='custom';
   if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.()}
 
-  const ctx={store,mode,hub,authThrottle,webhooks,deliveryWorker,org,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const ctx={store,mode,hub,authThrottle,webhooks,deliveryWorker,org,people,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handlePeople=createPeopleHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{try{
     for(const [name,value] of Object.entries(baseHeaders))res.setHeader(name,value);
@@ -129,6 +132,7 @@ export async function createChatServer(options={}){
     if(await handleCalls(req,res,ctx,path,method))return;
     if(await handleIntegrations(req,res,ctx,url,path,method))return;
     if(await handleOrg(req,res,ctx,url,path,method))return;
+    if(await handlePeople(req,res,ctx,url,path,method))return;
     if(await handleMedia(req,res,ctx,url,path,method))return;
     if(path.startsWith('/api/'))throw Object.assign(new Error('API route not found'),{code:'NOT_FOUND',statusCode:404});
     const relative=path==='/'?'index.html':path.replace(/^\/+/,''),candidate=normalize(join(publicRoot,relative));if(!candidate.startsWith(normalize(publicRoot)))throw Object.assign(new Error('Bad request'),{code:'BAD_PATH',statusCode:400});
