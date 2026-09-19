@@ -58,46 +58,63 @@ test('Postgres task lifecycle preserves authority, evidence and acceptance histo
     {code:'STALE_TASK_ACTION'}
   );
 
-  const started=await store.transitionTask(worker,task.id,{to:'in_progress',expectedVersion:2});
-  assert.equal(started.version,3);
+  const rescheduled=await store.rescheduleTask(worker,task.id,{
+    promisedAt:'2026-09-27T09:00:00.000Z',
+    forecastAt:'2026-09-26T15:00:00.000Z',
+    reason:'Source ledger moved by one day',
+    expectedVersion:2,
+  });
+  assert.equal(rescheduled.version,3);
+  await store.projectTaskLifecycleNotification(worker,rescheduled,{type:'task.rescheduled',title:'Task schedule changed'});
+  const scheduleNotice=await pool.query("SELECT type,commitment_id FROM notifications WHERE workspace_id=$1 AND commitment_id=$2 AND type='task.rescheduled'",[owner.workspaceId,task.id]);
+  assert.ok(scheduleNotice.rowCount>=1);
+
+  const started=await store.transitionTask(worker,task.id,{to:'in_progress',expectedVersion:3});
+  assert.equal(started.version,4);
 
   await assert.rejects(
-    ()=>store.transitionTask(worker,task.id,{to:'in_review',expectedVersion:3}),
+    ()=>store.transitionTask(worker,task.id,{to:'in_review',expectedVersion:4}),
     {code:'TASK_EVIDENCE_REQUIRED'}
   );
 
   const firstEvidence=await store.addTaskEvidence(worker,task.id,{
     type:'note',
     value:'Checked totals and reconciled the final pack.',
-    expectedVersion:3,
+    expectedVersion:4,
   });
-  assert.equal(firstEvidence.task.version,4);
+  assert.equal(firstEvidence.task.version,5);
   assert.equal(firstEvidence.task.evidenceCount,1);
 
   const secondEvidence=await store.addTaskEvidence(worker,task.id,{
     type:'url',
     value:'https://example.invalid/board-pack',
-    expectedVersion:4,
+    expectedVersion:5,
   });
-  assert.equal(secondEvidence.task.version,5);
+  assert.equal(secondEvidence.task.version,6);
   assert.equal(secondEvidence.task.evidenceCount,2);
 
-  const review=await store.transitionTask(worker,task.id,{to:'in_review',expectedVersion:5});
+  const review=await store.transitionTask(worker,task.id,{to:'in_review',expectedVersion:6});
   assert.equal(review.status,'in_review');
-  assert.equal(review.version,6);
+  assert.equal(review.version,7);
+  await store.projectTaskLifecycleNotification(worker,review,{type:'review.requested',title:'Result review requested'});
+  const reviewNotice=await pool.query("SELECT type,recipient_user_id FROM notifications WHERE workspace_id=$1 AND commitment_id=$2 AND type='review.requested'",[owner.workspaceId,task.id]);
+  assert.ok(reviewNotice.rows.some(row=>row.recipient_user_id===reviewer.userId));
 
   await assert.rejects(
-    ()=>store.transitionTask(worker,task.id,{to:'accepted_result',expectedVersion:6}),
+    ()=>store.transitionTask(worker,task.id,{to:'accepted_result',expectedVersion:7}),
     {code:'TASK_ACTION_FORBIDDEN'}
   );
 
-  const acceptedResult=await store.transitionTask(reviewer,task.id,{to:'accepted_result',expectedVersion:6});
+  const acceptedResult=await store.transitionTask(reviewer,task.id,{to:'accepted_result',expectedVersion:7});
   assert.equal(acceptedResult.status,'accepted_result');
-  assert.equal(acceptedResult.version,7);
+  assert.equal(acceptedResult.version,8);
+  await store.projectTaskLifecycleNotification(reviewer,acceptedResult,{type:'task.updated',title:'Result accepted'});
+  const updateNotice=await pool.query("SELECT type FROM notifications WHERE workspace_id=$1 AND commitment_id=$2 AND type='task.updated'",[owner.workspaceId,task.id]);
+  assert.ok(updateNotice.rowCount>=1);
 
-  const closed=await store.transitionTask(owner,task.id,{to:'closed',expectedVersion:7});
+  const closed=await store.transitionTask(owner,task.id,{to:'closed',expectedVersion:8});
   assert.equal(closed.status,'closed');
-  assert.equal(closed.version,8);
+  assert.equal(closed.version,9);
 
   const detail=await store.getTaskDetail(owner,task.id);
   assert.equal(detail.evidence.length,2);
