@@ -57,6 +57,12 @@ test('Postgres message work actions preserve provenance, personal state and voic
   const rereadForward=await store.getMessage(alice,forwarded.id);
   assert.equal(rereadForward.forwardedFrom.messageId,source.id);
 
+  const externalTarget=await store.createConversation(alice,{kind:'direct',title:'Bob',slug:null,purpose:null,visibility:'private',participantIds:[bob.userId],announcementOnly:false});
+  const restrictedForward=await store.forwardMessage(alice,source.id,externalTarget.id);
+  const bobForward=await store.getMessage(bob,restrictedForward.id);
+  assert.equal(bobForward.forwarded,true);
+  assert.deepEqual(bobForward.forwardedFrom,{restricted:true});
+
   const other=await store.createConversation(owner,{kind:'group',title:'Other',slug:null,purpose:null,visibility:'private',participantIds:[bob.userId],announcementOnly:false});
   await assert.rejects(
     ()=>store.createMessage(owner,other.id,{kind:'text',body:'Cross reference',replyToId:source.id,threadRootId:null,metadata:{},mentionedUserIds:[],clientRequestId:randomUUID()}),
