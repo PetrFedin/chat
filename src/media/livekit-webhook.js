@@ -13,7 +13,7 @@ const EGRESS_STATUS = Object.freeze({
 
 export class DisabledLiveKitWebhookReceiver {
   status(){return{provider:'livekit',enabled:false,reason:'LIVEKIT_API_KEY and LIVEKIT_API_SECRET are required'}}
-  async receive(){const error=new Error('LiveKit webhook verification is not configured');error.code='LIVEKIT_WEBHOOK_UNAVAILABLE';error.statusCode=503;throw error}
+  async receive(){const error=new Error('LiveKit webhook verification is not configured');error.code='LIVEKIT_WEBHOOK_UNAVAILABLE';error.statusCode=503; error.expose = true;throw error}
 }
 
 export class LiveKitWebhookReceiver {

@@ -243,7 +243,8 @@ export class PostgresCallRepository {
         organization_id,workspace_id,call_id,user_id,joined_at,audio_enabled,video_enabled,connection_state,last_media_at
       ) VALUES($1,$2,$3,$4,now(),true,$5,'connected',now())
       ON CONFLICT(workspace_id,call_id,user_id) DO UPDATE SET
-        joined_at=COALESCE(call_participants.joined_at,now()),left_at=NULL,connection_state='connected',last_media_at=now()`,
+        joined_at=COALESCE(call_participants.joined_at,now()),left_at=NULL,connection_state='connected',last_media_at=now(),
+        recording_consented_at=CASE WHEN call_participants.left_at IS NOT NULL THEN NULL ELSE call_participants.recording_consented_at END`,
       [session.organizationId, session.workspaceId, callId, session.userId, call.mode !== 'audio']);
       await c.query(`UPDATE call_sessions SET state=CASE WHEN state IN('scheduled','ringing') THEN 'active' ELSE state END,
         started_at=CASE WHEN state IN('scheduled','ringing') THEN COALESCE(started_at,now()) ELSE started_at END,last_activity_at=now()
@@ -254,7 +255,9 @@ export class PostgresCallRepository {
 
   async leave(session, callId) {
     await this.tx(async (c) => {
-      await c.query(`UPDATE call_participants SET left_at=now(),connection_state='disconnected',last_media_at=now()
+      await c.query(`UPDATE call_participants
+        SET left_at=CASE WHEN joined_at IS NULL THEN left_at ELSE now() END,
+            connection_state='disconnected', last_media_at=now()
         WHERE workspace_id=$1 AND call_id=$2 AND user_id=$3`, [session.workspaceId, callId, session.userId]);
       const active = Number((await c.query(`SELECT count(*) n FROM call_participants WHERE workspace_id=$1 AND call_id=$2 AND joined_at IS NOT NULL AND left_at IS NULL`, [session.workspaceId, callId])).rows[0].n);
       if (!active) await c.query(`UPDATE call_sessions SET state=CASE WHEN state='active' THEN 'ended' ELSE state END,
@@ -303,6 +306,9 @@ export class PostgresCallRepository {
   }
 
   async stopRecording(session, callId) {
+    // Consent is given for one recording, not for the whole call: the next
+    // one has to ask again.
+    await this.pool.query('UPDATE call_participants SET recording_consented_at=NULL WHERE workspace_id=$1 AND call_id=$2', [session.workspaceId, callId]);
     const { rows } = await this.pool.query(`UPDATE call_recordings SET status='processing',stopped_at=now(),updated_at=now(),
       transcription_source_status=CASE
         WHEN transcription_provider_recording_id IS NOT NULL AND transcription_source_status='recording' THEN 'processing'
@@ -317,7 +323,11 @@ export class PostgresCallRepository {
 
   async end(session, callId) {
     await this.tx(async (c) => {
-      await c.query(`UPDATE call_sessions SET state='ended',ended_at=COALESCE(ended_at,now()),last_activity_at=now() WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, callId]);
+      await c.query(`UPDATE call_sessions
+        SET state=CASE WHEN started_at IS NULL THEN 'cancelled' ELSE 'ended' END,
+            ended_at=CASE WHEN started_at IS NULL THEN ended_at ELSE COALESCE(ended_at,now()) END,
+            last_activity_at=now()
+        WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, callId]);
       await c.query(`UPDATE call_participants SET left_at=COALESCE(left_at,now()),connection_state='disconnected' WHERE workspace_id=$1 AND call_id=$2 AND joined_at IS NOT NULL`, [session.workspaceId, callId]);
     });
     return this.get(session, callId);

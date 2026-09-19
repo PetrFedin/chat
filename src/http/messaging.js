@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Permission, hasPermission, requirePermission } from '../rbac.js';
-import { allowedConversationKinds, allowedMessageKinds, cleanText, json, noContent, readJson, messageKindLabel } from './helpers.js';
+import { allowedConversationKinds, allowedMessageKinds, serverOnlyMessageKinds, cleanText, json, noContent, readJson, messageKindLabel } from './helpers.js';
 
 const CONVERSATION_ID='([0-9a-f-]+)';
 const USER_ID='([0-9a-f-]+)';
@@ -38,7 +38,7 @@ export async function handleMessaging(req,res,ctx,path,method){
     const visibility=kind==='direct'||kind==='group'?'private':(b.visibility??'private');
     const conversation=await store.createConversation(s,{
       kind,
-      title:kind==='direct'?(b.title??null):cleanText(b.title,120),
+      title:kind==='direct'?(b.title===undefined||b.title===null?null:cleanText(b.title,120)):cleanText(b.title,120),
       slug:b.slug?cleanText(b.slug,80):null,
       visibility,
       participantIds:ids,
@@ -77,6 +77,7 @@ export async function handleMessaging(req,res,ctx,path,method){
     const b=await readJson(req),userIds=Array.isArray(b.userIds)?[...new Set(b.userIds.map(String).filter(Boolean))]:[];
     if(!userIds.length)throw httpError('At least one userId is required','INVALID_CONVERSATION_MEMBERS',400);
     const role=String(b.role??'member');if(!MEMBER_ROLES.has(role))throw httpError('Invalid conversation role','INVALID_CONVERSATION_ROLE',400);
+    if(s.role==='guest')throw httpError('A guest cannot change who is in a conversation','GUEST_CANNOT_MANAGE',403);
     const previous=await store.conversationAudience(s,m[1]);
     const items=await store.addConversationMembers(s,m[1],userIds,role);
     const audience=await store.conversationAudience(s,m[1]);
@@ -89,6 +90,7 @@ export async function handleMessaging(req,res,ctx,path,method){
     const s=await requireSession(req),policy=await policyOr404(store,s,m[1]);requireConversationManager(s,policy);
     if(policy.conversation.kind==='direct')throw httpError('Direct conversation membership is immutable','DIRECT_MEMBERSHIP_IMMUTABLE',409);
     const b=await readJson(req),role=String(b.role??'');if(!MEMBER_ROLES.has(role))throw httpError('Invalid conversation role','INVALID_CONVERSATION_ROLE',400);
+    if(s.role==='guest')throw httpError('A guest cannot change conversation roles','GUEST_CANNOT_MANAGE',403);
     const items=await store.setConversationMemberRole(s,m[1],m[2],role);
     const audience=await store.conversationAudience(s,m[1]);
     hub.broadcastUsers(s.workspaceId,audience,'conversation.members.updated',{conversationId:m[1],items});
@@ -98,6 +100,7 @@ export async function handleMessaging(req,res,ctx,path,method){
     const s=await requireSession(req),policy=await policyOr404(store,s,m[1]);requireConversationManager(s,policy);
     if(policy.conversation.kind==='direct')throw httpError('Direct conversation membership is immutable','DIRECT_MEMBERSHIP_IMMUTABLE',409);
     const previous=await store.conversationAudience(s,m[1]);
+    if(s.role==='guest')throw httpError('A guest cannot remove people from a conversation','GUEST_CANNOT_MANAGE',403);
     const items=await store.removeConversationMember(s,m[1],m[2]);
     const audience=await store.conversationAudience(s,m[1]);
     hub.broadcastUsers(s.workspaceId,[...new Set([...previous,...audience,m[2]])],'conversation.members.updated',{conversationId:m[1],items});
@@ -112,7 +115,10 @@ export async function handleMessaging(req,res,ctx,path,method){
     if(policy.conversation.announcementOnly&&!canManageConversation(s,policy))throw httpError('Only channel managers may publish in this announcement channel','ANNOUNCEMENT_ONLY',403);
     const b=await readJson(req),kind=String(b.kind??'text');
     if(!allowedMessageKinds.has(kind))throw httpError('Unsupported message kind','INVALID_MESSAGE_KIND',400);
+    if(serverOnlyMessageKinds.has(kind))throw httpError('That message kind is written by the server, not by a client','MESSAGE_KIND_RESERVED',403);
     if(kind==='text'&&!String(b.body??'').trim())throw httpError('Message body required','INVALID_MESSAGE_BODY',400);
+    if(b.body!==undefined&&b.body!==null&&typeof b.body!=='string')throw httpError('Message body must be text','INVALID_MESSAGE_BODY',400);
+    if(typeof b.body==='string'&&b.body.length>12000)throw httpError('Message body is too long','MESSAGE_TOO_LONG',400);
     const message=await store.createMessage(s,m[1],{kind,body:b.body??null,replyToId:b.replyToId??null,threadRootId:b.threadRootId??null,metadata:b.metadata??{},mentionedUserIds:Array.isArray(b.mentionedUserIds)?b.mentionedUserIds:[],clientRequestId:b.clientRequestId??randomUUID()});
     const audience=await store.conversationAudience(s,m[1]),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,m[1]):audience;
     hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:m[1],message});

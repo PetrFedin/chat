@@ -1,6 +1,6 @@
 import { hashPassword, verifyPassword, equalizePasswordTiming, normalizeEmail, createOpaqueToken, hashToken } from '../security.js';
 import { Permission, requirePermission } from '../rbac.js';
-import { cleanText, clientAddress, json, noContent, readJson } from './helpers.js';
+import { cleanText, clientAddress, trustsProxy, json, noContent, readJson } from './helpers.js';
 
 const invalidCredentials=()=>Object.assign(new Error('Invalid email or password'),{code:'INVALID_CREDENTIALS',statusCode:401});
 
@@ -37,7 +37,7 @@ export async function handleAuth(req,res,ctx,path,method){
   if(method==='GET'&&path==='/api/v1/bootstrap'){const s=await requireSession(req),data=await store.getBootstrap(s);json(res,200,{...data,permissions:ctx.permissions(s.role),storageMode:ctx.mode,push:ctx.push});return true}
   if(method==='POST'&&path==='/api/v1/invitations'){
     const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);const b=await readJson(req),token=createOpaqueToken(),i=await store.createInvitation(s,{email:normalizeEmail(b.email),role:b.role??'member',tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*86400000).toISOString()});
-    const proto=String(req.headers['x-forwarded-proto']??(req.socket.encrypted?'https':'http')).split(',')[0],host=req.headers.host??'localhost';json(res,201,{invitation:{...i,inviteUrl:`${proto}://${host}/?invite=${encodeURIComponent(token)}`}});return true;
+    const proto=String((trustsProxy()&&req.headers['x-forwarded-proto'])||(req.socket.encrypted?'https':'http')).split(',')[0],host=req.headers.host??'localhost';json(res,201,{invitation:{...i,inviteUrl:`${proto}://${host}/?invite=${encodeURIComponent(token)}`}});return true;
   }
   return false;
 }

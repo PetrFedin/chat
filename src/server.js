@@ -25,6 +25,8 @@ import { createOrgHandler } from './http/org.js';
 import { createPeopleHandler } from './http/people.js';
 import { createCalendarHandler } from './http/calendar.js';
 import { createLabelHandler } from './http/labels.js';
+import { createPersonalHandler } from './http/personal.js';
+import { createPersonalRepository } from './personal/personal-repository.js';
 import { createLabelRepository } from './labels/label-repository.js';
 import { createCalendarRepository } from './calendar/calendar-repository.js';
 import { createPeopleRepository } from './people/people-repository.js';
@@ -85,6 +87,7 @@ export async function createChatServer(options={}){
   const people=options.people??createPeopleRepository(pool,org);
   const calendar=options.calendar??createCalendarRepository(pool,store);
   const labels=options.labels??createLabelRepository(pool,store);
+  const personal=options.personal??createPersonalRepository(pool,store,labels);
   const deliveryWorker=options.deliveryWorker??createDeliveryWorker(webhooks,process.env,{enabled:options.deliveryWorkerEnabled??mode!=='custom'});
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
@@ -121,8 +124,8 @@ export async function createChatServer(options={}){
   const startMeetingWorker=options.startMeetingWorker??mode!=='custom';
   if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.()}
 
-  const ctx={store,mode,hub,authThrottle,webhooks,deliveryWorker,org,people,calendar,labels,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const ctx={store,mode,hub,authThrottle,webhooks,deliveryWorker,org,people,calendar,labels,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{try{
     for(const [name,value] of Object.entries(baseHeaders))res.setHeader(name,value);
@@ -143,6 +146,7 @@ export async function createChatServer(options={}){
     if(await handlePeople(req,res,ctx,url,path,method))return;
     if(await handleCalendar(req,res,ctx,url,path,method))return;
     if(await handleLabels(req,res,ctx,url,path,method))return;
+    if(await handlePersonal(req,res,ctx,url,path,method))return;
     if(await handleMedia(req,res,ctx,url,path,method))return;
     if(path.startsWith('/api/'))throw Object.assign(new Error('API route not found'),{code:'NOT_FOUND',statusCode:404});
     const relative=path==='/'?'index.html':path.replace(/^\/+/,''),candidate=normalize(join(publicRoot,relative));if(!candidate.startsWith(normalize(publicRoot)))throw Object.assign(new Error('Bad request'),{code:'BAD_PATH',statusCode:400});
@@ -162,6 +166,12 @@ export async function createChatServer(options={}){
   wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});try{const p=await store.setPresence(s,{state:'online'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}ws.on('message',async raw=>{try{const packet=JSON.parse(String(raw));if(packet.event==='typing.start'||packet.event==='typing.stop'){const id=packet.data?.conversationId;if(id&&await store.canAccessConversation(s,id)){const audience=await store.conversationAudience(s,id);hub.broadcastUsers(s.workspaceId,audience.filter(x=>x!==s.userId),packet.event,{conversationId:id,userId:s.userId})}}else if(packet.event==='presence.set'&&allowedPresence.has(packet.data?.state)){const p=await store.setPresence(s,packet.data);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}}catch(error){hub.send(ws,'error',{code:error.code??'INVALID_EVENT',message:error.message})}});ws.on('close',async()=>{remove();try{const p=await store.setPresence(s,{state:'away'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p})}catch{}})});
   return{server,store,calls,webhooks,deliveryWorker,org,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));await deliveryWorker.stop?.().catch((error)=>console.error('delivery worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
 }
+
+// An unhandled rejection or a stray exception must not silently kill a server
+// that several people are connected to. Log it and keep serving; a request
+// that already failed is one request, not the whole workspace.
+process.on('unhandledRejection',(reason)=>console.error('unhandled rejection',reason));
+process.on('uncaughtException',(error)=>console.error('uncaught exception',error));
 
 const isMain=process.argv[1]&&fileURLToPath(import.meta.url)===normalize(process.argv[1]);
 if(isMain){

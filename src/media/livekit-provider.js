@@ -80,7 +80,7 @@ export class LiveKitMediaProvider {
     if (!this.enabled) {
       const error = new Error('Realtime media provider is not configured');
       error.code = 'MEDIA_PROVIDER_UNAVAILABLE';
-      error.statusCode = 503;
+      error.statusCode = 503; error.expose = true;
       throw error;
     }
     const resolvedRoomName = roomName || opaqueRoomName(workspaceId, callId);
@@ -123,7 +123,7 @@ export class LiveKitMediaProvider {
     if (!this.recordingEnabled) {
       const error = new Error('Call recording is not configured');
       error.code = 'RECORDING_PROVIDER_UNAVAILABLE';
-      error.statusCode = 503;
+      error.statusCode = 503; error.expose = true;
       throw error;
     }
     const recordingId = randomUUID();

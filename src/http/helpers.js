@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto';
 export const MAX_JSON=1_000_000,MAX_FILE=50*1024*1024;
 export const allowedPresence=new Set(['online','away','busy','do_not_disturb','offline']);
 export const allowedConversationKinds=new Set(['direct','group','channel','team','project','task','decision','approval','control','incident','meeting','external']);
+// Only the server writes these: they record what the system did, and a
+// member forging one fabricates an audit-looking notice in the transcript.
+export const serverOnlyMessageKinds=new Set(['system','call','task','calendar']);
 export const allowedMessageKinds=new Set(['text','system','file','call','task','calendar','poll']);
 export const messageKindLabel=(kind)=>({voice:'Голосовое сообщение',file:'Файл',call:'Звонок',task:'Задача',calendar:'Событие'})[kind]||'Новое сообщение';
 export const cleanText=(value,max=500)=>{const s=String(value??'').trim();if(!s||s.length>max)throw Object.assign(new Error('Invalid text value'),{code:'INVALID_TEXT'});return s};
@@ -14,8 +17,22 @@ export const noContent=(res,headers={})=>{res.writeHead(204,{'cache-control':'no
 // legitimately provoke, hide the rest behind a generic 400.
 const PG_CODES={'23505':{code:'ALREADY_EXISTS',statusCode:409,message:'A record with these values already exists'},'23503':{code:'REFERENCE_NOT_FOUND',statusCode:400,message:'A referenced record does not exist'},'23514':{code:'INVALID_VALUE',statusCode:400,message:'A value failed a validation rule'},'22P02':{code:'INVALID_VALUE',statusCode:400,message:'A value has the wrong format'}};
 export const normalizeError=(error)=>{if(!/^[0-9A-Z]{5}$/.test(String(error?.code??''))||error.statusCode)return error;const mapped=PG_CODES[error.code]??{code:'STORAGE_ERROR',statusCode:500,message:'Internal server error'};return Object.assign(new Error(mapped.message),mapped)};
-export const errorJson=(res,rawError)=>{const error=normalizeError(rawError);const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers=error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{},hide=status>=500&&!error.expose;json(res,status,{error:{code:error.code??'BAD_REQUEST',message:hide?'Internal server error':error.message}},headers)};
-export const clientAddress=(req)=>String(req.headers['x-forwarded-for']??req.socket?.remoteAddress??'').split(',')[0].trim()||null;
+export const errorJson=(res,rawError)=>{const error=normalizeError(rawError);
+  // A handler that already answered and then threw must not take the process
+  // down: writing headers twice throws ERR_HTTP_HEADERS_SENT out of the catch
+  // block, where nothing is left to catch it.
+  if(res.headersSent){try{res.end()}catch{}return}const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers=error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{},hide=status>=500&&!error.expose;json(res,status,{error:{code:error.code??'BAD_REQUEST',message:hide?'Internal server error':error.message}},headers)};
+// X-Forwarded-For is set by the client unless something in front of us
+// overwrites it. Trusting it unconditionally let a credential spray rotate the
+// header and skip the per-address limiter entirely, so the header counts only
+// when the deployment says it sits behind a proxy.
+export const trustsProxy=(env=process.env)=>env.TRUST_PROXY==='true';
+export const clientAddress=(req,env=process.env)=>{
+  const direct=String(req.socket?.remoteAddress??'').trim()||null;
+  if(!trustsProxy(env))return direct;
+  const forwarded=String(req.headers['x-forwarded-for']??'').split(',')[0].trim();
+  return forwarded||direct;
+};
 // camera/microphone stay permitted: the product is a calling app.
 // frameAncestors defaults to denying every embed. Set CSP_FRAME_ANCESTORS to a
 // space-separated source list to embed the workspace in an intranet portal or a

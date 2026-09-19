@@ -56,8 +56,19 @@ BEGIN
   END;
 END $$;
 
-INSERT INTO calendar_event_participants(organization_id, workspace_id, calendar_event_id, user_id, response_status) VALUES
-  ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '90000000-0000-0000-0000-000000000002', 'accepted');
+INSERT INTO calendar_event_participants(organization_id, workspace_id, calendar_event_id, user_id, response_status, responded_at) VALUES
+  ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '90000000-0000-0000-0000-000000000002', 'accepted', now());
+
+DO $$
+BEGIN
+  -- An answer without a time cannot be audited, so the pair is enforced.
+  BEGIN
+    INSERT INTO calendar_event_participants(organization_id, workspace_id, calendar_event_id, user_id, response_status) VALUES
+      ('00000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000001', '90000000-0000-0000-0000-000000000003', 'accepted');
+    RAISE EXCEPTION 'expected an answer without a timestamp to be rejected';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+END $$;
 
 DO $$
 BEGIN
