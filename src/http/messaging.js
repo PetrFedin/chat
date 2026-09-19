@@ -32,7 +32,6 @@ export async function handleMessaging(req,res,ctx,path,method){
     const ids=Array.isArray(b.participantIds)?[...new Set(b.participantIds.map(String).filter(Boolean))]:[];
     const participantCount=new Set([s.userId,...ids]).size;
     if(kind==='direct'&&participantCount!==2)throw httpError('Direct conversation requires exactly two users','DIRECT_REQUIRES_TWO_PARTICIPANTS',400);
-    if(kind==='group'&&participantCount<3)throw httpError('Group conversation requires at least three users','GROUP_REQUIRES_THREE_PARTICIPANTS',400);
     const visibility=kind==='direct'||kind==='group'?'private':(b.visibility??'private');
     const conversation=await store.createConversation(s,{
       kind,
