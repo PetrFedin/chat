@@ -112,7 +112,73 @@ export class MemoryStore {
 
   async canAccessConversation(session, conversationId) {
     const conversation = this.conversations.get(conversationId);
-    return Boolean(conversation && conversation.workspaceId === session.workspaceId && (conversation.visibility !== 'private' || this.conversationMembers.has(this.conversationMemberKey(conversationId, session.userId))));
+    return Boolean(conversation && !conversation.archivedAt && conversation.workspaceId === session.workspaceId && (conversation.visibility !== 'private' || this.conversationMembers.has(this.conversationMemberKey(conversationId, session.userId))));
+  }
+
+  async conversationPolicy(session, conversationId) {
+    if (!(await this.canAccessConversation(session, conversationId))) return null;
+    const conversation = this.conversations.get(conversationId);
+    const member = this.conversationMembers.get(this.conversationMemberKey(conversationId, session.userId));
+    return { conversation: clone(conversation), memberRole: member?.role ?? null };
+  }
+
+  async listConversationMembers(session, conversationId) {
+    if (!(await this.canAccessConversation(session, conversationId))) throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
+    return clone([...this.conversationMembers.values()]
+      .filter((m) => m.workspaceId === session.workspaceId && m.conversationId === conversationId)
+      .map((m) => {
+        const profile = this.profiles.get(this.membershipKey(session.workspaceId, m.userId)) ?? {};
+        const membership = this.memberships.get(this.membershipKey(session.workspaceId, m.userId)) ?? {};
+        return { userId:m.userId, role:m.role, displayName:profile.displayName ?? profile.email ?? m.userId, email:profile.email ?? null, title:profile.title ?? null, workspaceRole:membership.role ?? null };
+      })
+      .sort((a,b) => String(a.displayName).localeCompare(String(b.displayName))));
+  }
+
+  assertConversationUser(session, userId) {
+    if (!this.memberships.has(this.membershipKey(session.workspaceId, userId))) {
+      throw Object.assign(new Error('Conversation participant must belong to the workspace'), { code:'INVALID_CONVERSATION_MEMBER', statusCode:400 });
+    }
+  }
+
+  async addConversationMembers(session, conversationId, userIds, role='member') {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
+    if (conversation.kind === 'direct') throw Object.assign(new Error('Direct conversation membership is immutable'), { code:'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode:409 });
+    for (const userId of new Set(userIds)) {
+      this.assertConversationUser(session, userId);
+      const key=this.conversationMemberKey(conversationId,userId);
+      const existing=this.conversationMembers.get(key);
+      this.conversationMembers.set(key,{conversationId,workspaceId:session.workspaceId,userId,role:existing?.role ?? role,joinedAt:existing?.joinedAt ?? nowIso()});
+    }
+    return this.listConversationMembers(session, conversationId);
+  }
+
+  async setConversationMemberRole(session, conversationId, userId, role) {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
+    if (conversation.kind === 'direct') throw Object.assign(new Error('Direct conversation membership is immutable'), { code:'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode:409 });
+    const key=this.conversationMemberKey(conversationId,userId),member=this.conversationMembers.get(key);
+    if(!member)throw Object.assign(new Error('Conversation member not found'),{code:'CONVERSATION_MEMBER_NOT_FOUND',statusCode:404});
+    if(member.role==='owner'&&role!=='owner'){
+      const owners=[...this.conversationMembers.values()].filter((m)=>m.conversationId===conversationId&&m.workspaceId===session.workspaceId&&m.role==='owner');
+      if(owners.length<=1)throw Object.assign(new Error('Conversation must keep at least one owner'),{code:'LAST_CONVERSATION_OWNER',statusCode:409});
+    }
+    member.role=role;
+    return this.listConversationMembers(session, conversationId);
+  }
+
+  async removeConversationMember(session, conversationId, userId) {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
+    if (conversation.kind === 'direct') throw Object.assign(new Error('Direct conversation membership is immutable'), { code:'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode:409 });
+    const key=this.conversationMemberKey(conversationId,userId),member=this.conversationMembers.get(key);
+    if(!member)throw Object.assign(new Error('Conversation member not found'),{code:'CONVERSATION_MEMBER_NOT_FOUND',statusCode:404});
+    if(member.role==='owner'){
+      const owners=[...this.conversationMembers.values()].filter((m)=>m.conversationId===conversationId&&m.workspaceId===session.workspaceId&&m.role==='owner');
+      if(owners.length<=1)throw Object.assign(new Error('Conversation must keep at least one owner'),{code:'LAST_CONVERSATION_OWNER',statusCode:409});
+    }
+    this.conversationMembers.delete(key);
+    return this.listConversationMembers(session, conversationId);
   }
 
   async conversationAudience(session, conversationId) {
@@ -122,11 +188,12 @@ export class MemoryStore {
     return [...new Set([...this.conversationMembers.values()].filter((m)=>m.workspaceId===session.workspaceId && m.conversationId===conversationId).map((m)=>m.userId))];
   }
 
-  async createConversation(session, { kind, title, slug = null, visibility = 'private', participantIds = [], purpose = null }) {
-    const row = { id: randomUUID(), organizationId: session.organizationId, workspaceId: session.workspaceId, kind, title, slug, visibility, purpose, announcementOnly: false, createdBy: session.userId, createdAt: nowIso() };
+  async createConversation(session, { kind, title, slug = null, visibility = 'private', participantIds = [], purpose = null, announcementOnly = false }) {
+    for (const userId of new Set([session.userId,...participantIds])) this.assertConversationUser(session,userId);
+    const row = { id: randomUUID(), organizationId: session.organizationId, workspaceId: session.workspaceId, kind, title, slug, visibility, purpose, announcementOnly:Boolean(announcementOnly), createdBy: session.userId, createdAt: nowIso(), archivedAt:null };
     this.conversations.set(row.id, row); this.messages.set(row.id, []);
     const memberIds = visibility === 'workspace' && kind === 'channel' ? [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId).map((m) => m.userId) : [session.userId, ...participantIds];
-    for (const userId of new Set(memberIds)) this.conversationMembers.set(this.conversationMemberKey(row.id, userId), { conversationId: row.id, workspaceId: session.workspaceId, userId, role: userId === session.userId ? 'owner' : 'member' });
+    for (const userId of new Set(memberIds)) this.conversationMembers.set(this.conversationMemberKey(row.id, userId), { conversationId: row.id, workspaceId: session.workspaceId, userId, role: userId === session.userId ? 'owner' : 'member', joinedAt:nowIso() });
     return clone(row);
   }
 
@@ -144,6 +211,8 @@ export class MemoryStore {
   async messageConversation(session,messageId) { for(const [conversationId,list] of this.messages.entries()){ const message=list.find((m)=>m.id===messageId); if(message && message.workspaceId===session.workspaceId) return conversationId; } return null; }
 
   async toggleReaction(session, messageId, reaction) {
+    const conversationId=await this.messageConversation(session,messageId);
+    if(!conversationId||!(await this.canAccessConversation(session,conversationId)))throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
     const list = this.reactions.get(messageId) ?? [];
     const index = list.findIndex((item) => item.userId === session.userId && item.reaction === reaction);
     if (index >= 0) list.splice(index, 1); else list.push({ userId: session.userId, reaction, createdAt: nowIso() });
