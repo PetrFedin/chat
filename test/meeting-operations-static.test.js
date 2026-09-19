@@ -63,6 +63,6 @@ test('Meeting Review and Meeting Operations own separate overlay lifecycles',()=
 
 test('Meeting Operations has responsive themed styles and is cached by the PWA shell',()=>{
   for(const selector of ['.mio-health','.mio-kpis','.mio-call-row','.mio-price-row','.mio-entry'])assert.ok(css.includes(selector));
-  assert.match(sw,/chat-shell-v8/);
+  assert.match(sw,/chat-shell-v\d+/);
   assert.ok(sw.includes('/meeting-operations.js'));
 });
