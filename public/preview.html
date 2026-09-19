@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0c0e">
+<title>Chat — product preview</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",Inter,"Segoe UI",sans-serif;--bg:#08090b;--panel:#121419;--panel2:#191c22;--line:#2a2e37;--text:#f5f6f7;--muted:#969ca7;--soft:#222630;--accent:#f0ede8;--accentText:#111;--good:#79d79a;--warn:#efc56f;--bad:#ff827a;--shadow:0 20px 60px rgba(0,0,0,.28)}
+html[data-theme="light"]{--bg:#f3f4f6;--panel:#fff;--panel2:#f7f8fa;--line:#e0e3e8;--text:#111318;--muted:#6e7580;--soft:#eceff3;--accent:#14171c;--accentText:#fff;--shadow:0 18px 50px rgba(18,24,32,.09)}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{min-height:100dvh}
+button{font:inherit;color:inherit;border:0;cursor:pointer} .app{display:grid;grid-template-columns:276px 1fr;min-height:100dvh}
+.sidebar{position:sticky;top:0;height:100dvh;padding:18px 14px;display:flex;flex-direction:column;border-right:1px solid var(--line);background:color-mix(in srgb,var(--bg) 92%,transparent)}
+.brand{display:flex;align-items:center;gap:10px;padding:2px 8px 18px;font-size:20px;font-weight:800}.logo{width:36px;height:36px;border-radius:12px;background:var(--accent);color:var(--accentText);display:grid;place-items:center}
+.workspace{padding:12px;border:1px solid var(--line);background:var(--panel);border-radius:18px}.workspace small,.profile small{display:block;color:var(--muted);margin-top:3px}
+.nav{display:grid;gap:4px;margin:14px 0}.nav button{display:flex;align-items:center;gap:12px;text-align:left;padding:11px 12px;border-radius:14px;background:transparent}.nav button.active{background:var(--panel2)}.nav .badge{margin-left:auto;padding:2px 7px;border-radius:999px;background:var(--accent);color:var(--accentText);font-size:11px;font-weight:800}
+.group-title{display:flex;justify-content:space-between;padding:14px 10px 7px;color:var(--muted);font-size:10px;letter-spacing:.14em;text-transform:uppercase}.channel{padding:9px 11px;border-radius:12px;color:var(--muted)}.channel strong{color:var(--text)}
+.profile{margin-top:auto;padding:11px;border-radius:16px;background:var(--panel);border:1px solid var(--line);display:flex;gap:10px;align-items:center}.avatar{width:38px;height:38px;border-radius:13px;background:var(--accent);color:var(--accentText);display:grid;place-items:center;font-weight:800}
+.main{min-width:0}.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:15px 24px;border-bottom:1px solid var(--line);backdrop-filter:blur(18px);background:color-mix(in srgb,var(--bg) 85%,transparent)}.title p{margin:0;color:var(--muted);font-size:10px;letter-spacing:.16em}.title h1{margin:4px 0 0;font-size:26px}.actions{display:flex;gap:8px}.circle{width:42px;height:42px;border-radius:14px;background:var(--panel);border:1px solid var(--line)}
+.screen{max-width:1280px;margin:0 auto;padding:24px 24px 100px}.grid{display:grid;grid-template-columns:1.45fr .9fr;gap:14px}.stack{display:grid;gap:14px}.card{background:var(--panel);border:1px solid var(--line);border-radius:24px;padding:18px;box-shadow:var(--shadow)}.card h2,.card h3{margin:0}.muted{color:var(--muted)}.hero{padding:22px}.hero h2{font-size:30px;letter-spacing:-.035em;margin:7px 0 8px}.quick{display:flex;gap:8px;margin-top:18px}.quick button{padding:10px 13px;border-radius:13px;background:var(--soft)}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.metric{background:var(--panel);border:1px solid var(--line);border-radius:21px;padding:16px}.metric strong{display:block;font-size:28px}.metric span{color:var(--muted);font-size:12px}
+.row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)}.row:last-child{border-bottom:0}.dot{width:10px;height:10px;border-radius:50%;background:var(--good)}.row small{display:block;color:var(--muted);margin-top:3px}.chip{padding:5px 8px;border-radius:999px;background:var(--soft);font-size:11px;white-space:nowrap}.chip.good{color:var(--good)}.chip.warn{color:var(--warn)}.chip.bad{color:var(--bad)}
+.chat{display:grid;grid-template-columns:320px 1fr;min-height:620px;border:1px solid var(--line);border-radius:24px;overflow:hidden;background:var(--panel)}.threads{border-right:1px solid var(--line);padding:13px}.thread{width:100%;text-align:left;padding:12px;border-radius:15px;background:transparent}.thread.active{background:var(--panel2)}.thread small{display:block;color:var(--muted);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.messages{display:flex;flex-direction:column}.messages header{padding:16px 18px;border-bottom:1px solid var(--line)}.stream{flex:1;padding:18px;display:grid;align-content:start;gap:16px}.msg{display:grid;grid-template-columns:auto 1fr;gap:10px}.msg p{margin:3px 0 0;line-height:1.45}.composer{margin:10px 14px 14px;padding:10px 12px;border:1px solid var(--line);border-radius:17px;color:var(--muted);background:var(--panel2)}
+.board{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.col{background:var(--panel2);border:1px solid var(--line);border-radius:20px;padding:13px}.task{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:13px;margin-top:10px}.task strong{display:block}.task small{color:var(--muted)}
+.calendar{display:grid;grid-template-columns:90px 1fr;gap:0}.time{padding:14px 10px;color:var(--muted);border-bottom:1px solid var(--line)}.event{margin:8px 0 8px 12px;padding:12px 14px;border-radius:15px;background:var(--panel2);border:1px solid var(--line)}.event strong{display:block}.event small{color:var(--muted)}
+.meeting-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.transcript{max-height:420px;overflow:auto}.quote{padding:12px;border-radius:14px;background:var(--panel2);margin-top:10px}.quote small{color:var(--muted)}.ops-table{width:100%;border-collapse:collapse}.ops-table th,.ops-table td{text-align:left;padding:11px;border-bottom:1px solid var(--line);font-size:13px}.ops-table th{color:var(--muted);font-weight:600}
+.preview-note{margin-bottom:14px;padding:10px 12px;border:1px solid var(--line);border-radius:14px;background:var(--panel2);color:var(--muted);font-size:12px}
+.mobile-nav{display:none}
+@media(max-width:820px){.app{display:block}.sidebar{display:none}.topbar{padding:12px 14px}.screen{padding:14px 14px 92px}.grid,.meeting-grid{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(3,1fr)}.chat{grid-template-columns:1fr;min-height:660px}.threads{display:none}.board{grid-template-columns:1fr}.mobile-nav{position:fixed;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));z-index:20;display:grid;grid-template-columns:repeat(5,1fr);gap:4px;padding:7px;background:color-mix(in srgb,var(--panel) 92%,transparent);border:1px solid var(--line);border-radius:20px;backdrop-filter:blur(20px)}.mobile-nav button{padding:9px 4px;border-radius:13px;background:transparent;font-size:11px}.mobile-nav button.active{background:var(--panel2)}}
+@media(max-width:520px){.metrics{grid-template-columns:1fr 1fr}.metric:last-child{grid-column:1/-1}.title h1{font-size:22px}.actions .circle:nth-child(1){display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand"><span class="logo">C</span>Chat</div>
+  <div class="workspace"><strong>Mercury Workspace</strong><small>Рабочее пространство компании</small></div>
+  <nav class="nav" id="desktopNav">
+    <button class="active" data-view="today">⌂ <span>Сегодня</span><span class="badge">6</span></button>
+    <button data-view="chats">● <span>Сообщения</span><span class="badge">3</span></button>
+    <button data-view="tasks">✓ <span>Задачи</span><span class="badge">7</span></button>
+    <button data-view="calendar">□ <span>Календарь</span></button>
+    <button data-view="meetings">◉ <span>Встречи</span></button>
+  </nav>
+  <div class="group-title"><span>Каналы</span><span>＋</span></div>
+  <div class="channel"><strong># закупки</strong></div>
+  <div class="channel"># аналитика</div>
+  <div class="channel"># руководство</div>
+  <div class="group-title"><span>Личные</span><span>＋</span></div>
+  <div class="channel">● Анна Смирнова</div>
+  <div class="channel">● Максим Орлов</div>
+  <div class="profile"><span class="avatar">ПФ</span><div><strong>Пётр Фёдин</strong><small>Владелец · online</small></div></div>
+</aside>
+
+<main class="main">
+<header class="topbar">
+  <div class="title"><p>РАБОЧЕЕ ПРОСТРАНСТВО</p><h1 id="screenTitle">Сегодня</h1></div>
+  <div class="actions"><button class="circle">⌕</button><button class="circle" id="themeToggle">☼</button><button class="circle">ПФ</button></div>
+</header>
+<section class="screen">
+<div class="preview-note">Интерактивный preview текущего продукта: навигация и основные рабочие сценарии доступны без входа и без зависимости от Render.</div>
+<div id="view"></div>
+</section>
+</main>
+</div>
+
+<nav class="mobile-nav" id="mobileNav">
+<button class="active" data-view="today">⌂<br>Сегодня</button>
+<button data-view="chats">●<br>Чаты</button>
+<button data-view="tasks">✓<br>Задачи</button>
+<button data-view="calendar">□<br>Календарь</button>
+<button data-view="meetings">◉<br>Встречи</button>
+</nav>
+
+<script>
+const V={
+today:()=>`
+<div class="grid">
+  <div class="stack">
+    <section class="card hero"><div class="muted">ПЯТНИЦА · 18 СЕНТЯБРЯ</div><h2>Добрый вечер, Пётр</h2><div class="muted">Фокус на том, что требует решения сегодня.</div><div class="quick"><button>＋ Сообщение</button><button>＋ Задача</button><button>＋ Встреча</button></div></section>
+    <div class="metrics"><div class="metric"><strong>6</strong><span>требуют внимания</span></div><div class="metric"><strong>7</strong><span>активных задач</span></div><div class="metric"><strong>2</strong><span>встречи сегодня</span></div></div>
+    <section class="card"><h3>Что требует внимания</h3>
+      <div class="row"><span class="dot"></span><div><strong>Подтвердить лимиты закупки FW27</strong><small># закупки · Анна Смирнова</small></div><span class="chip warn">сегодня</span></div>
+      <div class="row"><span class="dot"></span><div><strong>Принять результат по модели OTB</strong><small>Задача · Максим Орлов</small></div><span class="chip good">на проверке</span></div>
+      <div class="row"><span class="dot"></span><div><strong>Решения после встречи с коммерцией</strong><small>Meeting Intelligence</small></div><span class="chip">3 решения</span></div>
+    </section>
+  </div>
+  <div class="stack">
+    <section class="card"><h3>Календарь</h3><div class="row"><div>10:30</div><div><strong>Закупочный комитет</strong><small>45 мин · 6 участников</small></div><span class="chip">встреча</span></div><div class="row"><div>15:00</div><div><strong>Фокус: бюджет FW27</strong><small>90 мин</small></div><span class="chip">focus</span></div></section>
+    <section class="card"><h3>Последние сообщения</h3><div class="row"><span class="avatar">АС</span><div><strong>Анна Смирнова</strong><small>Обновила расчёт по брендам, посмотри…</small></div><span class="chip">2 мин</span></div><div class="row"><span class="avatar">МО</span><div><strong>Максим Орлов</strong><small>Файл с новой версией OTB приложен.</small></div><span class="chip">18 мин</span></div></section>
+  </div>
+</div>`,
+chats:()=>`
+<div class="chat">
+  <aside class="threads"><h3>Сообщения</h3><button class="thread active"><strong># закупки</strong><small>Анна: финальные лимиты готовы</small></button><button class="thread"><strong>Анна Смирнова</strong><small>Посмотри последнюю версию</small></button><button class="thread"><strong># руководство</strong><small>Встреча перенесена на 15:00</small></button></aside>
+  <section class="messages"><header><strong># закупки</strong><div class="muted">18 участников · 7 online</div></header><div class="stream">
+    <div class="msg"><span class="avatar">АС</span><div><strong>Анна Смирнова</strong><p>Обновила лимиты по FW27. В двух брендах остаётся превышение OTB, отметила их отдельно.</p><span class="chip">FW27_OTB_v4.xlsx</span></div></div>
+    <div class="msg"><span class="avatar">ПФ</span><div><strong>Пётр Фёдин</strong><p>Принято. По превышениям сделай отдельное обоснование и вынеси на комитет.</p></div></div>
+    <div class="msg"><span class="avatar">МО</span><div><strong>Максим Орлов</strong><p>Добавил сравнение с прошлым сезоном и GMROI. Можно использовать в защите.</p><span class="chip good">✓ задача создана</span></div></div>
+  </div><div class="composer">Сообщение в # закупки…</div></section>
+</div>`,
+tasks:()=>`
+<section class="card"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><div><h2>Задачи</h2><div class="muted">Ответственность, сроки и результат</div></div><button class="circle">＋</button></div></section>
+<div class="board" style="margin-top:14px">
+  <div class="col"><strong>В работе · 3</strong><div class="task"><strong>Пересчитать OTB FW27</strong><small>Анна Смирнова · сегодня</small><div class="chip warn" style="margin-top:8px">высокий</div></div><div class="task"><strong>Проверить маржу по ЦУМ</strong><small>Максим Орлов · 21 сен</small></div></div>
+  <div class="col"><strong>На проверке · 2</strong><div class="task"><strong>Модель GMROI по категориям</strong><small>Результат приложен · 3 файла</small><div class="chip good" style="margin-top:8px">принять результат</div></div></div>
+  <div class="col"><strong>Закрыто · 12</strong><div class="task"><strong>Сверка остатков</strong><small>Результат принят · 17 сен</small></div><div class="task"><strong>План встреч с брендами</strong><small>Закрыто · 16 сен</small></div></div>
+</div>`,
+calendar:()=>`
+<section class="card"><div style="display:flex;justify-content:space-between"><div><h2>Календарь</h2><div class="muted">Неделя 14–20 сентября</div></div><button class="circle">＋</button></div>
+<div class="calendar" style="margin-top:18px"><div class="time">09:00</div><div></div><div class="time">10:30</div><div class="event"><strong>Закупочный комитет</strong><small>10:30–11:15 · Переговорная 3 / video</small></div><div class="time">13:00</div><div class="event"><strong>Обед / свободно</strong><small>13:00–14:00</small></div><div class="time">15:00</div><div class="event"><strong>Коммерция × Аналитика</strong><small>15:00–16:00 · запись + Meeting Intelligence</small></div><div class="time">17:00</div><div class="event"><strong>Focus time</strong><small>17:00–18:30 · бюджет FW27</small></div></div></section>`,
+meetings:()=>`
+<div class="meeting-grid">
+<section class="card transcript"><h2>Meeting Intelligence</h2><div class="muted">Коммерция × Аналитика · сегодня, 15:00</div>
+<div class="quote"><strong>00:12:48 · Анна</strong><p>По двум брендам закупка выше лимита, но подтверждён рост sell-through и валовой маржи.</p></div>
+<div class="quote"><strong>00:18:21 · Пётр</strong><p>Оставляем их только при отдельном контроле первых четырёх недель продаж.</p></div>
+<div class="quote"><strong>00:26:05 · Максим</strong><p>Я добавлю контрольный отчёт и автоматический сигнал при отклонении.</p></div>
+</section>
+<section class="card"><h2>Решения и действия</h2>
+<div class="row"><span class="dot"></span><div><strong>Условно подтвердить 2 бренда</strong><small>Основание: 00:18:21</small></div><span class="chip good">решение</span></div>
+<div class="row"><span class="dot"></span><div><strong>Добавить 4-недельный контроль</strong><small>Ответственный: Максим · срок 21 сен</small></div><span class="chip warn">задача</span></div>
+<div class="row"><span class="dot"></span><div><strong>Проверить pricing snapshot</strong><small>Meeting Operations · audit trail</small></div><span class="chip">control</span></div>
+<h3 style="margin-top:22px">Meeting Operations</h3>
+<table class="ops-table"><tr><th>Job</th><th>Статус</th><th>Cost</th></tr><tr><td>Transcribe</td><td><span class="chip good">done</span></td><td>$0.84</td></tr><tr><td>Summary</td><td><span class="chip good">done</span></td><td>$0.19</td></tr><tr><td>Retry queue</td><td><span class="chip">0</span></td><td>—</td></tr></table>
+</section>
+</div>`
+};
+const titles={today:'Сегодня',chats:'Сообщения',tasks:'Задачи',calendar:'Календарь',meetings:'Встречи'};
+function setView(v){document.getElementById('view').innerHTML=V[v]();document.getElementById('screenTitle').textContent=titles[v];document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===v));history.replaceState(null,'','#'+v)}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-view]');if(b)setView(b.dataset.view)});
+document.getElementById('themeToggle').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='light'?'dark':'light'};
+setView((location.hash||'#today').slice(1) in V?(location.hash||'#today').slice(1):'today');
+</script>
+</body>
+</html>
