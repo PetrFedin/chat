@@ -1,1 +1,17 @@
-import test from 'node:test';\nimport assert from 'node:assert/strict';\nimport { readFile } from 'node:fs/promises';\n\ntest('browser collection bindings use querySelectorAll helper', async () => {\n  const source = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');\n  assert.doesNotThrow(() => new Function(source));\n  const singleDollarCollectionCalls = [...source.matchAll(/(?<!\$)\$\([^)]*\)\.forEach/g)].map((match) => match[0]);\n  assert.deepEqual(singleDollarCollectionCalls, []);\n  assert.ok(source.includes("$$('[data-nav]').forEach"));\n  assert.ok(source.includes("$$('[data-conversation],[data-open]').forEach"));\n  assert.ok(source.includes("$$('[data-action]').forEach"));\n  assert.ok(source.includes("$$('[data-react]').forEach"));\n  assert.ok(source.includes("$$('[data-reply]').forEach"));\n  assert.ok(source.includes("$$('[data-task-message]').forEach"));\n  assert.ok(source.includes("$$('[data-task-open]').forEach"));\n});\n
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+test('browser collection bindings use querySelectorAll helper', async () => {
+  const source = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.doesNotThrow(() => new Function(source));
+  const singleDollarCollectionCalls = [...source.matchAll(/(?<!\$)\$\([^)]*\)\.forEach/g)].map((match) => match[0]);
+  assert.deepEqual(singleDollarCollectionCalls, []);
+  assert.ok(source.includes("$$('[data-nav]').forEach"));
+  assert.ok(source.includes("$$('[data-conversation],[data-open]').forEach"));
+  assert.ok(source.includes("$$('[data-action]').forEach"));
+  assert.ok(source.includes("$$('[data-react]').forEach"));
+  assert.ok(source.includes("$$('[data-reply]').forEach"));
+  assert.ok(source.includes("$$('[data-task-message]').forEach"));
+  assert.ok(source.includes("$$('[data-task-open]').forEach"));
+});
