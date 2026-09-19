@@ -20,16 +20,36 @@ function mentionHandles(profile) {
   return values;
 }
 
+const escapeForRegExp = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// A plain includes() made «@anna» fire on «@annabelle» and made the local part
+// of any email address in the text a mention. A handle has to end where a word
+// ends, and the «@» has to start one.
+function mentionMatches(text, handle) {
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_@.])@${escapeForRegExp(handle)}(?![\\p{L}\\p{N}_])`, 'gu');
+  return [...text.matchAll(pattern)].map((match) => match.index);
+}
+
 function resolveMentionsFromPeople(body, explicitIds, people) {
   const ids = new Set((explicitIds ?? []).map(String));
   const text = String(body ?? '').toLowerCase();
   if (!text) return [...ids];
+
+  // «@Анна Белова» also ends a word after «Анна», so a colleague called just
+  // «Анна» would be pulled into someone else's mention. At a given position
+  // the longest handle is the one the author typed.
+  const bestAt = new Map();
   for (const person of people) {
     const userId = String(person.userId ?? person.user_id ?? '');
     if (!userId) continue;
-    const handles = mentionHandles(person);
-    if (handles.some((handle) => text.includes(`@${handle}`))) ids.add(userId);
+    for (const handle of mentionHandles(person)) {
+      for (const at of mentionMatches(text, handle)) {
+        const current = bestAt.get(at);
+        if (!current || handle.length > current.length) bestAt.set(at, { length:handle.length, userId });
+      }
+    }
   }
+  for (const { userId } of bestAt.values()) ids.add(userId);
   return [...ids];
 }
 
@@ -90,6 +110,23 @@ export class MemoryStore extends BaseMemoryStore {
     if (message.metadata?.fileId) await this.linkFile(session, message.metadata.fileId, 'message', message.id);
     await this.projectMessageNotifications(session, conversationId, message);
     return message;
+  }
+
+  // Editing left the original mention set in place: adding «@Марина» to a
+  // message never reached her, and removing a name kept counting against the
+  // person who was no longer named.
+  async editMessage(session, messageId, body) {
+    const message = await super.editMessage(session, messageId, body);
+    const record = await this.messageRecord(session, messageId);
+    if (!record) return message;
+    const mentionedUserIds = await this.resolveMentionedUserIds(session, body, []);
+    record.mentionedUserIds = mentionedUserIds;
+    const updated = { ...message, mentionedUserIds };
+    // Already-delivered mentions carry a dedupe key, so re-projecting reaches
+    // only the people the edit newly named.
+    await this.projectMessageNotifications(session, record.conversationId, updated)
+      .catch((error) => console.error('notification projection failed', error));
+    return updated;
   }
 
   async saveVoiceMessage(session, conversationId, value) {
@@ -348,6 +385,26 @@ export class PostgresStore extends BasePostgresStore {
     if (message.metadata?.fileId) await this.linkFile(session, message.metadata.fileId, 'message', message.id);
     await this.projectMessageNotifications(session, conversationId, { ...message, mentionedUserIds }).catch((error) => console.error('notification projection failed', error));
     return { ...message, mentionedUserIds };
+  }
+
+  // See the memory store: an edit used to leave message_mentions untouched, so
+  // the mention counters described the message as it was first sent.
+  async editMessage(session, messageId, body) {
+    const message = await super.editMessage(session, messageId, body);
+    const mentionedUserIds = await this.resolveMentionedUserIds(session, body, []);
+    await this.tx(async (client) => {
+      await client.query('DELETE FROM message_mentions WHERE workspace_id=$1 AND message_id=$2', [session.workspaceId, messageId]);
+      for (const userId of mentionedUserIds) {
+        await client.query(
+          'INSERT INTO message_mentions(organization_id,workspace_id,message_id,mentioned_user_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',
+          [session.organizationId, session.workspaceId, messageId, userId],
+        );
+      }
+    });
+    const updated = { ...message, mentionedUserIds };
+    await this.projectMessageNotifications(session, message.conversationId, updated)
+      .catch((error) => console.error('notification projection failed', error));
+    return updated;
   }
 
   async saveVoiceMessage(session, conversationId, value) {
