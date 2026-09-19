@@ -81,3 +81,32 @@ test('the day view lands where a person expects', async () => {
   assert.match(handler[0], /now>=start&&now<=end\)\?now:start/, 'день не выбирается по правилу «сегодня, иначе начало»');
   assert.match(handler[0], /await loadCalendarRange\(\)/, 'диапазон не перечитывается при смене вида');
 });
+
+// The API answers in English because it is a contract; a refusal shown to a
+// person should be a sentence in the interface language that says what to do
+// next. «Conversation must keep at least one owner» told somebody trying to
+// leave a room neither what went wrong nor how to get out.
+test('actionable refusals are shown in the interface language', async () => {
+  const [app, prefs] = await Promise.all([read('public/app.js'), read('public/preferences.js')]);
+
+  const start = app.indexOf('const ERROR_MESSAGE={');
+  assert.ok(start > 0, 'карты сообщений нет');
+  const block = app.slice(start, app.indexOf('};', start));
+  const messages = [...block.matchAll(/:'([^']+)',/g)].map((m) => m[1]);
+  assert.ok(messages.length >= 20, `сообщений мало: ${messages.length}`);
+
+  for (const message of messages) {
+    assert.ok(prefs.includes(`    '${message}':`), `«${message.slice(0, 40)}…» не переведено`);
+  }
+
+  // The codes a person hits most often when a rule stops them.
+  for (const code of ['LAST_CONVERSATION_OWNER', 'GUEST_NOT_IN_OPEN_ROOM', 'SEAT_LIMIT_REACHED',
+                      'TASK_EVIDENCE_REQUIRED', 'STALE_TASK_ACTION', 'RESET_EXPIRED']) {
+    assert.ok(block.includes(`${code}:`), `нет сообщения для ${code}`);
+  }
+
+  // The server's own wording is kept, not thrown away: a code nobody
+  // translated still says something.
+  assert.match(app, /e\.serverMessage=p\?\.error\?\.message/);
+  assert.match(app, /ERROR_MESSAGE\[code\]\|\|p\?\.error\?\.message/);
+});

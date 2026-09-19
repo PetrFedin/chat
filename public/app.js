@@ -15,7 +15,48 @@ const nav=[['today',navIcon.today,'Сегодня'],['chats',navIcon.chats,'Со
 const me=()=>S.boot?.session,can=permission=>(S.boot?.permissions||[]).includes(permission),person=id=>S.people.find(p=>p.userId===id),name=id=>person(id)?.displayName||person(id)?.email||(id===me()?.userId?me()?.displayName:'Сотрудник');
 const initials=(v='?')=>v.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]?.toUpperCase()).join('')||'?';
 const time=v=>v?new Intl.DateTimeFormat('ru',{hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'',dateTime=v=>v?new Intl.DateTimeFormat('ru',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'Без срока';
-async function api(path,o={}){const r=await fetch(path,{credentials:'same-origin',...o,headers:{...(typeof o.body==='string'?{'content-type':'application/json'}:{}),...(o.headers||{})}});if(r.status===204)return null;const p=(r.headers.get('content-type')||'').includes('json')?await r.json():await r.text();if(!r.ok){const e=new Error(p?.error?.message||`HTTP ${r.status}`);e.status=r.status;e.code=p?.error?.code;throw e}return p}
+/**
+ * The API answers in English — it is a contract, read by integrations as well
+ * as by this screen. A refusal shown to a person should be a sentence in the
+ * interface language that says what to do next, not the contract's wording:
+ * «Conversation must keep at least one owner» told somebody trying to leave a
+ * room neither what went wrong nor how to get out.
+ *
+ * Only codes a person can actually act on are here. Anything else keeps the
+ * server's own words rather than being paraphrased into vagueness.
+ */
+const ERROR_MESSAGE={
+  LAST_CONVERSATION_OWNER:'Вы единственный владелец беседы. Сначала назначьте владельцем кого-то ещё в списке участников.',
+  NOT_A_MEMBER:'Вы видите этот канал по его открытости — выходить не из чего, уберите его в архив.',
+  DIRECT_CANNOT_LEAVE:'Личный диалог нельзя покинуть — его можно убрать в архив.',
+  DIRECT_NOT_EDITABLE:'У личного диалога нет настроек.',
+  GUEST_NOT_IN_OPEN_ROOM:'Внешнего участника нельзя добавить в канал для всей компании. Создайте для него отдельную комнату.',
+  GUEST_CANNOT_HOLD_TASK:'Задачу нельзя поручить внешнему участнику: он её не увидит.',
+  GUEST_CANNOT_OWN_ROOM:'Внешний участник не может управлять беседой.',
+  ANNOUNCEMENT_ONLY:'В этом канале публикуют только владелец, модераторы и управляющие каналами.',
+  SEAT_LIMIT_REACHED:'В подразделении не осталось свободных мест. Увеличьте штат или выберите другое.',
+  SEAT_LIMIT_BELOW_HEADCOUNT:'В подразделении уже больше людей, чем вы оставляете мест.',
+  HEAD_NOT_IN_UNIT:'Руководителем можно назначить только того, кто состоит в подразделении.',
+  ORG_DEPTH_EXCEEDED:'Глубже шести уровней вложенности структура не строится.',
+  ORG_CYCLE:'Подразделение нельзя перенести внутрь самого себя.',
+  ORG_UNIT_FORBIDDEN:'Это подразделение вне вашей ветки.',
+  NOT_WORKSPACE_STAFF:'В штатную структуру входят только сотрудники компании.',
+  STALE_TASK_ACTION:'Задачу изменили, пока экран был открыт. Откройте её заново.',
+  TASK_REASON_REQUIRED:'Нужна причина — её сохранят в истории задачи.',
+  TASK_EVIDENCE_REQUIRED:'Сначала приложите доказательство выполнения.',
+  TASK_ACTION_FORBIDDEN:'Это действие доступно другому участнику задачи.',
+  TASK_TERMINAL:'Задача закрыта — её больше нельзя менять.',
+  TASK_NOTHING_TO_CHANGE:'Выберите другого человека.',
+  INVALID_EVIDENCE_VALUE:'Значение не подходит к выбранному типу доказательства.',
+  RESET_EXPIRED:'Срок действия ссылки истёк. Попросите администратора выписать новую.',
+  RESET_NOT_FOUND:'Эта ссылка уже использована или отозвана.',
+  WEAK_PASSWORD:'Пароль должен быть не короче 12 символов и содержать цифру.',
+  INVALID_CURSOR:'Не удалось продолжить список. Откройте экран заново.',
+  LABEL_NOT_FOUND:'Метка недоступна.',
+  TARGET_NOT_FOUND:'Объект недоступен.',
+};
+
+async function api(path,o={}){const r=await fetch(path,{credentials:'same-origin',...o,headers:{...(typeof o.body==='string'?{'content-type':'application/json'}:{}),...(o.headers||{})}});if(r.status===204)return null;const p=(r.headers.get('content-type')||'').includes('json')?await r.json():await r.text();if(!r.ok){const code=p?.error?.code;const e=new Error(ERROR_MESSAGE[code]||p?.error?.message||`HTTP ${r.status}`);e.status=r.status;e.code=code;e.serverMessage=p?.error?.message;throw e}return p}
 function toast(t){const n=document.createElement('div');n.className='toast';n.textContent=t;$('#toast-root').append(n);setTimeout(()=>n.remove(),2400)}
 function auth(mode='login'){
   $('#app-view').hidden=true;$('#auth-view').hidden=false;
