@@ -37,6 +37,10 @@ test('Postgres task lifecycle preserves authority, evidence and acceptance histo
   const reviewer=await invite(store,owner,`pg-task-reviewer-${suffix}@example.com`,'Reviewer');
   const outsider=await invite(store,owner,`pg-task-outsider-${suffix}@example.com`,'Outsider');
 
+  const context=await store.createConversation(owner,{kind:'group',title:'Private source',slug:null,purpose:null,visibility:'private',participantIds:[worker.userId],announcementOnly:false});
+  const source=await store.createMessage(owner,context.id,{kind:'text',body:'Confidential source instruction',replyToId:null,threadRootId:null,metadata:{},mentionedUserIds:[],clientRequestId:randomUUID()});
+  await assert.rejects(()=>store.createTask(outsider,{title:'Leaked task',sourceMessageId:source.id}),{code:'TASK_SOURCE_NOT_FOUND'});
+
   const task=await store.createTask(owner,{
     title:'Prepare board pack',
     outcome:'Board pack accepted and ready for distribution',
@@ -44,9 +48,11 @@ test('Postgres task lifecycle preserves authority, evidence and acceptance histo
     acceptorId:reviewer.userId,
     priority:'urgent',
     promisedAt:'2026-09-26T09:00:00.000Z',
+    sourceMessageId:source.id,
   });
   assert.equal(task.status,'proposed');
   assert.equal(task.version,1);
+  assert.equal(task.sourceMessageId,source.id);
   assert.equal(await store.getTask(outsider,task.id),null);
 
   const accepted=await store.transitionTask(worker,task.id,{to:'accepted',expectedVersion:1});
