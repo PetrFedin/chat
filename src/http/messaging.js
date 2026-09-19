@@ -65,7 +65,7 @@ export async function handleMessaging(req,res,ctx,path,method){
   m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/pins$`,'i'));
   if(m&&method==='GET'){const s=await requireSession(req);await policyOr404(store,s,m[1]);json(res,200,{items:await store.listPinnedMessages(s,m[1])});return true}
 
-  let m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/members$`,'i'));
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/members$`,'i'));
   if(m&&method==='GET'){
     const s=await requireSession(req),policy=await policyOr404(store,s,m[1]);
     const items=await store.listConversationMembers(s,m[1]);
