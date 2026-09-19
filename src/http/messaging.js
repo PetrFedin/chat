@@ -62,6 +62,13 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     const preferences=await store.setConversationPreferences(s,m[1],value);json(res,200,{preferences});return true;
   }
 
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/claim$`,'i'));
+  if(m&&method==='POST'){
+    const s=await requireSession(req);
+    requirePermission(s.role,Permission.CHANNEL_MANAGE);
+    json(res,200,await store.claimOrphanedConversation(s,m[1]));
+    return true;
+  }
   m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/pins$`,'i'));
   if(m&&method==='GET'){const s=await requireSession(req);await policyOr404(store,s,m[1]);json(res,200,{items:await store.listPinnedMessages(s,m[1])});return true}
 

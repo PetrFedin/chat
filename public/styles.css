@@ -94,3 +94,13 @@
 .text-button:hover,.text-button:focus-visible{background:var(--surface-2);color:var(--text)}
 .text-button.danger{color:var(--danger)}
 .text-button[disabled]{opacity:.5;cursor:default}
+
+/* The mobile rule hides a calendar row's trailing chip to save width, but that
+   slot also carries «нужен ответ» — the one marker a person must not miss. */
+@media (max-width: 980px) {
+  .calendar-event > .chip.pulse { display: inline-grid; }
+}
+
+/* Icon-only controls in the composer and sidebar had no accessible name and
+   no focus ring of their own beyond the global one. */
+select:focus-visible { outline: 2px solid var(--warm); outline-offset: 2px; }

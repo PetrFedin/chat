@@ -119,6 +119,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
         run: node --test test/postgres-meeting-ops-cost-control.test.js
+      - name: Verify idempotency and room ownership Postgres runtime
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
+        run: node --test test/postgres-idempotency.test.js
       - name: Verify register fixes Postgres runtime
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test

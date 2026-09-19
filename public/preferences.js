@@ -255,10 +255,17 @@
     if (match) return `${match[1]} employees, roles and statuses`;
     match = value.match(/^(.+) печатает…$/);
     if (match) return `${match[1]} is typing…`;
+    // Rewriting substrings turned «Почта» into «ПоThuа» and «Встреча» into
+    // «Sunтреча»: the map holds two-letter day abbreviations, and «чт» and
+    // «вс» live inside ordinary Russian words. Only whole words are replaced,
+    // and a short abbreviation only where the string reads as a date.
+    const looksLikeDate = /\d/.test(value);
     let translated = value;
     for (const [ru, en] of Object.entries(monthWords)) {
+      if (ru.length <= 3 && !looksLikeDate) continue;
       const escaped = ru.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      translated = translated.replace(new RegExp(escaped, 'gi'), (found) => caseLike(found, en));
+      const boundary = new RegExp(`(^|[^\\p{L}\\p{N}])(${escaped})(?![\\p{L}\\p{N}])`, 'giu');
+      translated = translated.replace(boundary, (whole, before, found) => before + caseLike(found, en));
     }
     translated = translated.replace(/\sг\.$/, '');
     return translated;

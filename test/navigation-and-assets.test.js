@@ -105,3 +105,48 @@ test('overlays keep a stack so a person can step back the way they came', async 
   assert.match(source, /window\.addEventListener\('popstate'/);
   assert.match(source, /data-back/, 'a stacked overlay offers back, not only close');
 });
+
+test('closing a sheet cannot swallow the one that opens next', async () => {
+  const source = await read('public/app.js');
+  // closeModal unwinds history asynchronously; the deferred popstate used to
+  // pop the overlay opened in the meantime, which killed every card in the
+  // «Создать» sheet.
+  assert.match(source, /function replaceModal\(open\)\{if\(overlayStack\.length\)overlayStack\.pop\(\);open\(\)\}/);
+  assert.match(source, /if\(unwinding>0\)\{unwinding-=1;return\}/);
+  assert.doesNotMatch(source, /const x=b\.dataset\.q;closeModal\(\)/, 'the quick sheet must swap, not close and reopen');
+});
+
+test('a modal is a dialog: focused, trapped, and closed by Escape', async () => {
+  const source = await read('public/app.js');
+  assert.match(source, /role="dialog" aria-modal="true" aria-labelledby="modal-heading"/);
+  assert.match(source, /if\(event\.key==='Escape'\)\{event\.preventDefault\(\);closeModal\(\)/);
+  assert.match(source, /event\.key!=='Tab'/, 'Tab has to stay inside the sheet');
+});
+
+test('the translator replaces whole words, not pieces of them', async () => {
+  const source = await read('public/preferences.js');
+  // A global substring replace over two-letter day abbreviations turned
+  // «Почта» into «ПоThuа» and «Встреча» into «Sunтреча».
+  assert.match(source, /const looksLikeDate = \/\\d\/\.test\(value\)/);
+  assert.match(source, /if \(ru\.length <= 3 && !looksLikeDate\) continue;/);
+  assert.match(source, /\\\\p\{L\}\\\\p\{N\}/, 'word boundaries must be unicode-aware');
+  assert.doesNotMatch(source, /translated\.replace\(new RegExp\(escaped, 'gi'\)/);
+});
+
+test('controls that look pressable have handlers, and icons have names', async () => {
+  const [app, html] = await Promise.all([read('public/app.js'), read('public/index.html')]);
+  assert.match(app, /\$\('#workspace-switcher'\)\.onclick/);
+  assert.match(app, /\$\('#profile-card'\)\.onclick/);
+  assert.match(app, /data-quick-form/, 'the quick capture bar must do something with what is typed');
+  for (const action of ['attach', 'voice', 'send']) {
+    assert.match(app, new RegExp(`data-action="${action}"[^>]*aria-label=`), `${action} is icon-only and needs a name`);
+  }
+  assert.match(html, /id="top-avatar"[^>]*aria-label=/);
+});
+
+test('the answer-needed marker survives a phone screen', async () => {
+  const css = await read('public/styles.css');
+  // The mobile rule hides a calendar row's trailing chip, which is also where
+  // «нужен ответ» lives.
+  assert.match(css, /@media \(max-width: 980px\) \{\s*\.calendar-event > \.chip\.pulse \{ display: inline-grid; \}/);
+});

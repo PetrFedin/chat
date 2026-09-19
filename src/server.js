@@ -10,8 +10,9 @@ import { visiblePermissions } from './rbac.js';
 import { openapi } from './openapi.js';
 import { MemoryStore, PostgresStore } from './persistence/store.js';
 import { RealtimeHub } from './realtime.js';
-import { clientAddress, cookies, errorJson, json, allowedPresence, securityHeaders } from './http/helpers.js';
+import { clientAddress, cookies, errorJson, json, allowedPresence, securityHeaders, readBuffer, MAX_JSON } from './http/helpers.js';
 import { createAuthThrottle } from './rate-limit.js';
+import { createIdempotencyGuard, IDEMPOTENCY_HEADER } from './http/idempotency.js';
 import { handleAuth } from './http/auth.js';
 import { handleWorkspace } from './http/workspace.js';
 import { handleMessaging } from './http/messaging.js';
@@ -82,6 +83,7 @@ export async function createChatServer(options={}){
   const demo=await preparePreviewDemo({store,objectStore,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
   const hub=new RealtimeHub(),push=pushConfig(),wss=new WebSocketServer({noServer:true});
   const authThrottle=options.authThrottle??createAuthThrottle(process.env);
+  const idempotency=options.idempotency??createIdempotencyGuard(pool);
   const webhooks=options.webhooks??createWebhookRepository(pool);
   const org=options.org??createOrgRepository(pool);
   const people=options.people??createPeopleRepository(pool,org);
@@ -130,6 +132,31 @@ export async function createChatServer(options={}){
   const server=createServer(async(req,res)=>{try{
     for(const [name,value] of Object.entries(baseHeaders))res.setHeader(name,value);
     const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`),path=url.pathname,method=req.method??'GET';
+        // Idempotency-Key: a retried command must not do the work twice. Applied
+    // before routing so every mutating handler inherits it, and only when the
+    // caller asks for it by sending the header.
+    const idemKey=String(req.headers[IDEMPOTENCY_HEADER]??'').trim();
+    let idemFinish=null;
+    if(idemKey&&idempotency&&path.startsWith('/api/')&&['POST','PATCH','PUT','DELETE'].includes(method)){
+      if(idemKey.length>200)throw Object.assign(new Error('Idempotency-Key is too long'),{code:'INVALID_IDEMPOTENCY_KEY',statusCode:400});
+      const session=await authenticate(req);
+      if(session){
+        req.rawBody=await readBuffer(req,MAX_JSON);
+        const claim=await idempotency.begin(session,idemKey,{method,path,rawBody:req.rawBody.toString('utf8')});
+        if(claim.replay){res.setHeader('idempotent-replay','true');return json(res,claim.replay.status,claim.replay.body)}
+        idemFinish=claim.finish;
+        const originalEnd=res.end.bind(res);
+        res.end=(chunk,...rest)=>{
+          if(idemFinish){
+            let body=null;
+            try{body=chunk?JSON.parse(Buffer.from(chunk).toString('utf8')):null}catch{body=null}
+            void idemFinish(res.statusCode,body);
+            idemFinish=null;
+          }
+          return originalEnd(chunk,...rest);
+        };
+      }
+    }
     if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,persistence:persistenceStatus(),realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},integrations:{outbound:deliveryWorker.status?.()??{configured:false}},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,persistent:Boolean(demo.persistent),meeting:Boolean(demo.meeting)}});
     if(path==='/openapi.json'||path==='/api/v1/openapi')return json(res,200,openapi);
     if(path==='/vendor/livekit-client.js'&&method==='GET'){const body=await readFile(livekitClientPath);res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=86400'});res.end(body);return}

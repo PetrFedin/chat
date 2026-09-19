@@ -49,6 +49,6 @@ export const securityHeaders=({production=false,frameAncestors=null}={})=>{
     ...(production?{'strict-transport-security':'max-age=31536000; includeSubDomains'}:{}),
   };
 };
-export async function readBuffer(req,limit){const chunks=[];let total=0;for await(const chunk of req){total+=chunk.length;if(total>limit)throw Object.assign(new Error('Request too large'),{code:'PAYLOAD_TOO_LARGE',statusCode:413});chunks.push(chunk)}return Buffer.concat(chunks)}
+export async function readBuffer(req,limit){if(req.rawBody!==undefined){if(req.rawBody.length>limit)throw Object.assign(new Error('Request too large'),{code:'PAYLOAD_TOO_LARGE',statusCode:413});return req.rawBody}const chunks=[];let total=0;for await(const chunk of req){total+=chunk.length;if(total>limit)throw Object.assign(new Error('Request too large'),{code:'PAYLOAD_TOO_LARGE',statusCode:413});chunks.push(chunk)}return Buffer.concat(chunks)}
 export async function readJson(req){const body=await readBuffer(req,MAX_JSON);if(!body.length)return{};try{return JSON.parse(body.toString('utf8'))}catch{throw Object.assign(new Error('Invalid JSON'),{code:'INVALID_JSON'})}}
 export const sha256=(buffer)=>createHash('sha256').update(buffer).digest('hex');

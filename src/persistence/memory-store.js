@@ -189,6 +189,10 @@ export class MemoryStore {
   }
 
   async addConversationMembers(session, conversationId, userIds, role='member') {
+    if (['owner', 'moderator'].includes(role) && userIds.some((id) => this.memberships.get(this.membershipKey(session.workspaceId, id))?.role === 'guest')) {
+      throw Object.assign(new Error('A guest cannot run a conversation'), { code: 'GUEST_CANNOT_OWN_ROOM', statusCode: 409 });
+    }
+
     const conversation = this.conversations.get(conversationId);
     if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
     if (conversation.kind === 'direct') throw Object.assign(new Error('Direct conversation membership is immutable'), { code:'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode:409 });
@@ -202,6 +206,10 @@ export class MemoryStore {
   }
 
   async setConversationMemberRole(session, conversationId, userId, role) {
+    if (['owner', 'moderator'].includes(role) && [userId].some((id) => this.memberships.get(this.membershipKey(session.workspaceId, id))?.role === 'guest')) {
+      throw Object.assign(new Error('A guest cannot run a conversation'), { code: 'GUEST_CANNOT_OWN_ROOM', statusCode: 409 });
+    }
+
     const conversation = this.conversations.get(conversationId);
     if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
     if (conversation.kind === 'direct') throw Object.assign(new Error('Direct conversation membership is immutable'), { code:'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode:409 });
@@ -213,6 +221,17 @@ export class MemoryStore {
     }
     member.role=role;
     return this.listConversationMembers(session, conversationId);
+  }
+
+  /** Recovery for a room whose owners are all gone. See the Postgres store. */
+  async claimOrphanedConversation(session, id) {
+    const conversation = this.conversations.get(id);
+    if (!conversation || conversation.workspaceId !== session.workspaceId) throw Object.assign(new Error('Conversation not found'), { code: 'NOT_FOUND', statusCode: 404 });
+    if (conversation.kind === 'direct') throw Object.assign(new Error('A direct conversation has no owner to restore'), { code: 'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode: 409 });
+    const stillOwned = [...this.conversationMembers.values()].some((m) => m.conversationId === id && m.role === 'owner' && this.memberships.has(this.membershipKey(session.workspaceId, m.userId)));
+    if (stillOwned) throw Object.assign(new Error('This conversation still has an owner'), { code: 'CONVERSATION_HAS_OWNER', statusCode: 409 });
+    this.conversationMembers.set(this.conversationMemberKey(id, session.userId), { conversationId: id, workspaceId: session.workspaceId, userId: session.userId, role: 'owner' });
+    return { claimed: true, conversationId: id };
   }
 
   async removeConversationMember(session, conversationId, userId) {
