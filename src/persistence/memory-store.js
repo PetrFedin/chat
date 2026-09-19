@@ -178,7 +178,14 @@ export class MemoryStore {
       if(owners.length<=1)throw Object.assign(new Error('Conversation must keep at least one owner'),{code:'LAST_CONVERSATION_OWNER',statusCode:409});
     }
     this.conversationMembers.delete(key);
-    return this.listConversationMembers(session, conversationId);
+    return clone([...this.conversationMembers.values()]
+      .filter((m) => m.workspaceId === session.workspaceId && m.conversationId === conversationId)
+      .map((m) => {
+        const profile = this.profiles.get(this.membershipKey(session.workspaceId, m.userId)) ?? {};
+        const membership = this.memberships.get(this.membershipKey(session.workspaceId, m.userId)) ?? {};
+        return { userId:m.userId, role:m.role, displayName:profile.displayName ?? profile.email ?? m.userId, email:profile.email ?? null, title:profile.title ?? null, workspaceRole:membership.role ?? null };
+      })
+      .sort((a,b) => String(a.displayName).localeCompare(String(b.displayName))));
   }
 
   async conversationAudience(session, conversationId) {
