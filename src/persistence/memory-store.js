@@ -18,6 +18,9 @@ export class MemoryStore {
     this.conversationMembers = new Map();
     this.messages = new Map();
     this.reactions = new Map();
+    this.savedMessages = new Map();
+    this.messagePins = new Map();
+    this.messageForwards = new Map();
     this.readState = new Map();
     this.presence = new Map();
     this.invitations = new Map();
@@ -33,6 +36,9 @@ export class MemoryStore {
 
   membershipKey(workspaceId, userId) { return `${workspaceId}:${userId}`; }
   conversationMemberKey(conversationId, userId) { return `${conversationId}:${userId}`; }
+  savedMessageKey(workspaceId,userId,messageId){return `${workspaceId}:${userId}:${messageId}`}
+  messagePinKey(workspaceId,messageId){return `${workspaceId}:${messageId}`}
+  messageForwardKey(workspaceId,messageId){return `${workspaceId}:${messageId}`}
 
   async createCompany({ companyName, workspaceName, ownerName, email, passwordHash, passwordSalt }) {
     if (this.userByEmail.has(email)) throw Object.assign(new Error('Email already registered'), { code: 'EMAIL_EXISTS', statusCode: 409 });
@@ -107,10 +113,40 @@ export class MemoryStore {
     return {user,workspace:this.workspaces.get(invitation.workspaceId),membership:this.memberships.get(this.membershipKey(invitation.workspaceId,userId))};
   }
 
-  async listConversations(session) {
-    return [...this.conversations.values()].filter((c) => c.workspaceId === session.workspaceId && (c.visibility !== 'private' || this.conversationMembers.has(this.conversationMemberKey(c.id, session.userId)))).sort((a,b) => String(b.createdAt).localeCompare(String(a.createdAt))).map((c) => {
-      const list = this.messages.get(c.id) ?? []; const lastMessage = list.at(-1) ?? null;
-      return { ...clone(c), lastMessage: clone(lastMessage), unreadCount: 0 };
+  async listConversations(session,{archived=false}={}) {
+    return [...this.conversations.values()]
+      .filter((conversation)=>{
+        if(conversation.workspaceId!==session.workspaceId||conversation.archivedAt)return false;
+        const member=this.conversationMembers.get(this.conversationMemberKey(conversation.id,session.userId));
+        if(conversation.visibility==='private'&&!member)return false;
+        return Boolean(member?.archivedAt)===Boolean(archived);
+      })
+      .sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)))
+      .map((conversation)=>{
+        const list=this.messages.get(conversation.id)??[],lastMessage=[...list].reverse().find(message=>!message.deletedAt)??null;
+        const member=this.conversationMembers.get(this.conversationMemberKey(conversation.id,session.userId));
+        return {...clone(conversation),lastMessage:clone(lastMessage),unreadCount:0,archivedAt:member?.archivedAt??null,mutedUntil:member?.mutedUntil??null};
+      });
+  }
+
+  async setConversationPreferences(session,conversationId,{archived,mutedUntil}={}){
+    if(!(await this.canAccessConversation(session,conversationId)))throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});
+    const conversation=this.conversations.get(conversationId),key=this.conversationMemberKey(conversationId,session.userId);
+    let member=this.conversationMembers.get(key);
+    if(!member){
+      member={conversationId,workspaceId:session.workspaceId,userId:session.userId,role:'member',joinedAt:nowIso(),archivedAt:null,mutedUntil:null};
+      this.conversationMembers.set(key,member);
+    }
+    if(archived!==undefined)member.archivedAt=archived?nowIso():null;
+    if(mutedUntil!==undefined)member.mutedUntil=mutedUntil?new Date(mutedUntil).toISOString():null;
+    return clone({archivedAt:member.archivedAt??null,mutedUntil:member.mutedUntil??null});
+  }
+
+  async conversationNotificationAudience(session,conversationId){
+    const audience=await this.conversationAudience(session,conversationId),now=Date.now();
+    return audience.filter((userId)=>{
+      const member=this.conversationMembers.get(this.conversationMemberKey(conversationId,userId));
+      return !member?.mutedUntil||Date.parse(member.mutedUntil)<=now;
     });
   }
 
@@ -123,7 +159,7 @@ export class MemoryStore {
     if (!(await this.canAccessConversation(session, conversationId))) return null;
     const conversation = this.conversations.get(conversationId);
     const member = this.conversationMembers.get(this.conversationMemberKey(conversationId, session.userId));
-    return { conversation: clone(conversation), memberRole: member?.role ?? null };
+    return { conversation: clone(conversation), memberRole: member?.role ?? null, preferences:{ archivedAt:member?.archivedAt??null, mutedUntil:member?.mutedUntil??null } };
   }
 
   async listConversationMembers(session, conversationId) {
@@ -208,18 +244,96 @@ export class MemoryStore {
     return clone(row);
   }
 
+  messageView(session,message){
+    if(!message)return null;
+    const deleted=Boolean(message.deletedAt);
+    return clone({
+      ...message,
+      body:deleted?null:message.body,
+      metadata:deleted?{}:message.metadata,
+      reactions:deleted?[]:(this.reactions.get(message.id)??[]),
+      saved:this.savedMessages.has(this.savedMessageKey(session.workspaceId,session.userId,message.id)),
+      pinned:this.messagePins.has(this.messagePinKey(session.workspaceId,message.id)),
+      forwarded:this.messageForwards.has(this.messageForwardKey(session.workspaceId,message.id)),
+    });
+  }
+
   async listMessages(session, conversationId, limit = 100) {
     if (!(await this.canAccessConversation(session, conversationId))) throw Object.assign(new Error('Conversation not found'), { statusCode: 404, code: 'NOT_FOUND' });
-    return clone((this.messages.get(conversationId) ?? []).slice(-Math.min(limit, 200)).map((message) => ({ ...message, reactions: this.reactions.get(message.id) ?? [] })));
+    return (this.messages.get(conversationId)??[]).slice(-Math.min(limit,200)).map((message)=>this.messageView(session,message));
   }
 
   async createMessage(session, conversationId, { kind = 'text', body = null, replyToId = null, threadRootId = null, metadata = {}, mentionedUserIds = [], clientRequestId = null }) {
     if (!(await this.canAccessConversation(session, conversationId))) throw Object.assign(new Error('Conversation not found'), { statusCode: 404, code: 'NOT_FOUND' });
     const message = { id: randomUUID(), organizationId: session.organizationId, workspaceId: session.workspaceId, conversationId, kind, authorId: session.userId, body, replyToId, threadRootId, metadata, mentionedUserIds: [...new Set(mentionedUserIds)], clientRequestId, createdAt: nowIso(), editedAt: null, deletedAt: null };
-    this.messages.get(conversationId).push(message); return clone(message);
+    this.messages.get(conversationId).push(message); return this.messageView(session,message);
+  }
+
+  async getMessage(session,messageId){
+    for(const [conversationId,list] of this.messages.entries()){
+      const message=list.find((item)=>item.id===messageId);
+      if(message&&message.workspaceId===session.workspaceId&&await this.canAccessConversation(session,conversationId))return message;
+    }
+    return null;
   }
 
   async messageConversation(session,messageId) { for(const [conversationId,list] of this.messages.entries()){ const message=list.find((m)=>m.id===messageId); if(message && message.workspaceId===session.workspaceId) return conversationId; } return null; }
+
+  async setMessageSaved(session,messageId,saved=true){
+    const message=await this.getMessage(session,messageId);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
+    const key=this.savedMessageKey(session.workspaceId,session.userId,messageId);
+    if(saved)this.savedMessages.set(key,{organizationId:session.organizationId,workspaceId:session.workspaceId,messageId,userId:session.userId,savedAt:nowIso()});else this.savedMessages.delete(key);
+    return {saved:Boolean(saved)};
+  }
+
+  async listSavedMessages(session){
+    const items=[];
+    for(const row of this.savedMessages.values()){
+      if(row.workspaceId!==session.workspaceId||row.userId!==session.userId)continue;
+      const message=await this.getMessage(session,row.messageId);if(!message||message.deletedAt)continue;
+      const conversation=this.conversations.get(message.conversationId);
+      items.push({...this.messageView(session,message),conversationTitle:conversation?.title??null,savedAt:row.savedAt});
+    }
+    return items.sort((a,b)=>String(b.savedAt).localeCompare(String(a.savedAt)));
+  }
+
+  async setMessagePinned(session,messageId,pinned=true){
+    const message=await this.getMessage(session,messageId);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
+    const key=this.messagePinKey(session.workspaceId,messageId);
+    if(pinned)this.messagePins.set(key,{organizationId:session.organizationId,workspaceId:session.workspaceId,messageId,pinnedBy:session.userId,pinnedAt:nowIso()});else this.messagePins.delete(key);
+    return {pinned:Boolean(pinned)};
+  }
+
+  async listPinnedMessages(session,conversationId){
+    if(!(await this.canAccessConversation(session,conversationId)))throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});
+    const items=[];
+    for(const row of this.messagePins.values()){
+      if(row.workspaceId!==session.workspaceId)continue;
+      const message=await this.getMessage(session,row.messageId);
+      if(!message||message.deletedAt||message.conversationId!==conversationId)continue;
+      items.push({...this.messageView(session,message),pinnedBy:row.pinnedBy,pinnedAt:row.pinnedAt});
+    }
+    return items.sort((a,b)=>String(b.pinnedAt).localeCompare(String(a.pinnedAt)));
+  }
+
+  async forwardMessage(session,sourceMessageId,targetConversationId){
+    const source=await this.getMessage(session,sourceMessageId);if(!source||source.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
+    if(!(await this.canAccessConversation(session,targetConversationId)))throw Object.assign(new Error('Target conversation not found'),{code:'NOT_FOUND',statusCode:404});
+    const message={id:randomUUID(),organizationId:session.organizationId,workspaceId:session.workspaceId,conversationId:targetConversationId,kind:source.kind,authorId:session.userId,body:source.body,replyToId:null,threadRootId:null,metadata:clone(source.metadata??{}),mentionedUserIds:[],clientRequestId:randomUUID(),createdAt:nowIso(),editedAt:null,deletedAt:null};
+    this.messages.get(targetConversationId).push(message);
+    this.messageForwards.set(this.messageForwardKey(session.workspaceId,message.id),{organizationId:session.organizationId,workspaceId:session.workspaceId,forwardedMessageId:message.id,sourceMessageId,forwardedBy:session.userId,createdAt:message.createdAt});
+    return this.messageView(session,message);
+  }
+
+  async editMessage(session,messageId,body){
+    const message=await this.getMessage(session,messageId);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
+    message.body=body;message.editedAt=nowIso();return this.messageView(session,message);
+  }
+
+  async deleteMessage(session,messageId){
+    const message=await this.getMessage(session,messageId);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
+    message.deletedAt=nowIso();this.messagePins.delete(this.messagePinKey(session.workspaceId,messageId));return this.messageView(session,message);
+  }
 
   async toggleReaction(session, messageId, reaction) {
     const conversationId=await this.messageConversation(session,messageId);
