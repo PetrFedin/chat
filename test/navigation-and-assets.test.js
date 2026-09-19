@@ -63,14 +63,40 @@ test('static assets revalidate instead of going stale after a deploy', async (t)
 });
 
 test('a screen does not repeat its own name as the first heading', async () => {
-  const source = await read('public/app.js');
+  const [source, html] = await Promise.all([read('public/app.js'), read('public/index.html')]);
   // The app bar already names the screen; repeating it wastes the most
   // valuable line on a phone and reads as a rendering bug.
   assert.doesNotMatch(source, /<div class="section-head"><div><h2>Задачи<\/h2>/);
   assert.doesNotMatch(source, /<div class="section-head"><div><h2>Сегодня<\/h2>/);
-  assert.doesNotMatch(source, /<div class="conversation-pane-header"><h2>Сообщения<\/h2>/);
-  assert.match(source, /<h2>Расписание дня<\/h2>/, 'the schedule section keeps a name of its own');
-  assert.match(source, /<h2>Диалоги<\/h2>/);
+  assert.doesNotMatch(source, /<div class="conversation-pane-header"><h2>/,
+    'шапка списка бесед снова повторяет название экрана');
+  assert.doesNotMatch(source, /<p class="kicker">КАЛЕНДАРЬ<\/p>/,
+    'календарь снова называет себя дважды');
+
+  // The bar itself carried a third line: the company name, shouted over every
+  // screen, saying nothing a person did not already know.
+  assert.doesNotMatch(html, /id="eyebrow"/, 'строка с названием компании вернулась');
+  assert.doesNotMatch(source, /#eyebrow/);
+
+  // Sections that carry a name of their own are the point of the rule.
+  assert.match(source, /<h2>Расписание дня<\/h2>/);
+  assert.match(source, /<h2>Мои дела<\/h2>/);
+});
+
+// One column mixed a company feed, a project channel, a working group and a
+// private word with a colleague.
+test('the conversation pane is sorted by what a room is for', async () => {
+  const source = await read('public/app.js');
+  assert.match(source, /const CONVERSATION_GROUPS=/);
+  for (const key of ['channel', 'feed', 'group', 'direct']) {
+    assert.ok(source.includes(`'${key}'`), `нет группы ${key}`);
+  }
+  // An announcement-only channel is a feed, not a conversation.
+  assert.match(source, /if\(c\.announcementOnly\)return 'feed'/);
+  assert.match(source, /function visibleConversations\(\)/);
+  assert.match(source, /data-chat-filter=/);
+  // A filter must never hide something new, so each tab carries its unread.
+  assert.match(source, /function countIn\(key\)/);
 });
 
 test('file sizes carry units in the interface language', async () => {

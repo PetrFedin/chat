@@ -23,6 +23,8 @@ import { createMediaHandler } from './http/media.js';
 import { createCallHandler } from './http/calls.js';
 import { createIntegrationsHandler } from './http/integrations.js';
 import { createOrgHandler } from './http/org.js';
+import { createGamesHandler } from './http/games.js';
+import { createGameRepository } from './games/game-repository.js';
 import { createPeopleHandler } from './http/people.js';
 import { createCalendarHandler } from './http/calendar.js';
 import { createLabelHandler } from './http/labels.js';
@@ -87,6 +89,7 @@ export async function createChatServer(options={}){
   const webhooks=options.webhooks??createWebhookRepository(pool);
   const org=options.org??createOrgRepository(pool);
   const people=options.people??createPeopleRepository(pool,org);
+  const games=options.games??createGameRepository(pool,store);
   const calendar=options.calendar??createCalendarRepository(pool,store);
   const labels=options.labels??createLabelRepository(pool,store);
   const personal=options.personal??createPersonalRepository(pool,store,labels);
@@ -126,8 +129,8 @@ export async function createChatServer(options={}){
   const startMeetingWorker=options.startMeetingWorker??mode!=='custom';
   if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.()}
 
-  const ctx={store,mode,hub,authThrottle,webhooks,deliveryWorker,org,people,calendar,labels,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const ctx={store,mode,hub,authThrottle,webhooks,deliveryWorker,org,people,games,calendar,labels,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleGames=createGamesHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{try{
     for(const [name,value] of Object.entries(baseHeaders))res.setHeader(name,value);
@@ -170,6 +173,7 @@ export async function createChatServer(options={}){
     if(await handleCalls(req,res,ctx,path,method))return;
     if(await handleIntegrations(req,res,ctx,url,path,method))return;
     if(await handleOrg(req,res,ctx,url,path,method))return;
+    if(await handleGames(req,res,ctx,url,path,method))return;
     if(await handlePeople(req,res,ctx,url,path,method))return;
     if(await handleCalendar(req,res,ctx,url,path,method))return;
     if(await handleLabels(req,res,ctx,url,path,method))return;

@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
+const S={view:'today',boot:null,conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -52,6 +52,14 @@ const ERROR_MESSAGE={
   RESET_NOT_FOUND:'Эта ссылка уже использована или отозвана.',
   WEAK_PASSWORD:'Пароль должен быть не короче 12 символов и содержать цифру.',
   INVALID_CURSOR:'Не удалось продолжить список. Откройте экран заново.',
+  OPPONENT_NOT_HERE:'Этого человека нет в выбранной беседе.',
+  NO_SHARED_ROOM:'У вас нет общей беседы — напишите человеку, и партию будет где играть.',
+  GAME_ALREADY_RUNNING:'С этим человеком уже идёт партия в эту игру. Закончите её или сдайтесь.',
+  NOT_YOUR_TURN:'Сейчас ходит соперник.',
+  ILLEGAL_MOVE:'Так сходить нельзя.',
+  INVALID_FLEET:'Флот расставлен не по правилам.',
+  ALREADY_FIRED:'Вы уже стреляли в эту клетку.',
+  NOT_A_PLAYER:'Вы не играете в этой партии.',
   LABEL_NOT_FOUND:'Метка недоступна.',
   TARGET_NOT_FOUND:'Объект недоступен.',
 };
@@ -164,7 +172,7 @@ function workspaceModal(){
 function navs(){const html=nav.map(([id,i,l])=>`<button class="nav-item pressable ${S.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${i}</span><span>${l}</span></button>`).join('');$('#desktop-nav').innerHTML=$('#mobile-nav').innerHTML=html}
 function lists(){const channels=S.conversations.filter(c=>['channel','team','project'].includes(c.kind)),dm=S.conversations.filter(c=>['direct','group'].includes(c.kind));$('#channel-list').innerHTML=channels.map(c=>side(c,'#')).join('');$('#direct-list').innerHTML=dm.map(c=>side(c,'')).join('')}
 function side(c,prefix){return `<button class="sidebar-row pressable ${S.selected===c.id?'active':''}" data-conversation="${c.id}"><span>${prefix||'<span class="presence-dot online"></span>'}</span><span class="label">${esc(c.title||'Диалог')}</span></button>`}
-function render(){navs();lists();$('#screen-title').textContent=nav.find(x=>x[0]===S.view)?.[2]||'Chat';$('#eyebrow').textContent=(me()?.organizationName||'Компания').toUpperCase();$('#screen').innerHTML=({today,chats,tasks,calendar,more})[S.view]();bind();bindCalendar()}
+function render(){navs();lists();$('#screen-title').textContent=nav.find(x=>x[0]===S.view)?.[2]||'Chat';$('#screen').innerHTML=({today,chats,tasks,calendar,more})[S.view]();bind();bindCalendar()}
 function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','cancelled'].includes(t.status)),events=S.calendar.filter(e=>Date.parse(e.startAt)>Date.now()-3600000).slice(0,4);return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>Расписание дня</h2><p class="muted">Встречи и рабочее время</p></div><button data-action="event" class="button secondary small pressable">＋ Событие</button></div>${events.length?events.map(e=>`<div class="agenda-row"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(e.kind)}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></div>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или фокус-время.</div>'}</section><section class="surface"><div class="section-head"><h2>Мои задачи</h2><button data-action="task" class="button secondary small pressable">＋ Задача</button></div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section>${planSection()}</div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>${plural(active.length,'активная задача','активные задачи','активных задач')}</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>${plural(S.people.length,'сотрудник','сотрудника','сотрудников')}</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>${plural(S.conversations.length,'диалог','диалога','диалогов')}</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
 /**
  * The personal list, on the screen where the day is planned. A commitment
@@ -241,6 +249,35 @@ function startClock(){
   clockTimer=setInterval(tickClock,1000);
 }
 
+/**
+ * A flat column mixed a company announcement feed, a project channel, a
+ * working group and a private word with a colleague. They are read at
+ * different moments, so the pane sorts by what a room is for.
+ *
+ * An announcement-only channel is a feed rather than a conversation: the
+ * whole company reads it and almost nobody writes, which is a different thing
+ * from a channel people work in.
+ */
+const CONVERSATION_GROUPS=[['all','Все'],['channel','Каналы'],['feed','Ленты'],['group','Группы'],['direct','Личные']];
+
+function conversationGroup(c){
+  if(c.kind==='direct')return 'direct';
+  if(c.kind==='group'||c.kind==='external')return 'group';
+  if(c.announcementOnly)return 'feed';
+  return 'channel';
+}
+
+function visibleConversations(){
+  const filter=S.chatFilter||'all';
+  return filter==='all'?S.conversations:S.conversations.filter(c=>conversationGroup(c)===filter);
+}
+
+/** Unread waiting behind a tab, so a filter never hides something new. */
+function countIn(key){
+  const rooms=key==='all'?S.conversations:S.conversations.filter(c=>conversationGroup(c)===key);
+  return rooms.reduce((n,c)=>n+(Number(c.unreadCount)||0),0);
+}
+
 function convRow(c){return `<button class="conversation-card pressable" data-open="${c.id}"><span class="avatar dark">${c.kind==='channel'?'#':esc(initials(c.title||'D'))}</span><span><strong>${esc(c.title||'Диалог')}</strong><div class="preview">${esc(c.lastMessage?.body||kindLabel(c.lastMessage?.kind)||c.purpose||'Открыть разговор')}</div></span><span class="time">${time(c.lastMessage?.createdAt)}</span></button>`}
 const TASK_STATUS={proposed:'Ожидает принятия',accepted:'Принята',scheduled:'Запланирована',in_progress:'В работе',blocked:'Заблокирована',in_review:'На проверке',accepted_result:'Результат принят',closed:'Закрыта',rejected:'Отклонена',cancelled:'Отменена',deferred:'Отложена',clarify:'Нужно уточнение',inbox:'Входящая'};
 const TASK_EVENT={
@@ -254,7 +291,7 @@ const TASK_EVENT={
 const TASK_ACTION={accepted:'Принять ответственность',rejected:'Отказаться',clarify:'Запросить уточнение',scheduled:'Запланировать',in_progress:'Начать работу',blocked:'Есть блокировка',in_review:'Отправить на проверку',accepted_result:'Принять результат',closed:'Закрыть',deferred:'Отложить',cancelled:'Отменить'};
 function taskRow(t){return `<button class="task-card pressable" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span>${esc(dateTime(t.promisedAt))}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div></span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`}
 function kindLabel(k){return({voice:'Голосовое сообщение',file:'Файл',call:'Звонок',task:'Задача',calendar:'Событие'})[k]||''}
-function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><h2>Диалоги</h2><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${S.conversations.map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="pins" class="round-button pressable" title="Закреплённые">⌖</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}">${muted?'🔔':'🔕'}</button><button data-action="archive" class="round-button pressable" title="Архивировать">⌑</button><button data-action="conversation" class="round-button pressable" title="О беседе">⚙</button>${c.kind!=='direct'?'<button data-action="members" class="round-button pressable" title="Участники">◎</button>':''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок">⌕</button><button data-action="video" class="round-button pressable" title="Видеозвонок">◉</button></div></header><div id="message-stream" class="message-stream">${messages.map(message).join('')||'<div class="empty"><strong>Начните разговор</strong></div>'}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
+function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="pins" class="round-button pressable" title="Закреплённые">⌖</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}">${muted?'🔔':'🔕'}</button><button data-action="archive" class="round-button pressable" title="Архивировать">⌑</button><button data-action="room-games" class="round-button pressable" title="Игры">♞</button><button data-action="conversation" class="round-button pressable" title="О беседе">⚙</button>${c.kind!=='direct'?'<button data-action="members" class="round-button pressable" title="Участники">◎</button>':''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок">⌕</button><button data-action="video" class="round-button pressable" title="Видеозвонок">◉</button></div></header><div id="message-stream" class="message-stream">${messages.map(message).join('')||'<div class="empty"><strong>Начните разговор</strong></div>'}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
 function message(m){const reactions=(m.reactions||[]).reduce((a,r)=>(a[r.reaction]=(a[r.reaction]||0)+1,a),{}),deleted=Boolean(m.deletedAt),canDelete=m.authorId===me().userId||can('message.delete.any');return `<article class="message-item" data-message-row="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><div><div class="message-meta"><span class="message-author">${esc(m.authorId===me().userId?'Вы':name(m.authorId))}</span><span class="message-time">${time(m.createdAt)}${m.editedAt?' · изменено':''}${m.pinned?' · закреплено':''}${m.saved?' · сохранено':''}</span></div>${m.forwardedFrom?(m.forwardedFrom.restricted?'<div class="row-sub">↪ Пересланное сообщение</div>':`<button class="reaction-button" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">↪ Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`):''}${deleted?'<p class="muted">Сообщение удалено</p>':m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`:m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`:`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`}${deleted?'':`<button class="msg-more pressable" data-message-actions="${m.id}" aria-label="Действия с сообщением" aria-expanded="false">⋯</button><div class="inline-actions msg-actions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}<button class="reaction-button" data-react="👍" data-message="${m.id}">＋👍</button><button class="reaction-button" data-reply="${m.id}">Ответить</button><button class="reaction-button" data-message-save="${m.id}" data-saved="${m.saved?'1':'0'}">${m.saved?'Убрать из сохранённых':'Сохранить'}</button><button class="reaction-button" data-message-forward="${m.id}">Переслать</button><button class="reaction-button" data-message-label="${m.id}">Метка</button><button class="reaction-button" data-message-pin="${m.id}" data-pinned="${m.pinned?'1':'0'}">${m.pinned?'Открепить':'Закрепить'}</button><button class="reaction-button" data-task-message="${m.id}">В задачу</button>${m.authorId===me().userId&&m.kind==='text'&&!m.forwarded?`<button class="reaction-button" data-message-edit="${m.id}">Изменить</button>`:''}${canDelete?`<button class="reaction-button" data-message-delete="${m.id}">Удалить</button>`:''}</div>`}</div></article>`}
 function tasks(){return `<section class="surface"><div class="section-head"><div><p class="muted">Ответственность → выполнение → доказательство → проверка → закрытие</p></div><button data-action="task" class="button primary small pressable">＋ Задача</button></div><div class="task-list">${S.tasks.map(taskRow).join('')||'<div class="empty"><strong>Ничего не потеряется</strong>Создайте задачу вручную или из сообщения.</div>'}</div></section>`}
 function calendar(){
@@ -273,7 +310,7 @@ function calendar(){
       :c.view==='week'?`${fmt({day:'numeric',month:'short'}).format(weekStart())} — ${fmt({day:'numeric',month:'short',year:'numeric'}).format(new Date(weekStart().getTime()+6*864e5))}`
       :fmt({month:'long',year:'numeric'}).format(base);
     return `<div class="calendar-toolbar">
-      <div><p class="kicker">КАЛЕНДАРЬ</p><h2>${esc(label)}</h2></div>
+      <div><h2>${esc(label)}</h2></div>
       <button data-action="event" class="button primary small pressable">＋ Событие</button>
     </div>
     <div class="cal-controls">
@@ -414,7 +451,7 @@ async function eventPage(id){
   });
 }
 
-function more(){return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button><button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button><button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button><button class="module-card pressable" data-action="contacts"><span class="module-icon">☏</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button><button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button><button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
+function more(){return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button><button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button><button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button><button class="module-card pressable" data-action="games"><span class="module-icon">♞</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button><button class="module-card pressable" data-action="contacts"><span class="module-icon">☏</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button><button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button><button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
@@ -427,6 +464,7 @@ function bind(){
     if(/\b(в|с)\s?\d{1,2}[:.]\d{2}|встреч|созвон|планёрк/i.test(text))eventModal(text);
     else taskModal(null,text);
   };
+  $$('[data-chat-filter]').forEach(b=>b.onclick=()=>{S.chatFilter=b.dataset.chatFilter;render()});
   tickClock();
   const planQuick=$('[data-plan-quick]');
   if(planQuick)planQuick.onsubmit=async(event)=>{
@@ -454,7 +492,7 @@ function go(v){
 }
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),labels:labelsModal,contacts:contactsModal,search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
 // ── org structure: reading and reshaping ────────────────────────────────────
@@ -998,6 +1036,251 @@ function planScheduleModal(item,after){
   });
 }
 
+// ── games colleagues play with each other ──────────────────────────────────
+// The board is drawn here; every rule is the server's. A move is sent and the
+// position that comes back is the truth — this screen never decides what is
+// legal, which is why two people cannot disagree about a position.
+const GAME_NAME={chess:'Шахматы',checkers:'Шашки',battleship:'Морской бой'};
+const GAME_ICON={chess:'♞',checkers:'⛂',battleship:'⚓'};
+const CHESS_GLYPH={K:'♔',Q:'♕',R:'♖',B:'♗',N:'♘',P:'♙',k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'};
+const GAME_RESULT={checkmate:'мат',stalemate:'пат',resigned:'сдался',draw:'ничья','no-pieces':'все фигуры побиты','no-moves':'ходов не осталось','fleet-destroyed':'флот потоплен','insufficient-material':'ничья: нечем матовать','fifty-move':'ничья по правилу 50 ходов'};
+
+async function gamesModal(conversationId=null){
+  try{
+    const first=await gamesBuild(conversationId);
+    modal(first.title,first.body,first.after,()=>gamesBuild(conversationId));
+  }catch(error){
+    toast(error.code==='GAMES_UNAVAILABLE'?'Игры доступны в режиме с базой данных':error.message);
+  }
+}
+
+/** Re-read when this sheet becomes the top again, so a finished game shows. */
+async function gamesBuild(conversationId){
+  const query=conversationId?`?conversationId=${encodeURIComponent(conversationId)}`:'';
+  const items=(await api(`/api/v1/games${query}`)).items||[];
+  return {title:conversationId?'Игры в этой беседе':'Игры',body:gamesBody(items,conversationId),after:()=>{
+    $$('[data-game]').forEach(b=>b.onclick=()=>gamePage(b.dataset.game));
+    $('[data-new-game]').onclick=()=>newGameModal(conversationId);
+  }};
+}
+function gamesBody(items,conversationId){
+  const row=(g)=>{
+    const opponent=g.challengerId===me().userId?g.opponentId:g.challengerId;
+    const waiting=g.status==='invited'&&g.opponentId===me().userId;
+    const state=g.status==='finished'
+      ? `${g.winnerId?(g.winnerId===me().userId?'вы выиграли':'вы проиграли'):'ничья'} · ${GAME_RESULT[g.result]||g.result}`
+      : g.status==='invited'?(waiting?'ждёт вашего ответа':'ждём ответа соперника')
+      : g.yourTurn?'ваш ход':'ход соперника';
+    return `<button class="row pressable" data-game="${esc(g.id)}">
+      <span class="game-mark">${GAME_ICON[g.kind]||'●'}</span>
+      <span><div class="row-title">${esc(GAME_NAME[g.kind]||g.kind)} · ${esc(name(opponent))}</div><div class="row-sub">${esc(state)}</div></span>
+      ${g.yourTurn&&g.status==='active'?'<span class="chip warm">ваш ход</span>':waiting?'<span class="chip warm">ответьте</span>':'<span class="chip"></span>'}
+    </button>`;
+  };
+  return `${items.length?items.map(row).join(''):'<p class="muted">Партий пока нет.</p>'}
+    <div class="stack" style="margin-top:16px"><button data-new-game class="button secondary">Позвать сыграть</button></div>`;
+}
+
+function newGameModal(conversationId){
+  const people=S.people.filter(p=>p.userId!==me().userId&&p.role!=='guest');
+  if(!people.length)return toast('Сначала пригласите коллег');
+  modal('Позвать сыграть',`<form id="game-form" class="form-stack">
+    <label>Игра<select name="kind" class="field">
+      <option value="chess">Шахматы</option><option value="checkers">Шашки</option><option value="battleship">Морской бой</option>
+    </select></label>
+    <label>Соперник<select name="opponentId" class="field">${people.map(p=>`<option value="${esc(p.userId)}">${esc(p.displayName||p.email)}</option>`).join('')}</select></label>
+    <p class="muted">Соперник получит приглашение и решит сам. Партия появится в беседе, которая у вас уже есть.</p>
+    <button class="button primary">Позвать</button>
+  </form>`,()=>{
+    $('#game-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      try{
+        const{game}=await api('/api/v1/games',{method:'POST',body:JSON.stringify({
+          kind:form.get('kind'),opponentId:form.get('opponentId'),conversationId:conversationId??undefined,
+        })});
+        toast('Приглашение отправлено');
+        replaceModal(()=>gamePage(game.id));
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+/** One game: the board, whose move it is, and what can be done about it. */
+async function gamePage(id){
+  const build=async()=>{
+    const{game}=await api(`/api/v1/games/${id}`);
+    const opponent=game.challengerId===me().userId?game.opponentId:game.challengerId;
+    const heading=`${GAME_NAME[game.kind]||game.kind} · ${name(opponent)}`;
+    const status=game.status==='finished'
+      ? `<div class="game-status done">${game.winnerId?(game.winnerId===me().userId?'Вы выиграли':'Вы проиграли'):'Ничья'} — ${esc(GAME_RESULT[game.result]||game.result)}</div>`
+      : game.status==='invited'
+        ? `<div class="game-status">${game.opponentId===me().userId?'Вас зовут сыграть':'Ждём ответа соперника'}</div>`
+        : `<div class="game-status${game.yourTurn?' yours':''}">${game.yourTurn?'Ваш ход':'Ход соперника'}</div>`;
+
+    const board=game.status==='invited'?'' :
+      game.kind==='battleship'?battleshipBoards(game):squareBoard(game);
+
+    const actions=[];
+    if(game.status==='invited'&&game.opponentId===me().userId){
+      actions.push('<button data-accept class="button primary">Играть</button>');
+      actions.push('<button data-decline class="button secondary">Отказаться</button>');
+    }
+    if(game.status==='active')actions.push('<button data-resign class="button danger">Сдаться</button>');
+    if(game.kind==='battleship'&&game.status==='active'&&game.state.phase==='placing'&&!game.state.myFleet.length){
+      actions.unshift('<button data-fleet class="button primary">Расставить корабли</button>');
+    }
+
+    return {title:heading,body:`${status}${board}
+      <div class="stack" style="margin-top:14px">${actions.join('')}</div>`,after:()=>{
+      $('[data-accept]')?.addEventListener('click',()=>respondGame(id,true,refresh));
+      $('[data-decline]')?.addEventListener('click',()=>respondGame(id,false,refresh));
+      $('[data-resign]')?.addEventListener('click',()=>{
+        modal('Сдаться?','<p class="muted">Партия завершится, победа засчитается сопернику.</p><button id="confirm-resign" class="button danger" style="width:100%">Сдаюсь</button>',()=>{
+          $('#confirm-resign').onclick=async()=>{
+            try{await api(`/api/v1/games/${id}/resign`,{method:'POST'});toast('Партия завершена');history.back();setTimeout(refresh,300)}
+            catch(error){toast(error.message)}
+          };
+        });
+      });
+      $('[data-fleet]')?.addEventListener('click',async()=>{
+        try{await api(`/api/v1/games/${id}/moves`,{method:'POST',body:JSON.stringify({ships:randomFleetClient()})});await refresh()}
+        catch(error){toast(error.message)}
+      });
+      bindBoard(game,refresh);
+    }};
+  };
+
+  const refresh=async()=>{
+    const next=await build();
+    const top=overlayStack[overlayStack.length-1];
+    if(top){Object.assign(top,next);renderOverlay()}
+  };
+
+  try{
+    const first=await build();
+    modal(first.title,first.body,first.after,build);
+    // The opponent moves on their own screen; the board follows without a
+    // reload because the server tells every player when a game changed.
+    S.gameWatch=id;
+  }catch(error){toast(error.message)}
+}
+
+async function respondGame(id,accept,after){
+  try{
+    await api(`/api/v1/games/${id}/respond`,{method:'POST',body:JSON.stringify({accept})});
+    toast(accept?'Партия началась':'Вы отказались');
+    if(accept)await after?.();else history.back();
+  }catch(error){toast(error.message)}
+}
+
+/** Chess and draughts share one 8×8 grid; only the glyphs differ. */
+function squareBoard(game){
+  const state=game.state||{};
+  const board=state.board||'';
+  const flip=game.side==='b';
+  const selected=S.gameFrom;
+  const cells=[];
+  for(let rank=0;rank<8;rank+=1){
+    for(let file=0;file<8;file+=1){
+      const index=flip?(7-rank)*8+(7-file):rank*8+file;
+      const piece=board[index]||'.';
+      const dark=(Math.floor(index/8)+index%8)%2===1;
+      const glyph=game.kind==='chess'?(CHESS_GLYPH[piece]||'')
+        :piece==='.'?'':`<i class="draught ${piece.toLowerCase()==='w'?'light':'dark'}${piece===piece.toUpperCase()?' king':''}"></i>`;
+      cells.push(`<button class="game-cell${dark?' dark':''}${selected===index?' picked':''}" data-cell="${index}" ${game.yourTurn&&game.status==='active'?'':'disabled'}>${glyph}</button>`);
+    }
+  }
+  return `<div class="game-board">${cells.join('')}</div>`;
+}
+
+function battleshipBoards(game){
+  const state=game.state||{};
+  if(state.phase==='placing'){
+    const mine=new Set((state.myFleet||[]).flat());
+    return `<p class="muted">${state.myFleet?.length?'Флот расставлен, ждём соперника.':'Расставьте корабли — кнопка ниже разложит их по правилам.'}</p>
+      <div class="sea-wrap"><div class="sea">${Array.from({length:100},(_,i)=>`<span class="sea-cell${mine.has(i)?' ship':''}"></span>`).join('')}</div></div>`;
+  }
+  const mine=new Set((state.myFleet||[]).flat());
+  const incoming=state.incoming||{},outgoing=state.outgoing||{};
+  const theirs=Array.from({length:100},(_,i)=>{
+    const shot=outgoing[i];
+    return `<button class="sea-cell${shot?` ${shot}`:''}" data-shot="${i}" ${game.yourTurn&&!shot&&game.status==='active'?'':'disabled'}></button>`;
+  }).join('');
+  const ours=Array.from({length:100},(_,i)=>{
+    const shot=incoming[i];
+    return `<span class="sea-cell${mine.has(i)?' ship':''}${shot?` ${shot}`:''}"></span>`;
+  }).join('');
+  return `<h3 class="person-section">Поле соперника</h3><div class="sea-wrap"><div class="sea">${theirs}</div></div>
+    <h3 class="person-section">Ваше поле</h3><div class="sea-wrap"><div class="sea">${ours}</div></div>`;
+}
+
+function bindBoard(game,refresh){
+  $$('[data-cell]').forEach(cell=>cell.onclick=async()=>{
+    const index=Number(cell.dataset.cell);
+    const board=game.state?.board||'';
+    const piece=board[index]||'.';
+    const isMine=piece!=='.'&&((game.side==='w')===(piece===piece.toUpperCase()));
+    if(S.gameFrom===null||S.gameFrom===undefined){
+      if(!isMine)return;
+      S.gameFrom=index;
+      const top=overlayStack[overlayStack.length-1];
+      if(top){Object.assign(top,{body:top.body});}
+      cell.classList.add('picked');
+      return;
+    }
+    if(S.gameFrom===index){S.gameFrom=null;cell.classList.remove('picked');return}
+    if(isMine){ $$('[data-cell].picked').forEach(c=>c.classList.remove('picked')); S.gameFrom=index; cell.classList.add('picked'); return }
+    const from=S.gameFrom;
+    S.gameFrom=null;
+    try{await api(`/api/v1/games/${game.id}/moves`,{method:'POST',body:JSON.stringify({from,to:index})});await refresh()}
+    catch(error){toast(error.message);await refresh()}
+  });
+  $$('[data-shot]').forEach(cell=>cell.onclick=async()=>{
+    try{
+      const{game:next}=await api(`/api/v1/games/${game.id}/moves`,{method:'POST',body:JSON.stringify({cell:Number(cell.dataset.shot)})});
+      const last=Object.entries(next.state.outgoing||{}).find(([k])=>Number(k)===Number(cell.dataset.shot));
+      if(last)toast(last[1]==='hit'?'Попадание':'Мимо');
+      await refresh();
+    }catch(error){toast(error.message)}
+  });
+}
+
+/**
+ * A legal layout, produced here so nobody drags ten ships around on a phone.
+ * The server checks it anyway — this is a convenience, not a source of truth.
+ */
+function randomFleetClient(){
+  const SIZE=10,FLEET=[4,3,3,2,2,2,1,1,1,1];
+  for(let attempt=0;attempt<500;attempt+=1){
+    const ships=[],taken=new Set();
+    let ok=true;
+    for(const size of FLEET){
+      let placed=null;
+      for(let tries=0;tries<300&&!placed;tries+=1){
+        const horizontal=Math.random()<0.5;
+        const x=Math.floor(Math.random()*(horizontal?SIZE-size+1:SIZE));
+        const y=Math.floor(Math.random()*(horizontal?SIZE:SIZE-size+1));
+        const cells=[];
+        for(let i=0;i<size;i+=1)cells.push(horizontal?y*SIZE+x+i:(y+i)*SIZE+x);
+        if(cells.some(c=>taken.has(c)))continue;
+        placed=cells;
+      }
+      if(!placed){ok=false;break}
+      ships.push(placed);
+      for(const cell of placed){
+        const cx=cell%SIZE,cy=Math.floor(cell/SIZE);
+        for(let dx=-1;dx<=1;dx+=1)for(let dy=-1;dy<=1;dy+=1){
+          const nx=cx+dx,ny=cy+dy;
+          if(nx>=0&&nx<SIZE&&ny>=0&&ny<SIZE)taken.add(ny*SIZE+nx);
+        }
+      }
+    }
+    if(ok)return ships;
+  }
+  throw new Error('Не удалось разложить флот');
+}
+
 // ── contacts ────────────────────────────────────────────────────────────────
 // Not the staff directory. Two questions, two answers: who already writes to
 // me, and who an administrator put in a unit with me. A colleague in your
@@ -1440,7 +1723,7 @@ function profileModal(){modal('Профиль и безопасность',`<div
 async function logout(){await api('/api/v1/auth/logout',{method:'POST'}).catch(()=>{});S.ws?.close();S.boot=null;closeModal();auth()}
 async function enablePush(){try{if(!S.boot?.push?.enabled)return toast('На сервере ещё не настроены VAPID-ключи.');if(await Notification.requestPermission()!=='granted')return toast('Push не разрешён.');const r=await navigator.serviceWorker.ready;let sub=await r.pushManager.getSubscription();if(!sub)sub=await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key(S.boot.push.publicKey)});await api('/api/v1/push-subscriptions',{method:'POST',body:JSON.stringify(sub)});toast('Push включён')}catch(e){toast(e.message)}}
 function key(v){const s=(v+'='.repeat((4-v.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'),raw=atob(s);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)))}
-function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);S.ws=ws;ws.onmessage=e=>{try{const p=JSON.parse(e.data),d=p.data;if(p.event==='message.created'){append(d.conversationId,d.message);if(S.view==='chats')render()}if(p.event==='message.reaction'){for(const list of S.messages.values()){const m=list.find(x=>x.id===d.messageId);if(m)m.reactions=d.reactions}if(S.view==='chats')render()}if(p.event==='message.updated'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.deleted'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.pin'){updateMessage(d.messageId,{pinned:d.pinned});if(S.view==='chats')render()}if(p.event==='conversation.created'&&!S.conversations.some(x=>x.id===d.id)){S.conversations.unshift(d);shell();if(S.view==='chats')render()}if(p.event==='presence.updated'){const x=person(d.userId);if(x)x.presence=d.presence;lists()}if(p.event==='task.created'&&!S.tasks.some(x=>x.id===d.id)){S.tasks.unshift(d);if(['today','tasks'].includes(S.view))render()}if(p.event==='task.updated'){upsertTask(d);if(['today','tasks'].includes(S.view))render()}if(p.event==='calendar.created'&&!S.calendar.some(x=>x.id===d.id)){S.calendar.push(d);if(['today','calendar'].includes(S.view))render()}if(p.event==='typing.start'||p.event==='typing.stop'){if(d.conversationId===S.selected&&$('#typing'))$('#typing').textContent=p.event.endsWith('start')?`${name(d.userId)} печатает…`:''}}catch{}};ws.onclose=()=>S.boot&&setTimeout(connect,1600)}
+function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);S.ws=ws;ws.onmessage=e=>{try{const p=JSON.parse(e.data),d=p.data;if(p.event==='game.updated'){if(S.gameWatch&&d?.gameId===S.gameWatch)resumeTop();return}if(p.event==='message.created'){append(d.conversationId,d.message);if(S.view==='chats')render()}if(p.event==='message.reaction'){for(const list of S.messages.values()){const m=list.find(x=>x.id===d.messageId);if(m)m.reactions=d.reactions}if(S.view==='chats')render()}if(p.event==='message.updated'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.deleted'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.pin'){updateMessage(d.messageId,{pinned:d.pinned});if(S.view==='chats')render()}if(p.event==='conversation.created'&&!S.conversations.some(x=>x.id===d.id)){S.conversations.unshift(d);shell();if(S.view==='chats')render()}if(p.event==='presence.updated'){const x=person(d.userId);if(x)x.presence=d.presence;lists()}if(p.event==='task.created'&&!S.tasks.some(x=>x.id===d.id)){S.tasks.unshift(d);if(['today','tasks'].includes(S.view))render()}if(p.event==='task.updated'){upsertTask(d);if(['today','tasks'].includes(S.view))render()}if(p.event==='calendar.created'&&!S.calendar.some(x=>x.id===d.id)){S.calendar.push(d);if(['today','calendar'].includes(S.view))render()}if(p.event==='typing.start'||p.event==='typing.stop'){if(d.conversationId===S.selected&&$('#typing'))$('#typing').textContent=p.event.endsWith('start')?`${name(d.userId)} печатает…`:''}}catch{}};ws.onclose=()=>S.boot&&setTimeout(connect,1600)}
 async function voice(){if(S.recorder?.state==='recording'){S.recorder.stop();return}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true}),chunks=[],r=new MediaRecorder(stream);S.recorder=r;S.recordingAt=Date.now();r.ondataavailable=e=>e.data.size&&chunks.push(e.data);r.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:r.mimeType||'audio/webm'}),duration=Date.now()-S.recordingAt;S.recorder=null;const resp=await fetch(`/api/v1/conversations/${S.selected}/voice?durationMs=${duration}`,{method:'POST',credentials:'same-origin',headers:{'content-type':blob.type},body:blob}),p=await resp.json();if(resp.ok){append(S.selected,p.message);render()}else toast(p?.error?.message||'Ошибка записи')};r.start(250);toast('Запись началась — нажмите ещё раз, чтобы отправить.')}catch{toast('Нет доступа к микрофону.')}}
 $('#file-picker').onchange=async e=>{for(const file of e.target.files){const r=await fetch('/api/v1/files',{method:'POST',credentials:'same-origin',headers:{'content-type':file.type||'application/octet-stream','x-file-name':encodeURIComponent(file.name)},body:file}),p=await r.json();if(!r.ok){toast(p?.error?.message||'Ошибка загрузки');continue}const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({kind:'file',metadata:{fileId:p.file.id,name:file.name,mimeType:file.type,size:file.size,contentUrl:p.file.contentUrl}})});append(S.selected,message)}e.target.value='';render()};
 $$('[data-auth-mode]').forEach(b=>b.onclick=()=>setAuth(b.dataset.authMode));$('#login-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api('/api/v1/auth/login',{method:'POST',body:JSON.stringify({email:f.get('email'),password:f.get('password')})});bootstrap()}catch(x){$('#auth-error').textContent=x.message}};$('#register-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api('/api/v1/auth/register-company',{method:'POST',body:JSON.stringify({companyName:f.get('companyName'),ownerName:f.get('ownerName'),email:f.get('email'),password:f.get('password')})});bootstrap()}catch(x){$('#auth-error').textContent=x.message}};$('#accept-invite-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api('/api/v1/invitations/accept',{method:'POST',body:JSON.stringify({token:e.currentTarget.dataset.token,displayName:f.get('displayName'),password:f.get('password')})});history.replaceState({},'',location.pathname);bootstrap()}catch(x){$('#auth-error').textContent=x.message}};
