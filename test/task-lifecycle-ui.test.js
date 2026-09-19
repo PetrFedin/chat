@@ -14,4 +14,8 @@ test('task lifecycle browser surface parses and exposes execution controls',asyn
   assert.match(source,/\/api\/v1\/tasks\/\$\{task\.id\}\/schedule/);
   assert.match(source,/Ответственность → выполнение → доказательство → проверка → закрытие/);
   assert.match(source,/task\.updated/);
+  assert.match(source,/function routeFromHash\(/);
+  assert.match(source,/parts\[0\]==='tasks'/);
+  assert.match(source,/parts\[0\]==='chats'/);
+  assert.match(source,/hashchange/);
 });
