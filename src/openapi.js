@@ -212,6 +212,14 @@ export const openapi = Object.freeze({
     '/api/v1/files/{fileId}/preview': { get: { tags: ['Files'], summary: 'Preview authorized image, PDF or text content inline', responses: { '200': { description: 'Preview content' }, '404': { description: 'File not visible' }, '415': { description: 'Preview unavailable' } } } },
     '/api/v1/conversations/{conversationId}/voice': { post: { tags: ['Files', 'Messaging'], summary: 'Upload and send a voice message', responses: { '201': { description: 'Voice message created' } } } },
     '/api/v1/push-subscriptions': { post: { tags: ['Push'], summary: 'Register a Web Push subscription', responses: { '201': { description: 'Subscription stored' } } } },
-    '/ws': { get: { tags: ['Realtime'], summary: 'WebSocket upgrade endpoint for typing, presence, call and workspace events', responses: { '101': { description: 'Switching Protocols' } } } }
+    '/ws': { get: { tags: ['Realtime'], summary: 'WebSocket upgrade endpoint for typing, presence, call and workspace events', responses: { '101': { description: 'Switching Protocols' } } } },
+    '/api/v1/integrations/webhooks': {
+      get: { tags: ['Integrations'], summary: 'List outbound webhook endpoints. Signing secrets are never returned here.', responses: { '200': { description: 'Endpoints' }, '403': { description: 'Requires integration.manage' }, '503': { description: 'Requires a PostgreSQL deployment' } } },
+      post: { tags: ['Integrations'], summary: 'Register an endpoint. The signing secret is returned exactly once, in this response.', description: "topics accepts exact names, prefix patterns such as 'meeting.*', '*', or an empty list meaning every topic.", responses: { '201': { description: 'Endpoint created with its one-time secret' }, '400': { description: 'Invalid URL, label or topics' }, '403': { description: 'Requires integration.manage' } } }
+    },
+    '/api/v1/integrations/webhooks/{id}/enable': { post: { tags: ['Integrations'], summary: 'Resume delivery and reset the consecutive failure counter', responses: { '200': { description: 'Endpoint enabled' }, '404': { description: 'Endpoint not found' } } } },
+    '/api/v1/integrations/webhooks/{id}/disable': { post: { tags: ['Integrations'], summary: 'Stop delivery without discarding the delivery history', responses: { '200': { description: 'Endpoint disabled' }, '404': { description: 'Endpoint not found' } } } },
+    '/api/v1/integrations/webhooks/{id}': { delete: { tags: ['Integrations'], summary: 'Remove an endpoint and its deliveries', responses: { '204': { description: 'Endpoint removed' }, '404': { description: 'Endpoint not found' } } } },
+    '/api/v1/integrations/deliveries': { get: { tags: ['Integrations'], summary: 'Delivery log, newest first. Deliveries are at-least-once: de-duplicate on the event id.', responses: { '200': { description: 'Deliveries' }, '403': { description: 'Requires integration.manage' } } } }
   }
 });

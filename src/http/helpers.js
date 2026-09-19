@@ -9,7 +9,7 @@ export const cleanText=(value,max=500)=>{const s=String(value??'').trim();if(!s|
 export const cookies=(req)=>Object.fromEntries(String(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');return i<0?[x,'']:[x.slice(0,i),decodeURIComponent(x.slice(i+1))]}));
 export const json=(res,status,value,headers={})=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers});res.end(JSON.stringify(value))};
 export const noContent=(res,headers={})=>{res.writeHead(204,{'cache-control':'no-store',...headers});res.end()};
-export const errorJson=(res,error)=>{const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers=error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{};json(res,status,{error:{code:error.code??'BAD_REQUEST',message:status>=500?'Internal server error':error.message}},headers)};
+export const errorJson=(res,error)=>{const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers=error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{},hide=status>=500&&!error.expose;json(res,status,{error:{code:error.code??'BAD_REQUEST',message:hide?'Internal server error':error.message}},headers)};
 export const clientAddress=(req)=>String(req.headers['x-forwarded-for']??req.socket?.remoteAddress??'').split(',')[0].trim()||null;
 // camera/microphone stay permitted: the product is a calling app.
 // frameAncestors defaults to denying every embed. Set CSP_FRAME_ANCESTORS to a

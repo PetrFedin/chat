@@ -38,7 +38,9 @@
 - provider-attempt telemetry: provider/model, attempt, request usage, latency и failure state без фиксации меняющейся цены в source event;
 - Web Push infrastructure при настроенных VAPID-ключах;
 - задачи и календарные события через тот же API;
-- installable mobile-first PWA, RU/EN и dark/light themes.
+- installable mobile-first PWA, RU/EN и dark/light themes;
+- outbound webhooks: transactional outbox → подписанные HMAC-SHA256 доставки с
+  retry, dead-letter и журналом (`docs/INTEGRATIONS.md`).
 
 ## Запуск
 
@@ -49,7 +51,7 @@ npm start
 
 Откройте `http://localhost:3000` и зарегистрируйте компанию.
 
-Без `DATABASE_URL` используется in-memory development store — данные сбрасываются после рестарта. Для постоянного многопользовательского режима примените миграции `001`–`011` по порядку и задайте:
+Без `DATABASE_URL` используется in-memory development store — данные сбрасываются после рестарта. Для постоянного многопользовательского режима примените миграции `001`–`014` по порядку и задайте:
 
 ```bash
 DATABASE_URL=postgres://...
@@ -185,5 +187,26 @@ VAPID_SUBJECT=mailto:admin@example.com
 - запись валидируется в object storage до transcription, а SHA-256 фактически выбранного source сохраняется в intelligence run;
 - AI proposals не являются authoritative work: responsibility, promised date и создание task подтверждаются человеком;
 - Chat/PostgreSQL остаётся authoritative для lifecycle и work graph; LiveKit отвечает за media transport/Egress, AI provider — только за предложенную интерпретацию доказательств.
+
+## Исходящие интеграции
+
+Работа отдаётся наружу одним подписанным потоком событий, а не адаптером на
+каждую систему: Telegram-бот, CRM и корпоративный портал потребляют одну и ту
+же доставку. Endpoint регистрируется через `POST /api/v1/integrations/webhooks`
+(право `integration.manage`, то есть owner и admin), секрет показывается
+ровно один раз при создании.
+
+Доставка подписана `x-chat-signature: v1,t=<unix>,s=<hmac-sha256>` над строкой
+`<timestamp>.<raw body>`; timestamp входит в подпись, поэтому перехваченную
+доставку нельзя переиграть позже. Retry — экспоненциальный с jitter, до 6
+попыток; 4xx кроме 408/429 считается окончательным отказом получателя.
+Доставка гарантируется **как минимум один раз** — дедуплицируйте по
+`x-chat-event-id`.
+
+Без `DATABASE_URL` маршруты отвечают `503 INTEGRATIONS_UNAVAILABLE`:
+in-memory store не даёт durable-очереди, а webhook без retry хуже,
+чем его отсутствие.
+
+Подробности, схема payload и референсный верификатор — `docs/INTEGRATIONS.md`.
 
 См. `docs/ARCHITECTURE.md`, `docs/PRODUCT_BLUEPRINT.md`, `docs/MULTIUSER_RUNTIME.md`, `docs/REALTIME_MEDIA.md` и `docs/MEETING_INTELLIGENCE.md`.
