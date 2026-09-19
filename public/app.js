@@ -23,13 +23,13 @@ async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S
 async function routeFromHash(){if(!S.boot)return;const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?'),parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}}
 window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
 async function loadTasks(){try{S.tasks=(await api('/api/v1/tasks')).items||[]}catch{}}
-async function loadCalendar(){try{S.calendar=(await api('/api/v1/calendar-events')).items||[]}catch{}}
+async function loadCalendar(){await loadCalendarRange()}
 async function loadMessages(id){if(id&&!S.messages.has(id))S.messages.set(id,(await api(`/api/v1/conversations/${id}/messages`)).items||[])}
 function shell(){const s=me();$('#workspace-switcher').innerHTML=`<span class="avatar">${esc(initials(s.organizationName))}</span><span><strong>${esc(s.organizationName)}</strong><small>${esc(s.workspaceName)}</small></span><span class="muted">⌄</span>`;$('#profile-card').innerHTML=`<span class="avatar dark">${esc(initials(s.displayName))}</span><span><strong>${esc(s.displayName)}</strong><small>${esc(s.role)}</small></span><span class="presence-dot online"></span>`;$('#top-avatar').textContent=initials(s.displayName);navs();lists()}
 function navs(){const html=nav.map(([id,i,l])=>`<button class="nav-item pressable ${S.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${i}</span><span>${l}</span></button>`).join('');$('#desktop-nav').innerHTML=$('#mobile-nav').innerHTML=html}
 function lists(){const channels=S.conversations.filter(c=>['channel','team','project'].includes(c.kind)),dm=S.conversations.filter(c=>['direct','group'].includes(c.kind));$('#channel-list').innerHTML=channels.map(c=>side(c,'#')).join('');$('#direct-list').innerHTML=dm.map(c=>side(c,'')).join('')}
 function side(c,prefix){return `<button class="sidebar-row pressable ${S.selected===c.id?'active':''}" data-conversation="${c.id}"><span>${prefix||'<span class="presence-dot online"></span>'}</span><span class="label">${esc(c.title||'Диалог')}</span></button>`}
-function render(){navs();lists();$('#screen-title').textContent=nav.find(x=>x[0]===S.view)?.[2]||'Chat';$('#eyebrow').textContent=(me()?.organizationName||'Компания').toUpperCase();$('#screen').innerHTML=({today,chats,tasks,calendar,more})[S.view]();bind()}
+function render(){navs();lists();$('#screen-title').textContent=nav.find(x=>x[0]===S.view)?.[2]||'Chat';$('#eyebrow').textContent=(me()?.organizationName||'Компания').toUpperCase();$('#screen').innerHTML=({today,chats,tasks,calendar,more})[S.view]();bind();bindCalendar()}
 function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','cancelled'].includes(t.status)),events=S.calendar.filter(e=>Date.parse(e.startAt)>Date.now()-3600000).slice(0,4);return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker">${esc(new Intl.DateTimeFormat('ru',{weekday:'long',day:'numeric',month:'long'}).format(new Date()).toUpperCase())}</p><h2>${new Date().getHours()<12?'Доброе утро':new Date().getHours()<18?'Добрый день':'Добрый вечер'}, ${esc((me().displayName||'').split(' ')[0])}</h2><div class="quick-bar"><input placeholder="Сообщение, задача или встреча…"><button data-action="quick" class="button primary small pressable">Создать</button></div></section><section class="surface"><div class="section-head"><div><h2>Расписание дня</h2><p class="muted">Встречи и рабочее время</p></div><button data-action="event" class="button secondary small pressable">＋ Событие</button></div>${events.length?events.map(e=>`<div class="agenda-row"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(e.kind)}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></div>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или focus time.</div>'}</section><section class="surface"><div class="section-head"><h2>Мои задачи</h2><button data-action="task" class="button secondary small pressable">＋ Задача</button></div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section></div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>активных задач</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>сотрудников</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>диалогов</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
 function convRow(c){return `<button class="conversation-card pressable" data-open="${c.id}"><span class="avatar dark">${c.kind==='channel'?'#':esc(initials(c.title||'D'))}</span><span><strong>${esc(c.title||'Диалог')}</strong><div class="preview">${esc(c.lastMessage?.body||kindLabel(c.lastMessage?.kind)||c.purpose||'Открыть разговор')}</div></span><span class="time">${time(c.lastMessage?.createdAt)}</span></button>`}
 const TASK_STATUS={proposed:'Ожидает принятия',accepted:'Принята',scheduled:'Запланирована',in_progress:'В работе',blocked:'Заблокирована',in_review:'На проверке',accepted_result:'Результат принят',closed:'Закрыта',rejected:'Отклонена',cancelled:'Отменена',deferred:'Отложена',clarify:'Нужно уточнение',inbox:'Входящая'};
@@ -39,7 +39,147 @@ function kindLabel(k){return({voice:'Голосовое сообщение',file
 function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><h2>Диалоги</h2><button data-action="dm" class="round-button pressable">＋</button></div>${S.conversations.map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="pins" class="round-button pressable" title="Закреплённые">⌖</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}">${muted?'🔔':'🔕'}</button><button data-action="archive" class="round-button pressable" title="Архивировать">⌑</button>${c.kind!=='direct'?'<button data-action="members" class="round-button pressable" title="Участники">◎</button>':''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок">⌕</button><button data-action="video" class="round-button pressable" title="Видеозвонок">◉</button></div></header><div id="message-stream" class="message-stream">${messages.map(message).join('')||'<div class="empty"><strong>Начните разговор</strong></div>'}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable">◖</button><button data-action="send" class="composer-button send pressable">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
 function message(m){const reactions=(m.reactions||[]).reduce((a,r)=>(a[r.reaction]=(a[r.reaction]||0)+1,a),{}),deleted=Boolean(m.deletedAt),canDelete=m.authorId===me().userId||can('message.delete.any');return `<article class="message-item" data-message-row="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><div><div class="message-meta"><span class="message-author">${esc(m.authorId===me().userId?'Вы':name(m.authorId))}</span><span class="message-time">${time(m.createdAt)}${m.editedAt?' · изменено':''}${m.pinned?' · закреплено':''}${m.saved?' · сохранено':''}</span></div>${m.forwardedFrom?(m.forwardedFrom.restricted?'<div class="row-sub">↪ Пересланное сообщение</div>':`<button class="reaction-button" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">↪ Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`):''}${deleted?'<p class="muted">Сообщение удалено</p>':m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`:m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`:`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`}${deleted?'':`<div class="inline-actions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}<button class="reaction-button" data-react="👍" data-message="${m.id}">＋👍</button><button class="reaction-button" data-reply="${m.id}">Ответить</button><button class="reaction-button" data-message-save="${m.id}" data-saved="${m.saved?'1':'0'}">${m.saved?'Убрать из сохранённых':'Сохранить'}</button><button class="reaction-button" data-message-forward="${m.id}">Переслать</button><button class="reaction-button" data-message-pin="${m.id}" data-pinned="${m.pinned?'1':'0'}">${m.pinned?'Открепить':'Закрепить'}</button><button class="reaction-button" data-task-message="${m.id}">В задачу</button>${m.authorId===me().userId&&m.kind==='text'&&!m.forwarded?`<button class="reaction-button" data-message-edit="${m.id}">Изменить</button>`:''}${canDelete?`<button class="reaction-button" data-message-delete="${m.id}">Удалить</button>`:''}</div>`}</div></article>`}
 function tasks(){return `<section class="surface"><div class="section-head"><div><p class="muted">Ответственность → выполнение → доказательство → проверка → закрытие</p></div><button data-action="task" class="button primary small pressable">＋ Задача</button></div><div class="task-list">${S.tasks.map(taskRow).join('')||'<div class="empty"><strong>Ничего не потеряется</strong>Создайте задачу вручную или из сообщения.</div>'}</div></section>`}
-function calendar(){const d=new Date(),days=Array.from({length:7},(_,i)=>new Date(d.getFullYear(),d.getMonth(),d.getDate()-d.getDay()+1+i));return `<section class="surface"><div class="calendar-toolbar"><div><p class="kicker">НЕДЕЛЯ</p><h2>${esc(new Intl.DateTimeFormat('ru',{month:'long',year:'numeric'}).format(d))}</h2></div><button data-action="event" class="button primary small pressable">＋ Событие</button></div><div class="week-strip">${days.map(x=>`<div class="day-chip ${x.toDateString()===d.toDateString()?'today':''}"><span>${esc(new Intl.DateTimeFormat('ru',{weekday:'short'}).format(x))}</span><strong>${x.getDate()}</strong></div>`).join('')}</div></section><div class="calendar-list" style="margin-top:10px">${S.calendar.map(e=>`<div class="calendar-event"><strong>${time(e.startAt)}</strong><span class="event-line"></span><div><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(e.kind)}</div></div><span class="chip warm">${e.endAt?time(e.endAt):'Событие'}</span></div>`).join('')||'<div class="surface empty"><strong>Календарь свободен</strong></div>'}</div>`}
+function calendar(){
+  const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
+  const base=new Date(c.cursor);
+  const fmt=(o)=>new Intl.DateTimeFormat('ru',o);
+  const sameDay=(a,b)=>a.toDateString()===b.toDateString();
+  const today=new Date();
+  const dayKey=(d)=>`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  const eventsOn=(d)=>(S.calendar||[]).filter(e=>sameDay(new Date(e.startAt),d));
+  // An event still awaiting this person's answer pulses: the grid is where a
+  // missed invitation actually costs something.
+  const dot=(e)=>`<i class="cal-dot ${e.needsMyAnswer?'pending':esc(e.kind)}"></i>`;
+  const header=()=>{
+    const label=c.view==='day'?fmt({day:'numeric',month:'long',year:'numeric'}).format(base)
+      :c.view==='week'?`${fmt({day:'numeric',month:'short'}).format(weekStart())} — ${fmt({day:'numeric',month:'short',year:'numeric'}).format(new Date(weekStart().getTime()+6*864e5))}`
+      :fmt({month:'long',year:'numeric'}).format(base);
+    return `<div class="calendar-toolbar">
+      <div><p class="kicker">КАЛЕНДАРЬ</p><h2>${esc(label)}</h2></div>
+      <button data-action="event" class="button primary small pressable">＋ Событие</button>
+    </div>
+    <div class="cal-controls">
+      <div class="cal-switch">${['day','week','month'].map(v=>`<button class="cal-tab ${c.view===v?'active':''}" data-cal-view="${v}">${v==='day'?'День':v==='week'?'Неделя':'Месяц'}</button>`).join('')}</div>
+      <div class="cal-nav"><button data-cal-step="-1" class="round-button pressable" aria-label="Назад">‹</button><button data-cal-today class="button secondary small pressable">Сегодня</button><button data-cal-step="1" class="round-button pressable" aria-label="Вперёд">›</button></div>
+    </div>`;
+  };
+  function weekStart(){const d=new Date(base);const shift=(d.getDay()+6)%7;d.setDate(d.getDate()-shift);d.setHours(0,0,0,0);return d}
+
+  let grid='';
+  if(c.view==='month'){
+    const first=new Date(base.getFullYear(),base.getMonth(),1);
+    const start=new Date(first);start.setDate(1-((first.getDay()+6)%7));
+    const cells=Array.from({length:42},(_,i)=>new Date(start.getFullYear(),start.getMonth(),start.getDate()+i));
+    grid=`<div class="cal-month">${['Пн','Вт','Ср','Чт','Пт','Сб','Вс'].map(d=>`<span class="cal-weekday">${d}</span>`).join('')}
+      ${cells.map(d=>{const list=eventsOn(d);const out=d.getMonth()!==base.getMonth();
+        return `<button class="cal-cell ${out?'muted-cell':''} ${sameDay(d,today)?'today':''} ${c.selected===dayKey(d)?'chosen':''}" data-cal-day="${d.toISOString()}">
+          <span class="cal-daynum">${d.getDate()}</span>
+          <span class="cal-dots">${list.slice(0,4).map(dot).join('')}${list.length>4?`<i class="cal-more">+${list.length-4}</i>`:''}</span>
+        </button>`}).join('')}</div>`;
+  } else if(c.view==='week'){
+    const days=Array.from({length:7},(_,i)=>new Date(weekStart().getTime()+i*864e5));
+    grid=`<div class="cal-week">${days.map(d=>{const list=eventsOn(d);
+      return `<button class="cal-daycol ${sameDay(d,today)?'today':''} ${c.selected===dayKey(d)?'chosen':''}" data-cal-day="${d.toISOString()}">
+        <span class="cal-wd">${esc(fmt({weekday:'short'}).format(d))}</span>
+        <strong>${d.getDate()}</strong>
+        <span class="cal-dots">${list.slice(0,3).map(dot).join('')}${list.length>3?`<i class="cal-more">+${list.length-3}</i>`:''}</span>
+      </button>`}).join('')}</div>`;
+  }
+
+  // The list under the grid follows the grid: the visible week or month, or a
+  // single day once one is picked. Showing the whole loaded window would put
+  // next month's meetings under this week.
+  const inPeriod=(e)=>{
+    const d=new Date(e.startAt);
+    if(c.view==='day')return sameDay(d,base);
+    if(c.view==='week'){const s0=weekStart();return d>=s0&&d<new Date(s0.getTime()+7*864e5)}
+    return d.getMonth()===base.getMonth()&&d.getFullYear()===base.getFullYear();
+  };
+  const shown=(S.calendar||[]).filter(e=>c.selected?dayKey(new Date(e.startAt))===c.selected:inPeriod(e));
+  const heading=c.selected?'Выбранный день':(c.view==='day'?'События дня':c.view==='week'?'События недели':'События месяца');
+  const rows=shown.length?shown.map(e=>`<button class="calendar-event pressable ${e.needsMyAnswer?'needs-answer':''}" data-cal-event="${esc(e.id)}">
+      <strong>${e.allDay?'весь день':esc(time(e.startAt))}</strong><span class="event-line"></span>
+      <div><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(KIND_LABEL[e.kind]||e.kind)}${e.participantCount?` · ${e.participantCount} участн.`:''}${e.fileCount?` · ${e.fileCount} файл.`:''}</div></div>
+      ${e.needsMyAnswer?'<span class="chip pulse">нужен ответ</span>':`<span class="chip warm">${e.endAt?esc(time(e.endAt)):'—'}</span>`}
+    </button>`).join(''):'<div class="surface empty"><strong>Здесь пусто</strong></div>';
+
+  return `<section class="surface">${header()}${grid}</section>
+    <h3 class="person-section">${esc(heading)}</h3>
+    <div class="calendar-list">${rows}</div>`;
+}
+const KIND_LABEL={meeting:'Встреча',focus:'Фокус',task_block:'Работа над задачей',deadline:'Дедлайн',reminder:'Напоминание',milestone:'Веха',other:'Событие'};
+
+// Bindings for the calendar grid, re-attached on every render.
+function bindCalendar(){
+  const c=S.cal;if(!c)return;
+  $$('[data-cal-view]').forEach(b=>b.onclick=()=>{c.view=b.dataset.calView;c.selected=null;render()});
+  $$('[data-cal-step]').forEach(b=>b.onclick=async()=>{
+    const step=Number(b.dataset.calStep),d=new Date(c.cursor);
+    if(c.view==='month')d.setMonth(d.getMonth()+step);
+    else if(c.view==='week')d.setDate(d.getDate()+7*step);
+    else d.setDate(d.getDate()+step);
+    c.cursor=d;c.selected=null;await loadCalendarRange();render();
+  });
+  const todayButton=$('[data-cal-today]');
+  if(todayButton)todayButton.onclick=async()=>{c.cursor=new Date();c.selected=null;await loadCalendarRange();render()};
+  $$('[data-cal-day]').forEach(b=>b.onclick=()=>{
+    const d=new Date(b.dataset.calDay);
+    if(c.view==='day'){c.cursor=d}else{const key=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;c.selected=c.selected===key?null:key}
+    render();
+  });
+  $$('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
+}
+
+// Load a window wide enough for the current view, so the grid never shows a
+// month with events missing from its edges.
+async function loadCalendarRange(){
+  const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
+  const from=new Date(c.cursor),to=new Date(c.cursor);
+  from.setDate(from.getDate()-45);to.setDate(to.getDate()+45);
+  try{S.calendar=(await api(`/api/v1/calendar-events?from=${from.toISOString()}&to=${to.toISOString()}`)).items||[]}catch{}
+}
+
+const RESPONSE_LABEL={invited:'ждёт ответа',accepted:'придёт',tentative:'под вопросом',declined:'не придёт'};
+async function eventPage(id){
+  let event;
+  try{event=(await api(`/api/v1/calendar-events/${id}`)).event}
+  catch(error){toast(error.code==='CALENDAR_UNAVAILABLE'?'Детали встречи доступны в режиме с базой данных':error.message);return}
+  const range=`${esc(dateTime(event.startAt))}${event.endAt?` — ${esc(time(event.endAt))}`:''}`;
+  const people=event.participants.length
+    ? event.participants.map(p=>`<div class="person-event"><span>${esc(p.displayName||'—')}${p.optional?' · необязательно':''}${p.note?` — ${esc(p.note)}`:''}</span><span class="chip ${p.response==='invited'?'pulse':'warm'}">${esc(RESPONSE_LABEL[p.response])}</span></div>`).join('')
+    : '<p class="muted">Участники не приглашены.</p>';
+  const files=event.files.length
+    ? event.files.map(f=>`<a class="person-event" href="/api/v1/files/${esc(f.id)}/content" target="_blank" rel="noopener"><span>${esc(f.name)}</span><time>${esc(String(f.sizeBytes))} Б</time></a>`).join('')
+    : '<p class="muted">Вложений нет.</p>';
+  const answer=event.myResponse?`<div class="stack" style="margin-top:12px">
+      <div class="cal-answer">${['accepted','tentative','declined'].map(r=>`<button class="button ${event.myResponse===r?'primary':'secondary'} small" data-answer="${r}">${r==='accepted'?'Приду':r==='tentative'?'Под вопросом':'Не приду'}</button>`).join('')}</div>
+    </div>`:'';
+
+  modal(event.title,`
+    <div class="person-fields">
+      <div class="person-field"><span>Когда</span><strong>${range}</strong></div>
+      <div class="person-field"><span>Тип</span><strong>${esc(KIND_LABEL[event.kind]||event.kind)}</strong></div>
+      <div class="person-field"><span>Организатор</span><strong>${esc(event.ownerName||'—')}</strong></div>
+      ${event.conversationTitle?`<div class="person-field"><span>Беседа</span><strong>${esc(event.conversationTitle)}</strong></div>`:''}
+      ${event.commitmentTitle?`<div class="person-field"><span>Задача</span><strong>${esc(event.commitmentTitle)}</strong></div>`:''}
+    </div>
+    ${event.description?`<p class="person-about">${esc(event.description)}</p>`:''}
+    ${event.needsMyAnswer?'<p class="cal-callout">Организатор ждёт вашего подтверждения.</p>':''}
+    ${answer}
+    <h3 class="person-section">Участники — ${event.participants.length}</h3><div class="person-feed">${people}</div>
+    <h3 class="person-section">Материалы</h3><div class="person-feed">${files}</div>
+  `,()=>{
+    $$('[data-answer]').forEach(b=>b.onclick=async()=>{
+      try{
+        await api(`/api/v1/calendar-events/${id}/respond`,{method:'POST',body:JSON.stringify({response:b.dataset.answer})});
+        toast('Ответ отправлен');
+        history.back();
+        await loadCalendarRange();render();
+      }catch(error){toast(error.message)}
+    });
+  });
+}
+
 function more(){return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button><button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button><button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button><button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button><button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и screen share</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){$$('[data-nav]').forEach(b=>b.onclick=()=>go(b.dataset.nav));$$('[data-conversation],[data-open]').forEach(b=>b.onclick=()=>openChat(b.dataset.conversation||b.dataset.open));$$('[data-action]').forEach(b=>b.onclick=()=>action(b.dataset.action));$$('[data-react]').forEach(b=>b.onclick=()=>react(b.dataset.message,b.dataset.react));$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-pin]').forEach(b=>b.onclick=()=>togglePin(b.dataset.messagePin,b.dataset.pinned!=='1'));$$('[data-message-forward]').forEach(b=>b.onclick=()=>forwardModal(b.dataset.messageForward));$$('[data-forward-origin-conversation]').forEach(b=>b.onclick=()=>openChatAtMessage(b.dataset.forwardOriginConversation,b.dataset.forwardOriginMessage));$$('[data-message-edit]').forEach(b=>b.onclick=()=>editMessageModal(b.dataset.messageEdit));$$('[data-message-delete]').forEach(b=>b.onclick=()=>deleteMessageModal(b.dataset.messageDelete));$$('[data-task-message]').forEach(b=>b.onclick=()=>taskModal(b.dataset.taskMessage));$$('[data-task-open]').forEach(b=>b.onclick=()=>openTask(b.dataset.taskOpen));const input=$('#message-input');if(input){input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};input.oninput=typing;requestAnimationFrame(()=>{$('#message-stream')?.scrollTo(0,999999)})}}
 function go(v){S.view=v;if(v!=='chats')S.mobileChat=false;render()}

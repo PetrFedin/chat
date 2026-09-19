@@ -64,6 +64,8 @@ jobs:
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/013_message_work_actions.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/014_integration_delivery.sql
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/015_org_structure.sql
+          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/016_people_directory.sql
+          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/017_calendar_participation.sql
       - name: Verify core constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_core.sql
       - name: Verify collaboration constraints
@@ -114,6 +116,10 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
         run: node --test test/postgres-meeting-ops-cost-control.test.js
+      - name: Verify calendar participation Postgres runtime
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
+        run: node --test test/postgres-calendar-participation.test.js
       - name: Verify org structure constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_org_structure.sql
       - name: Verify org structure Postgres runtime

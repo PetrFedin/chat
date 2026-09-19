@@ -48,3 +48,40 @@
 .field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
 .field input,.field textarea{border:1px solid var(--line);border-radius:12px;background:var(--surface-2);color:var(--text);padding:9px 11px;font:inherit;font-size:14px;outline:0}
 .field input:focus-visible,.field textarea:focus-visible{border-color:var(--warm)}
+
+/* Calendar: day, week and month over the same data. A pulsing mark means the
+   organiser is waiting on this viewer — the one calendar signal that costs
+   something when it is missed. */
+.cal-controls{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:12px 0 4px}
+.cal-switch{display:flex;gap:4px;padding:3px;background:var(--surface-2);border:1px solid var(--line);border-radius:12px}
+.cal-tab{min-height:30px;padding:4px 12px;border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:12px;font-weight:600;cursor:pointer}
+.cal-tab.active{background:var(--surface-3);color:var(--text)}
+.cal-nav{display:flex;align-items:center;gap:6px}
+.cal-month{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-top:12px}
+.cal-weekday{font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2);text-align:center;padding-bottom:4px}
+.cal-cell{min-height:52px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 2px;border:1px solid transparent;border-radius:11px;background:var(--surface-2);color:var(--text);cursor:pointer}
+.cal-cell.muted-cell{background:transparent;color:var(--muted-2)}
+.cal-cell.today{border-color:var(--warm)}
+.cal-cell.chosen{background:var(--surface-3);border-color:var(--line)}
+.cal-daynum{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.cal-week{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:12px}
+.cal-daycol{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 2px;border:1px solid transparent;border-radius:13px;background:var(--surface-2);color:var(--text);cursor:pointer}
+.cal-daycol.today{border-color:var(--warm)}
+.cal-daycol.chosen{background:var(--surface-3);border-color:var(--line)}
+.cal-wd{font-size:10px;text-transform:uppercase;color:var(--muted-2)}
+.cal-daycol strong{font-size:15px;font-variant-numeric:tabular-nums}
+.cal-dots{display:flex;align-items:center;gap:3px;min-height:8px;flex-wrap:wrap;justify-content:center}
+.cal-dot{width:5px;height:5px;border-radius:50%;background:var(--muted)}
+.cal-dot.meeting{background:var(--warm)}
+.cal-dot.deadline{background:var(--danger)}
+.cal-dot.focus{background:var(--success)}
+.cal-more{font-size:9px;color:var(--muted-2);font-style:normal}
+.cal-dot.pending,.chip.pulse{background:var(--warning)}
+.chip.pulse{color:#141210;font-weight:700}
+.calendar-event.needs-answer{border-color:var(--warning)}
+.cal-callout{margin:12px 0 0;padding:9px 12px;border-radius:12px;background:var(--warm-soft);color:var(--text);font-size:13px}
+.cal-answer{display:flex;gap:6px;flex-wrap:wrap}
+@media (prefers-reduced-motion: no-preference){
+  .cal-dot.pending,.chip.pulse{animation:cal-pulse 1.8s ease-in-out infinite}
+  @keyframes cal-pulse{0%,100%{opacity:1}50%{opacity:.45}}
+}
