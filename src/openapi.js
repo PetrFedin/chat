@@ -220,6 +220,20 @@ export const openapi = Object.freeze({
     '/api/v1/integrations/webhooks/{id}/enable': { post: { tags: ['Integrations'], summary: 'Resume delivery and reset the consecutive failure counter', responses: { '200': { description: 'Endpoint enabled' }, '404': { description: 'Endpoint not found' } } } },
     '/api/v1/integrations/webhooks/{id}/disable': { post: { tags: ['Integrations'], summary: 'Stop delivery without discarding the delivery history', responses: { '200': { description: 'Endpoint disabled' }, '404': { description: 'Endpoint not found' } } } },
     '/api/v1/integrations/webhooks/{id}': { delete: { tags: ['Integrations'], summary: 'Remove an endpoint and its deliveries', responses: { '204': { description: 'Endpoint removed' }, '404': { description: 'Endpoint not found' } } } },
+    '/api/v1/labels': {
+      get: { tags: ['Labels'], summary: 'Shared vocabulary plus this person\u2019s own labels', description: "One mechanism behind importance, tags and folders: they differ in presentation and in whether more than one may apply at a time, not in substance. Filter with ?kind=priority|tag|folder|status.", responses: { '200': { description: 'Labels with usage counts' }, '503': { description: 'Requires a PostgreSQL deployment' } } },
+      post: { tags: ['Labels'], summary: 'Create a label', description: 'kind priority is exclusive on a target; tag and folder accumulate. Only folders nest. A label with personal:true belongs to its creator and is unreachable for anybody else, even by id. Shared names are unique per kind, case-insensitively.', responses: { '201': { description: 'Label created' }, '409': { description: 'LABEL_NESTING_NOT_ALLOWED or a duplicate shared name' } } }
+    },
+    '/api/v1/labels/{id}': {
+      patch: { tags: ['Labels'], summary: 'Rename, recolour, re-describe or reorder', responses: { '200': { description: 'Label updated' }, '404': { description: 'Not yours and not shared' } } },
+      delete: { tags: ['Labels'], summary: 'Delete the label and every mark it made', responses: { '204': { description: 'Deleted' } } }
+    },
+    '/api/v1/labels/{id}/links/{targetType}/{targetId}': {
+      put: { tags: ['Labels'], summary: 'Put the label on a message, file, task, event, conversation, person or note', description: 'Applying an importance replaces whichever importance was on the object. The target must already be visible to the caller: a label never widens access.', responses: { '200': { description: 'Applied' }, '404': { description: 'LABEL_NOT_FOUND or TARGET_NOT_FOUND' } } },
+      delete: { tags: ['Labels'], summary: 'Take the label off', responses: { '204': { description: 'Removed' }, '404': { description: 'LABEL_NOT_APPLIED' } } }
+    },
+    '/api/v1/labels/{id}/targets': { get: { tags: ['Labels'], summary: 'Everything carrying this label', description: 'Visibility is re-checked per row rather than trusted from the link table, so a label cannot surface an object the viewer lost access to.', responses: { '200': { description: 'Targets with readable titles' } } } },
+    '/api/v1/labelled/{targetType}/{targetId}': { get: { tags: ['Labels'], summary: 'What is on one object, importance first', responses: { '200': { description: 'Labels on the target' } } } },
     '/api/v1/calendar-events/{id}': {
       get: { tags: ['Calendar'], summary: 'One event with participants, answers and attachments', responses: { '200': { description: 'Event detail' }, '404': { description: 'Not visible to you' } } },
       patch: { tags: ['Calendar'], summary: 'Edit the event; moving it re-asks everyone', description: 'Organiser only. Changing startAt or endAt resets every answer to invited and notifies the attendees: an answer to the old time is not an answer to the new one.', responses: { '200': { description: 'Event updated' }, '403': { description: 'Not the organiser' }, '400': { description: 'The event must end after it starts' } } },
