@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { PostgresStore } from '../src/persistence/store.js';
 import { hashPassword, hashToken } from '../src/security.js';
+import { createLabelRepository } from '../src/labels/label-repository.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 
@@ -107,5 +108,40 @@ test('guest containment', { skip: databaseUrl ? false : 'DATABASE_URL is not set
     const ownerSees = (await store.listCalendar(owner)).map((e) => e.title);
     assert.ok(!ownerSees.includes('Not your business'), 'visibility is enforced, not merely stored');
     assert.ok((await store.listCalendar(staff)).some((e) => e.title === 'Not your business'), 'the owner of the block still sees it');
+  });
+
+  // The shared label vocabulary names internal things — an object, a client, a
+  // stage of work. The staff directory and the org chart are already kept away
+  // from a guest; the company's words are the same kind of asset.
+  await t.test('a guest reaches no part of the company label vocabulary', async () => {
+    const { owner, guest } = await build();
+    const labels = createLabelRepository(pool, store);
+    const room = await store.createConversation(owner, { kind: 'external', title: 'С заказчиком', visibility: 'private', participantIds: [guest.userId] });
+
+    const shared = await labels.createLabel(owner, { kind: 'tag', name: `объект-${randomUUID().slice(0, 6)}` });
+    const priority = await labels.createLabel(owner, { kind: 'priority', name: `важно-${randomUUID().slice(0, 6)}` });
+    const own = await labels.createLabel(guest, { kind: 'tag', name: 'моя пометка', personal: true });
+
+    assert.deepEqual((await labels.listLabels(guest)).map((l) => l.id), [own.id], 'гость видит словарь компании');
+    assert.ok((await labels.listLabels(owner)).some((l) => l.id === shared.id), 'сотрудник потерял общие метки');
+
+    const message = await store.createMessage(owner, room.id, { kind: 'text', body: 'Когда отчёт?', clientRequestId: randomUUID() });
+
+    // Knowing the id is not access.
+    await assert.rejects(
+      () => labels.apply(guest, shared.id, 'message', message.id),
+      (error) => error.code === 'LABEL_NOT_FOUND',
+      'гость повесил общую метку компании',
+    );
+
+    // A staff member's triage of a message in the shared room stays internal.
+    await labels.apply(owner, priority.id, 'message', message.id);
+    await labels.apply(guest, own.id, 'message', message.id);
+    assert.deepEqual((await labels.labelsOf(guest, 'message', message.id)).map((l) => l.id), [own.id],
+      'гость читает внутреннюю пометку');
+
+    // Importance is exclusive, but the guest's own must not strip the company's.
+    assert.ok((await labels.labelsOf(owner, 'message', message.id)).some((l) => l.id === priority.id),
+      'личная важность гостя стёрла общую');
   });
 });

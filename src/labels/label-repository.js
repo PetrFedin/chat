@@ -45,9 +45,13 @@ export function createLabelRepository(pool, store = null) {
    * else must behave as if it does not exist, so a personal folder name is
    * not discoverable by probing ids.
    */
+  // A guest reaches only labels of their own; everyone on the staff also sees
+  // the shared vocabulary. Kept in one place so the list and the apply agree.
+  const ownScope = (session) => (session.role === 'guest' ? 'owner_id=$3' : '(owner_id IS NULL OR owner_id=$3)');
+
   const loadLabel = async (client, session, id) => {
     const { rows } = await client.query(
-      'SELECT * FROM labels WHERE workspace_id=$1 AND id=$2 AND (owner_id IS NULL OR owner_id=$3) FOR UPDATE',
+      `SELECT * FROM labels WHERE workspace_id=$1 AND id=$2 AND ${ownScope(session)} FOR UPDATE`,
       [session.workspaceId, id, session.userId],
     );
     if (!rows[0]) throw fail('Label not found', 'LABEL_NOT_FOUND', 404);
@@ -80,7 +84,7 @@ export function createLabelRepository(pool, store = null) {
       const { rows } = await pool.query(
         `SELECT l.*, (SELECT count(*) FROM label_links k WHERE k.workspace_id=l.workspace_id AND k.label_id=l.id) usage
          FROM labels l
-         WHERE l.workspace_id=$1 AND (l.owner_id IS NULL OR l.owner_id=$2) AND ($3::text IS NULL OR l.kind=$3)
+         WHERE l.workspace_id=$1 AND ${session.role === 'guest' ? 'l.owner_id=$2' : '(l.owner_id IS NULL OR l.owner_id=$2)'} AND ($3::text IS NULL OR l.kind=$3)
          ORDER BY l.kind, l.position, lower(l.name)`,
         [session.workspaceId, session.userId, kind],
       );
@@ -141,7 +145,7 @@ export function createLabelRepository(pool, store = null) {
             `DELETE FROM label_links k USING labels l
              WHERE k.workspace_id=$1 AND k.target_type=$2 AND k.target_id=$3
                AND l.workspace_id=k.workspace_id AND l.id=k.label_id AND l.kind='priority'
-               AND (l.owner_id IS NULL OR l.owner_id=$4)`,
+               AND ${session.role === 'guest' ? 'l.owner_id=$4' : '(l.owner_id IS NULL OR l.owner_id=$4)'}`,
             [session.workspaceId, targetType, targetId, session.userId],
           );
         }
@@ -172,7 +176,7 @@ export function createLabelRepository(pool, store = null) {
         `SELECT l.*, k.applied_by "appliedBy", k.created_at "appliedAt"
          FROM label_links k JOIN labels l ON l.workspace_id=k.workspace_id AND l.id=k.label_id
          WHERE k.workspace_id=$1 AND k.target_type=$2 AND k.target_id=$3
-           AND (l.owner_id IS NULL OR l.owner_id=$4)
+           AND ${session.role === 'guest' ? 'l.owner_id=$4' : '(l.owner_id IS NULL OR l.owner_id=$4)'}
          ORDER BY CASE l.kind WHEN 'priority' THEN 0 WHEN 'status' THEN 1 WHEN 'folder' THEN 2 ELSE 3 END, l.position, lower(l.name)`,
         [session.workspaceId, targetType, targetId, session.userId],
       );
