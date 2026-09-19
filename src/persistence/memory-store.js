@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
+import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskReassignAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
 import { GUEST_ROLE } from './visibility.js';
 import { compareTasks, encodeTaskCursor, decodeTaskCursor, taskPageSize } from '../task/task-page.js';
 
@@ -135,7 +135,7 @@ export class MemoryStore {
       .map((conversation)=>{
         const list=this.messages.get(conversation.id)??[],lastMessage=[...list].reverse().find(message=>!message.deletedAt)??null;
         const member=this.conversationMembers.get(this.conversationMemberKey(conversation.id,session.userId));
-        return {...clone(conversation),lastMessage:clone(lastMessage),unreadCount:0,archivedAt:member?.archivedAt??null,mutedUntil:member?.mutedUntil??null};
+        return {...clone(conversation),lastMessage:clone(lastMessage),unreadCount:0,archivedAt:member?.archivedAt??null,mutedUntil:member?.mutedUntil??null,memberRole:member?.role??null};
       });
   }
 
@@ -191,6 +191,15 @@ export class MemoryStore {
   }
 
   async addConversationMembers(session, conversationId, userIds, role='member') {
+    const room=this.conversations.get(conversationId);
+    // A room whose visibility is «the whole company» is exactly the room an outsider must not be in: everyone writing there is addressing colleagues.
+    // Put the client in a room made for them instead.
+    if(room&&['workspace','organization'].includes(room.visibility)){
+      for(const userId of userIds){
+        const membership=this.memberships.get(this.membershipKey(session.workspaceId,userId));
+        if(membership?.role==='guest')throw Object.assign(new Error('A guest cannot be placed in a company-wide room'),{code:'GUEST_NOT_IN_OPEN_ROOM',statusCode:409});
+      }
+    }
     if (['owner', 'moderator'].includes(role) && userIds.some((id) => this.memberships.get(this.membershipKey(session.workspaceId, id))?.role === 'guest')) {
       throw Object.assign(new Error('A guest cannot run a conversation'), { code: 'GUEST_CANNOT_OWN_ROOM', statusCode: 409 });
     }
@@ -234,6 +243,20 @@ export class MemoryStore {
     if (stillOwned) throw Object.assign(new Error('This conversation still has an owner'), { code: 'CONVERSATION_HAS_OWNER', statusCode: 409 });
     this.conversationMembers.set(this.conversationMemberKey(id, session.userId), { conversationId: id, workspaceId: session.workspaceId, userId: session.userId, role: 'owner' });
     return { claimed: true, conversationId: id };
+  }
+
+  // A room's name, its purpose and whether it is announcement-only were fixed
+  // at creation and could never be corrected.
+  async updateConversation(session, conversationId, patch) {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) {
+      throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
+    }
+    if (patch.title !== undefined) conversation.title = patch.title;
+    if (patch.purpose !== undefined) conversation.purpose = patch.purpose;
+    if (patch.announcementOnly !== undefined) conversation.announcementOnly = patch.announcementOnly;
+    conversation.updatedAt = nowIso();
+    return clone(conversation);
   }
 
   async removeConversationMember(session, conversationId, userId) {
@@ -511,6 +534,30 @@ export class MemoryStore {
       const acceptances=this.taskAcceptances.get(id)??[];acceptances.push(acceptance);this.taskAcceptances.set(id,acceptances);
     }
     this.taskAuditAppend(row,'commitment.transitioned',session.userId,{from:previous,to,reason:decision.reason});
+    return this.taskView(session,row);
+  }
+
+  /**
+   * Hand the commitment to somebody else. The cure used to be «cancel and
+   * make a new one», which threw away the evidence and the audit chain.
+   */
+  async reassignTask(session,id,{ownerId=null,acceptorId=null,reason,expectedVersion}){
+    const row=this.tasks.get(id);
+    if(!row||!canViewTask(row,session))throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});
+    for(const userId of [ownerId,acceptorId].filter(Boolean)){
+      this.assertConversationUser(session,userId);
+      const membership=this.memberships.get(this.membershipKey(session.workspaceId,userId));
+      if(membership?.role===GUEST_ROLE)throw Object.assign(new Error('A guest cannot carry a commitment'),{code:'GUEST_CANNOT_HOLD_TASK',statusCode:400});
+    }
+    const next=assertTaskReassignAuthority(row,session,{expectedVersion,reason,ownerId,acceptorId});
+    // Spreading the old values and then writing the new ones over the same
+    // keys recorded only the new ones: the journal lost who used to hold it,
+    // which is the one fact a reassignment entry exists to keep.
+    const previous={previousOwnerId:row.ownerId,previousAcceptorId:row.acceptorId,previousStatus:row.status};
+    row.ownerId=next.ownerId;row.acceptorId=next.acceptorId;
+    if(next.resetToProposed)row.status='proposed';
+    row.version+=1;row.updatedAt=nowIso();
+    this.taskAuditAppend(row,'commitment.reassigned',session.userId,{...previous,ownerId:row.ownerId,acceptorId:row.acceptorId,status:row.status,reason:next.reason});
     return this.taskView(session,row);
   }
 

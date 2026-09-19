@@ -23,6 +23,11 @@
 .label-option:disabled{cursor:progress}
 .label-list{display:grid;gap:7px;margin-top:8px}
 .label-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;padding:9px 11px;border:1px solid var(--line);border-radius:15px;background:var(--surface)}
+.row[data-member-row]>span:last-child{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+.row[data-member-row] select{min-width:0;width:auto;padding:7px 8px;font-size:12.5px;border-radius:11px}
+.row[data-member-row]{gap:8px}
+.row.candidate-row{grid-template-columns:auto auto minmax(0,1fr)}
+.row.candidate-row>:last-child{text-align:left}
 .chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .chipbtn{padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:600;cursor:pointer}
 .chipbtn.on{background:var(--text);color:var(--bg);border-color:var(--text)}

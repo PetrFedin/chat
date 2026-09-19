@@ -132,6 +132,41 @@ export function assertTaskEvidenceAuthority(task,session,{expectedVersion}){
   if(![task.ownerId,task.requesterId,task.acceptorId].includes(session.userId)&&!TEAM_MANAGERS.has(session.role)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot add evidence to this task',403);
 }
 
+/**
+ * Handing a commitment to somebody else.
+ *
+ * There was no way to do this: owner, requester and acceptor were fixed at
+ * creation, so the cure for «Нина ушла в отпуск» was to cancel the task and
+ * make a new one, losing the evidence and the audit chain that made the old
+ * one worth having.
+ *
+ * Who may: the person who asked for the work, and a team manager. Not the
+ * owner — handing your own obligation to a colleague is not yours to decide.
+ * A new owner has not accepted anything yet, so the task goes back to
+ * «proposed» and they get the same choice the first owner had.
+ */
+export function assertTaskReassignAuthority(task,session,{expectedVersion,reason,ownerId,acceptorId}){
+  assertTaskVisible(task,session);
+  assertExpectedVersion(task,expectedVersion);
+  if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','A terminal task cannot be reassigned',409);
+  if(task.requesterId!==session.userId&&!TEAM_MANAGERS.has(session.role)) {
+    throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','Only the requester or a team manager can reassign this task',403);
+  }
+  if(!ownerId&&!acceptorId) throw new TaskAuthorityError('TASK_NOTHING_TO_CHANGE','Name a new owner or a new acceptor',400);
+  if(ownerId===task.ownerId&&(!acceptorId||acceptorId===task.acceptorId)) {
+    throw new TaskAuthorityError('TASK_NOTHING_TO_CHANGE','This is already the assignment',400);
+  }
+  if(typeof reason!=='string'||!reason.trim()) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Reassigning requires a reason',400);
+  return {
+    ownerId:ownerId??task.ownerId,
+    acceptorId:acceptorId??task.acceptorId,
+    reason:reason.trim(),
+    // Only a new owner resets the state; changing who signs the result off
+    // leaves the work where it stands.
+    resetToProposed:Boolean(ownerId&&ownerId!==task.ownerId),
+  };
+}
+
 export function assertTaskScheduleAuthority(task,session,{expectedVersion,reason}){
   assertTaskVisible(task,session);
   assertExpectedVersion(task,expectedVersion);

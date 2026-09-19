@@ -361,7 +361,7 @@ export class PostgresStore extends BasePostgresStore {
   async listConversations(session, { archived=false } = {}) {
     const { rows } = await this.pool.query(`
       SELECT c.id,c.kind,c.title,c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_at "createdAt",
-        cm.archived_at "archivedAt",cm.muted_until "mutedUntil",
+        cm.archived_at "archivedAt",cm.muted_until "mutedUntil",cm.role "memberRole",
         (SELECT jsonb_build_object('id',m.id,'body',m.body,'kind',m.kind,'authorId',m.author_id,'createdAt',m.created_at)
           FROM messages m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.deleted_at IS NULL
           ORDER BY m.created_at DESC,m.id DESC LIMIT 1) "lastMessage",

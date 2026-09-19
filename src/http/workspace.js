@@ -89,6 +89,19 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     const s=await requireSession(req),b=await readJson(req),type=String(b.type??'note');if(!TASK_EVIDENCE_TYPES.has(type))throw Object.assign(new Error('Unsupported evidence type'),{code:'INVALID_EVIDENCE_TYPE',statusCode:400});const value=cleanText(b.value,4000);await assertEvidenceValue(store,s,type,value);const result=await store.addTaskEvidence(s,m[1],{type,value,expectedVersion:b.expectedVersion});
     const audience=taskAudience(result.task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(result.task));json(res,201,result);return true
   }
+  m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/assignment$`,'i'));
+  if(m&&method==='PATCH'){
+    const s=await requireSession(req),b=await readJson(req);
+    const task=await store.reassignTask(s,m[1],{
+      ownerId:b.ownerId??null,acceptorId:b.acceptorId??null,
+      reason:typeof b.reason==='string'?cleanText(b.reason,1000):b.reason,
+      expectedVersion:b.expectedVersion,
+    });
+    const audience=taskAudience(task);
+    hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(task));
+    await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Задача передана',body:task.title,url:`/#/tasks/${task.id}`});
+    json(res,200,{task});return true
+  }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule$`,'i'));
   if(m&&method==='PATCH'){
     const s=await requireSession(req),b=await readJson(req),task=await store.rescheduleTask(s,m[1],{promisedAt:toDateOrNull(b.promisedAt),forecastAt:toDateOrNull(b.forecastAt),reason:b.reason,expectedVersion:b.expectedVersion});

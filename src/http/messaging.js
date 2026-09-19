@@ -69,6 +69,36 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     json(res,200,await store.claimOrphanedConversation(s,m[1]));
     return true;
   }
+  // Leaving a room was impossible: removing yourself needed management
+  // rights, so a person invited into a channel stayed in it for good.
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/leave$`,'i'));
+  if(m&&method==='POST'){
+    const s=await requireSession(req),policy=await policyOr404(store,s,m[1]);
+    if(policy.conversation.kind==='direct')throw httpError('A direct conversation cannot be left; archive it instead','DIRECT_CANNOT_LEAVE',409);
+    if(!policy.memberRole)throw httpError('You are here by channel visibility, not membership; archive it instead','NOT_A_MEMBER',409);
+    const previous=await store.conversationAudience(s,m[1]);
+    const items=await store.removeConversationMember(s,m[1],s.userId);
+    hub.broadcastUsers(s.workspaceId,[...new Set([...previous,s.userId])],'conversation.members.updated',{conversationId:m[1],items});
+    json(res,200,{items});return true;
+  }
+
+  // The title, the purpose and whether the channel is announcement-only were
+  // fixed at creation for ever.
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}$`,'i'));
+  if(m&&method==='PATCH'){
+    const s=await requireSession(req),policy=await policyOr404(store,s,m[1]);requireConversationManager(s,policy);
+    if(policy.conversation.kind==='direct')throw httpError('A direct conversation has no settings to change','DIRECT_NOT_EDITABLE',409);
+    const b=await readJson(req),patch={};
+    if(b.title!==undefined)patch.title=cleanText(b.title,120);
+    if(b.purpose!==undefined)patch.purpose=b.purpose?cleanText(b.purpose,500):null;
+    if(b.announcementOnly!==undefined)patch.announcementOnly=Boolean(b.announcementOnly);
+    if(!Object.keys(patch).length)throw httpError('Nothing to change','EMPTY_PATCH',400);
+    const conversation=await store.updateConversation(s,m[1],patch);
+    const audience=await store.conversationAudience(s,m[1]);
+    hub.broadcastUsers(s.workspaceId,audience,'conversation.updated',conversation);
+    json(res,200,{conversation});return true;
+  }
+
   m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/pins$`,'i'));
   if(m&&method==='GET'){const s=await requireSession(req);await policyOr404(store,s,m[1]);json(res,200,{items:await store.listPinnedMessages(s,m[1])});return true}
 
