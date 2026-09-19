@@ -300,10 +300,10 @@ export class MemoryStore {
     const previous=row.status;row.status=to;row.version+=1;row.updatedAt=nowIso();
     if(previous==='in_review'&&to==='accepted_result'){
       const acceptance={id:randomUUID(),reviewerId:session.userId,decision:'accepted',comment:decision.reason,createdAt:row.updatedAt};
-      (this.taskAcceptances.get(id)??[]).push(acceptance);
+      const acceptances=this.taskAcceptances.get(id)??[];acceptances.push(acceptance);this.taskAcceptances.set(id,acceptances);
     }else if(previous==='in_review'&&to==='in_progress'){
       const acceptance={id:randomUUID(),reviewerId:session.userId,decision:'returned',comment:decision.reason,createdAt:row.updatedAt};
-      (this.taskAcceptances.get(id)??[]).push(acceptance);
+      const acceptances=this.taskAcceptances.get(id)??[];acceptances.push(acceptance);this.taskAcceptances.set(id,acceptances);
     }
     this.taskAuditAppend(row,'commitment.transitioned',session.userId,{from:previous,to,reason:decision.reason});
     return this.taskView(session,row);
