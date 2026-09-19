@@ -109,6 +109,7 @@ export function assertTaskTransition(task,session,{to,reason=null,expectedVersio
   assertTaskVisible(task,session);
   assertExpectedVersion(task,expectedVersion);
   if(!TRANSITIONS.get(task.status)?.has(to)) throw new TaskAuthorityError('INVALID_TASK_TRANSITION',`${task.status} -> ${to} is not allowed`);
+  if(to==='in_review'&&task.ownerId===session.userId&&Number(evidenceCount)<1) throw new TaskAuthorityError('TASK_EVIDENCE_REQUIRED','Add execution evidence before requesting review',409);
   if(!actorTransitions(task,session,evidenceCount).includes(to)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot perform this task transition',403);
   const normalizedReason=typeof reason==='string'&&reason.trim()?reason.trim():null;
   if(REASON_REQUIRED.has(to)&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED',`Reason is required for ${to}`,400);
