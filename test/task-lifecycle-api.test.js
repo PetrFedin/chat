@@ -86,6 +86,10 @@ test('task lifecycle is authoritative from assignment through accepted close',as
   assert.equal(review.payload.task.status,'in_review');
   assert.equal(review.payload.task.version,5);
 
+  const reviewerInbox=await request(base,'/api/v1/notifications?status=unread',{cookie:reviewer.cookie});
+  assert.equal(reviewerInbox.response.status,200);
+  assert.ok(reviewerInbox.payload.items.some(item=>item.type==='review.requested'&&item.commitmentId===taskId));
+
   const workerCannotAccept=await request(base,`/api/v1/tasks/${taskId}/transitions`,{cookie:worker.cookie,method:'POST',body:{to:'accepted_result',expectedVersion:5}});
   assert.equal(workerCannotAccept.response.status,403);
   assert.equal(workerCannotAccept.payload.error.code,'TASK_ACTION_FORBIDDEN');
@@ -103,6 +107,10 @@ test('task lifecycle is authoritative from assignment through accepted close',as
   assert.equal(closed.response.status,200);
   assert.equal(closed.payload.task.status,'closed');
   assert.equal(closed.payload.task.version,7);
+
+  const workerInbox=await request(base,'/api/v1/notifications?status=unread',{cookie:worker.cookie});
+  assert.equal(workerInbox.response.status,200);
+  assert.ok(workerInbox.payload.items.some(item=>item.type==='task.updated'&&item.commitmentId===taskId&&item.metadata?.status==='closed'));
 
   const detail=await request(base,`/api/v1/tasks/${taskId}`,{cookie:ownerCookie});
   assert.equal(detail.response.status,200);
