@@ -21,7 +21,8 @@ export const Permission = Object.freeze({
   MEETING_OPS_MANAGE: 'meeting.ops.manage',
   MEETING_COST_READ: 'meeting.cost.read',
   MEETING_COST_MANAGE: 'meeting.cost.manage',
-  INTEGRATION_MANAGE: 'integration.manage'
+  INTEGRATION_MANAGE: 'integration.manage',
+  ORG_STRUCTURE_MANAGE: 'org.structure.manage'
 });
 
 const all = new Set(Object.values(Permission));
