@@ -206,7 +206,7 @@ export const openapi = Object.freeze({
     },
     '/api/v1/files': {
       get: { tags: ['Files'], summary: 'List files visible through uploader ownership or accessible work context', responses: { '200': { description: 'File list with linked context' } } },
-      post: { tags: ['Files'], summary: 'Upload an authenticated binary file to local or S3 object storage', responses: { '201': { description: 'File stored' } } }
+      post: { tags: ['Files'], summary: 'Upload an authenticated binary file to local or S3 object storage', description: "Send the raw bytes as the body, the filename URL-encoded in the x-file-name header and the media type in content-type; there is no multipart form and no JSON envelope. Sharing is a second step: the upload alone is visible to the uploader only, and the file reaches a conversation when a message of kind 'file' carries its id in metadata.fileId. The file then inherits that conversation's access. A conversationId query parameter is not read.", responses: { '201': { description: 'File stored; visible to the uploader until a message shares it' }, '400': { description: 'Empty body' }, '413': { description: 'Larger than the 50 MiB limit' } } }
     },
     '/api/v1/files/{fileId}/content': { get: { tags: ['Files'], summary: 'Download an authenticated and context-authorized file', responses: { '200': { description: 'Binary file content' }, '404': { description: 'File not visible' } } } },
     '/api/v1/files/{fileId}/preview': { get: { tags: ['Files'], summary: 'Preview authorized image, PDF or text content inline', responses: { '200': { description: 'Preview content' }, '404': { description: 'File not visible' }, '415': { description: 'Preview unavailable' } } } },

@@ -61,3 +61,20 @@ test('static assets revalidate instead of going stale after a deploy', async (t)
   const html = await call('/');
   assert.equal(html.headers.get('cache-control'), 'no-store', 'the shell must never be cached');
 });
+
+test('a screen does not repeat its own name as the first heading', async () => {
+  const source = await read('public/app.js');
+  // The app bar already names the screen; repeating it wastes the most
+  // valuable line on a phone and reads as a rendering bug.
+  assert.doesNotMatch(source, /<div class="section-head"><div><h2>Задачи<\/h2>/);
+  assert.doesNotMatch(source, /<div class="section-head"><div><h2>Сегодня<\/h2>/);
+  assert.doesNotMatch(source, /<div class="conversation-pane-header"><h2>Сообщения<\/h2>/);
+  assert.match(source, /<h2>Расписание дня<\/h2>/, 'the schedule section keeps a name of its own');
+  assert.match(source, /<h2>Диалоги<\/h2>/);
+});
+
+test('file sizes carry units in the interface language', async () => {
+  const source = await read('public/daily-work.js');
+  assert.match(source, /SIZE_UNITS=\{ru:\['Б','КБ','МБ','ГБ'\],en:\['B','KB','MB','GB'\]\}/);
+  assert.doesNotMatch(source, /return`\$\{n\} B`/, "'124 B' in a Russian sentence reads as volts");
+});

@@ -38,6 +38,10 @@ import { preparePreviewDemo, handlePreviewDemo } from './demo/preview-demo.js';
 import { seedDemoMeetingIntelligence } from './demo/seed-meeting-intelligence.js';
 
 const { Pool }=pg;
+// node-pg hands bigint back as a string so no precision is lost. Nothing in
+// this schema comes close to 2^53 — file sizes, counters, sequences — and a
+// string silently breaks arithmetic on the client, so parse them as numbers.
+pg.types.setTypeParser(20,(value)=>value===null?null:Number(value));
 const publicRoot=fileURLToPath(new URL('../public/',import.meta.url));
 const uploadsRoot=process.env.UPLOAD_DIR??fileURLToPath(new URL('../data/uploads/',import.meta.url));
 const livekitClientPath=fileURLToPath(new URL('../node_modules/livekit-client/dist/livekit-client.umd.js',import.meta.url));

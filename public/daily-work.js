@@ -5,7 +5,9 @@ const locale=()=>window.ChatPreferences?.locale==='en'?'en':'ru';
 const tr=(ru,en)=>locale()==='en'?en:ru;
 const initials=(v='?')=>String(v).split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]?.toUpperCase()).join('')||'?';
 const formatTime=(v)=>v?new Intl.DateTimeFormat(locale()==='en'?'en':'ru',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'';
-const formatSize=(v)=>{const n=Number(v||0);if(n<1024)return`${n} B`;if(n<1024**2)return`${(n/1024).toFixed(n<10*1024?1:0)} KB`;if(n<1024**3)return`${(n/1024**2).toFixed(n<10*1024**2?1:0)} MB`;return`${(n/1024**3).toFixed(1)} GB`};
+const SIZE_UNITS={ru:['Б','КБ','МБ','ГБ'],en:['B','KB','MB','GB']};
+// Units follow the interface language: 'B' in a Russian sentence reads as volts.
+const formatSize=(v)=>{const n=Number(v||0),u=SIZE_UNITS[(window.ChatPreferences?.locale)==='en'?'en':'ru'];if(n<1024)return`${n} ${u[0]}`;if(n<1024**2)return`${(n/1024).toFixed(n<10*1024?1:0)} ${u[1]}`;if(n<1024**3)return`${(n/1024**2).toFixed(n<10*1024**2?1:0)} ${u[2]}`;return`${(n/1024**3).toFixed(1)} ${u[3]}`};
 
 async function api(path,options={}){const response=await fetch(path,{credentials:'same-origin',...options,headers:{...(options.body?{'content-type':'application/json'}:{}),...(options.headers||{})}});const payload=response.status===204?null:await response.json().catch(()=>null);if(!response.ok){const error=new Error(payload?.error?.message||`HTTP ${response.status}`);error.status=response.status;error.code=payload?.error?.code;throw error}return payload}
 
