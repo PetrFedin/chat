@@ -139,7 +139,7 @@ export async function createChatServer(options={}){
     if(await handleAuth(req,res,ctx,path,method))return;
     if(await handleDailyWork(req,res,ctx,url,path,method))return;
     if(await handleWorkspace(req,res,ctx,url,path,method))return;
-    if(await handleMessaging(req,res,ctx,path,method))return;
+    if(await handleMessaging(req,res,ctx,url,path,method))return;
     if(await handleCalls(req,res,ctx,path,method))return;
     if(await handleIntegrations(req,res,ctx,url,path,method))return;
     if(await handleOrg(req,res,ctx,url,path,method))return;

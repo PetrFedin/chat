@@ -17,7 +17,7 @@ async function refreshPeople(){if(D.people.length)return;try{const boot=await ap
 
 async function refreshAttention(force=false){if(!appVisible()||D.refreshing)return;if(!force&&Date.now()-D.lastRefresh<1800)return;D.refreshing=true;try{const [attention,conversations]=await Promise.all([api('/api/v1/attention'),api('/api/v1/conversations')]);D.attention=attention.attention;D.conversations=conversations.items||[];D.lastRefresh=Date.now();decorate()}catch{}finally{D.refreshing=false}}
 
-function ensureBell(){const actions=$('.top-actions');if(!actions||$('#dwc-bell'))return;const button=document.createElement('button');button.id='dwc-bell';button.className='round-button pressable dwc-bell';button.type='button';button.setAttribute('aria-label',tr('Центр уведомлений','Notification center'));button.innerHTML='<span aria-hidden="true">◎</span><span class="dwc-badge" hidden>0</span>';const quick=actions.querySelector('[data-action="quick-create"]');actions.insertBefore(button,quick||actions.lastElementChild);button.onclick=()=>openNotifications()}
+function ensureBell(){const actions=$('.top-actions');if(!actions||$('#dwc-bell'))return;const button=document.createElement('button');button.id='dwc-bell';button.className='round-button pressable dwc-bell';button.type='button';button.setAttribute('aria-label',tr('Центр уведомлений','Notification center'));button.innerHTML='<span aria-hidden="true">◎</span><span class="dwc-badge" hidden>0</span>';const avatar=actions.querySelector('#top-avatar');actions.insertBefore(button,avatar||null);button.onclick=()=>openNotifications()}
 
 // These run from a body-wide MutationObserver. Writing a value that already
 // matches is still a mutation, which calls the observer again and pins the
@@ -78,7 +78,7 @@ document.addEventListener('click',async(event)=>{const target=event.target;
   if(target.closest('[data-action="search"]')){event.preventDefault();event.stopImmediatePropagation();openSearch();return}
   if(target.closest('[data-action="files"]')){event.preventDefault();event.stopImmediatePropagation();openFiles();return}
   if(target.closest('[data-dwc-close]')){closeOverlay();return}
-  const attention=target.closest('[data-dwc-attention]');if(attention){const type=attention.dataset.dwcAttention;if(type==='mentions')return openNotifications('mentions');if(type==='unread'){const c=D.conversations.find(x=>x.unreadCount>0);if(c)return openConversation(c.id)}if(['overdue','soon'].includes(type))return openNav('tasks');return}
+  const attention=target.closest('[data-dwc-attention]');if(attention){const type=attention.dataset.dwcAttention;if(type==='mentions')return openNotifications('mentions');if(type==='unread'){const c=D.conversations.find(x=>x.unreadCount>0);if(c)return openConversation(c.id);closeOverlay();return openNav('chats')}if(['overdue','soon'].includes(type))return openNav('tasks');return}
   const filter=target.closest('[data-dwc-notification-filter]');if(filter){D.notificationFilter=filter.dataset.dwcNotificationFilter;$$('[data-dwc-notification-filter]').forEach(b=>b.classList.toggle('active',b===filter));await loadNotifications();return}
   if(target.closest('[data-dwc-read-all]')){await api('/api/v1/notifications/read-all',{method:'POST',body:JSON.stringify({type:D.notificationFilter==='mentions'?'mentions':null})}).catch(()=>{});await Promise.all([loadNotifications(),refreshAttention(true)]);return}
   const notification=target.closest('[data-dwc-notification]');if(notification){await openNotificationItem(notification.dataset.dwcNotification);return}

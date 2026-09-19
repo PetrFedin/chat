@@ -19,6 +19,17 @@ const taskLabel=(status)=>({
   clarify:'Нужно уточнение',
 })[status]||'Задача обновлена';
 
+// Only undefined means "leave unchanged" and only null means "clear": a
+// falsy-but-present value like 0 is a date the caller meant, and treating it
+// as "delete the promise" destroyed commitment dates behind a 200.
+const toDateOrNull=(value)=>{
+  if(value===undefined)return undefined;
+  if(value===null||value==='')return null;
+  const date=new Date(value);
+  if(Number.isNaN(date.getTime()))throw Object.assign(new Error('Invalid date'),{code:'INVALID_DATE',statusCode:400});
+  return date.toISOString();
+};
+
 export async function handleWorkspace(req,res,ctx,url,path,method){
   const {store,requireSession,hub,notifyUsers}=ctx;
   if(path==='/api/v1/tasks'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listTasks(s)});return true}
@@ -44,7 +55,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
   }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule$`,'i'));
   if(m&&method==='PATCH'){
-    const s=await requireSession(req),b=await readJson(req),task=await store.rescheduleTask(s,m[1],{promisedAt:b.promisedAt===undefined?undefined:(b.promisedAt?new Date(b.promisedAt).toISOString():null),forecastAt:b.forecastAt===undefined?undefined:(b.forecastAt?new Date(b.forecastAt).toISOString():null),reason:b.reason,expectedVersion:b.expectedVersion});
+    const s=await requireSession(req),b=await readJson(req),task=await store.rescheduleTask(s,m[1],{promisedAt:toDateOrNull(b.promisedAt),forecastAt:toDateOrNull(b.forecastAt),reason:b.reason,expectedVersion:b.expectedVersion});
     const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',task);await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Срок задачи изменён',body:task.title,url:`/#/tasks/${task.id}`});json(res,200,{task});return true
   }
   if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=url.searchParams.get('from'),to=url.searchParams.get('to');json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to}):await store.listCalendar(s,from,to)});return true}

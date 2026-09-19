@@ -301,7 +301,31 @@ async function togglePin(id,pinned){try{await api(`/api/v1/messages/${id}/pin`,{
 function forwardModal(id){const targets=S.conversations.filter(c=>!c.archivedAt);modal('Переслать сообщение',targets.map(c=>`<button class="conversation-card" data-forward-target="${c.id}"><span class="avatar dark">${c.kind==='channel'?'#':esc(initials(c.title||'D'))}</span><span><strong>${esc(c.title||'Диалог')}</strong><div class="preview">${esc(c.purpose||'Переслать сюда')}</div></span></button>`).join('')||'<div class="empty">Нет доступных разговоров.</div>');$$('[data-forward-target]').forEach(b=>b.onclick=async()=>{try{const{message}=await api(`/api/v1/messages/${id}/forward`,{method:'POST',body:JSON.stringify({conversationId:b.dataset.forwardTarget})});append(b.dataset.forwardTarget,message);closeModal();toast('Сообщение переслано')}catch(e){toast(e.message)}})}
 function editMessageModal(id){const m=[...S.messages.values()].flat().find(x=>x.id===id);if(!m)return;modal('Изменить сообщение',`<form id="message-edit-form" class="form-stack"><label>Текст<textarea name="body" rows="5" required>${esc(m.body||'')}</textarea></label><button class="button primary">Сохранить</button></form>`);$('#message-edit-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const{message}=await api(`/api/v1/messages/${id}`,{method:'PATCH',body:JSON.stringify({body:f.get('body')})});updateMessage(id,message);closeModal();render();toast('Сообщение изменено')}catch(error){toast(error.message)}}}
 function deleteMessageModal(id){modal('Удалить сообщение',`<p class="muted">Сообщение останется в истории как удалённое, но его содержимое больше не будет показываться.</p><button id="confirm-message-delete" class="button danger" style="width:100%">Удалить</button>`);$('#confirm-message-delete').onclick=async()=>{try{const{message}=await api(`/api/v1/messages/${id}`,{method:'DELETE'});updateMessage(id,message);closeModal();render();toast('Сообщение удалено')}catch(e){toast(e.message)}}}
-async function pinsModal(){if(!S.selected)return toast('Откройте чат.');try{const{items}=await api(`/api/v1/conversations/${S.selected}/pins`);modal('Закреплённые сообщения',items.length?items.map(m=>`<button class="conversation-card" data-jump-message="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><span><strong>${esc(name(m.authorId))}</strong><div class="preview">${esc(m.body||kindLabel(m.kind)||'Вложение')}</div></span><span class="time">${time(m.createdAt)}</span></button>`).join(''):'<div class="empty">Закреплённых сообщений пока нет.</div>');$$('[data-jump-message]').forEach(b=>b.onclick=()=>{closeModal();document.querySelector(`[data-message-row="${b.dataset.jumpMessage}"]`)?.scrollIntoView({behavior:'smooth',block:'center'})})}catch(e){toast(e.message)}}
+async function pinsModal(){
+  if(!S.selected)return toast('Откройте чат.');
+  const conversationId=S.selected;
+  const draw=(items)=>{
+    modal('Закреплённые сообщения',items.length?items.map(m=>`<div class="pin-row">
+      <button class="conversation-card" data-jump-message="${esc(m.id)}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><span><strong>${esc(name(m.authorId))}</strong><div class="preview">${esc(m.body||kindLabel(m.kind)||'Вложение')}</div></span><span class="time">${esc(time(m.createdAt))}</span></button>
+      <button class="text-button danger" data-unpin="${esc(m.id)}">Открепить</button>
+    </div>`).join(''):'<div class="empty">Закреплённых сообщений пока нет.</div>',()=>{
+      $$('[data-jump-message]').forEach(b=>b.onclick=()=>{closeModal();document.querySelector(`[data-message-row="${b.dataset.jumpMessage}"]`)?.scrollIntoView({behavior:'smooth',block:'center'})});
+      $$('[data-unpin]').forEach(b=>b.onclick=async()=>{
+        b.disabled=true;
+        try{
+          await api(`/api/v1/messages/${b.dataset.unpin}/pin`,{method:'DELETE'});
+          updateMessage(b.dataset.unpin,{pinned:false});
+          const{items:left}=await api(`/api/v1/conversations/${conversationId}/pins`);
+          history.back();
+          draw(left);
+          render();
+          toast('Откреплено');
+        }catch(error){b.disabled=false;toast(error.message)}
+      });
+    });
+  };
+  try{const{items}=await api(`/api/v1/conversations/${conversationId}/pins`);draw(items)}catch(e){toast(e.message)}
+}
 async function savedModal(){try{const{items}=await api('/api/v1/saved-messages');modal('Сохранённые сообщения',items.length?items.map(m=>`<button class="conversation-card" data-saved-conversation="${m.conversationId}" data-saved-message="${m.id}"><span class="avatar dark">☆</span><span><strong>${esc(m.conversationTitle||'Диалог')}</strong><div class="preview">${esc(m.body||kindLabel(m.kind)||'Вложение')}</div></span><span class="time">${time(m.savedAt)}</span></button>`).join(''):'<div class="empty">Сохранённых сообщений пока нет.</div>');$$('[data-saved-conversation]').forEach(b=>b.onclick=()=>{const messageId=b.dataset.savedMessage;closeModal();openChatAtMessage(b.dataset.savedConversation,messageId)})}catch(e){toast(e.message)}}
 async function toggleMute(){const c=S.conversations.find(x=>x.id===S.selected);if(!c)return;const muted=c.mutedUntil&&Date.parse(c.mutedUntil)>Date.now(),mutedUntil=muted?null:new Date(Date.now()+8*3600000).toISOString();try{const{preferences}=await api(`/api/v1/conversations/${c.id}/preferences`,{method:'PATCH',body:JSON.stringify({mutedUntil})});c.mutedUntil=preferences.mutedUntil;render();toast(muted?'Уведомления включены':'Уведомления отключены на 8 часов')}catch(e){toast(e.message)}}
 async function archiveCurrent(){const c=S.conversations.find(x=>x.id===S.selected);if(!c)return;try{await api(`/api/v1/conversations/${c.id}/preferences`,{method:'PATCH',body:JSON.stringify({archived:true})});S.conversations=S.conversations.filter(x=>x.id!==c.id);S.selected=S.conversations[0]?.id||null;S.mobileChat=false;render();toast('Чат перемещён в личный архив')}catch(e){toast(e.message)}}

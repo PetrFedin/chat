@@ -23,7 +23,7 @@ function requireConversationManager(session,policy){
   if(!canManageConversation(session,policy))throw httpError('Conversation management permission required','FORBIDDEN',403);
 }
 
-export async function handleMessaging(req,res,ctx,path,method){
+export async function handleMessaging(req,res,ctx,url,path,method){
   const {store,requireSession,hub,notifyUsers}=ctx;
   if(path==='/api/v1/conversations'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listConversations(s)});return true}
   if(path==='/api/v1/conversations/archived'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listConversations(s,{archived:true})});return true}
@@ -108,7 +108,24 @@ export async function handleMessaging(req,res,ctx,path,method){
   }
 
   m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/messages$`,'i'));
-  if(m&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listMessages(s,m[1],100)});return true}
+  if(m&&method==='GET'){
+    const s=await requireSession(req);
+    const limit=Math.min(Math.max(Number(url.searchParams.get('limit')??100),1),200);
+    const raw=url.searchParams.get('before');
+    let before=null;
+    if(raw){
+      const [at,id]=String(raw).split('|');
+      if(!at||!id||Number.isNaN(Date.parse(at)))throw httpError('Malformed cursor','INVALID_CURSOR',400);
+      before={at:new Date(at).toISOString(),id};
+    }
+    const items=await store.listMessages(s,m[1],limit,before);
+    // A full page means there may be more; the cursor points at the oldest
+    // row returned, which is where the next page starts.
+    const oldest=items[0];
+    const nextCursor=items.length===limit&&oldest?`${oldest.createdAt}|${oldest.id}`:null;
+    json(res,200,{items,nextCursor,hasMore:Boolean(nextCursor)});
+    return true;
+  }
   if(m&&method==='POST'){
     const s=await requireSession(req);requirePermission(s.role,Permission.MESSAGE_SEND);
     const policy=await policyOr404(store,s,m[1]);

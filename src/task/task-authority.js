@@ -6,8 +6,8 @@ const TRANSITIONS = new Map([
   ['scheduled', new Set(['in_progress','blocked','deferred','cancelled'])],
   ['in_progress', new Set(['blocked','in_review','deferred','cancelled'])],
   ['blocked', new Set(['in_progress','deferred','cancelled'])],
-  ['in_review', new Set(['accepted_result','in_progress'])],
-  ['accepted_result', new Set(['closed','in_progress'])],
+  ['in_review', new Set(['accepted_result','in_progress','cancelled'])],
+  ['accepted_result', new Set(['closed','in_progress','cancelled'])],
   ['deferred', new Set(['accepted','scheduled','cancelled'])],
   ['closed', new Set()],
   ['rejected', new Set()],
@@ -28,6 +28,10 @@ export class TaskAuthorityError extends Error {
 }
 
 export function canViewTask(task,session){
+  // A guest is somebody else's employee. They may be talked to in the room
+  // they were invited into; they are not part of the company's accountability
+  // chain, and a commitment they can see is one they can act on.
+  if(session.role==='guest')return false;
   return Boolean(task && task.workspaceId===session.workspaceId && (
     task.ownerId===session.userId ||
     task.requesterId===session.userId ||
@@ -87,10 +91,12 @@ function actorTransitions(task,session,evidenceCount=0){
       break;
     case 'in_review':
       if(task.acceptorId===actor){ result.add('accepted_result'); result.add('in_progress'); }
+      if(mayCancel(task,session)) result.add('cancelled');
       break;
     case 'accepted_result':
       if(task.requesterId===actor||task.acceptorId===actor) result.add('closed');
       if(task.acceptorId===actor) result.add('in_progress');
+      if(mayCancel(task,session)) result.add('cancelled');
       break;
     case 'deferred':
       if(task.ownerId===actor){ result.add('accepted'); result.add('scheduled'); }
