@@ -40,6 +40,11 @@ test('conversation authority closes announcement, membership and reaction gaps',
   assert.equal(memberPost.response.status,403);
   assert.equal(memberPost.payload.error.code,'ANNOUNCEMENT_ONLY');
 
+  const memberVoice=await fetch(`${base}/api/v1/conversations/${announcements.id}/voice?durationMs=1000`,{method:'POST',headers:{cookie:alice.cookie,'content-type':'audio/webm'},body:new Uint8Array([1,2,3,4])});
+  assert.equal(memberVoice.status,403);
+  const memberVoicePayload=await memberVoice.json();
+  assert.equal(memberVoicePayload.error.code,'ANNOUNCEMENT_ONLY');
+
   const ownerPost=await request(base,`/api/v1/conversations/${announcements.id}/messages`,{cookie:ownerCookie,method:'POST',body:{body:'Official announcement'}});
   assert.equal(ownerPost.response.status,201);
 
