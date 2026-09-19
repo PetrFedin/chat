@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
 
 function nowIso() { return new Date().toISOString(); }
 function clone(value) { return value == null ? value : structuredClone(value); }
@@ -24,6 +25,9 @@ export class MemoryStore {
     this.voiceMessages = new Map();
     this.pushSubscriptions = new Map();
     this.tasks = new Map();
+    this.taskEvidence = new Map();
+    this.taskAcceptances = new Map();
+    this.taskAudit = new Map();
     this.calendarEvents = new Map();
   }
 
@@ -245,9 +249,74 @@ export class MemoryStore {
     this.voiceMessages.set(message.id, voice); return { message, voice, file };
   }
 
-  async listTasks(session) { return clone([...this.tasks.values()].filter((row) => row.workspaceId === session.workspaceId && (row.ownerId === session.userId || row.requesterId === session.userId)).sort((a,b) => String(a.promisedAt ?? '9999').localeCompare(String(b.promisedAt ?? '9999')))); }
+  taskAuditAppend(task,eventType,actorId,payload={}) {
+    const items=this.taskAudit.get(task.id)??[];
+    items.push({id:randomUUID(),eventType,actorId,payload:clone(payload),createdAt:nowIso()});
+    this.taskAudit.set(task.id,items);
+  }
 
-  async createTask(session, value) { const row={id:randomUUID(),organizationId:session.organizationId,workspaceId:session.workspaceId,title:value.title,outcome:value.outcome ?? value.title,ownerId:value.ownerId ?? session.userId,requesterId:session.userId,acceptorId:value.acceptorId ?? session.userId,sourceMessageId:value.sourceMessageId ?? null,status:'proposed',priority:value.priority ?? 'normal',promisedAt:value.promisedAt ?? null,forecastAt:value.forecastAt ?? null,createdAt:nowIso(),updatedAt:nowIso()}; this.tasks.set(row.id,row); return clone(row); }
+  taskEvidenceRows(taskId){return this.taskEvidence.get(taskId)??[]}
+
+  taskView(session,row){
+    if(!row||!canViewTask(row,session))return null;
+    const evidence=this.taskEvidenceRows(row.id);
+    return {...clone(row),evidenceCount:evidence.length,allowedTransitions:allowedTaskTransitions(row,session,evidence.length)};
+  }
+
+  async listTasks(session) {
+    return [...this.tasks.values()].filter((row)=>canViewTask(row,session))
+      .sort((a,b)=>String(a.promisedAt??'9999').localeCompare(String(b.promisedAt??'9999')))
+      .map((row)=>this.taskView(session,row));
+  }
+
+  async getTask(session,id){return this.taskView(session,this.tasks.get(id))}
+
+  async createTask(session,value) {
+    const ownerId=value.ownerId??session.userId,acceptorId=value.acceptorId??session.userId;
+    for(const userId of new Set([ownerId,acceptorId,session.userId])) this.assertConversationUser(session,userId);
+    const createdAt=nowIso(),row={id:randomUUID(),organizationId:session.organizationId,workspaceId:session.workspaceId,title:value.title,outcome:value.outcome??value.title,ownerId,requesterId:session.userId,acceptorId,sourceMessageId:value.sourceMessageId??null,status:'proposed',priority:value.priority??'normal',promisedAt:value.promisedAt??null,forecastAt:value.forecastAt??null,version:1,createdAt,updatedAt:createdAt};
+    this.tasks.set(row.id,row);this.taskEvidence.set(row.id,[]);this.taskAcceptances.set(row.id,[]);
+    this.taskAuditAppend(row,'commitment.created',session.userId,{ownerId,acceptorId,sourceMessageId:row.sourceMessageId});
+    return this.taskView(session,row);
+  }
+
+  async getTaskDetail(session,id){
+    const task=this.taskView(session,this.tasks.get(id));if(!task)return null;
+    return {...task,evidence:clone(this.taskEvidenceRows(id)),acceptances:clone(this.taskAcceptances.get(id)??[]),audit:clone(this.taskAudit.get(id)??[])};
+  }
+
+  async addTaskEvidence(session,id,{type,value,expectedVersion}){
+    const row=this.tasks.get(id);if(!row||!canViewTask(row,session))throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});
+    assertTaskEvidenceAuthority(row,session,{expectedVersion});
+    const evidence={id:randomUUID(),type,value,addedBy:session.userId,createdAt:nowIso()};
+    const items=this.taskEvidenceRows(id);items.push(evidence);this.taskEvidence.set(id,items);
+    row.version+=1;row.updatedAt=nowIso();this.taskAuditAppend(row,'evidence.added',session.userId,{evidenceId:evidence.id,type});
+    return {task:this.taskView(session,row),evidence:clone(evidence)};
+  }
+
+  async transitionTask(session,id,{to,reason=null,expectedVersion}){
+    const row=this.tasks.get(id);if(!row||!canViewTask(row,session))throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});
+    const decision=assertTaskTransition(row,session,{to,reason,expectedVersion,evidenceCount:this.taskEvidenceRows(id).length});
+    const previous=row.status;row.status=to;row.version+=1;row.updatedAt=nowIso();
+    if(previous==='in_review'&&to==='accepted_result'){
+      const acceptance={id:randomUUID(),reviewerId:session.userId,decision:'accepted',comment:decision.reason,createdAt:row.updatedAt};
+      (this.taskAcceptances.get(id)??[]).push(acceptance);
+    }else if(previous==='in_review'&&to==='in_progress'){
+      const acceptance={id:randomUUID(),reviewerId:session.userId,decision:'returned',comment:decision.reason,createdAt:row.updatedAt};
+      (this.taskAcceptances.get(id)??[]).push(acceptance);
+    }
+    this.taskAuditAppend(row,'commitment.transitioned',session.userId,{from:previous,to,reason:decision.reason});
+    return this.taskView(session,row);
+  }
+
+  async rescheduleTask(session,id,{promisedAt,forecastAt,reason,expectedVersion}){
+    const row=this.tasks.get(id);if(!row||!canViewTask(row,session))throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});
+    const normalizedReason=assertTaskScheduleAuthority(row,session,{expectedVersion,reason});
+    const previous={promisedAt:row.promisedAt,forecastAt:row.forecastAt};
+    if(promisedAt!==undefined)row.promisedAt=promisedAt;if(forecastAt!==undefined)row.forecastAt=forecastAt;
+    row.version+=1;row.updatedAt=nowIso();this.taskAuditAppend(row,'commitment.rescheduled',session.userId,{...previous,promisedAt:row.promisedAt,forecastAt:row.forecastAt,reason:normalizedReason});
+    return this.taskView(session,row);
+  }
 
   async listCalendar(session, from=null, to=null) { return clone([...this.calendarEvents.values()].filter((row)=>row.workspaceId===session.workspaceId && (!from || Date.parse(row.startAt)>=Date.parse(from)) && (!to || Date.parse(row.startAt)<=Date.parse(to))).sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt))); }
 
