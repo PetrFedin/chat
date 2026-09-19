@@ -274,6 +274,10 @@ export class MemoryStore {
   async createTask(session,value) {
     const ownerId=value.ownerId??session.userId,acceptorId=value.acceptorId??session.userId;
     for(const userId of new Set([ownerId,acceptorId,session.userId])) this.assertConversationUser(session,userId);
+    if(value.sourceMessageId){
+      const conversationId=await this.messageConversation(session,value.sourceMessageId);
+      if(!conversationId||!(await this.canAccessConversation(session,conversationId))) throw Object.assign(new Error('Task source message not found'),{code:'TASK_SOURCE_NOT_FOUND',statusCode:404});
+    }
     const createdAt=nowIso(),row={id:randomUUID(),organizationId:session.organizationId,workspaceId:session.workspaceId,title:value.title,outcome:value.outcome??value.title,ownerId,requesterId:session.userId,acceptorId,sourceMessageId:value.sourceMessageId??null,status:'proposed',priority:value.priority??'normal',promisedAt:value.promisedAt??null,forecastAt:value.forecastAt??null,version:1,createdAt,updatedAt:createdAt};
     this.tasks.set(row.id,row);this.taskEvidence.set(row.id,[]);this.taskAcceptances.set(row.id,[]);
     this.taskAuditAppend(row,'commitment.created',session.userId,{ownerId,acceptorId,sourceMessageId:row.sourceMessageId});
