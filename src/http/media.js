@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
-import { Permission, requirePermission } from '../rbac.js';
+import { Permission, hasPermission, requirePermission } from '../rbac.js';
 import { MAX_FILE, cleanText, json, readBuffer, readJson, sha256 } from './helpers.js';
 
 const PREVIEWABLE = /^(image\/|application\/pdf$|text\/)/;
@@ -22,7 +22,7 @@ export function createMediaHandler(objectStore){
     }
     m=path.match(/^\/api\/v1\/conversations\/([0-9a-f-]+)\/voice$/i);
     if(m&&method==='POST'){
-      const s=await requireSession(req);requirePermission(s.role,Permission.FILE_UPLOAD);if(!await store.canAccessConversation(s,m[1]))throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});const buffer=await readBuffer(req,MAX_FILE),durationMs=Number(url.searchParams.get('durationMs')??0);if(durationMs<250||durationMs>3600000)throw Object.assign(new Error('Invalid voice duration'),{code:'INVALID_VOICE_DURATION'});const id=randomUUID(),storageKey=`${s.workspaceId}/${id}.webm`,mimeType=String(req.headers['content-type']??'audio/webm').split(';')[0];
+      const s=await requireSession(req);requirePermission(s.role,Permission.FILE_UPLOAD);requirePermission(s.role,Permission.MESSAGE_SEND);const policy=await store.conversationPolicy(s,m[1]);if(!policy)throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});if(policy.conversation.announcementOnly&&!hasPermission(s.role,Permission.CHANNEL_MANAGE)&&!['owner','moderator'].includes(policy.memberRole))throw Object.assign(new Error('Only channel managers may publish in this announcement channel'),{code:'ANNOUNCEMENT_ONLY',statusCode:403});const buffer=await readBuffer(req,MAX_FILE),durationMs=Number(url.searchParams.get('durationMs')??0);if(durationMs<250||durationMs>3600000)throw Object.assign(new Error('Invalid voice duration'),{code:'INVALID_VOICE_DURATION'});const id=randomUUID(),storageKey=`${s.workspaceId}/${id}.webm`,mimeType=String(req.headers['content-type']??'audio/webm').split(';')[0];
       await objectStore.put(storageKey,buffer,mimeType);
       try{const file=await store.saveFile(s,{id,name:`voice-${id}.webm`,mimeType,sizeBytes:buffer.length,storageKey,sha256:sha256(buffer)}),result=await store.saveVoiceMessage(s,m[1],{file,durationMs,waveform:[]}),audience=await store.conversationAudience(s,m[1]);hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:m[1],message:result.message});await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:`Голосовое от ${s.displayName}`,body:'Новое голосовое сообщение',url:`/#/chats/${m[1]}`});json(res,201,result)}catch(e){await objectStore.delete(storageKey).catch(()=>{});throw e}return true;
     }
