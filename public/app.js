@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0};
+const S={view:'today',boot:null,conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -19,7 +19,7 @@ async function api(path,o={}){const r=await fetch(path,{credentials:'same-origin
 function toast(t){const n=document.createElement('div');n.className='toast';n.textContent=t;$('#toast-root').append(n);setTimeout(()=>n.remove(),2400)}
 function auth(mode='login'){$('#app-view').hidden=true;$('#auth-view').hidden=false;const token=new URLSearchParams(location.search).get('invite');if(token){$('.segmented').hidden=true;$('#login-form').hidden=$('#register-form').hidden=true;$('#accept-invite-form').hidden=false;$('#accept-invite-form').dataset.token=token;$('#auth-title').textContent='Присоединиться к компании';return}setAuth(mode)}
 function setAuth(mode){$('.segmented').hidden=false;$('#accept-invite-form').hidden=true;$('#login-form').hidden=mode!=='login';$('#register-form').hidden=mode!=='register';$('#auth-title').textContent=mode==='login'?'Войти в компанию':'Создать компанию';$$('[data-auth-mode]').forEach(b=>b.classList.toggle('active',b.dataset.authMode===mode));$('#auth-error').textContent=''}
-async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
+async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadPlan()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
 async function routeFromHash(){if(!S.boot)return;const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?'),parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}}
 window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
 // The task list is paged now. The screen still shows one backlog, so it walks
@@ -65,14 +65,30 @@ function navs(){const html=nav.map(([id,i,l])=>`<button class="nav-item pressabl
 function lists(){const channels=S.conversations.filter(c=>['channel','team','project'].includes(c.kind)),dm=S.conversations.filter(c=>['direct','group'].includes(c.kind));$('#channel-list').innerHTML=channels.map(c=>side(c,'#')).join('');$('#direct-list').innerHTML=dm.map(c=>side(c,'')).join('')}
 function side(c,prefix){return `<button class="sidebar-row pressable ${S.selected===c.id?'active':''}" data-conversation="${c.id}"><span>${prefix||'<span class="presence-dot online"></span>'}</span><span class="label">${esc(c.title||'Диалог')}</span></button>`}
 function render(){navs();lists();$('#screen-title').textContent=nav.find(x=>x[0]===S.view)?.[2]||'Chat';$('#eyebrow').textContent=(me()?.organizationName||'Компания').toUpperCase();$('#screen').innerHTML=({today,chats,tasks,calendar,more})[S.view]();bind();bindCalendar()}
-function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','cancelled'].includes(t.status)),events=S.calendar.filter(e=>Date.parse(e.startAt)>Date.now()-3600000).slice(0,4);return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker">${esc(new Intl.DateTimeFormat('ru',{weekday:'long',day:'numeric',month:'long'}).format(new Date()).toUpperCase())}</p><h2><span>${new Date().getHours()<12?'Доброе утро':new Date().getHours()<18?'Добрый день':'Добрый вечер'}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>Расписание дня</h2><p class="muted">Встречи и рабочее время</p></div><button data-action="event" class="button secondary small pressable">＋ Событие</button></div>${events.length?events.map(e=>`<div class="agenda-row"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(e.kind)}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></div>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или фокус-время.</div>'}</section><section class="surface"><div class="section-head"><h2>Мои задачи</h2><button data-action="task" class="button secondary small pressable">＋ Задача</button></div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section></div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>активных задач</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>сотрудников</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>диалогов</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
+function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','cancelled'].includes(t.status)),events=S.calendar.filter(e=>Date.parse(e.startAt)>Date.now()-3600000).slice(0,4);return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker">${esc(new Intl.DateTimeFormat('ru',{weekday:'long',day:'numeric',month:'long'}).format(new Date()).toUpperCase())}</p><h2><span>${new Date().getHours()<12?'Доброе утро':new Date().getHours()<18?'Добрый день':'Добрый вечер'}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>Расписание дня</h2><p class="muted">Встречи и рабочее время</p></div><button data-action="event" class="button secondary small pressable">＋ Событие</button></div>${events.length?events.map(e=>`<div class="agenda-row"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(e.kind)}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></div>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или фокус-время.</div>'}</section><section class="surface"><div class="section-head"><h2>Мои задачи</h2><button data-action="task" class="button secondary small pressable">＋ Задача</button></div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section>${planSection()}</div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>активных задач</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>сотрудников</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>диалогов</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
+/**
+ * The personal list, on the screen where the day is planned. A commitment
+ * belongs to «Мои задачи» above; this is the work nobody promised to anybody.
+ */
+function planSection(){
+  if(S.planUnavailable)return '';
+  const open=S.plan.filter(i=>i.status!=='done').slice(0,6);
+  return `<section class="surface"><div class="section-head"><div><h2>Мои дела</h2><p class="muted">Личный список, вне обязательств перед другими</p></div>
+    <button data-action="plan" class="button secondary small pressable">Все дела</button></div>
+    ${open.length?`<div class="plan-list">${open.map(planRow).join('')}</div>`
+      :'<div class="empty"><strong>Список пуст</strong>Запишите, что нужно не забыть.</div>'}
+    <form class="quick-bar" data-plan-quick style="margin-top:10px">
+      <input name="title" placeholder="Записать дело" aria-label="Новое дело" maxlength="240">
+      <button type="submit" class="button secondary small pressable">Добавить</button>
+    </form></section>`;
+}
 function convRow(c){return `<button class="conversation-card pressable" data-open="${c.id}"><span class="avatar dark">${c.kind==='channel'?'#':esc(initials(c.title||'D'))}</span><span><strong>${esc(c.title||'Диалог')}</strong><div class="preview">${esc(c.lastMessage?.body||kindLabel(c.lastMessage?.kind)||c.purpose||'Открыть разговор')}</div></span><span class="time">${time(c.lastMessage?.createdAt)}</span></button>`}
 const TASK_STATUS={proposed:'Ожидает принятия',accepted:'Принята',scheduled:'Запланирована',in_progress:'В работе',blocked:'Заблокирована',in_review:'На проверке',accepted_result:'Результат принят',closed:'Закрыта',rejected:'Отклонена',cancelled:'Отменена',deferred:'Отложена',clarify:'Нужно уточнение',inbox:'Входящая'};
 const TASK_ACTION={accepted:'Принять ответственность',rejected:'Отказаться',clarify:'Запросить уточнение',scheduled:'Запланировать',in_progress:'Начать работу',blocked:'Есть блокировка',in_review:'Отправить на проверку',accepted_result:'Принять результат',closed:'Закрыть',deferred:'Отложить',cancelled:'Отменить'};
 function taskRow(t){return `<button class="task-card pressable" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span>${esc(dateTime(t.promisedAt))}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div></span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`}
 function kindLabel(k){return({voice:'Голосовое сообщение',file:'Файл',call:'Звонок',task:'Задача',calendar:'Событие'})[k]||''}
 function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><h2>Диалоги</h2><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${S.conversations.map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="pins" class="round-button pressable" title="Закреплённые">⌖</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}">${muted?'🔔':'🔕'}</button><button data-action="archive" class="round-button pressable" title="Архивировать">⌑</button>${c.kind!=='direct'?'<button data-action="members" class="round-button pressable" title="Участники">◎</button>':''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок">⌕</button><button data-action="video" class="round-button pressable" title="Видеозвонок">◉</button></div></header><div id="message-stream" class="message-stream">${messages.map(message).join('')||'<div class="empty"><strong>Начните разговор</strong></div>'}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
-function message(m){const reactions=(m.reactions||[]).reduce((a,r)=>(a[r.reaction]=(a[r.reaction]||0)+1,a),{}),deleted=Boolean(m.deletedAt),canDelete=m.authorId===me().userId||can('message.delete.any');return `<article class="message-item" data-message-row="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><div><div class="message-meta"><span class="message-author">${esc(m.authorId===me().userId?'Вы':name(m.authorId))}</span><span class="message-time">${time(m.createdAt)}${m.editedAt?' · изменено':''}${m.pinned?' · закреплено':''}${m.saved?' · сохранено':''}</span></div>${m.forwardedFrom?(m.forwardedFrom.restricted?'<div class="row-sub">↪ Пересланное сообщение</div>':`<button class="reaction-button" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">↪ Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`):''}${deleted?'<p class="muted">Сообщение удалено</p>':m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`:m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`:`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`}${deleted?'':`<div class="inline-actions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}<button class="reaction-button" data-react="👍" data-message="${m.id}">＋👍</button><button class="reaction-button" data-reply="${m.id}">Ответить</button><button class="reaction-button" data-message-save="${m.id}" data-saved="${m.saved?'1':'0'}">${m.saved?'Убрать из сохранённых':'Сохранить'}</button><button class="reaction-button" data-message-forward="${m.id}">Переслать</button><button class="reaction-button" data-message-pin="${m.id}" data-pinned="${m.pinned?'1':'0'}">${m.pinned?'Открепить':'Закрепить'}</button><button class="reaction-button" data-task-message="${m.id}">В задачу</button>${m.authorId===me().userId&&m.kind==='text'&&!m.forwarded?`<button class="reaction-button" data-message-edit="${m.id}">Изменить</button>`:''}${canDelete?`<button class="reaction-button" data-message-delete="${m.id}">Удалить</button>`:''}</div>`}</div></article>`}
+function message(m){const reactions=(m.reactions||[]).reduce((a,r)=>(a[r.reaction]=(a[r.reaction]||0)+1,a),{}),deleted=Boolean(m.deletedAt),canDelete=m.authorId===me().userId||can('message.delete.any');return `<article class="message-item" data-message-row="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><div><div class="message-meta"><span class="message-author">${esc(m.authorId===me().userId?'Вы':name(m.authorId))}</span><span class="message-time">${time(m.createdAt)}${m.editedAt?' · изменено':''}${m.pinned?' · закреплено':''}${m.saved?' · сохранено':''}</span></div>${m.forwardedFrom?(m.forwardedFrom.restricted?'<div class="row-sub">↪ Пересланное сообщение</div>':`<button class="reaction-button" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">↪ Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`):''}${deleted?'<p class="muted">Сообщение удалено</p>':m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`:m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`:`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`}${deleted?'':`<div class="inline-actions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}<button class="reaction-button" data-react="👍" data-message="${m.id}">＋👍</button><button class="reaction-button" data-reply="${m.id}">Ответить</button><button class="reaction-button" data-message-save="${m.id}" data-saved="${m.saved?'1':'0'}">${m.saved?'Убрать из сохранённых':'Сохранить'}</button><button class="reaction-button" data-message-forward="${m.id}">Переслать</button><button class="reaction-button" data-message-label="${m.id}">Метка</button><button class="reaction-button" data-message-pin="${m.id}" data-pinned="${m.pinned?'1':'0'}">${m.pinned?'Открепить':'Закрепить'}</button><button class="reaction-button" data-task-message="${m.id}">В задачу</button>${m.authorId===me().userId&&m.kind==='text'&&!m.forwarded?`<button class="reaction-button" data-message-edit="${m.id}">Изменить</button>`:''}${canDelete?`<button class="reaction-button" data-message-delete="${m.id}">Удалить</button>`:''}</div>`}</div></article>`}
 function tasks(){return `<section class="surface"><div class="section-head"><div><p class="muted">Ответственность → выполнение → доказательство → проверка → закрытие</p></div><button data-action="task" class="button primary small pressable">＋ Задача</button></div><div class="task-list">${S.tasks.map(taskRow).join('')||'<div class="empty"><strong>Ничего не потеряется</strong>Создайте задачу вручную или из сообщения.</div>'}</div></section>`}
 function calendar(){
   const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
@@ -215,7 +231,7 @@ async function eventPage(id){
   });
 }
 
-function more(){return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button><button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button><button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button><button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button><button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
+function more(){return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button><button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button><button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button><button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button><button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
@@ -228,35 +244,563 @@ function bind(){
     if(/\b(в|с)\s?\d{1,2}[:.]\d{2}|встреч|созвон|планёрк/i.test(text))eventModal(text);
     else taskModal(null,text);
   };
-$$('[data-nav]').forEach(b=>b.onclick=()=>go(b.dataset.nav));$$('[data-conversation],[data-open]').forEach(b=>b.onclick=()=>openChat(b.dataset.conversation||b.dataset.open));$$('[data-action]').forEach(b=>b.onclick=()=>action(b.dataset.action));$$('[data-react]').forEach(b=>b.onclick=()=>react(b.dataset.message,b.dataset.react));$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-pin]').forEach(b=>b.onclick=()=>togglePin(b.dataset.messagePin,b.dataset.pinned!=='1'));$$('[data-message-forward]').forEach(b=>b.onclick=()=>forwardModal(b.dataset.messageForward));$$('[data-forward-origin-conversation]').forEach(b=>b.onclick=()=>openChatAtMessage(b.dataset.forwardOriginConversation,b.dataset.forwardOriginMessage));$$('[data-message-edit]').forEach(b=>b.onclick=()=>editMessageModal(b.dataset.messageEdit));$$('[data-message-delete]').forEach(b=>b.onclick=()=>deleteMessageModal(b.dataset.messageDelete));$$('[data-task-message]').forEach(b=>b.onclick=()=>taskModal(b.dataset.taskMessage));$$('[data-task-open]').forEach(b=>b.onclick=()=>openTask(b.dataset.taskOpen));const input=$('#message-input');if(input){input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};input.oninput=typing;requestAnimationFrame(()=>{$('#message-stream')?.scrollTo(0,999999)})}}
+  const planQuick=$('[data-plan-quick]');
+  if(planQuick)planQuick.onsubmit=async(event)=>{
+    event.preventDefault();
+    const title=new FormData(event.target).get('title')?.toString().trim();
+    if(!title)return;
+    event.target.reset();
+    try{await api('/api/v1/personal-items',{method:'POST',body:JSON.stringify({kind:'todo',title})});await loadPlan();render()}
+    catch(error){toast(error.message)}
+  };
+  bindPlanRows(async()=>{await loadPlan();render()});
+  $$('[data-nav]').forEach(b=>b.onclick=()=>go(b.dataset.nav));$$('[data-conversation],[data-open]').forEach(b=>b.onclick=()=>openChat(b.dataset.conversation||b.dataset.open));$$('[data-action]').forEach(b=>b.onclick=()=>action(b.dataset.action));$$('[data-react]').forEach(b=>b.onclick=()=>react(b.dataset.message,b.dataset.react));$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-label]').forEach(b=>b.onclick=()=>labelPicker('message',b.dataset.messageLabel,{title:'Метки сообщения'}));$$('[data-message-pin]').forEach(b=>b.onclick=()=>togglePin(b.dataset.messagePin,b.dataset.pinned!=='1'));$$('[data-message-forward]').forEach(b=>b.onclick=()=>forwardModal(b.dataset.messageForward));$$('[data-forward-origin-conversation]').forEach(b=>b.onclick=()=>openChatAtMessage(b.dataset.forwardOriginConversation,b.dataset.forwardOriginMessage));$$('[data-message-edit]').forEach(b=>b.onclick=()=>editMessageModal(b.dataset.messageEdit));$$('[data-message-delete]').forEach(b=>b.onclick=()=>deleteMessageModal(b.dataset.messageDelete));$$('[data-task-message]').forEach(b=>b.onclick=()=>taskModal(b.dataset.taskMessage));$$('[data-task-open]').forEach(b=>b.onclick=()=>openTask(b.dataset.taskOpen));const input=$('#message-input');if(input){input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};input.oninput=typing;requestAnimationFrame(()=>{$('#message-stream')?.scrollTo(0,999999)})}}
 function go(v){S.view=v;if(v!=='chats')S.mobileChat=false;render()}
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,plan:()=>planModal(),labels:labelsModal,search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
-// Read-only chart for now: the tree, who runs each unit and how the planned
-// headcount compares with the people actually in it.
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
+// ── org structure: reading and reshaping ────────────────────────────────────
+// The chart was read-only and told people to POST to the API. Whoever runs a
+// branch can now run it from here; moving a unit or changing its seat plan
+// still takes workspace-wide rights, exactly as the server enforces.
+const UNIT_ROLE={head:'руководитель',admin:'ответственный',member:'сотрудник'};
+
 async function orgModal(){
   let data;
-  try{data=await api('/api/v1/org/units')}catch(error){toast(error.code==='ORG_STRUCTURE_UNAVAILABLE'?'Оргструктура доступна в режиме с базой данных':error.message);return}
+  try{data=await api('/api/v1/org/units')}
+  catch(error){toast(error.code==='ORG_STRUCTURE_UNAVAILABLE'?'Оргструктура доступна в режиме с базой данных':error.message);return}
+
   const units=data.items||[];
-  if(!units.length){modal('Оргструктура','<p class="muted">Структура ещё не заведена. Владелец или администратор создаёт департаменты и отделы через <code>POST /api/v1/org/units</code>.</p>');return}
-  const managed=new Set(data.canManage?[]:(data.managedUnitIds||[]));
+  const wide=Boolean(data.canManage);
+  const managed=new Set(data.managedUnitIds||[]);
+  const mayManage=(id)=>wide||managed.has(id);
   const nameOf=(id)=>id?(S.people.find(p=>p.userId===id)?.displayName||'—'):null;
+
+  if(!units.length){
+    modal('Оргструктура',`<p class="muted">Структура ещё не заведена. Заведите верхний уровень — компанию или первый департамент — и стройте дерево от него.</p>
+      ${wide?'<div class="stack" style="margin-top:14px"><button data-new-root class="button primary">Создать подразделение</button></div>'
+            :'<p class="muted" style="margin-top:12px">У вас нет прав на изменение структуры.</p>'}`,()=>{
+      if(wide)$('[data-new-root]').onclick=()=>unitFormModal(null,null,orgModal);
+    });
+    return;
+  }
+
   const branch=(parentId,depth)=>units.filter(u=>u.parentId===parentId).map(u=>{
     const head=nameOf(u.headUserId);
-    const seats=u.seats.limit===null?`${u.seats.used} чел.`:`${u.seats.used} из ${u.seats.limit}`;
+    const seats=u.seats.limit===null?`${u.seats.used} <span>чел.</span>`:`${u.seats.used} из ${u.seats.limit}`;
     const tight=u.seats.limit!==null&&u.seats.free<=0;
     return `<div class="org-node" style="--org-depth:${depth}">
-      <div class="org-line"><strong>${esc(u.name)}</strong><span class="org-kind">${esc(UNIT_KIND[u.kind]||u.kind)}</span>${managed.has(u.id)?'<span class="org-kind own">вы управляете</span>':''}</div>
-      <div class="org-meta"><span class="${tight?'org-full':''}">${esc(seats)}</span><span>${head?`руководитель: ${esc(head)}`:'руководитель не назначен'}</span></div>
+      <div class="org-line">
+        <strong>${esc(u.name)}</strong>
+        <span class="org-kind">${esc(UNIT_KIND[u.kind]||u.kind)}</span>
+        ${mayManage(u.id)&&!wide?'<span class="org-kind own">вы управляете</span>':''}
+        ${mayManage(u.id)?`<button class="text-button org-edit" data-unit="${esc(u.id)}">настроить</button>`:''}
+      </div>
+      <div class="org-meta"><span class="${tight?'org-full':''}">${seats}</span><span>${head?`<span>руководитель</span>: ${esc(head)}`:'<span>руководитель не назначен</span>'}</span></div>
     </div>${branch(u.id,depth+1)}`;
   }).join('');
+
   const planned=units.reduce((n,u)=>n+(u.seats.limit??0),0),taken=units.reduce((n,u)=>n+u.seats.used,0);
-  modal('Оргструктура',`<div class="org-tree">${branch(null,0)}</div><p class="muted" style="margin-top:12px">Занято ${taken} мест из ${planned} запланированных${data.canManage?'':' · у вас права только на чтение'}</p>`);
+  modal('Оргструктура',`
+    ${wide?'<div class="stack" style="margin-bottom:12px"><button data-new-root class="button secondary">＋ Подразделение верхнего уровня</button></div>':''}
+    <div class="org-tree">${branch(null,0)}</div>
+    <p class="muted" style="margin-top:12px"><span>Мест занято</span>: ${taken} / ${planned}${wide?'':' · <span>вы управляете только своей веткой</span>'}</p>`,()=>{
+    if(wide)$('[data-new-root]').onclick=()=>unitFormModal(null,null,orgModal);
+    $$('[data-unit]').forEach(button=>button.onclick=()=>unitSheet(units.find(u=>u.id===button.dataset.unit),{wide,units}));
+  });
 }
 
+async function unitSheet(unit,{wide,units}){
+  if(!unit)return;
+  let members=[];
+  try{members=(await api(`/api/v1/org/units/${unit.id}/members`)).items||[]}
+  catch(error){toast(error.message)}
+
+  const seats=unit.seats.limit===null?'не ограничено':`${unit.seats.used} из ${unit.seats.limit}`;
+  const rows=members.length?members.map(m=>`<div class="label-row">
+      <span><div class="row-title">${esc(m.displayName||name(m.userId))}</div><div class="row-sub">${esc(UNIT_ROLE[m.role]||m.role)}</div></span>
+      <span class="inline-actions">
+        ${m.role!=='head'?`<button class="text-button" data-make-head="${esc(m.userId)}">сделать руководителем</button>`:''}
+        <button class="text-button danger" data-remove-member="${esc(m.userId)}">убрать</button>
+      </span>
+    </div>`).join(''):'<p class="muted">В подразделении пока никого нет.</p>';
+
+  modal(unit.name,`
+    <div class="person-fields">
+      <div class="person-field"><span>Вид</span><strong>${esc(UNIT_KIND[unit.kind]||unit.kind)}</strong></div>
+      <div class="person-field"><span>Уровень</span><strong>${unit.depth}</strong></div>
+      <div class="person-field"><span>Штат</span><strong>${esc(seats)}</strong></div>
+    </div>
+    <h3 class="person-section"><span>Сотрудники</span> — ${members.length}</h3>
+    <div class="label-list">${rows}</div>
+    <div class="stack" style="margin-top:16px">
+      <button data-add-member class="button secondary">Зачислить сотрудника</button>
+      <button data-sub-unit class="button secondary">＋ Подразделение внутри</button>
+      <button data-rename class="button secondary">Переименовать${wide?' и изменить штат':''}</button>
+      ${wide?'<button data-delete class="button danger">Удалить подразделение</button>':''}
+    </div>
+    ${wide?'':'<p class="muted" style="margin-top:12px">Перенос подразделения и штатный план меняет владелец или администратор компании.</p>'}`,()=>{
+    const back=()=>replaceModal(()=>unitSheet(unit,{wide,units}));
+    $('[data-add-member]').onclick=()=>unitAddMemberModal(unit,members,back);
+    $('[data-sub-unit]').onclick=()=>unitFormModal(unit.id,null,orgModal);
+    $('[data-rename]').onclick=()=>unitFormModal(unit.parentId,unit,orgModal,{wide});
+    $$('[data-make-head]').forEach(b=>b.onclick=async()=>{
+      try{
+        await api(`/api/v1/org/units/${unit.id}`,{method:'PATCH',body:JSON.stringify({headUserId:b.dataset.makeHead})});
+        toast('Руководитель назначен');orgModal();
+      }catch(error){toast(error.message)}
+    });
+    $$('[data-remove-member]').forEach(b=>b.onclick=async()=>{
+      try{
+        await api(`/api/v1/org/units/${unit.id}/members/${b.dataset.removeMember}`,{method:'DELETE'});
+        back();
+      }catch(error){toast(error.message)}
+    });
+    if(wide)$('[data-delete]').onclick=()=>{
+      modal(`Удалить «${unit.name}»?`,`<p class="muted">Подразделение с вложенными в него удалить нельзя — сначала перенесите или удалите их. Сотрудники останутся в компании.</p>
+        <button id="confirm-unit-delete" class="button danger" style="width:100%">Удалить</button>`,()=>{
+        $('#confirm-unit-delete').onclick=async()=>{
+          try{await api(`/api/v1/org/units/${unit.id}`,{method:'DELETE'});toast('Подразделение удалено');orgModal()}
+          catch(error){toast(error.message)}
+        };
+      });
+    };
+  });
+}
+
+function unitFormModal(parentId,existing,after,{wide=true}={}){
+  const heading=existing?'Настроить подразделение':'Новое подразделение';
+  modal(heading,`<form id="unit-form" class="form-stack">
+    <label>Название<input name="name" required maxlength="120" value="${esc(existing?.name??'')}"></label>
+    ${existing?'':`<label>Вид<select name="kind" class="field">${Object.entries(UNIT_KIND).map(([value,caption])=>
+      `<option value="${value}" ${value==='department'?'selected':''}>${esc(caption)}</option>`).join('')}</select></label>`}
+    ${wide?`<label>Штатных мест<input name="seatLimit" type="number" min="1" step="1" placeholder="не ограничено"
+      value="${existing?.seats?.limit??''}"></label>`:''}
+    <button class="button primary">${existing?'Сохранить':'Создать'}</button>
+  </form>`,()=>{
+    $('#unit-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      const raw=form.get('seatLimit');
+      const seatLimit=raw===null||String(raw).trim()===''?null:Number(raw);
+      try{
+        if(existing){
+          const patch={name:form.get('name')};
+          if(wide)patch.seatLimit=seatLimit;
+          await api(`/api/v1/org/units/${existing.id}`,{method:'PATCH',body:JSON.stringify(patch)});
+        }else{
+          await api('/api/v1/org/units',{method:'POST',body:JSON.stringify({
+            parentId,kind:form.get('kind'),name:form.get('name'),seatLimit,
+          })});
+        }
+        toast(existing?'Подразделение сохранено':'Подразделение создано');
+        after?.();
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+function unitAddMemberModal(unit,members,after){
+  const inside=new Set(members.map(m=>m.userId));
+  // A guest is somebody else's employee and the server refuses to place one.
+  const candidates=S.people.filter(p=>!inside.has(p.userId)&&p.role!=='guest');
+  if(!candidates.length){toast('Все сотрудники уже в этом подразделении');return}
+  modal(`Зачислить в «${unit.name}»`,`<form id="unit-member-form" class="form-stack">
+    <label>Сотрудник<select name="userId" class="field">${candidates.map(p=>
+      `<option value="${esc(p.userId)}">${esc(p.displayName||p.email)}</option>`).join('')}</select></label>
+    <label>Роль в подразделении<select name="role" class="field">
+      <option value="member">сотрудник</option>
+      <option value="admin">ответственный</option>
+      <option value="head">руководитель</option>
+    </select></label>
+    ${unit.seats.limit!==null?`<p class="muted"><span>Свободных мест</span>: ${unit.seats.free}</p>`:''}
+    <button class="button primary">Зачислить</button>
+  </form>`,()=>{
+    $('#unit-member-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      try{
+        await api(`/api/v1/org/units/${unit.id}/members`,{method:'POST',body:JSON.stringify({
+          userId:form.get('userId'),role:form.get('role'),
+        })});
+        toast('Сотрудник зачислен');
+        after?.();
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+// ── labels: importance, tags and folders ────────────────────────────────────
+// One mechanism serves all three. The kind decides how it behaves: importance
+// is exclusive (a second one replaces the first), tags and folders accumulate.
+const LABEL_GROUPS=[['priority','Важность'],['tag','Теги'],['folder','Папки'],['status','Статусы']];
+const LABEL_COLOURS=[['neutral','обычный'],['red','красный'],['amber','янтарный'],['green','зелёный'],['teal','бирюзовый'],['blue','синий'],['violet','фиолетовый'],['grey','серый']];
+
+async function loadLabels(force=false){
+  if(S.labels&&!force)return S.labels;
+  try{
+    S.labels=(await api('/api/v1/labels')).items||[];
+    S.labelsUnavailable=false;
+  }catch(error){
+    S.labels=[];
+    S.labelsUnavailable=error.code==='LABELS_UNAVAILABLE'||error.status===503;
+    if(!S.labelsUnavailable)toast(error.message);
+  }
+  return S.labels;
+}
+
+const labelChip=(label)=>`<span class="label-chip" data-kind="${esc(label.kind)}" data-colour="${esc(label.colour||'neutral')}">${esc(label.name)}${label.personal?'<i title="личная">•</i>':''}</span>`;
+const labelChips=(labels)=>(labels||[]).map(labelChip).join('')||'<span class="muted">без меток</span>';
+
+/** Toggle one label on one thing. Importance is exclusive on the server. */
+async function toggleLabelOn(labelId,targetType,targetId,applied){
+  await api(`/api/v1/labels/${labelId}/links/${targetType}/${targetId}`,{method:applied?'DELETE':'PUT'});
+}
+
+/**
+ * The picker every labelled thing opens: messages, tasks and personal items
+ * all reach the same sheet, so the vocabulary stays one vocabulary.
+ */
+async function labelPicker(targetType,targetId,{title='Метки',onChange}={}){
+  await loadLabels();
+  if(S.labelsUnavailable){toast('Метки доступны в режиме с базой данных');return}
+  let applied=[];
+  try{applied=(await api(`/api/v1/labelled/${targetType}/${targetId}`)).items||[]}
+  catch(error){toast(error.message);return}
+  const on=new Set(applied.map(l=>l.id));
+  const groups=LABEL_GROUPS.map(([kind,caption])=>{
+    const rows=S.labels.filter(l=>l.kind===kind);
+    if(!rows.length)return '';
+    return `<h3 class="person-section">${esc(caption)}</h3><div class="label-grid">${rows.map(l=>
+      `<button class="label-option pressable${on.has(l.id)?' on':''}" data-label="${esc(l.id)}" data-on="${on.has(l.id)?'1':''}">${labelChip(l)}</button>`).join('')}</div>`;
+  }).join('');
+
+  modal(title,`${groups||'<p class="muted">Меток пока нет.</p>'}
+    <div class="stack" style="margin-top:16px"><button data-new-label class="button secondary">＋ Новая метка</button></div>`,()=>{
+    $$('[data-label]').forEach(button=>button.onclick=async()=>{
+      const id=button.dataset.label,was=Boolean(button.dataset.on);
+      button.disabled=true;
+      try{
+        await toggleLabelOn(id,targetType,targetId,was);
+        // Importance is exclusive, so one click can clear another chip: the
+        // sheet is re-read rather than patched in place.
+        replaceModal(()=>labelPicker(targetType,targetId,{title,onChange}));
+        onChange?.();
+      }catch(error){toast(error.message);button.disabled=false}
+    });
+    $('[data-new-label]').onclick=()=>labelFormModal(null,'tag',()=>replaceModal(()=>labelPicker(targetType,targetId,{title,onChange})));
+  });
+}
+
+/** The vocabulary itself: create, rename, recolour, delete. */
+async function labelsModal(){
+  await loadLabels(true);
+  if(S.labelsUnavailable){toast('Метки доступны в режиме с базой данных');return}
+  const groups=LABEL_GROUPS.map(([kind,caption])=>{
+    const rows=S.labels.filter(l=>l.kind===kind);
+    return `<h3 class="person-section">${esc(caption)}
+        <button class="text-button" data-add="${kind}">＋ добавить</button>
+      </h3>
+      ${rows.length?`<div class="label-list">${rows.map(l=>`<div class="label-row">
+        ${labelChip(l)}
+        <span class="muted">${l.usage!==undefined?`${l.usage} <span>объектов</span>`:''}</span>
+        <span class="inline-actions">
+          <button class="text-button" data-edit-label="${esc(l.id)}">изменить</button>
+          <button class="text-button danger" data-drop-label="${esc(l.id)}">удалить</button>
+        </span>
+      </div>`).join('')}</div>`:'<p class="muted">Пока ни одной.</p>'}`;
+  }).join('');
+
+  modal('Метки',`${groups}
+    <p class="muted" style="margin-top:14px">Важность взаимно исключающая: новая заменяет прежнюю. Теги и папки накапливаются. Личная метка видна только вам.</p>`,()=>{
+    $$('[data-add]').forEach(b=>b.onclick=()=>labelFormModal(null,b.dataset.add,()=>replaceModal(labelsModal)));
+    $$('[data-edit-label]').forEach(b=>b.onclick=()=>{
+      const label=S.labels.find(l=>l.id===b.dataset.editLabel);
+      if(label)labelFormModal(label,label.kind,()=>replaceModal(labelsModal));
+    });
+    $$('[data-drop-label]').forEach(b=>b.onclick=async()=>{
+      const label=S.labels.find(l=>l.id===b.dataset.dropLabel);
+      if(!label)return;
+      modal(`Удалить «${label.name}»?`,`<p class="muted">Метка снимется со всех объектов, на которых стоит. Сами объекты останутся.</p>
+        <button id="confirm-label-delete" class="button danger" style="width:100%">Удалить метку</button>`,()=>{
+        $('#confirm-label-delete').onclick=async()=>{
+          try{
+            await api(`/api/v1/labels/${label.id}`,{method:'DELETE'});
+            S.labels=null;toast('Метка удалена');
+            replaceModal(labelsModal);
+          }catch(error){toast(error.message)}
+        };
+      });
+    });
+  });
+}
+
+function labelFormModal(existing,kind,after){
+  const heading=existing?'Изменить метку':'Новая метка';
+  modal(heading,`<form id="label-form" class="form-stack">
+    <label>Название<input name="name" required maxlength="60" value="${esc(existing?.name??'')}"></label>
+    <label>Вид<select name="kind" class="field"${existing?' disabled':''}>${LABEL_GROUPS.map(([k,caption])=>
+      `<option value="${k}" ${((existing?.kind)??kind)===k?'selected':''}>${esc(caption)}</option>`).join('')}</select></label>
+    <label>Цвет<select name="colour" class="field">${LABEL_COLOURS.map(([value,caption])=>
+      `<option value="${value}" ${(existing?.colour??'neutral')===value?'selected':''}>${esc(caption)}</option>`).join('')}</select></label>
+    ${existing?'':`<label class="row" style="cursor:pointer"><input type="checkbox" name="personal">
+      <span><div class="row-title">Личная метка</div><div class="row-sub">Видна только вам и не попадает в общий словарь компании</div></span></label>`}
+    <button class="button primary">${existing?'Сохранить':'Создать'}</button>
+  </form>`,()=>{
+    $('#label-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      try{
+        if(existing){
+          await api(`/api/v1/labels/${existing.id}`,{method:'PATCH',body:JSON.stringify({name:form.get('name'),colour:form.get('colour')})});
+        }else{
+          await api('/api/v1/labels',{method:'POST',body:JSON.stringify({
+            kind:form.get('kind'),name:form.get('name'),colour:form.get('colour'),personal:form.get('personal')==='on',
+          })});
+        }
+        S.labels=null;
+        toast(existing?'Метка сохранена':'Метка создана');
+        after?.();
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+// ── personal planning ───────────────────────────────────────────────────────
+// A commitment has an owner who accepted it and someone who accepts the
+// result. This list is the other thing: work nobody promised to anybody.
+const PLAN_KIND={todo:'дело',note:'заметка',screenshot:'скриншот',link:'ссылка'};
+const PLAN_STATUS={open:'открыто',done:'сделано',dropped:'снято'};
+const PLAN_FILTERS=[['open','Открытые'],['done','Сделанные'],['all','Все']];
+
+async function loadPlan(status=S.planFilter||'open'){
+  S.planFilter=status;
+  try{
+    S.plan=(await api(`/api/v1/personal-items?status=${encodeURIComponent(status)}&limit=100`)).items||[];
+    S.planUnavailable=false;
+  }catch(error){
+    S.plan=[];
+    S.planUnavailable=error.code==='PERSONAL_UNAVAILABLE'||error.status===503;
+    if(!S.planUnavailable)toast(error.message);
+  }
+  return S.plan;
+}
+
+const planDue=(item)=>{
+  if(item.plannedStart)return `в календаре ${dateTime(item.plannedStart)}`;
+  if(item.dueAt)return `срок ${dateTime(item.dueAt)}`;
+  return '';
+};
+
+function planRow(item){
+  const meta=[planDue(item),item.commentCount?`${item.commentCount} комм.`:'',item.fileCount?`${item.fileCount} файл.`:''].filter(Boolean).join(' · ');
+  return `<div class="plan-row${item.status==='done'?' is-done':''}">
+    <button class="plan-check pressable" data-plan-toggle="${esc(item.id)}" data-status="${esc(item.status)}"
+      aria-label="${item.status==='done'?'Вернуть в работу':'Отметить сделанным'}">${item.status==='done'?'✓':''}</button>
+    <button class="plan-body pressable" data-plan-open="${esc(item.id)}">
+      <div class="row-title">${esc(item.title)}</div>
+      <div class="row-sub">${esc(PLAN_KIND[item.kind]||item.kind)}${meta?` · ${esc(meta)}`:''}</div>
+      ${(item.labels||[]).length?`<div class="plan-labels">${(item.labels||[]).map(labelChip).join('')}</div>`:''}
+    </button>
+  </div>`;
+}
+
+/** Wires the two controls a row carries, wherever that row is rendered. */
+function bindPlanRows(reload){
+  $$('[data-plan-toggle]').forEach(button=>button.onclick=async()=>{
+    const done=button.dataset.status==='done';
+    button.disabled=true;
+    try{
+      await api(`/api/v1/personal-items/${button.dataset.planToggle}`,{method:'PATCH',body:JSON.stringify({status:done?'open':'done'})});
+      await reload();
+    }catch(error){toast(error.message);button.disabled=false}
+  });
+  $$('[data-plan-open]').forEach(button=>button.onclick=()=>planItemPage(button.dataset.planOpen));
+}
+
+async function planModal(status=S.planFilter||'open'){
+  await loadPlan(status);
+  if(S.planUnavailable){toast('Личное планирование доступно в режиме с базой данных');return}
+
+  // Built as a function rather than a string: the sheet is re-read whenever it
+  // becomes the top of the stack again, so a change made above it shows.
+  const build=async(reload=false)=>{
+    if(reload)await loadPlan(S.planFilter);
+    const filters=PLAN_FILTERS.map(([value,caption])=>
+      `<button class="chipbtn pressable${S.planFilter===value?' on':''}" data-plan-filter="${value}">${esc(caption)}</button>`).join('');
+    const list=S.plan.length?S.plan.map(planRow).join(''):'<div class="empty">Здесь пусто. Запишите первое дело.</div>';
+    return {
+      title:'Личные дела',
+      body:`
+    <form id="plan-add" class="quick-bar" style="margin-bottom:12px">
+      <input name="title" placeholder="Что нужно сделать или запомнить" aria-label="Новое дело" maxlength="240" required>
+      <button type="submit" class="button primary small pressable">Добавить</button>
+    </form>
+    <div class="chip-row">${filters}</div>
+    <div class="plan-list">${list}</div>`,
+      after:()=>{
+        $('#plan-add').onsubmit=async(event)=>{
+          event.preventDefault();
+          const title=new FormData(event.currentTarget).get('title')?.toString().trim();
+          if(!title)return;
+          try{
+            await api('/api/v1/personal-items',{method:'POST',body:JSON.stringify({kind:'todo',title})});
+            await refresh();
+            if(S.view==='today')render();
+          }catch(error){toast(error.message)}
+        };
+        $$('[data-plan-filter]').forEach(b=>b.onclick=async()=>{S.planFilter=b.dataset.planFilter;await refresh()});
+        bindPlanRows(async()=>{await refresh();if(S.view==='today')render()});
+      },
+    };
+  };
+
+  const refresh=async()=>{
+    const next=await build(true);
+    const top=overlayStack[overlayStack.length-1];
+    if(!top)return next;
+    Object.assign(top,next);
+    renderOverlay();
+    return next;
+  };
+
+  const first=await build();
+  modal(first.title,first.body,first.after,()=>build(true));
+}
+
+async function planItemPage(id){
+  const build=async()=>{
+    const item=(await api(`/api/v1/personal-items/${id}`)).item;
+    const comments=item.comments||[];
+    const files=item.files||[];
+    return {
+      title:item.title,
+      body:`
+    <div class="person-fields">
+      <div class="person-field"><span>Тип</span><strong>${esc(PLAN_KIND[item.kind]||item.kind)}</strong></div>
+      <div class="person-field"><span>Состояние</span><strong>${esc(PLAN_STATUS[item.status]||item.status)}</strong></div>
+      ${item.plannedStart?`<div class="person-field"><span>В календаре</span><strong>${esc(dateTime(item.plannedStart))}</strong></div>`:''}
+      ${item.dueAt?`<div class="person-field"><span>Срок</span><strong>${esc(dateTime(item.dueAt))}</strong></div>`:''}
+    </div>
+    ${item.body?`<p class="person-about">${esc(item.body)}</p>`:''}
+    <h3 class="person-section">Метки <button class="text-button" data-plan-labels>изменить</button></h3>
+    <div class="person-chips">${labelChips(item.labels)}</div>
+    <h3 class="person-section"><span>Комментарии</span> — ${comments.length}</h3>
+    <div class="person-feed">${comments.length?comments.map(c=>
+      `<div class="person-event"><span>${esc(c.body)}</span><time>${esc(when(c.createdAt))}</time></div>`).join(''):'<p class="muted">Пока ничего не записано.</p>'}</div>
+    <form id="plan-comment" class="quick-bar" style="margin-top:8px">
+      <input name="body" placeholder="Добавить комментарий" aria-label="Комментарий" maxlength="4000" required>
+      <button type="submit" class="button secondary small pressable">Записать</button>
+    </form>
+    <h3 class="person-section"><span>Файлы</span> — ${files.length}</h3>
+    <div class="person-feed">${files.length?files.map(f=>
+      `<a class="person-event" href="/api/v1/files/${esc(f.id)}/content" target="_blank" rel="noopener"><span>${esc(f.name)}</span></a>`).join(''):'<p class="muted">Вложений нет.</p>'}</div>
+    <div class="stack" style="margin-top:16px">
+      <button data-plan-edit class="button secondary">Изменить текст</button>
+      <button data-plan-schedule class="button secondary">${item.plannedStart?'Перенести в календаре':'Поставить в календарь'}</button>
+      <button data-plan-status class="button secondary">${item.status==='done'?'Вернуть в работу':'Отметить сделанным'}</button>
+      <button data-plan-delete class="button danger">Удалить</button>
+    </div>`,
+      after:()=>{
+        $('[data-plan-labels]').onclick=()=>labelPicker('note',item.id,{title:`Метки: ${item.title}`,onChange:async()=>{
+          await loadPlan();if(S.view==='today')render();
+        }});
+        $('#plan-comment').onsubmit=async(event)=>{
+          event.preventDefault();
+          const body=new FormData(event.currentTarget).get('body')?.toString().trim();
+          if(!body)return;
+          try{await api(`/api/v1/personal-items/${item.id}/comments`,{method:'POST',body:JSON.stringify({body})});await refresh()}
+          catch(error){toast(error.message)}
+        };
+        $('[data-plan-edit]').onclick=()=>planEditModal(item,refresh);
+        $('[data-plan-schedule]').onclick=()=>planScheduleModal(item,refresh);
+        $('[data-plan-status]').onclick=async()=>{
+          try{
+            await api(`/api/v1/personal-items/${item.id}`,{method:'PATCH',body:JSON.stringify({status:item.status==='done'?'open':'done'})});
+            await loadPlan();if(S.view==='today')render();
+            await refresh();
+          }catch(error){toast(error.message)}
+        };
+        $('[data-plan-delete]').onclick=()=>{
+          modal('Удалить дело?',`<p class="muted">Запись, её комментарии и вложения исчезнут. Событие в календаре, если оно было создано, останется.</p>
+            <button id="confirm-plan-delete" class="button danger" style="width:100%">Удалить</button>`,()=>{
+            $('#confirm-plan-delete').onclick=async()=>{
+              try{
+                await api(`/api/v1/personal-items/${item.id}`,{method:'DELETE'});
+                await loadPlan();if(S.view==='today')render();
+                toast('Дело удалено');
+                closeModal();
+              }catch(error){toast(error.message)}
+            };
+          });
+        };
+      },
+    };
+  };
+
+  const refresh=async()=>{
+    const next=await build();
+    const top=overlayStack[overlayStack.length-1];
+    if(top){Object.assign(top,next);renderOverlay()}
+    return next;
+  };
+
+  try{
+    const first=await build();
+    modal(first.title,first.body,first.after,build);
+  }catch(error){toast(error.message)}
+}
+
+function planEditModal(item,after){
+  modal('Изменить дело',`<form id="plan-edit" class="form-stack">
+    <label>Название<input name="title" required maxlength="240" value="${esc(item.title)}"></label>
+    <label>Тип<select name="kind" class="field">${Object.entries(PLAN_KIND).map(([value,caption])=>
+      `<option value="${value}" ${item.kind===value?'selected':''}>${esc(caption)}</option>`).join('')}</select></label>
+    <label>Текст<textarea name="body" rows="5" maxlength="20000">${esc(item.body??'')}</textarea></label>
+    <label>Срок<input name="dueAt" type="datetime-local" value="${esc(toLocalInput(item.dueAt))}"></label>
+    <button class="button primary">Сохранить</button>
+  </form>`,()=>{
+    $('#plan-edit').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      try{
+        await api(`/api/v1/personal-items/${item.id}`,{method:'PATCH',body:JSON.stringify({
+          title:form.get('title'),kind:form.get('kind'),body:form.get('body')||null,
+          dueAt:form.get('dueAt')?new Date(form.get('dueAt')).toISOString():null,
+        })});
+        await loadPlan();if(S.view==='today')render();
+        replaceModal(after);
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+function planScheduleModal(item,after){
+  const start=item.plannedStart?toLocalInput(item.plannedStart):toLocalInput(new Date(Date.now()+3600000).toISOString());
+  modal('Поставить в календарь',`<form id="plan-schedule" class="form-stack">
+    <p class="muted">Дело появится в вашем календаре отдельным блоком. Обещанием кому-то оно от этого не станет.</p>
+    <label>Начало<input name="startAt" type="datetime-local" required value="${esc(start)}"></label>
+    <label>Окончание<input name="endAt" type="datetime-local" value="${esc(toLocalInput(item.plannedEnd))}"></label>
+    <button class="button primary">Поставить</button>
+  </form>`,()=>{
+    $('#plan-schedule').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      try{
+        await api(`/api/v1/personal-items/${item.id}/schedule`,{method:'POST',body:JSON.stringify({
+          startAt:new Date(form.get('startAt')).toISOString(),
+          endAt:form.get('endAt')?new Date(form.get('endAt')).toISOString():null,
+        })});
+        await Promise.all([loadPlan(),loadCalendarRange()]);
+        render();
+        toast('Дело в календаре');
+        replaceModal(after);
+      }catch(error){toast(error.message)}
+    };
+  });
+}
 
 // ── employee card ───────────────────────────────────────────────────────────
 const WORK_STATUS={proposed:'ожидает принятия',accepted:'принята',scheduled:'запланирована',in_progress:'в работе',blocked:'заблокирована',in_review:'на проверке',accepted_result:'результат принят',closed:'закрыта',deferred:'отложена',cancelled:'отменена',rejected:'отклонена'};
@@ -413,12 +957,29 @@ document.addEventListener('keydown',(event)=>{
   else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
   else if(!dialog.contains(document.activeElement)){event.preventDefault();first.focus()}
 });
-function modal(title,body,after){
-  overlayStack.push({title,body,after});
+function modal(title,body,after,refresh){
+  overlayStack.push({title,body,after,refresh});
   try{history.pushState({overlay:overlayStack.length},'',location.href)}catch{}
   renderOverlay();
 }
-window.addEventListener('popstate',()=>{if(unwinding>0){unwinding-=1;return}if(overlayStack.length){overlayStack.pop();renderOverlay()}});
+
+/**
+ * A sheet keeps the markup it was opened with, so stepping back onto one that
+ * the sheet above it has changed showed yesterday's answer — apply a label,
+ * go back, and the card still claimed it had none. A page that can go stale
+ * hands modal() a refresh; it is re-read when it becomes the top again.
+ */
+async function resumeTop(){
+  const top=overlayStack[overlayStack.length-1];
+  if(!top?.refresh)return;
+  try{
+    const next=await top.refresh();
+    if(overlayStack[overlayStack.length-1]!==top||!next)return;
+    Object.assign(top,next);
+    renderOverlay();
+  }catch(error){toast(error.message)}
+}
+window.addEventListener('popstate',()=>{if(unwinding>0){unwinding-=1;return}if(overlayStack.length){overlayStack.pop();renderOverlay();resumeTop()}});
 let unwinding=0;
 function closeModal(){
   const depth=overlayStack.length;
@@ -442,8 +1003,16 @@ function canRescheduleTask(t){return !['closed','rejected','cancelled'].includes
 async function openTask(id){try{const{task}=await api(`/api/v1/tasks/${id}`);upsertTask(task);taskDetailModal(task)}catch(e){toast(e.message)}}
 function taskDetailModal(task){
   const evidence=task.evidence||[],acceptances=task.acceptances||[],audit=task.audit||[];
+  // Labels are read when the card opens: the list screen would need one
+  // request per row to show them, and that is not worth the round trips.
+  api(`/api/v1/labelled/task/${task.id}`).then(({items})=>{
+    const slot=$('[data-task-label-slot]');
+    if(slot)slot.innerHTML=labelChips(items);
+  }).catch(()=>{});
   modal(task.title,`<div class="stack">
     <div class="row"><span class="task-status"></span><span><div class="row-title">${esc(TASK_STATUS[task.status]||task.status)}</div><div class="row-sub">Версия ${Number(task.version||1)} · ${esc(task.priority||'normal')}</div></span><span class="chip">${esc(dateTime(task.promisedAt))}</span></div>
+    <div><div class="row-title">Метки <button class="text-button" data-task-labels>изменить</button></div>
+      <div class="person-chips" data-task-label-slot><span class="muted">загружаем…</span></div></div>
     <div class="surface"><div class="row-title">Ожидаемый результат</div><p class="muted">${esc(task.outcome||task.title)}</p><div class="row-sub">Ответственный: ${esc(name(task.ownerId))} · Принимает: ${esc(name(task.acceptorId))} · Поставил: ${esc(name(task.requesterId))}</div></div>
     <div><div class="row-title">Следующее действие</div><div class="inline-actions" style="margin-top:8px">${(task.allowedTransitions||[]).map(to=>`<button class="button ${to==='accepted_result'||to==='closed'?'primary':'secondary'} small" data-task-transition="${esc(to)}">${esc(taskActionLabel(task,to))}</button>`).join('')||'<span class="muted">Доступных переходов сейчас нет.</span>'}</div></div>
     <form id="task-evidence-form" class="form-stack"><div class="row-title">Добавить результат / доказательство</div><label>Тип<select name="type" class="field"><option value="note">Комментарий / результат</option><option value="url">Ссылка</option><option value="metric">Метрика</option><option value="message">Ссылка на сообщение</option><option value="file">Идентификатор файла</option></select></label><label>Данные<textarea name="value" rows="3" required placeholder="Что сделано, где результат или чем это подтверждается"></textarea></label><button class="button secondary">Добавить доказательство</button></form>
@@ -453,6 +1022,7 @@ function taskDetailModal(task){
     ${audit.length?`<details><summary>История изменений · ${audit.length}</summary><div class="stack" style="margin-top:8px">${audit.map(a=>`<div class="row-sub">${esc(dateTime(a.createdAt))} · ${esc(a.eventType)}</div>`).join('')}</div></details>`:''}
   </div>`);
   $$('[data-task-transition]').forEach(b=>b.onclick=()=>taskTransition(task,b.dataset.taskTransition));
+  $('[data-task-labels]').onclick=()=>labelPicker('task',task.id,{title:`Метки: ${task.title}`});
   const form=$('#task-evidence-form');if(form)form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form);try{const r=await api(`/api/v1/tasks/${task.id}/evidence`,{method:'POST',body:JSON.stringify({type:f.get('type'),value:f.get('value'),expectedVersion:task.version})});upsertTask(r.task);toast('Доказательство добавлено');await openTask(task.id)}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}};
   $('[data-task-reschedule]')?.addEventListener('click',()=>taskRescheduleModal(task));
 }

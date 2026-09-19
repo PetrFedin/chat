@@ -5,7 +5,7 @@
     ['#accept-invite-form input[name="displayName"]', 'placeholder', 'Имя и фамилия', 'Full name'],
     ['#register-form input[name="password"]', 'placeholder', 'Не менее 12 символов и цифра', 'At least 12 characters and a number'],
     ['#accept-invite-form input[name="password"]', 'placeholder', 'Не менее 12 символов и цифра', 'At least 12 characters and a number'],
-    ['.quick-bar input', 'placeholder', 'Сообщение, задача или встреча…', 'Message, task or meeting…'],
+    ['[data-quick-form] input', 'placeholder', 'Сообщение, задача или встреча…', 'Message, task or meeting…'],
   ];
 
   function apply() {
