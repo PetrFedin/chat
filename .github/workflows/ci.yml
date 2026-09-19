@@ -80,6 +80,10 @@ jobs:
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_meeting_processing_observability.sql
       - name: Verify meeting operations and cost constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_meeting_ops_cost_control.sql
+      - name: Verify conversation authority Postgres runtime
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
+        run: node --test test/postgres-conversation-authority.test.js
       - name: Verify daily work Postgres runtime
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test

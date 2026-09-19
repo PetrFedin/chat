@@ -2,8 +2,8 @@ export const openapi = Object.freeze({
   openapi: '3.1.0',
   info: {
     title: 'Chat Corporate Workspace API',
-    version: '0.8.0',
-    description: 'Company workspace API with daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, evidence-first meeting intelligence, governed processing recovery and versioned provider cost accounting. AI output remains proposed until explicitly confirmed by a human.'
+    version: '0.9.0',
+    description: 'Company workspace API with server-authoritative conversation membership, announcement publishing policy, daily attention, permission-aware search and files, realtime messaging and calls, consent-gated recording, evidence-first meeting intelligence, governed processing recovery and versioned provider cost accounting. AI output remains proposed until explicitly confirmed by a human.'
   },
   servers: [{ url: '/' }],
   tags: [
@@ -43,6 +43,14 @@ export const openapi = Object.freeze({
     '/api/v1/conversations': {
       get: { tags: ['Messaging'], summary: 'List visible conversations with computed unread and mention counts', responses: { '200': { description: 'Conversation list' } } },
       post: { tags: ['Messaging'], summary: 'Create a channel, group or direct conversation', responses: { '201': { description: 'Conversation created' } } }
+    },
+    '/api/v1/conversations/{conversationId}/members': {
+      get: { tags: ['Messaging'], summary: 'List visible conversation members and current management authority', responses: { '200': { description: 'Conversation members' }, '404': { description: 'Conversation not visible' } } },
+      post: { tags: ['Messaging'], summary: 'Add workspace members to a managed group or channel', responses: { '200': { description: 'Updated conversation members' }, '403': { description: 'Conversation management permission required' }, '409': { description: 'Direct conversation membership is immutable' } } }
+    },
+    '/api/v1/conversations/{conversationId}/members/{userId}': {
+      patch: { tags: ['Messaging'], summary: 'Change a conversation member role while preserving at least one owner', responses: { '200': { description: 'Updated conversation members' }, '403': { description: 'Conversation management permission required' }, '409': { description: 'Last owner or immutable direct conversation' } } },
+      delete: { tags: ['Messaging'], summary: 'Remove a member from a managed group or private channel', responses: { '200': { description: 'Updated conversation members' }, '403': { description: 'Conversation management permission required' }, '409': { description: 'Last owner or immutable direct conversation' } } }
     },
     '/api/v1/conversations/{conversationId}/messages': {
       get: { tags: ['Messaging'], summary: 'List conversation messages', responses: { '200': { description: 'Messages' } } },
