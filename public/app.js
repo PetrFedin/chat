@@ -451,7 +451,7 @@ async function eventPage(id){
   });
 }
 
-function more(){return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button><button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button><button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button><button class="module-card pressable" data-action="games"><span class="module-icon">♞</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button><button class="module-card pressable" data-action="contacts"><span class="module-icon">☏</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button><button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button><button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
+function more(){return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button><button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button><button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button><button class="module-card pressable" data-action="presence"><span class="module-icon">◍</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}<button class="module-card pressable" data-action="games"><span class="module-icon">♞</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button><button class="module-card pressable" data-action="contacts"><span class="module-icon">☏</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button><button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button><button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
@@ -492,7 +492,7 @@ function go(v){
 }
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
 // ── org structure: reading and reshaping ────────────────────────────────────
@@ -1279,6 +1279,126 @@ function randomFleetClient(){
     if(ok)return ships;
   }
   throw new Error('Не удалось разложить флот');
+}
+
+// ── presence: saying what you are doing ─────────────────────────────────────
+// Presence was shown everywhere — in the directory, on a person's card, beside
+// a name in contacts — and there was no way to set it. The product told
+// everybody you were «не в сети» and gave you no say in it.
+const PRESENCE_CHOICES=[['online','В сети'],['away','Отошёл'],['busy','Занят'],['do_not_disturb','Не беспокоить'],['offline','Не в сети']];
+
+function presenceModal(){
+  const current=S.boot?.session?.presenceState||'online';
+  const text=S.boot?.session?.statusText||'';
+  modal('Ваш статус',`<form id="presence-form" class="form-stack">
+    <label>Состояние<select name="state" class="field">${PRESENCE_CHOICES.map(([value,caption])=>
+      `<option value="${value}" ${current===value?'selected':''}>${esc(caption)}</option>`).join('')}</select></label>
+    <label>Чем заняты<input name="statusText" maxlength="140" placeholder="Например: на площадке до обеда" value="${esc(text)}"></label>
+    <p class="muted">Коллеги увидят это рядом с вашим именем.</p>
+    <button class="button primary">Сохранить</button>
+  </form>`,()=>{
+    $('#presence-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      try{
+        await api('/api/v1/presence',{method:'POST',body:JSON.stringify({
+          state:form.get('state'),statusText:form.get('statusText')||null,
+        })});
+        if(S.boot?.session){S.boot.session.presenceState=form.get('state');S.boot.session.statusText=form.get('statusText')||null}
+        toast('Статус обновлён');
+        closeModal();render();
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+// ── outbound integrations ───────────────────────────────────────────────────
+// Signed webhooks with retries, a dead-letter and a delivery log were built,
+// tested and reachable only with curl. An administrator could not see whether
+// anything was leaving the building.
+const DELIVERY_STATUS={pending:'в очереди',delivering:'отправляется',delivered:'доставлено',failed:'не дошло',dead_letter:'остановлено'};
+
+async function integrationsModal(){
+  let endpoints=[],deliveries=[];
+  try{
+    endpoints=(await api('/api/v1/integrations/webhooks')).endpoints||[];
+    deliveries=(await api('/api/v1/integrations/deliveries?limit=20')).deliveries||[];
+  }catch(error){
+    toast(error.status===403?'Интеграции настраивает владелец или администратор':error.message);
+    return;
+  }
+  const endpointRow=(e)=>`<div class="label-row">
+    <span><div class="row-title">${esc(e.label||e.url)}</div>
+      <div class="row-sub">${esc(e.url)}</div>
+      <div class="row-sub">${(e.topics||[]).map(t=>`<span class="label-chip" data-colour="blue">${esc(t)}</span>`).join(' ')||'<span class="muted">без тем</span>'}</div></span>
+    <span class="inline-actions">
+      <button class="text-button" data-toggle-endpoint="${esc(e.id)}" data-enabled="${e.enabled?'1':''}">${e.enabled?'выключить':'включить'}</button>
+      <button class="text-button danger" data-drop-endpoint="${esc(e.id)}">удалить</button>
+    </span>
+  </div>`;
+  const deliveryRow=(d)=>`<div class="person-event">
+    <span><span>${esc(DELIVERY_STATUS[d.status]||d.status)}</span> · ${esc(d.topic||d.eventType||'')}${d.attempts?` · ${d.attempts} попыт.`:''}</span>
+    <time>${esc(when(d.updatedAt||d.createdAt))}</time></div>`;
+
+  modal('Интеграции',`
+    <p class="muted">Каждое событие уходит подписанным запросом. Недоставленное повторяется с нарастающей паузой и не теряется.</p>
+    <h3 class="person-section">Подписки — ${endpoints.length}</h3>
+    ${endpoints.length?`<div class="label-list">${endpoints.map(endpointRow).join('')}</div>`:'<p class="muted">Подписок пока нет.</p>'}
+    <h3 class="person-section">Последние доставки</h3>
+    <div class="person-feed">${deliveries.length?deliveries.map(deliveryRow).join(''):'<p class="muted">Ничего ещё не отправлялось.</p>'}</div>
+    <div class="stack" style="margin-top:16px"><button data-new-endpoint class="button secondary">Добавить подписку</button></div>`,()=>{
+    $('[data-new-endpoint]').onclick=()=>endpointFormModal(()=>replaceModal(integrationsModal));
+    $$('[data-toggle-endpoint]').forEach(b=>b.onclick=async()=>{
+      const on=Boolean(b.dataset.enabled);
+      try{
+        await api(`/api/v1/integrations/webhooks/${b.dataset.toggleEndpoint}/${on?'disable':'enable'}`,{method:'POST'});
+        replaceModal(integrationsModal);
+      }catch(error){toast(error.message)}
+    });
+    $$('[data-drop-endpoint]').forEach(b=>b.onclick=()=>{
+      modal('Удалить подписку?','<p class="muted">События перестанут уходить по этому адресу. Журнал доставок останется.</p><button id="confirm-endpoint-delete" class="button danger" style="width:100%">Удалить</button>',()=>{
+        $('#confirm-endpoint-delete').onclick=async()=>{
+          try{await api(`/api/v1/integrations/webhooks/${b.dataset.dropEndpoint}`,{method:'DELETE'});toast('Подписка удалена');replaceModal(integrationsModal)}
+          catch(error){toast(error.message)}
+        };
+      });
+    });
+  });
+}
+
+const WEBHOOK_TOPICS=['task.created','task.transitioned','task.rescheduled','task.reassigned','task.evidence.added','message.created','calendar.created'];
+
+function endpointFormModal(after){
+  modal('Новая подписка',`<form id="endpoint-form" class="form-stack">
+    <label>Название<input name="label" required maxlength="120" placeholder="Например: ERP компании"></label>
+    <label>Адрес<input name="url" type="url" required placeholder="https://erp.example.ru/hooks/chat"></label>
+    <div><div class="row-title">События</div>
+      <div class="label-grid">${WEBHOOK_TOPICS.map(t=>`<label class="label-option"><input type="checkbox" name="topics" value="${t}"> <span class="label-chip" data-colour="blue">${esc(t)}</span></label>`).join('')}</div></div>
+    <p class="muted">Секрет для подписи покажут один раз — сохраните его сразу.</p>
+    <button class="button primary">Создать</button>
+  </form>`,()=>{
+    $('#endpoint-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      const topics=form.getAll('topics');
+      if(!topics.length)return toast('Выберите хотя бы одно событие');
+      try{
+        const{endpoint}=await api('/api/v1/integrations/webhooks',{method:'POST',body:JSON.stringify({
+          label:form.get('label'),url:form.get('url'),topics,
+        })});
+        replaceModal(()=>modal('Подписка создана',`
+          <p class="muted">Секрет показывают один раз. Он подписывает каждый запрос — сохраните его сейчас.</p>
+          <input id="endpoint-secret" class="field" readonly value="${esc(endpoint.secret||'')}">
+          <button data-copy class="button primary" style="width:100%;margin-top:12px">Скопировать</button>`,()=>{
+          $('[data-copy]').onclick=async()=>{
+            try{await navigator.clipboard.writeText($('#endpoint-secret').value);toast('Секрет скопирован')}
+            catch{$('#endpoint-secret').select()}
+          };
+        }));
+        after?.();
+      }catch(error){toast(error.message)}
+    };
+  });
 }
 
 // ── contacts ────────────────────────────────────────────────────────────────

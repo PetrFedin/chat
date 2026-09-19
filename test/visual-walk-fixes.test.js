@@ -110,3 +110,44 @@ test('actionable refusals are shown in the interface language', async () => {
   assert.match(app, /e\.serverMessage=p\?\.error\?\.message/);
   assert.match(app, /ERROR_MESSAGE\[code\]\|\|p\?\.error\?\.message/);
 });
+
+// Built, tested and reachable only with curl: an administrator could not see
+// whether anything was leaving the building, and presence was displayed
+// everywhere while nobody could set their own.
+test('features that existed only in the API have a way in', async () => {
+  const app = await read('public/app.js');
+
+  assert.match(app, /data-action="presence"/, 'статус нельзя выставить');
+  assert.match(app, /function presenceModal\(\)/);
+  assert.match(app, /'\/api\/v1\/presence'/);
+  for (const state of ['online', 'away', 'busy', 'do_not_disturb', 'offline']) {
+    assert.ok(app.includes(`'${state}'`), `нет состояния ${state}`);
+  }
+
+  assert.match(app, /data-action="integrations"/, 'интеграции по-прежнему только в curl');
+  assert.match(app, /async function integrationsModal\(\)/);
+  assert.match(app, /integrations\/deliveries/, 'журнал доставок не показан');
+  // A door a person's role will refuse should not be drawn for them.
+  assert.match(app, /can\('integration\.manage'\)\?'<button class="module-card pressable" data-action="integrations"/);
+
+  // A <span> closed with </div> ended the template early and silently
+  // swallowed the delivery log and the button under it.
+  const row = app.slice(app.indexOf('const endpointRow='), app.indexOf('const deliveryRow='));
+  assert.equal((row.match(/<span/g) || []).length, (row.match(/<\/span>/g) || []).length, 'теги span не сходятся');
+  assert.equal((row.match(/<div/g) || []).length, (row.match(/<\/div>/g) || []).length, 'теги div не сходятся');
+});
+
+// Chess, draughts and battleship: the screen draws and the server decides.
+test('games are reachable and decide nothing themselves', async () => {
+  const app = await read('public/app.js');
+  assert.match(app, /data-action="games"/);
+  assert.match(app, /data-action="room-games"/, 'из беседы в игру не попасть');
+  for (const kind of ['chess', 'checkers', 'battleship']) {
+    assert.ok(app.includes(`'${kind}'`) || app.includes(`"${kind}"`), `нет игры ${kind}`);
+  }
+  // Every move goes to the server; nothing local decides legality.
+  assert.match(app, /\/api\/v1\/games\/\$\{game\.id\}\/moves/);
+  assert.doesNotMatch(app, /function legalMoves/, 'правила протекли в браузер');
+  // The board follows the opponent without a reload.
+  assert.match(app, /p\.event==='game\.updated'/);
+});
