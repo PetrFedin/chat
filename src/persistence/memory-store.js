@@ -32,6 +32,7 @@ export class MemoryStore {
     this.taskAcceptances = new Map();
     this.taskAudit = new Map();
     this.calendarEvents = new Map();
+    this.calendarParticipants = new Map();
   }
 
   membershipKey(workspaceId, userId) { return `${workspaceId}:${userId}`; }
@@ -39,6 +40,7 @@ export class MemoryStore {
   savedMessageKey(workspaceId,userId,messageId){return `${workspaceId}:${userId}:${messageId}`}
   messagePinKey(workspaceId,messageId){return `${workspaceId}:${messageId}`}
   messageForwardKey(workspaceId,messageId){return `${workspaceId}:${messageId}`}
+  calendarParticipantKey(eventId,userId){return `${eventId}:${userId}`}
 
   async createCompany({ companyName, workspaceName, ownerName, email, passwordHash, passwordSalt }) {
     if (this.userByEmail.has(email)) throw Object.assign(new Error('Email already registered'), { code: 'EMAIL_EXISTS', statusCode: 409 });
@@ -418,12 +420,13 @@ export class MemoryStore {
     const createdAt=nowIso(),row={id:randomUUID(),organizationId:session.organizationId,workspaceId:session.workspaceId,title:value.title,outcome:value.outcome??value.title,ownerId,requesterId:session.userId,acceptorId,sourceMessageId:value.sourceMessageId??null,status:'proposed',priority:value.priority??'normal',promisedAt:value.promisedAt??null,forecastAt:value.forecastAt??null,version:1,createdAt,updatedAt:createdAt};
     this.tasks.set(row.id,row);this.taskEvidence.set(row.id,[]);this.taskAcceptances.set(row.id,[]);
     this.taskAuditAppend(row,'commitment.created',session.userId,{ownerId,acceptorId,sourceMessageId:row.sourceMessageId});
+    await this.syncTaskDeadline(session,row);
     return this.taskView(session,row);
   }
 
   async getTaskDetail(session,id){
     const task=this.taskView(session,this.tasks.get(id));if(!task)return null;
-    return {...task,evidence:clone(this.taskEvidenceRows(id)),acceptances:clone(this.taskAcceptances.get(id)??[]),audit:clone(this.taskAudit.get(id)??[])};
+    return {...task,evidence:clone(this.taskEvidenceRows(id)),acceptances:clone(this.taskAcceptances.get(id)??[]),audit:clone(this.taskAudit.get(id)??[]),calendar:await this.listTaskCalendar(session,id)};
   }
 
   async addTaskEvidence(session,id,{type,value,expectedVersion}){
@@ -447,6 +450,7 @@ export class MemoryStore {
       const acceptances=this.taskAcceptances.get(id)??[];acceptances.push(acceptance);this.taskAcceptances.set(id,acceptances);
     }
     this.taskAuditAppend(row,'commitment.transitioned',session.userId,{from:previous,to,reason:decision.reason});
+    await this.syncTaskCalendarLifecycle(session,row,to);
     return this.taskView(session,row);
   }
 
@@ -456,12 +460,103 @@ export class MemoryStore {
     const previous={promisedAt:row.promisedAt,forecastAt:row.forecastAt};
     if(promisedAt!==undefined)row.promisedAt=promisedAt;if(forecastAt!==undefined)row.forecastAt=forecastAt;
     row.version+=1;row.updatedAt=nowIso();this.taskAuditAppend(row,'commitment.rescheduled',session.userId,{...previous,promisedAt:row.promisedAt,forecastAt:row.forecastAt,reason:normalizedReason});
+    await this.syncTaskDeadline(session,row);
     return this.taskView(session,row);
   }
 
-  async listCalendar(session, from=null, to=null) { return clone([...this.calendarEvents.values()].filter((row)=>row.workspaceId===session.workspaceId && (!from || Date.parse(row.startAt)>=Date.parse(from)) && (!to || Date.parse(row.startAt)<=Date.parse(to))).sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt))); }
+  calendarVisible(session,event){
+    if(!event||event.workspaceId!==session.workspaceId)return false;
+    if(event.visibility==='workspace'||event.ownerId===session.userId)return true;
+    return this.calendarParticipants.has(this.calendarParticipantKey(event.id,session.userId));
+  }
 
-  async createCalendarEvent(session,value) { const row={id:randomUUID(),organizationId:session.organizationId,workspaceId:session.workspaceId,kind:value.kind ?? 'meeting',title:value.title,description:value.description ?? null,ownerId:value.ownerId ?? session.userId,startAt:value.startAt,endAt:value.endAt ?? null,timezone:value.timezone ?? 'UTC',allDay:Boolean(value.allDay),visibility:value.visibility ?? 'participants',commitmentId:value.commitmentId ?? null,conversationId:value.conversationId ?? null,createdAt:nowIso(),updatedAt:nowIso()}; this.calendarEvents.set(row.id,row); return clone(row); }
+  calendarParticipantsFor(eventId){
+    return [...this.calendarParticipants.values()].filter(row=>row.calendarEventId===eventId).map(row=>row.userId);
+  }
+
+  async calendarAudience(session,eventOrId){
+    const event=typeof eventOrId==='string'?this.calendarEvents.get(eventOrId):eventOrId;
+    if(!event||event.workspaceId!==session.workspaceId)return[];
+    if(event.visibility==='workspace')return [...new Set([...this.memberships.values()].filter(m=>m.workspaceId===session.workspaceId).map(m=>m.userId))];
+    if(event.visibility==='private')return[event.ownerId];
+    return [...new Set([event.ownerId,...this.calendarParticipantsFor(event.id)])];
+  }
+
+  async listCalendar(session,from=null,to=null,{includeCancelled=false}={}){
+    return clone([...this.calendarEvents.values()]
+      .filter(row=>this.calendarVisible(session,row))
+      .filter(row=>includeCancelled||row.status!=='cancelled')
+      .filter(row=>(!from||Date.parse(row.startAt)>=Date.parse(from))&&(!to||Date.parse(row.startAt)<=Date.parse(to)))
+      .sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt)));
+  }
+
+  async createCalendarEvent(session,value){
+    const ownerId=value.ownerId??session.userId;
+    this.assertConversationUser(session,ownerId);
+    if(value.commitmentId){
+      const task=this.tasks.get(value.commitmentId);
+      if(!task||!canViewTask(task,session))throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});
+    }
+    if(value.conversationId&&!(await this.canAccessConversation(session,value.conversationId)))throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});
+    const participantIds=[...new Set(value.participantIds??[])];
+    for(const userId of participantIds)this.assertConversationUser(session,userId);
+    const row={id:value.id??randomUUID(),organizationId:session.organizationId,workspaceId:session.workspaceId,kind:value.kind??'meeting',title:value.title,description:value.description??null,ownerId,startAt:value.startAt,endAt:value.endAt??null,timezone:value.timezone??'UTC',allDay:Boolean(value.allDay),visibility:value.visibility??'participants',commitmentId:value.commitmentId??null,conversationId:value.conversationId??null,recurrenceRule:value.recurrenceRule??null,status:value.status??'active',taskSync:value.taskSync??'none',version:value.version??1,completedAt:value.completedAt??null,cancelledAt:value.cancelledAt??null,createdAt:value.createdAt??nowIso(),updatedAt:nowIso()};
+    this.calendarEvents.set(row.id,row);
+    for(const userId of participantIds)this.calendarParticipants.set(this.calendarParticipantKey(row.id,userId),{calendarEventId:row.id,workspaceId:session.workspaceId,userId,responseStatus:'invited',optional:false,createdAt:nowIso()});
+    return clone(row);
+  }
+
+  async syncTaskDeadline(session,task){
+    let event=[...this.calendarEvents.values()].find(row=>row.workspaceId===task.workspaceId&&row.commitmentId===task.id&&row.taskSync==='deadline');
+    const now=nowIso();
+    if(!task.promisedAt){
+      if(event&&event.status==='active'){event.status='cancelled';event.cancelledAt=now;event.completedAt=null;event.version=(event.version??1)+1;event.updatedAt=now;this.taskAuditAppend(task,'calendar.deadline_cancelled',session.userId,{calendarEventId:event.id})}
+      return event?clone(event):null;
+    }
+    const participants=[...new Set([task.ownerId,task.requesterId,task.acceptorId])];
+    if(!event){
+      event=await this.createCalendarEvent(session,{kind:'deadline',title:`Срок: ${task.title}`,description:task.outcome,ownerId:task.ownerId,startAt:task.promisedAt,endAt:null,timezone:session.profile?.timezone??'UTC',visibility:'participants',commitmentId:task.id,participantIds:participants,taskSync:'deadline'});
+      this.taskAuditAppend(task,'calendar.deadline_created',session.userId,{calendarEventId:event.id,startAt:event.startAt});
+    }else{
+      event.startAt=task.promisedAt;event.title=`Срок: ${task.title}`;event.description=task.outcome;event.ownerId=task.ownerId;event.status='active';event.cancelledAt=null;event.completedAt=null;event.version=(event.version??1)+1;event.updatedAt=now;
+      for(const key of [...this.calendarParticipants.keys()])if(key.startsWith(`${event.id}:`))this.calendarParticipants.delete(key);
+      for(const userId of participants)this.calendarParticipants.set(this.calendarParticipantKey(event.id,userId),{calendarEventId:event.id,workspaceId:task.workspaceId,userId,responseStatus:'invited',optional:false,createdAt:now});
+      this.taskAuditAppend(task,'calendar.deadline_synced',session.userId,{calendarEventId:event.id,startAt:event.startAt});
+    }
+    return clone(event);
+  }
+
+  async syncTaskCalendarLifecycle(session,task,to){
+    const now=nowIso(),terminal=new Set(['closed','cancelled','rejected']);
+    if(!terminal.has(to))return[];
+    const changed=[];
+    for(const event of this.calendarEvents.values()){
+      if(event.workspaceId!==task.workspaceId||event.commitmentId!==task.id)continue;
+      if(event.taskSync==='deadline'&&event.status==='active'){
+        event.status=to==='closed'?'completed':'cancelled';event.completedAt=to==='closed'?now:null;event.cancelledAt=to==='closed'?null:now;event.version=(event.version??1)+1;event.updatedAt=now;changed.push(clone(event));
+      }else if(['task_block','focus'].includes(event.kind)&&event.status==='active'&&Date.parse(event.startAt)>Date.now()){
+        event.status='cancelled';event.cancelledAt=now;event.completedAt=null;event.version=(event.version??1)+1;event.updatedAt=now;changed.push(clone(event));
+      }
+    }
+    if(changed.length)this.taskAuditAppend(task,'calendar.lifecycle_synced',session.userId,{status:to,calendarEventIds:changed.map(event=>event.id)});
+    return changed;
+  }
+
+  async createTaskWorkBlock(session,taskId,{startAt,endAt,timezone='UTC'}){
+    const task=this.tasks.get(taskId);
+    if(!task||!canViewTask(task,session))throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});
+    if(task.ownerId!==session.userId)throw Object.assign(new Error('Only the accountable owner can plan task work time'),{code:'TASK_CALENDAR_FORBIDDEN',statusCode:403});
+    if(['closed','rejected','cancelled'].includes(task.status))throw Object.assign(new Error('Terminal task cannot receive work blocks'),{code:'TASK_TERMINAL',statusCode:409});
+    if(!startAt||!endAt||Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Work block end must be after start'),{code:'INVALID_CALENDAR_RANGE',statusCode:400});
+    const event=await this.createCalendarEvent(session,{kind:'task_block',title:`Работа: ${task.title}`,description:task.outcome,ownerId:task.ownerId,startAt,endAt,timezone,visibility:'private',commitmentId:task.id,participantIds:[]});
+    this.taskAuditAppend(task,'calendar.work_block_created',session.userId,{calendarEventId:event.id,startAt,endAt});
+    return event;
+  }
+
+  async listTaskCalendar(session,taskId){
+    const task=this.tasks.get(taskId);if(!task||!canViewTask(task,session))throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});
+    return clone([...this.calendarEvents.values()].filter(event=>event.workspaceId===session.workspaceId&&event.commitmentId===taskId&&this.calendarVisible(session,event)).sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt)));
+  }
 
   async savePushSubscription(session, { endpoint, p256dh, auth, userAgent = null }) {
     const key = `${session.workspaceId}:${session.userId}:${endpoint}`; const row = { id: randomUUID(), workspaceId: session.workspaceId, userId: session.userId, endpoint, p256dh, auth, userAgent, createdAt: nowIso(), revokedAt: null };
