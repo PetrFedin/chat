@@ -10,7 +10,8 @@ import { visiblePermissions } from './rbac.js';
 import { openapi } from './openapi.js';
 import { MemoryStore, PostgresStore } from './persistence/store.js';
 import { RealtimeHub } from './realtime.js';
-import { cookies, errorJson, json, allowedPresence } from './http/helpers.js';
+import { clientAddress, cookies, errorJson, json, allowedPresence, securityHeaders } from './http/helpers.js';
+import { createAuthThrottle } from './rate-limit.js';
 import { handleAuth } from './http/auth.js';
 import { handleWorkspace } from './http/workspace.js';
 import { handleMessaging } from './http/messaging.js';
@@ -61,6 +62,7 @@ export async function createChatServer(options={}){
   };
   const demo=await preparePreviewDemo({store,objectStore,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
   const hub=new RealtimeHub(),push=pushConfig(),wss=new WebSocketServer({noServer:true});
+  const authThrottle=options.authThrottle??createAuthThrottle(process.env);
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
   const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
@@ -71,7 +73,7 @@ export async function createChatServer(options={}){
   const summaryProvider=options.summaryProvider??configuredMeetingProviders.summaryProvider;
   const authenticate=async(req)=>{const token=cookieToken(req);return token?store.getSession(hashToken(token)):null};
   const requireSession=async(req)=>{const s=await authenticate(req);if(!s)throw Object.assign(new Error('Authentication required'),{code:'UNAUTHENTICATED',statusCode:401});return s};
-  const openSession=async(res,req,userId,workspaceId,status=200)=>{const token=createOpaqueToken(),tokenHash=hashToken(token),expiresAt=createSessionExpiry();await store.createSession({userId,workspaceId,tokenHash,expiresAt,userAgent:req.headers['user-agent']??null,ipAddress:String(req.headers['x-forwarded-for']??req.socket.remoteAddress??'').split(',')[0].trim()||null});const s=await store.getSession(tokenHash);json(res,status,{session:{...s,permissions:visiblePermissions(s.role)},storageMode:mode,push,media:mediaProvider.status(),objectStorage:objectStore.status()},{'set-cookie':sessionCookie(token)})};
+  const openSession=async(res,req,userId,workspaceId,status=200)=>{const token=createOpaqueToken(),tokenHash=hashToken(token),expiresAt=createSessionExpiry();await store.createSession({userId,workspaceId,tokenHash,expiresAt,userAgent:req.headers['user-agent']??null,ipAddress:clientAddress(req)});const s=await store.getSession(tokenHash);if(!s)throw Object.assign(new Error('Session could not be established'),{code:'SESSION_NOT_ESTABLISHED',statusCode:401});json(res,status,{session:{...s,permissions:visiblePermissions(s.role)},storageMode:mode,push,media:mediaProvider.status(),objectStorage:objectStore.status()},{'set-cookie':sessionCookie(token)})};
   const notifyUsers=async(workspaceId,userIds,payload)=>{if(!push.enabled||!userIds.length)return;const subs=await store.listPushSubscriptions(workspaceId,userIds);await Promise.allSettled(subs.map(s=>webpush.sendNotification({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},JSON.stringify(payload),{TTL:60})))};
   const projectMeetingReviewReady=createMeetingReviewProjector({store,calls,hub,notifyUsers});
 
@@ -94,9 +96,11 @@ export async function createChatServer(options={}){
   const startMeetingWorker=options.startMeetingWorker??mode!=='custom';
   if(startMeetingWorker)meetingWorker.start?.();
 
-  const ctx={store,mode,hub,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const ctx={store,mode,hub,authThrottle,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
   const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production'});
   const server=createServer(async(req,res)=>{try{
+    for(const [name,value] of Object.entries(baseHeaders))res.setHeader(name,value);
     const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`),path=url.pathname,method=req.method??'GET';
     if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,persistence:persistenceStatus(),realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,persistent:Boolean(demo.persistent),meeting:Boolean(demo.meeting)}});
     if(path==='/openapi.json'||path==='/api/v1/openapi')return json(res,200,openapi);

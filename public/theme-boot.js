@@ -1,0 +1,2 @@
+// Runs before paint so a stored theme/locale choice does not flash the default.
+(()=>{try{const t=localStorage.getItem('chat.theme'),l=localStorage.getItem('chat.locale');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t==='light'?'light':'dark'}if(l==='ru'||l==='en')document.documentElement.lang=l;if(t==='light')document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#f4f4f2')}catch{}})();

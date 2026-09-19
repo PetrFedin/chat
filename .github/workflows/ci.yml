@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: 24
       - name: Install runtime dependencies
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
 
   database-tests:
@@ -46,7 +46,7 @@ jobs:
         with:
           node-version: 24
       - name: Install runtime dependencies
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Apply migrations
         run: |
           psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/001_core.sql

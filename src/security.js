@@ -2,6 +2,7 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 
 const PASSWORD_BYTES = 64;
 const MIN_PASSWORD_LENGTH = 12;
+const TIMING_PROBE_SALT = 'chat-timing-probe-salt';
 
 export function normalizeEmail(value) {
   const email = String(value ?? '').trim().toLowerCase();
@@ -38,6 +39,17 @@ export function verifyPassword(password, salt, expectedHash) {
   const actual = Buffer.from(scryptSync(password, salt, PASSWORD_BYTES).toString('hex'), 'hex');
   const expected = Buffer.from(expectedHash, 'hex');
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+/**
+ * Burns the same work verifyPassword would, so a login against an unknown
+ * email costs what a login against a known one costs. Without this the
+ * response time alone enumerates which accounts exist.
+ */
+export function equalizePasswordTiming(password) {
+  const probe = typeof password === 'string' ? password : '';
+  scryptSync(probe, TIMING_PROBE_SALT, PASSWORD_BYTES);
+  return false;
 }
 
 export function createOpaqueToken(bytes = 32) {

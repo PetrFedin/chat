@@ -71,6 +71,10 @@ export class MemoryStore {
     return membership ? { ...clone(user), ...clone(credential), workspaceId: membership.workspaceId } : null;
   }
 
+  async hasMembership(userId, workspaceId) {
+    return this.memberships.has(this.membershipKey(workspaceId, userId));
+  }
+
   async createSession({ userId, workspaceId, tokenHash, expiresAt, userAgent = null, ipAddress = null }) {
     const id = randomUUID();
     this.sessions.set(tokenHash, { id, userId, workspaceId, tokenHash, expiresAt, userAgent, ipAddress, createdAt: nowIso(), revokedAt: null });
