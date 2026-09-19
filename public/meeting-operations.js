@@ -39,14 +39,14 @@ function unpricedLabel(reason){return({no_price_version:tr('Нет тарифа 
 function workerCopy(worker){
   if(worker?.running)return tr('Фоновая обработка запущена','Worker is running');
   if(worker?.configured===false)return tr('Фоновая обработка отключена','Worker is disabled');
-  return worker?.reason||tr('Фоновая обработка ожидает доступный AI-провайдер','Worker is waiting for an available AI provider');
+  const fallback=tr('Фоновая обработка ожидает доступный AI-провайдер','Worker is waiting for an available AI provider');
+  return locale()==='en'&&worker?.reason?worker.reason:fallback;
 }
 
 async function decorateMeetingCenter(){
   const header=$('.mi-overlay:not(.mio-overlay) .mi-header');
   if(!header||header.querySelector('.mio-entry'))return;
-  const kicker=header.querySelector('.mi-kicker')?.textContent?.trim();
-  if(kicker!=='MEETING INTELLIGENCE')return;
+  if(!header.querySelector('[data-mi-kicker="intelligence"]'))return;
   await loadAccess();
   if(!canOpen()||!header.isConnected)return;
   const button=document.createElement('button');
@@ -67,7 +67,7 @@ function shell(tab){
     <header class="mi-header">
       <div style="display:flex;gap:12px;align-items:flex-start">
         <button class="mi-back" data-mio-back aria-label="${tr('Назад','Back')}">‹</button>
-        <div><p class="mi-kicker">MEETING OPERATIONS</p><h2>${tr('Контроль встреч','Meeting operations')}</h2></div>
+        <div><p class="mi-kicker">${tr('КОНТРОЛЬ ВСТРЕЧ','MEETING OPERATIONS')}</p><h2>${tr('Контроль встреч','Meeting operations')}</h2></div>
       </div>
       <button class="mi-close" data-mio-close aria-label="${tr('Закрыть','Close')}">×</button>
     </header>
@@ -157,7 +157,7 @@ async function auditSheet(jobId){
   const panel=$('.mio-panel');if(!panel)return;
   $('.mi-sheet-wrap')?.remove();
   const wrap=document.createElement('div');wrap.className='mi-sheet-wrap';
-  wrap.innerHTML=`<div class="mi-sheet mio-audit-sheet"><div><p class="mi-kicker">AUDIT TRAIL</p><h3>${tr('История восстановления','Recovery history')}</h3></div><div id="mio-audit-list"><div class="mi-empty">${tr('Загружаем историю…','Loading history…')}</div></div><button class="mi-button secondary" data-mio-sheet-close>${tr('Закрыть','Close')}</button></div>`;
+  wrap.innerHTML=`<div class="mi-sheet mio-audit-sheet"><div><p class="mi-kicker">${tr('ЖУРНАЛ АУДИТА','AUDIT TRAIL')}</p><h3>${tr('История восстановления','Recovery history')}</h3></div><div id="mio-audit-list"><div class="mi-empty">${tr('Загружаем историю…','Loading history…')}</div></div><button class="mi-button secondary" data-mio-sheet-close>${tr('Закрыть','Close')}</button></div>`;
   panel.append(wrap);
   try{
     const payload=await api(`/api/v1/admin/meeting-jobs/${jobId}/audit?limit=50`);

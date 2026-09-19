@@ -50,7 +50,7 @@
     document.querySelector('.incoming-call')?.remove();
     const root = document.createElement('div');
     root.className = 'incoming-call';
-    root.innerHTML = `<div><strong>${esc(payload.title || 'Входящий звонок')}</strong><span>${esc(payload.body || 'Корпоративный звонок')}</span></div><div class="incoming-actions"><button data-call-answer>Войти</button><button class="dismiss" data-call-dismiss>Не сейчас</button></div>`;
+    root.innerHTML = `<div><strong>${esc(payload.title || 'Входящий звонок')}</strong><span>${esc(payload.body || 'Корпоративный звонок')}</span></div><div class="incoming-actions"><button data-call-answer>Присоединиться</button><button class="dismiss" data-call-dismiss>Не сейчас</button></div>`;
     document.body.append(root);
     root.querySelector('[data-call-dismiss]').onclick = () => root.remove();
     root.querySelector('[data-call-answer]').onclick = () => {
