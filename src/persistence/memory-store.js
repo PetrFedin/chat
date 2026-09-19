@@ -273,6 +273,11 @@ export class MemoryStore {
 
   async createMessage(session, conversationId, { kind = 'text', body = null, replyToId = null, threadRootId = null, metadata = {}, mentionedUserIds = [], clientRequestId = null }) {
     if (!(await this.canAccessConversation(session, conversationId))) throw Object.assign(new Error('Conversation not found'), { statusCode: 404, code: 'NOT_FOUND' });
+    for(const [label,messageId] of [['reply',replyToId],['thread',threadRootId]]){
+      if(!messageId)continue;
+      const target=(this.messages.get(conversationId)??[]).find(item=>item.id===messageId);
+      if(!target||target.deletedAt)throw Object.assign(new Error(`${label} target is not available in this conversation`),{code:'INVALID_MESSAGE_REFERENCE',statusCode:400});
+    }
     const message = { id: randomUUID(), organizationId: session.organizationId, workspaceId: session.workspaceId, conversationId, kind, authorId: session.userId, body, replyToId, threadRootId, metadata, mentionedUserIds: [...new Set(mentionedUserIds)], clientRequestId, createdAt: nowIso(), editedAt: null, deletedAt: null };
     this.messages.get(conversationId).push(message); return this.messageView(session,message);
   }
@@ -348,8 +353,8 @@ export class MemoryStore {
   }
 
   async toggleReaction(session, messageId, reaction) {
-    const conversationId=await this.messageConversation(session,messageId);
-    if(!conversationId||!(await this.canAccessConversation(session,conversationId)))throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
+    const message=await this.getMessage(session,messageId),conversationId=message?.conversationId;
+    if(!message||message.deletedAt||!conversationId)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
     const list = this.reactions.get(messageId) ?? [];
     const index = list.findIndex((item) => item.userId === session.userId && item.reaction === reaction);
     if (index >= 0) list.splice(index, 1); else list.push({ userId: session.userId, reaction, createdAt: nowIso() });
