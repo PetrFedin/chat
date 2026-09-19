@@ -246,7 +246,14 @@ export class MemoryStore {
 
   messageView(session,message){
     if(!message)return null;
-    const deleted=Boolean(message.deletedAt);
+    const deleted=Boolean(message.deletedAt),forward=this.messageForwards.get(this.messageForwardKey(session.workspaceId,message.id));
+    let forwardedFrom=null;
+    if(forward){
+      const sourceList=[...this.messages.values()].find(list=>list.some(item=>item.id===forward.sourceMessageId))??[];
+      const source=sourceList.find(item=>item.id===forward.sourceMessageId);
+      const sourceConversation=source?this.conversations.get(source.conversationId):null;
+      forwardedFrom=source?{messageId:source.id,conversationId:source.conversationId,conversationTitle:sourceConversation?.title??null,authorId:source.authorId,createdAt:source.createdAt}:null;
+    }
     return clone({
       ...message,
       body:deleted?null:message.body,
@@ -254,7 +261,8 @@ export class MemoryStore {
       reactions:deleted?[]:(this.reactions.get(message.id)??[]),
       saved:this.savedMessages.has(this.savedMessageKey(session.workspaceId,session.userId,message.id)),
       pinned:this.messagePins.has(this.messagePinKey(session.workspaceId,message.id)),
-      forwarded:this.messageForwards.has(this.messageForwardKey(session.workspaceId,message.id)),
+      forwarded:Boolean(forward),
+      forwardedFrom,
     });
   }
 
@@ -322,6 +330,10 @@ export class MemoryStore {
     const message={id:randomUUID(),organizationId:session.organizationId,workspaceId:session.workspaceId,conversationId:targetConversationId,kind:source.kind,authorId:session.userId,body:source.body,replyToId:null,threadRootId:null,metadata:clone(source.metadata??{}),mentionedUserIds:[],clientRequestId:randomUUID(),createdAt:nowIso(),editedAt:null,deletedAt:null};
     this.messages.get(targetConversationId).push(message);
     this.messageForwards.set(this.messageForwardKey(session.workspaceId,message.id),{organizationId:session.organizationId,workspaceId:session.workspaceId,forwardedMessageId:message.id,sourceMessageId,forwardedBy:session.userId,createdAt:message.createdAt});
+    if(source.kind==='voice'){
+      const voice=this.voiceMessages.get(source.id);
+      if(voice)this.voiceMessages.set(message.id,{...clone(voice),id:randomUUID(),messageId:message.id,createdAt:message.createdAt});
+    }
     return this.messageView(session,message);
   }
 
