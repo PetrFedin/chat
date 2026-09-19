@@ -19,7 +19,7 @@ async function api(path,o={}){const r=await fetch(path,{credentials:'same-origin
 function toast(t){const n=document.createElement('div');n.className='toast';n.textContent=t;$('#toast-root').append(n);setTimeout(()=>n.remove(),2400)}
 function auth(mode='login'){$('#app-view').hidden=true;$('#auth-view').hidden=false;const token=new URLSearchParams(location.search).get('invite');if(token){$('.segmented').hidden=true;$('#login-form').hidden=$('#register-form').hidden=true;$('#accept-invite-form').hidden=false;$('#accept-invite-form').dataset.token=token;$('#auth-title').textContent='Присоединиться к компании';return}setAuth(mode)}
 function setAuth(mode){$('.segmented').hidden=false;$('#accept-invite-form').hidden=true;$('#login-form').hidden=mode!=='login';$('#register-form').hidden=mode!=='register';$('#auth-title').textContent=mode==='login'?'Войти в компанию':'Создать компанию';$$('[data-auth-mode]').forEach(b=>b.classList.toggle('active',b.dataset.authMode===mode));$('#auth-error').textContent=''}
-async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadPlan()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
+async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadPlan()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
 async function routeFromHash(){if(!S.boot)return;const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?'),parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}}
 window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
 // The task list is paged now. The screen still shows one backlog, so it walks
@@ -65,7 +65,7 @@ function navs(){const html=nav.map(([id,i,l])=>`<button class="nav-item pressabl
 function lists(){const channels=S.conversations.filter(c=>['channel','team','project'].includes(c.kind)),dm=S.conversations.filter(c=>['direct','group'].includes(c.kind));$('#channel-list').innerHTML=channels.map(c=>side(c,'#')).join('');$('#direct-list').innerHTML=dm.map(c=>side(c,'')).join('')}
 function side(c,prefix){return `<button class="sidebar-row pressable ${S.selected===c.id?'active':''}" data-conversation="${c.id}"><span>${prefix||'<span class="presence-dot online"></span>'}</span><span class="label">${esc(c.title||'Диалог')}</span></button>`}
 function render(){navs();lists();$('#screen-title').textContent=nav.find(x=>x[0]===S.view)?.[2]||'Chat';$('#eyebrow').textContent=(me()?.organizationName||'Компания').toUpperCase();$('#screen').innerHTML=({today,chats,tasks,calendar,more})[S.view]();bind();bindCalendar()}
-function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','cancelled'].includes(t.status)),events=S.calendar.filter(e=>Date.parse(e.startAt)>Date.now()-3600000).slice(0,4);return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker">${esc(new Intl.DateTimeFormat('ru',{weekday:'long',day:'numeric',month:'long'}).format(new Date()).toUpperCase())}</p><h2><span>${new Date().getHours()<12?'Доброе утро':new Date().getHours()<18?'Добрый день':'Добрый вечер'}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>Расписание дня</h2><p class="muted">Встречи и рабочее время</p></div><button data-action="event" class="button secondary small pressable">＋ Событие</button></div>${events.length?events.map(e=>`<div class="agenda-row"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(e.kind)}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></div>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или фокус-время.</div>'}</section><section class="surface"><div class="section-head"><h2>Мои задачи</h2><button data-action="task" class="button secondary small pressable">＋ Задача</button></div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section>${planSection()}</div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>активных задач</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>сотрудников</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>диалогов</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
+function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','cancelled'].includes(t.status)),events=S.calendar.filter(e=>Date.parse(e.startAt)>Date.now()-3600000).slice(0,4);return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>Расписание дня</h2><p class="muted">Встречи и рабочее время</p></div><button data-action="event" class="button secondary small pressable">＋ Событие</button></div>${events.length?events.map(e=>`<div class="agenda-row"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(e.kind)}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></div>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или фокус-время.</div>'}</section><section class="surface"><div class="section-head"><h2>Мои задачи</h2><button data-action="task" class="button secondary small pressable">＋ Задача</button></div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section>${planSection()}</div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>активных задач</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>сотрудников</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>диалогов</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
 /**
  * The personal list, on the screen where the day is planned. A commitment
  * belongs to «Мои задачи» above; this is the work nobody promised to anybody.
@@ -82,6 +82,52 @@ function planSection(){
       <button type="submit" class="button secondary small pressable">Добавить</button>
     </form></section>`;
 }
+/**
+ * «Доброе утро» at one in the morning was the old rule reading hours<12 and
+ * counting the small hours as morning. Night gets its own greeting, and the
+ * boundaries are the ones people actually use.
+ */
+function greetingFor(now=new Date()){
+  const hour=now.getHours();
+  if(hour<5)return 'Доброй ночи';
+  if(hour<12)return 'Доброе утро';
+  if(hour<18)return 'Добрый день';
+  if(hour<23)return 'Добрый вечер';
+  return 'Доброй ночи';
+}
+
+/**
+ * The date with the time running under it. The element carries
+ * data-prefs-owned so the translator leaves it alone: it changes every second,
+ * and re-reading it through the dictionary each tick would be pure waste.
+ * The locale is applied here instead.
+ */
+function nowLine(now=new Date()){
+  const loc=window.ChatPreferences?.locale==='en'?'en':'ru';
+  const day=new Intl.DateTimeFormat(loc,{weekday:'long',day:'numeric',month:'long'}).format(now);
+  const clock=new Intl.DateTimeFormat(loc,{hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(now);
+  return `${day} · ${clock}`.toUpperCase();
+}
+
+let clockTimer=null,lastGreeting=null;
+function tickClock(){
+  const line=document.getElementById('now-line');
+  if(!line)return;
+  const now=new Date();
+  const text=nowLine(now);
+  if(line.textContent!==text)line.textContent=text;
+  // The word changes four times a day; writing it every second would wake the
+  // translator for nothing.
+  const word=greetingFor(now);
+  const slot=document.getElementById('greeting-word');
+  if(slot&&lastGreeting!==word){lastGreeting=word;slot.textContent=word}
+}
+function startClock(){
+  if(clockTimer)return;
+  tickClock();
+  clockTimer=setInterval(tickClock,1000);
+}
+
 function convRow(c){return `<button class="conversation-card pressable" data-open="${c.id}"><span class="avatar dark">${c.kind==='channel'?'#':esc(initials(c.title||'D'))}</span><span><strong>${esc(c.title||'Диалог')}</strong><div class="preview">${esc(c.lastMessage?.body||kindLabel(c.lastMessage?.kind)||c.purpose||'Открыть разговор')}</div></span><span class="time">${time(c.lastMessage?.createdAt)}</span></button>`}
 const TASK_STATUS={proposed:'Ожидает принятия',accepted:'Принята',scheduled:'Запланирована',in_progress:'В работе',blocked:'Заблокирована',in_review:'На проверке',accepted_result:'Результат принят',closed:'Закрыта',rejected:'Отклонена',cancelled:'Отменена',deferred:'Отложена',clarify:'Нужно уточнение',inbox:'Входящая'};
 const TASK_ACTION={accepted:'Принять ответственность',rejected:'Отказаться',clarify:'Запросить уточнение',scheduled:'Запланировать',in_progress:'Начать работу',blocked:'Есть блокировка',in_review:'Отправить на проверку',accepted_result:'Принять результат',closed:'Закрыть',deferred:'Отложить',cancelled:'Отменить'};
@@ -231,7 +277,7 @@ async function eventPage(id){
   });
 }
 
-function more(){return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button><button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button><button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button><button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button><button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
+function more(){return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button><button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button><button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button><button class="module-card pressable" data-action="contacts"><span class="module-icon">☏</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button><button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button><button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
@@ -244,6 +290,7 @@ function bind(){
     if(/\b(в|с)\s?\d{1,2}[:.]\d{2}|встреч|созвон|планёрк/i.test(text))eventModal(text);
     else taskModal(null,text);
   };
+  tickClock();
   const planQuick=$('[data-plan-quick]');
   if(planQuick)planQuick.onsubmit=async(event)=>{
     event.preventDefault();
@@ -258,7 +305,7 @@ function bind(){
 function go(v){S.view=v;if(v!=='chats')S.mobileChat=false;render()}
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,plan:()=>planModal(),labels:labelsModal,search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,plan:()=>planModal(),labels:labelsModal,contacts:contactsModal,search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
 // ── org structure: reading and reshaping ────────────────────────────────────
@@ -801,6 +848,56 @@ function planScheduleModal(item,after){
     };
   });
 }
+
+// ── contacts ────────────────────────────────────────────────────────────────
+// Not the staff directory. Two questions, two answers: who already writes to
+// me, and who an administrator put in a unit with me. A colleague in your
+// division who has not written a line yet still belongs on this list.
+async function contactsModal(){
+  let data;
+  try{data=await api('/api/v1/contacts')}
+  catch(error){
+    toast(error.code==='PEOPLE_UNAVAILABLE'?'Контакты доступны в режиме с базой данных':error.message);
+    return;
+  }
+  const talking=data.talkingTo||[],units=data.units||[];
+
+  // `note` is markup, not text: a caption glued to a number cannot be
+  // translated as one node, so the caption travels in a span of its own.
+  // Every caller below builds it from fixed captions and escaped values.
+  const row=(p,note)=>`<button class="row pressable" data-person="${esc(p.userId)}">
+    <span class="avatar dark">${esc(initials(p.displayName||p.email))}</span>
+    <span>
+      <div class="row-title">${esc(p.displayName||p.email)}</div>
+      <div class="row-sub"><span>${esc(p.title||PRESENCE[p.presenceState]||'должность не указана')}</span>${note?` · ${note}`:''}</div>
+    </span>
+    <span class="chip">${esc(WORKSPACE_ROLE[p.workspaceRole]||p.workspaceRole||'')}</span>
+  </button>`;
+
+  const shared=(p)=>{
+    const parts=[];
+    if(p.hasDirect)parts.push('<span>личный чат</span>');
+    parts.push(p.sharedCount===1?'<span>1 общая беседа</span>':`${p.sharedCount} <span>общих бесед</span>`);
+    return parts.join(' · ');
+  };
+
+  const talkingBlock=talking.length
+    ? talking.map(p=>row(p,shared(p))).join('')
+    : '<p class="muted">Вы пока ни с кем не переписывались.</p>';
+
+  const unitBlocks=units.map(u=>`<h3 class="person-section">${esc(u.name)} <span class="org-kind">${esc(UNIT_KIND[u.kind]||u.kind)}</span></h3>
+    ${u.members.map(m=>row(m,m.unitRole&&m.unitRole!=='member'?`<span>${esc(UNIT_ROLE[m.unitRole]||m.unitRole)}</span>`:'')).join('')}`).join('');
+
+  modal('Контакты',`
+    <h3 class="person-section">Вы общаетесь</h3>
+    ${talkingBlock}
+    ${units.length?unitBlocks:'<h3 class="person-section">Ваши подразделения</h3><p class="muted">Администратор ещё не добавил вас ни в одно подразделение.</p>'}
+    <div class="stack" style="margin-top:16px"><button data-action-team class="button secondary">Весь штат компании</button></div>`,()=>{
+    $$('[data-person]').forEach(b=>b.onclick=()=>personPage(b.dataset.person));
+    $('[data-action-team]').onclick=()=>replaceModal(teamModal);
+  });
+}
+const WORKSPACE_ROLE={owner:'владелец',admin:'админ',manager:'руководитель',member:'сотрудник',guest:'гость'};
 
 // ── employee card ───────────────────────────────────────────────────────────
 const WORK_STATUS={proposed:'ожидает принятия',accepted:'принята',scheduled:'запланирована',in_progress:'в работе',blocked:'заблокирована',in_review:'на проверке',accepted_result:'результат принят',closed:'закрыта',deferred:'отложена',cancelled:'отменена',rejected:'отклонена'};

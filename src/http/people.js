@@ -14,10 +14,18 @@ const TEXT_LIMITS = { displayName: 120, title: 120, department: 120, phone: 40, 
 
 export function createPeopleHandler() {
   return async function handlePeople(req, res, ctx, url, path, method) {
-    if (!path.startsWith('/api/v1/people/')) return false;
+    if (!path.startsWith('/api/v1/people/') && path !== '/api/v1/contacts') return false;
     const session = await ctx.requireSession(req);
     const people = ctx.people;
     if (!people) throw unavailable();
+
+    // Who this person actually deals with: the rooms they are in and the
+    // units an administrator placed them in. The staff directory answers a
+    // different question and lives in /bootstrap.
+    if (path === '/api/v1/contacts' && method === 'GET') {
+      json(res, 200, await people.contacts(session));
+      return true;
+    }
 
     let m = path.match(PERSON);
     if (m && method === 'GET') {

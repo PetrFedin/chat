@@ -111,6 +111,92 @@ export function createPeopleRepository(pool, org = null) {
     },
 
     /**
+     * The people this person actually deals with, which is not the same list
+     * as the staff directory.
+     *
+     * Two sources, because they answer two different questions. «Кто уже
+     * пишет мне» comes from shared rooms. «Кто со мной в отделе» comes from
+     * the chart an administrator filled in — those colleagues may not have
+     * written a line yet and still belong on the list.
+     *
+     * An open channel is not a relationship: everybody is in it by visibility
+     * alone, so it would make the whole company look like your contacts. Only
+     * rooms with an explicit membership row count.
+     */
+    async contacts(session) {
+      const [talking, unitRows] = await Promise.all([
+        pool.query(
+          // The join to messages multiplies the row per message, so the
+          // conversations have to be counted distinctly or two colleagues who
+          // chat a lot look like twenty shared rooms.
+          `SELECT b.user_id "userId", count(DISTINCT c.id)::int "sharedCount",
+                  max(c.title) FILTER (WHERE c.kind='direct') "directTitle",
+                  bool_or(c.kind='direct') "hasDirect",
+                  max(m.created_at) "lastMessageAt"
+             FROM conversation_members a
+             JOIN conversation_members b
+               ON b.workspace_id=a.workspace_id AND b.conversation_id=a.conversation_id AND b.user_id<>a.user_id
+             JOIN conversations c ON c.workspace_id=a.workspace_id AND c.id=a.conversation_id
+             LEFT JOIN messages m ON m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.deleted_at IS NULL
+            WHERE a.workspace_id=$1 AND a.user_id=$2 AND c.archived_at IS NULL
+            GROUP BY b.user_id`,
+          [session.workspaceId, session.userId],
+        ),
+        // A guest has no place in the chart, so they get no unit groups.
+        session.role === 'guest'
+          ? Promise.resolve({ rows: [] })
+          : pool.query(
+              `SELECT u.id "unitId", u.name "unitName", u.kind "unitKind", u.depth,
+                      om.user_id "userId", om.role "unitRole"
+                 FROM org_unit_members mine
+                 JOIN org_units u ON u.workspace_id=mine.workspace_id AND u.id=mine.unit_id
+                 JOIN org_unit_members om ON om.workspace_id=u.workspace_id AND om.unit_id=u.id
+                WHERE mine.workspace_id=$1 AND mine.user_id=$2
+                ORDER BY u.depth, u.name, om.role`,
+              [session.workspaceId, session.userId],
+            ),
+      ]);
+
+      const wanted = new Set([...talking.rows, ...unitRows.rows].map((r) => r.userId));
+      wanted.delete(session.userId);
+      const people = new Map();
+      if (wanted.size) {
+        const { rows } = await pool.query(
+          `SELECT m.user_id "userId", m.role "workspaceRole", u.email,
+                  p.display_name "displayName", p.title, p.department,
+                  pr.state "presenceState"
+             FROM memberships m
+             JOIN users u ON u.id=m.user_id
+             LEFT JOIN workspace_profiles p ON p.workspace_id=m.workspace_id AND p.user_id=m.user_id
+             LEFT JOIN user_presence pr ON pr.workspace_id=m.workspace_id AND pr.user_id=m.user_id
+            WHERE m.workspace_id=$1 AND m.user_id = ANY($2::uuid[]) AND u.disabled_at IS NULL`,
+          [session.workspaceId, [...wanted]],
+        );
+        for (const row of rows) people.set(row.userId, row);
+      }
+
+      const talkingTo = talking.rows
+        .filter((row) => row.userId !== session.userId && people.has(row.userId))
+        .map((row) => ({
+          ...people.get(row.userId),
+          sharedCount: row.sharedCount,
+          hasDirect: row.hasDirect,
+          lastMessageAt: row.lastMessageAt ?? null,
+        }))
+        .sort((a, b) => String(b.lastMessageAt ?? '').localeCompare(String(a.lastMessageAt ?? '')) || b.sharedCount - a.sharedCount);
+
+      const units = [];
+      for (const row of unitRows.rows) {
+        if (row.userId === session.userId || !people.has(row.userId)) continue;
+        let unit = units.find((u) => u.unitId === row.unitId);
+        if (!unit) { unit = { unitId: row.unitId, name: row.unitName, kind: row.unitKind, depth: row.depth, members: [] }; units.push(unit); }
+        unit.members.push({ ...people.get(row.userId), unitRole: row.unitRole });
+      }
+
+      return { talkingTo, units };
+    },
+
+    /**
      * What a person actually did, newest first, straight from the append-only
      * audit log. Nothing is written here to build the feed — the events were
      * already being recorded, they simply had no reader.
