@@ -31,9 +31,10 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/transitions$`,'i'));
   if(m&&method==='POST'){
     const s=await requireSession(req),b=await readJson(req),task=await store.transitionTask(s,m[1],{to:String(b.to??''),reason:b.reason??null,expectedVersion:b.expectedVersion});
-    const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(task));
+    const audience=taskAudience(task),title=taskLabel(task.status);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(task));
+    await store.projectTaskLifecycleNotification?.(s,task,{type:task.status==='in_review'?'review.requested':'task.updated',title});
     const recipients=audience.filter(id=>id!==s.userId);
-    await notifyUsers(s.workspaceId,recipients,{title:taskLabel(task.status),body:task.title,url:`/#/tasks/${task.id}`});
+    await notifyUsers(s.workspaceId,recipients,{title,body:task.title,url:`/#/tasks/${task.id}`});
     json(res,200,{task});return true
   }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/evidence$`,'i'));
