@@ -129,7 +129,12 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     // A full page means there may be more; the cursor points at the oldest
     // row returned, which is where the next page starts.
     const oldest=items[0];
-    const nextCursor=items.length===limit&&oldest?`${oldest.createdAt}|${oldest.id}`:null;
+    // createdAt arrives from the driver as a Date, and a template literal
+    // stringifies it with toString(): «Sun Sep 20 2026 00:58:40 GMT+0300».
+    // Re-parsing that drops the milliseconds, so the cursor landed before
+    // every message in the conversation and the second page was always empty —
+    // the whole history past the first page was unreachable.
+    const nextCursor=items.length===limit&&oldest?`${new Date(oldest.createdAt).toISOString()}|${oldest.id}`:null;
     json(res,200,{items,nextCursor,hasMore:Boolean(nextCursor)});
     return true;
   }

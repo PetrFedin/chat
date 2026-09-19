@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
+import { GUEST_ROLE } from './visibility.js';
 import { compareTasks, encodeTaskCursor, decodeTaskCursor, taskPageSize } from '../task/task-page.js';
 
 function nowIso() { return new Date().toISOString(); }
@@ -295,9 +296,21 @@ export class MemoryStore {
     });
   }
 
-  async listMessages(session, conversationId, limit = 100) {
+  // The cursor argument was missing entirely here, so without a database the
+  // endpoint answered the same newest page forever and the history behind it
+  // was unreachable. Mirrors the Postgres keyset: the newest `limit` messages
+  // strictly older than (createdAt, id), returned oldest-first.
+  async listMessages(session, conversationId, limit = 100, before = null) {
     if (!(await this.canAccessConversation(session, conversationId))) throw Object.assign(new Error('Conversation not found'), { statusCode: 404, code: 'NOT_FOUND' });
-    return (this.messages.get(conversationId)??[]).slice(-Math.min(limit,200)).map((message)=>this.messageView(session,message));
+    let rows = this.messages.get(conversationId) ?? [];
+    if (before?.at && before?.id) {
+      const at = new Date(before.at).toISOString();
+      rows = rows.filter((message) => {
+        const createdAt = new Date(message.createdAt).toISOString();
+        return createdAt < at || (createdAt === at && String(message.id) < String(before.id));
+      });
+    }
+    return rows.slice(-Math.min(limit, 200)).map((message) => this.messageView(session, message));
   }
 
   async createMessage(session, conversationId, { kind = 'text', body = null, replyToId = null, threadRootId = null, metadata = {}, mentionedUserIds = [], clientRequestId = null }) {
@@ -455,7 +468,13 @@ export class MemoryStore {
 
   async createTask(session,value) {
     const ownerId=value.ownerId??session.userId,acceptorId=value.acceptorId??session.userId;
-    for(const userId of new Set([ownerId,acceptorId,session.userId])) this.assertConversationUser(session,userId);
+    for(const userId of new Set([ownerId,acceptorId,session.userId])){
+      this.assertConversationUser(session,userId);
+      // See the Postgres store: a guest cannot see a task, so naming one
+      // as owner or acceptor creates a commitment nobody can act on.
+      const membership=this.memberships.get(this.membershipKey(session.workspaceId,userId));
+      if(membership?.role===GUEST_ROLE) throw Object.assign(new Error('A guest cannot carry a commitment'),{code:'GUEST_CANNOT_HOLD_TASK',statusCode:400});
+    }
     if(value.sourceMessageId){
       const conversationId=await this.messageConversation(session,value.sourceMessageId);
       if(!conversationId||!(await this.canAccessConversation(session,conversationId))) throw Object.assign(new Error('Task source message not found'),{code:'TASK_SOURCE_NOT_FOUND',statusCode:404});

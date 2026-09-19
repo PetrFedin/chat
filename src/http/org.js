@@ -1,5 +1,6 @@
 import { Permission, requirePermission } from '../rbac.js';
 import { cleanText, json, noContent, readJson } from './helpers.js';
+import { isGuest } from '../persistence/visibility.js';
 
 const UNIT = '([0-9a-f-]{36})';
 const UNIT_ID = new RegExp(`^/api/v1/org/units/${UNIT}$`, 'i');
@@ -21,6 +22,13 @@ export function createOrgHandler() {
   return async function handleOrg(req, res, ctx, url, path, method) {
     if (!path.startsWith('/api/v1/org/')) return false;
     const session = await ctx.requireSession(req);
+
+    // A guest is somebody else's employee — the customer representative in one
+    // room does not get the shipyard's departments, headcount plan and heads.
+    // This answers before the availability check, so a guest cannot even learn
+    // whether the module is configured.
+    if (isGuest(session)) throw Object.assign(new Error('Not found'), { code: 'NOT_FOUND', statusCode: 404 });
+
     const org = ctx.org;
     if (!org) throw unavailable();
 
@@ -28,8 +36,8 @@ export function createOrgHandler() {
     const workspaceWide = (ctx.permissions(session.role) ?? []).includes(Permission.ORG_STRUCTURE_MANAGE);
     const mayManage = (unitId) => org.canManageUnit(session, unitId, { workspaceWide });
 
-    // Everyone in the workspace may read the chart: knowing who runs what is
-    // the point of having one.
+    // Everyone on the staff may read the chart: knowing who runs what is the
+    // point of having one.
     if (method === 'GET' && path === '/api/v1/org/units') {
       json(res, 200, { items: await org.listUnits(session), canManage: workspaceWide, managedUnitIds: await org.adminUnitIds(session) });
       return true;
