@@ -61,8 +61,8 @@ export class MemoryStore extends BaseMemoryStore {
     return resolveMentionsFromPeople(body, explicitIds, people).filter((id) => valid.has(String(id)));
   }
 
-  async listConversations(session) {
-    const rows = await super.listConversations(session);
+  async listConversations(session, options = {}) {
+    const rows = await super.listConversations(session, options);
     return rows.map((conversation) => {
       const messages = this.messages.get(conversation.id) ?? [];
       const read = this.readState.get(this.conversationMemberKey(conversation.id, session.userId));
@@ -95,6 +95,13 @@ export class MemoryStore extends BaseMemoryStore {
     // BaseMemoryStore delegates message creation to this.createMessage, which already
     // links the file and projects message notifications.
     return super.saveVoiceMessage(session, conversationId, value);
+  }
+
+  async forwardMessage(session, sourceMessageId, targetConversationId) {
+    const message = await super.forwardMessage(session, sourceMessageId, targetConversationId);
+    if (message.metadata?.fileId) await this.linkFile(session, message.metadata.fileId, 'message', message.id);
+    await this.projectMessageNotifications(session, targetConversationId, { ...message, mentionedUserIds:[] });
+    return message;
   }
 
   async createTask(session, value) {
@@ -151,7 +158,7 @@ export class MemoryStore extends BaseMemoryStore {
   async projectMessageNotifications(session, conversationId, message) {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return [];
-    const audience = await this.conversationAudience(session, conversationId);
+    const audience = await this.conversationNotificationAudience(session, conversationId);
     const mentioned = new Set((message.mentionedUserIds ?? []).filter((id) => id !== session.userId && audience.includes(id)));
     const rows = [];
     for (const userId of mentioned) {
@@ -313,9 +320,10 @@ export class PostgresStore extends BasePostgresStore {
     return resolveMentionsFromPeople(body, explicitIds, people).filter((id) => valid.has(String(id)));
   }
 
-  async listConversations(session) {
+  async listConversations(session, { archived=false } = {}) {
     const { rows } = await this.pool.query(`
       SELECT c.id,c.kind,c.title,c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_at "createdAt",
+        cm.archived_at "archivedAt",cm.muted_until "mutedUntil",
         (SELECT jsonb_build_object('id',m.id,'body',m.body,'kind',m.kind,'authorId',m.author_id,'createdAt',m.created_at)
           FROM messages m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.deleted_at IS NULL
           ORDER BY m.created_at DESC,m.id DESC LIMIT 1) "lastMessage",
@@ -328,7 +336,8 @@ export class PostgresStore extends BasePostgresStore {
       FROM conversations c
       LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$2
       WHERE c.workspace_id=$1 AND c.archived_at IS NULL AND(c.visibility IN('workspace','organization') OR cm.user_id IS NOT NULL)
-      ORDER BY COALESCE((SELECT max(created_at) FROM messages m2 WHERE m2.workspace_id=c.workspace_id AND m2.conversation_id=c.id),c.created_at) DESC`,[session.workspaceId,session.userId]);
+        AND(($3::boolean AND cm.archived_at IS NOT NULL) OR (NOT $3::boolean AND cm.archived_at IS NULL))
+      ORDER BY COALESCE((SELECT max(created_at) FROM messages m2 WHERE m2.workspace_id=c.workspace_id AND m2.conversation_id=c.id),c.created_at) DESC`,[session.workspaceId,session.userId,Boolean(archived)]);
     return rows;
   }
 
@@ -345,6 +354,13 @@ export class PostgresStore extends BasePostgresStore {
     await this.linkFile(session, value.file.id, 'message', result.message.id);
     await this.projectMessageNotifications(session, conversationId, { ...result.message, mentionedUserIds:[] }).catch((error) => console.error('notification projection failed', error));
     return result;
+  }
+
+  async forwardMessage(session, sourceMessageId, targetConversationId) {
+    const message = await super.forwardMessage(session, sourceMessageId, targetConversationId);
+    if (message.metadata?.fileId) await this.linkFile(session, message.metadata.fileId, 'message', message.id);
+    await this.projectMessageNotifications(session, targetConversationId, { ...message, mentionedUserIds:[] }).catch((error) => console.error('notification projection failed', error));
+    return message;
   }
 
   async createTask(session, value) {
@@ -391,7 +407,7 @@ export class PostgresStore extends BasePostgresStore {
   async projectMessageNotifications(session, conversationId, message) {
     const conversation=(await this.pool.query('SELECT kind FROM conversations WHERE workspace_id=$1 AND id=$2',[session.workspaceId,conversationId])).rows[0];
     if(!conversation)return[];
-    const audience=await this.conversationAudience(session,conversationId),mentioned=new Set((message.mentionedUserIds??[]).filter((id)=>id!==session.userId&&audience.includes(id))),rows=[];
+    const audience=await this.conversationNotificationAudience(session,conversationId),mentioned=new Set((message.mentionedUserIds??[]).filter((id)=>id!==session.userId&&audience.includes(id))),rows=[];
     for(const userId of mentioned){const row=await this.insertNotification({organizationId:session.organizationId,workspaceId:session.workspaceId,recipientUserId:userId,sourceEventId:message.id,dedupeKey:`message.mentioned:${message.id}:${userId}`,type:'message.mentioned',title:`Упоминание от ${session.displayName}`,body:notificationBody(message),actorUserId:session.userId,conversationId,messageId:message.id,url:`/#/chats/${conversationId}?message=${message.id}`,priority:'high'});if(row)rows.push(row)}
     if(['direct','group'].includes(conversation.kind))for(const userId of audience){if(userId===session.userId||mentioned.has(userId))continue;const row=await this.insertNotification({organizationId:session.organizationId,workspaceId:session.workspaceId,recipientUserId:userId,sourceEventId:message.id,dedupeKey:`message.created:${message.id}:${userId}`,type:'message.created',title:`Новое сообщение от ${session.displayName}`,body:notificationBody(message),actorUserId:session.userId,conversationId,messageId:message.id,url:`/#/chats/${conversationId}?message=${message.id}`,priority:'normal'});if(row)rows.push(row)}
     return rows;
