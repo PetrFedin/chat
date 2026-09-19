@@ -80,6 +80,15 @@ test('message work actions preserve personal state, shared authority and provena
   assert.equal(editForward.response.status,409);
   assert.equal(editForward.payload.error.code,'MESSAGE_FORWARD_IMMUTABLE');
 
+  const externalTarget=await request(base,'/api/v1/conversations',{cookie:alice.cookie,method:'POST',body:{kind:'direct',title:'Bob',participantIds:[bob.userId]}});
+  assert.equal(externalTarget.response.status,201);
+  const restrictedForward=await request(base,`/api/v1/messages/${sourceId}/forward`,{cookie:alice.cookie,method:'POST',body:{conversationId:externalTarget.payload.conversation.id}});
+  assert.equal(restrictedForward.response.status,201);
+  const bobForwardView=await request(base,`/api/v1/conversations/${externalTarget.payload.conversation.id}/messages`,{cookie:bob.cookie});
+  const bobForward=bobForwardView.payload.items.find(item=>item.id===restrictedForward.payload.message.id);
+  assert.equal(bobForward.forwarded,true);
+  assert.deepEqual(bobForward.forwardedFrom,{restricted:true});
+
   const bobGroup=await request(base,'/api/v1/conversations',{cookie:ownerCookie,method:'POST',body:{kind:'group',title:'Other group',participantIds:[bob.userId]}});
   const crossReply=await request(base,`/api/v1/conversations/${bobGroup.payload.conversation.id}/messages`,{cookie:ownerCookie,method:'POST',body:{body:'Invalid cross-chat reply',replyToId:sourceId}});
   assert.equal(crossReply.response.status,400);
