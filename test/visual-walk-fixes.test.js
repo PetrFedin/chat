@@ -244,3 +244,17 @@ test('the evidence gate explains itself, and priority is a word', async () => {
   assert.ok(app.includes("const TASK_PRIORITY={normal:'обычный'"), 'приоритет печатается сырым значением');
   assert.ok(!app.includes("esc(task.priority||'normal')"), 'в карточке остался сырой приоритет');
 });
+
+// Напоминание: своя сущность, а не задача без ответственного.
+test('reminders are offered where a person needs them', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes('async function remindersModal('), 'нет листа напоминаний');
+  assert.ok(app.includes('function remindAboutModal('), 'нельзя напомнить о сообщении или задаче');
+  assert.ok(app.includes('data-action="reminders"'), 'нет плитки напоминаний');
+  assert.ok(app.includes('data-message-remind'), 'в сообщении нет «Напомнить»');
+  assert.ok(app.includes('data-task-remind'), 'в задаче нет «Напомнить»');
+  assert.ok(app.includes("['Через час',hour]"), 'нет быстрых сроков');
+  const daily = await read('public/daily-work.js');
+  assert.ok(daily.includes("if(n.type==='calendar.reminder')return n.title||"),
+    'центр внимания снова подменяет текст напоминания общим словом');
+});

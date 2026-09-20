@@ -295,7 +295,7 @@ function message(m){const reactions=(m.reactions||[]).reduce((a,r)=>(a[r.reactio
   const quote=m.replyToId?`<button class="reply-quote" data-jump="${esc(m.replyToId)}" title="Перейти к сообщению">${parent
     ?`<b>${esc(parent.authorId===me().userId?'Вы':name(parent.authorId))}</b> ${esc(parent.deletedAt?'сообщение удалено':(parent.body||kindLabel(parent.kind)||'вложение').slice(0,90))}`
     :'<b>Ответ</b> на сообщение выше'}</button>`:'';
-  return `<article class="message-item" data-message-row="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><div><div class="message-meta"><span class="message-author">${esc(m.authorId===me().userId?'Вы':name(m.authorId))}</span><span class="message-time">${time(m.createdAt)}${m.editedAt?' · изменено':''}${m.pinned?' · закреплено':''}${m.saved?' · сохранено':''}</span></div>${m.forwardedFrom?(m.forwardedFrom.restricted?'<div class="row-sub">↪ Пересланное сообщение</div>':`<button class="reaction-button" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">↪ Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`):''}${quote}${deleted?'<p class="muted">Сообщение удалено</p>':m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`:m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`:`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`}${(S.labelTargets?.get('message:'+m.id)||[]).length?`<div class="chip-row msg-labels">${(S.labelTargets.get('message:'+m.id)||[]).map(labelChip).join('')}</div>`:''}${deleted?'':`<button class="msg-more pressable" data-message-actions="${m.id}" aria-label="Действия с сообщением" aria-expanded="false">⋯</button><div class="inline-actions msg-actions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}<button class="reaction-button" data-react-pick="${m.id}" aria-label="Поставить реакцию">＋</button><button class="reaction-button" data-reply="${m.id}">Ответить</button><button class="reaction-button" data-message-save="${m.id}" data-saved="${m.saved?'1':'0'}">${m.saved?'Убрать из сохранённых':'Сохранить'}</button><button class="reaction-button" data-message-forward="${m.id}">Переслать</button><button class="reaction-button" data-message-label="${m.id}">Метка</button><button class="reaction-button" data-message-pin="${m.id}" data-pinned="${m.pinned?'1':'0'}">${m.pinned?'Открепить':'Закрепить'}</button><button class="reaction-button" data-task-message="${m.id}">В задачу</button>${m.authorId===me().userId&&m.kind==='text'&&!m.forwarded?`<button class="reaction-button" data-message-edit="${m.id}">Изменить</button>`:''}${canDelete?`<button class="reaction-button" data-message-delete="${m.id}">Удалить</button>`:''}</div>`}</div></article>`}
+  return `<article class="message-item" data-message-row="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><div><div class="message-meta"><span class="message-author">${esc(m.authorId===me().userId?'Вы':name(m.authorId))}</span><span class="message-time">${time(m.createdAt)}${m.editedAt?' · изменено':''}${m.pinned?' · закреплено':''}${m.saved?' · сохранено':''}</span></div>${m.forwardedFrom?(m.forwardedFrom.restricted?'<div class="row-sub">↪ Пересланное сообщение</div>':`<button class="reaction-button" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">↪ Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`):''}${quote}${deleted?'<p class="muted">Сообщение удалено</p>':m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`:m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`:`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`}${(S.labelTargets?.get('message:'+m.id)||[]).length?`<div class="chip-row msg-labels">${(S.labelTargets.get('message:'+m.id)||[]).map(labelChip).join('')}</div>`:''}${deleted?'':`<button class="msg-more pressable" data-message-actions="${m.id}" aria-label="Действия с сообщением" aria-expanded="false">⋯</button><div class="inline-actions msg-actions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}<button class="reaction-button" data-react-pick="${m.id}" aria-label="Поставить реакцию">＋</button><button class="reaction-button" data-reply="${m.id}">Ответить</button><button class="reaction-button" data-message-save="${m.id}" data-saved="${m.saved?'1':'0'}">${m.saved?'Убрать из сохранённых':'Сохранить'}</button><button class="reaction-button" data-message-forward="${m.id}">Переслать</button><button class="reaction-button" data-message-label="${m.id}">Метка</button><button class="reaction-button" data-message-remind="${m.id}">Напомнить</button><button class="reaction-button" data-message-pin="${m.id}" data-pinned="${m.pinned?'1':'0'}">${m.pinned?'Открепить':'Закрепить'}</button><button class="reaction-button" data-task-message="${m.id}">В задачу</button>${m.authorId===me().userId&&m.kind==='text'&&!m.forwarded?`<button class="reaction-button" data-message-edit="${m.id}">Изменить</button>`:''}${canDelete?`<button class="reaction-button" data-message-delete="${m.id}">Удалить</button>`:''}</div>`}</div></article>`}
 function tasks(){return `<section class="surface"><div class="section-head"><div><p class="muted">Ответственность → выполнение → доказательство → проверка → закрытие</p></div>${can('task.create')?'<button data-action="task" class="button primary small pressable">＋ Задача</button>':''}</div><div class="task-list">${S.tasks.map(taskRow).join('')||'<div class="empty"><strong>Ничего не потеряется</strong>Создайте задачу вручную или из сообщения.</div>'}</div></section>`}
 function calendar(){
   const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
@@ -454,7 +454,7 @@ async function eventPage(id){
   });
 }
 
-function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">◍</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">♞</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">☏</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
+function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">◍</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">♞</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">☏</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="reminders"><span class="module-icon">◔</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
@@ -488,7 +488,10 @@ function bind(){
   const item=b.closest('.message-item');
   const open=item.classList.toggle('actions-open');
   b.setAttribute('aria-expanded',String(open));
-});$$('[data-message-label]').forEach(b=>b.onclick=()=>labelPicker('message',b.dataset.messageLabel,{title:'Метки сообщения'}));$$('[data-message-pin]').forEach(b=>b.onclick=()=>togglePin(b.dataset.messagePin,b.dataset.pinned!=='1'));$$('[data-message-forward]').forEach(b=>b.onclick=()=>forwardModal(b.dataset.messageForward));$$('[data-forward-origin-conversation]').forEach(b=>b.onclick=()=>openChatAtMessage(b.dataset.forwardOriginConversation,b.dataset.forwardOriginMessage));$$('[data-message-edit]').forEach(b=>b.onclick=()=>editMessageModal(b.dataset.messageEdit));$$('[data-message-delete]').forEach(b=>b.onclick=()=>deleteMessageModal(b.dataset.messageDelete));$$('[data-task-message]').forEach(b=>b.onclick=()=>{
+});$$('[data-message-label]').forEach(b=>b.onclick=()=>labelPicker('message',b.dataset.messageLabel,{title:'Метки сообщения'}));$$('[data-message-remind]').forEach(b=>b.onclick=()=>{
+  const source=(S.messages.get(S.selected)||[]).find(x=>x.id===b.dataset.messageRemind);
+  remindAboutModal((source?.body||'Вернуться к сообщению').trim(),{sourceType:'message',sourceId:b.dataset.messageRemind,conversationId:S.selected});
+});$$('[data-message-pin]').forEach(b=>b.onclick=()=>togglePin(b.dataset.messagePin,b.dataset.pinned!=='1'));$$('[data-message-forward]').forEach(b=>b.onclick=()=>forwardModal(b.dataset.messageForward));$$('[data-forward-origin-conversation]').forEach(b=>b.onclick=()=>openChatAtMessage(b.dataset.forwardOriginConversation,b.dataset.forwardOriginMessage));$$('[data-message-edit]').forEach(b=>b.onclick=()=>editMessageModal(b.dataset.messageEdit));$$('[data-message-delete]').forEach(b=>b.onclick=()=>deleteMessageModal(b.dataset.messageDelete));$$('[data-task-message]').forEach(b=>b.onclick=()=>{
   const source=(S.messages.get(S.selected)||[]).find(x=>x.id===b.dataset.taskMessage);
   taskModal(b.dataset.taskMessage,(source?.body||'').trim().slice(0,120));
 });$$('[data-task-open]').forEach(b=>b.onclick=()=>openTask(b.dataset.taskOpen));const input=$('#message-input');if(input){input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};input.oninput=typing;requestAnimationFrame(()=>{$('#message-stream')?.scrollTo(0,999999)})}}
@@ -503,7 +506,7 @@ function go(v){
 }
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
 // ── org structure: reading and reshaping ────────────────────────────────────
@@ -888,6 +891,115 @@ function bindPlanRows(reload){
     }catch(error){toast(error.message);button.disabled=false}
   });
   $$('[data-plan-open]').forEach(button=>button.onclick=()=>planItemPage(button.dataset.planOpen));
+}
+
+const REMINDER_FILTERS=[['open','Ждут'],['done','Сделанные'],['all','Все']];
+
+/** «Через час», «завтра в 9», «в понедельник в 9» — то, что выбирают чаще всего. */
+function reminderPresets(){
+  const hour=new Date(Date.now()+3600e3);
+  const morning=new Date();morning.setDate(morning.getDate()+1);morning.setHours(9,0,0,0);
+  const monday=new Date();monday.setDate(monday.getDate()+((8-monday.getDay())%7||7));monday.setHours(9,0,0,0);
+  return [['Через час',hour],['Завтра в 9:00',morning],['В понедельник',monday]];
+}
+const localInput=(date)=>{
+  const pad=(n)=>String(n).padStart(2,'0');
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+function reminderRow(r){
+  const at=new Date(r.remindAt);
+  const overdue=r.status==='fired'||(r.status==='pending'&&at.getTime()<Date.now());
+  return `<div class="row" data-reminder="${esc(r.id)}">
+    <span class="avatar dark" aria-hidden="true">◔</span>
+    <span><div class="row-title">${esc(r.title)}</div>
+      <div class="row-sub">${esc(dateTime(r.remindAt))}${r.note?` · ${esc(r.note.slice(0,60))}`:''}</div></span>
+    <span class="inline-actions">
+      ${overdue?'<span class="chip warm">пора</span>':''}
+      ${r.status==='done'?'<button class="text-button" data-reminder-reopen="'+r.id+'">Снова ждать</button>'
+        :`<button class="text-button" data-reminder-snooze="${esc(r.id)}">＋1 час</button><button class="text-button" data-reminder-done="${esc(r.id)}">Готово</button>`}
+      <button class="text-button danger" data-reminder-delete="${esc(r.id)}" aria-label="Удалить напоминание">×</button>
+    </span>
+  </div>`;
+}
+
+/**
+ * Напоминания. Отдельно от задач: задача — обязательство перед кем-то,
+ * с ответственным и доказательством; напоминание — разговор с самим собой.
+ */
+async function remindersModal(status='open'){
+  S.reminderFilter=status;
+  const build=async()=>{
+    let items=[];
+    try{items=(await api(`/api/v1/reminders?status=${encodeURIComponent(S.reminderFilter)}`)).items||[]}
+    catch(error){return {title:'Напоминания',body:`<div class="empty"><strong>Напоминания недоступны</strong>${esc(error.message)}</div>`,after:()=>{}}}
+    const filters=REMINDER_FILTERS.map(([value,caption])=>
+      `<button class="chipbtn pressable${S.reminderFilter===value?' on':''}" data-reminder-filter="${value}">${esc(caption)}</button>`).join('');
+    return {
+      title:'Напоминания',
+      body:`<form id="reminder-add" class="form-stack" style="margin-bottom:14px">
+        <label>О чём напомнить<input name="title" maxlength="200" required placeholder="Позвонить подрядчику"></label>
+        <label>Когда<input name="remindAt" type="datetime-local" required value="${esc(localInput(new Date(Date.now()+3600e3)))}"></label>
+        <div class="chip-row">${reminderPresets().map(([caption,when])=>
+          `<button type="button" class="chipbtn pressable" data-preset="${esc(localInput(when))}">${esc(caption)}</button>`).join('')}</div>
+        <button class="button primary">Напомнить</button>
+      </form>
+      <div class="chip-row">${filters}</div>
+      <div class="stack" style="margin-top:10px">${items.length?items.map(reminderRow).join(''):'<div class="empty"><strong>Пока пусто</strong>Напоминание придёт в центр внимания в назначенный час.</div>'}</div>`,
+      after:()=>{
+        $('#reminder-add').onsubmit=async(event)=>{
+          event.preventDefault();
+          const form=new FormData(event.currentTarget);
+          try{
+            await api('/api/v1/reminders',{method:'POST',body:JSON.stringify({
+              title:form.get('title'),remindAt:new Date(form.get('remindAt')).toISOString(),
+            })});
+            toast('Напоминание поставлено');await refresh();
+          }catch(error){toast(error.message)}
+        };
+        $$('[data-preset]').forEach(b=>b.onclick=()=>{$('#reminder-add [name="remindAt"]').value=b.dataset.preset});
+        $$('[data-reminder-filter]').forEach(b=>b.onclick=async()=>{S.reminderFilter=b.dataset.reminderFilter;await refresh()});
+        const patch=async(id,body)=>{try{await api(`/api/v1/reminders/${id}`,{method:'PATCH',body:JSON.stringify(body)});await refresh()}catch(error){toast(error.message)}};
+        $$('[data-reminder-done]').forEach(b=>b.onclick=()=>patch(b.dataset.reminderDone,{status:'done'}));
+        $$('[data-reminder-reopen]').forEach(b=>b.onclick=()=>patch(b.dataset.reminderReopen,{status:'pending'}));
+        $$('[data-reminder-snooze]').forEach(b=>b.onclick=()=>patch(b.dataset.reminderSnooze,{remindAt:new Date(Date.now()+3600e3).toISOString()}));
+        $$('[data-reminder-delete]').forEach(b=>b.onclick=async()=>{
+          try{await api(`/api/v1/reminders/${b.dataset.reminderDelete}`,{method:'DELETE'});await refresh()}catch(error){toast(error.message)}
+        });
+      },
+    };
+  };
+  const refresh=async()=>{
+    const next=await build();
+    const top=overlayStack[overlayStack.length-1];
+    if(top){Object.assign(top,next);renderOverlay()}
+  };
+  const first=await build();
+  modal(first.title,first.body,first.after,build);
+}
+
+/** Напомнить о сообщении или задаче, не уходя со страницы. */
+function remindAboutModal(title,{sourceType,sourceId,conversationId}={}){
+  modal('Напомнить',`<form id="remind-about" class="form-stack">
+    <label>О чём<input name="title" maxlength="200" required value="${esc(title.slice(0,200))}"></label>
+    <label>Когда<input name="remindAt" type="datetime-local" required value="${esc(localInput(new Date(Date.now()+3600e3)))}"></label>
+    <div class="chip-row">${reminderPresets().map(([caption,when])=>
+      `<button type="button" class="chipbtn pressable" data-preset="${esc(localInput(when))}">${esc(caption)}</button>`).join('')}</div>
+    <button class="button primary">Напомнить</button>
+  </form>`,()=>{
+    $$('[data-preset]').forEach(b=>b.onclick=()=>{$('#remind-about [name="remindAt"]').value=b.dataset.preset});
+    $('#remind-about').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      try{
+        await api('/api/v1/reminders',{method:'POST',body:JSON.stringify({
+          title:form.get('title'),remindAt:new Date(form.get('remindAt')).toISOString(),
+          sourceType,sourceId,conversationId,
+        })});
+        closeModal();toast('Напоминание поставлено');
+      }catch(error){toast(error.message)}
+    };
+  });
 }
 
 async function planModal(status=S.planFilter||'open'){
@@ -1755,7 +1867,7 @@ function taskDetailModal(task){
     <div class="surface"><div class="row-title">Ожидаемый результат</div><p class="muted">${esc(task.outcome||task.title)}</p><div class="row-sub">Ответственный: ${esc(name(task.ownerId))} · Принимает: ${esc(name(task.acceptorId))} · Поставил: ${esc(name(task.requesterId))}</div></div>
     <div><div class="row-title">Следующее действие</div>${task.status==='in_progress'&&!evidence.length?'<p class="muted" style="margin:6px 0 0">Чтобы сдать работу на проверку, приложите хотя бы одно доказательство — форма ниже.</p>':''}<div class="inline-actions" style="margin-top:8px">${(task.allowedTransitions||[]).map(to=>`<button class="button ${to==='accepted_result'||to==='closed'?'primary':'secondary'} small" data-task-transition="${esc(to)}">${esc(taskActionLabel(task,to))}</button>`).join('')||'<span class="muted">Доступных переходов сейчас нет.</span>'}</div></div>
     <form id="task-evidence-form" class="form-stack"><div class="row-title">Добавить результат / доказательство</div><label>Тип<select name="type" class="field"><option value="note">Комментарий / результат</option><option value="url">Ссылка</option><option value="metric">Метрика</option><option value="message">Ссылка на сообщение</option><option value="file">Идентификатор файла</option></select></label><label>Данные<textarea name="value" rows="3" required placeholder="Что сделано, где результат или чем это подтверждается"></textarea></label><button class="button secondary">Добавить доказательство</button></form>
-    ${canReassignTask(task)?'<button data-task-reassign class="button secondary">Передать задачу</button>':''}${canRescheduleTask(task)?'<button class="button secondary" data-task-reschedule>Изменить срок / прогноз</button>':''}
+    <button data-task-remind class="button secondary">Напомнить о задаче</button>${canReassignTask(task)?'<button data-task-reassign class="button secondary">Передать задачу</button>':''}${canRescheduleTask(task)?'<button class="button secondary" data-task-reschedule>Изменить срок / прогноз</button>':''}
     <div><div class="row-title">Доказательства · ${evidence.length}</div>${evidence.length?evidence.map(e=>`<div class="row"><span>↗</span><span><div class="row-title">${esc(e.type)}</div><div class="row-sub">${esc(e.value)}</div></span><span class="time">${esc(dateTime(e.createdAt))}</span></div>`).join(''):'<div class="empty">Пока нет. Без доказательства результат нельзя отправить на проверку.</div>'}</div>
     ${acceptances.length?`<div><div class="row-title">Проверка результата</div>${acceptances.map(a=>`<div class="row"><span>${a.decision==='accepted'?'✓':'↩'}</span><span><div class="row-title">${a.decision==='accepted'?'Результат принят':'Возвращено на доработку'}</div><div class="row-sub">${esc(a.comment||'')}</div></span><span class="time">${esc(dateTime(a.createdAt))}</span></div>`).join('')}</div>`:''}
     ${audit.length?`<details><summary>История изменений · ${audit.length}</summary><div class="stack" style="margin-top:8px">${audit.map(a=>`<div class="row-sub">${esc(dateTime(a.createdAt))} · <span>${esc(TASK_EVENT[a.eventType]||a.eventType)}</span>${a.payload?.reason?` — «${esc(a.payload.reason)}»`:''}</div>`).join('')}</div></details>`:''}
@@ -1763,6 +1875,7 @@ function taskDetailModal(task){
   $$('[data-task-transition]').forEach(b=>b.onclick=()=>taskTransition(task,b.dataset.taskTransition));
   $('[data-task-labels]').onclick=()=>labelPicker('task',task.id,{title:`Метки: ${task.title}`});
   const form=$('#task-evidence-form');if(form)form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form);try{const r=await api(`/api/v1/tasks/${task.id}/evidence`,{method:'POST',body:JSON.stringify({type:f.get('type'),value:f.get('value'),expectedVersion:task.version})});upsertTask(r.task);toast('Доказательство добавлено');await openTask(task.id)}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}};
+  $('[data-task-remind]')?.addEventListener('click',()=>remindAboutModal(task.title,{sourceType:'task',sourceId:task.id}));
   $('[data-task-reassign]')?.addEventListener('click',()=>taskReassignModal(task));
   $('[data-task-reschedule]')?.addEventListener('click',()=>taskRescheduleModal(task));
 }
