@@ -25,6 +25,7 @@ const msgIcon={
   task:svg('<rect x="4.6" y="4.6" width="14.8" height="14.8" rx="3"/><path d="m8.6 12 2.4 2.4 4.4-4.8"/>'),
 };
 const roomIcon={
+  channel:svg('<path d="M9.4 4.2 7.8 19.8M16.2 4.2l-1.6 15.6"/><path d="M4.6 9h15.2M3.8 14.6H19"/>'),
   pins:svg('<path d="M9.4 3.6h5.2l-.6 5 3 3.2-.9 1.4H8.9L8 11.8l3-3.2Z"/><path d="M12 13.2v7.2"/>'),
   muted:svg('<path d="M6.6 10.4a5.4 5.4 0 0 1 8.2-4.6"/><path d="M17.4 12.2c0 3.2 1.2 4.6 1.2 4.6H7.4"/><path d="M4.6 4.6 19.4 19.4"/><path d="M10.2 19a2 2 0 0 0 3.6 0"/>'),
   bell:svg('<path d="M6.6 10.4a5.4 5.4 0 1 1 10.8 0c0 4 1.4 5.6 1.4 5.6H5.2s1.4-1.6 1.4-5.6Z"/><path d="M10.2 19a2 2 0 0 0 3.6 0"/>'),
@@ -205,8 +206,8 @@ function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','ca
   const todays=S.calendar.filter(e=>{const t=Date.parse(e.startAt);return t>=dayStart.getTime()&&t<dayEnd.getTime()}).sort(byStart);
   const later=S.calendar.filter(e=>Date.parse(e.startAt)>=dayEnd.getTime()).sort(byStart);
   const events=(todays.length?todays:later).slice(0,4);
-  const agendaTitle=todays.length?'Расписание дня':'Ближайшие встречи';
-  const agendaHint=todays.length?'Встречи и рабочее время':'Сегодня встреч нет';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>${esc(agendaTitle)}</h2><p class="muted">${esc(agendaHint)}</p></div>${can('calendar.create')?'<button data-action="event" class="button secondary small pressable">＋ Событие</button>':''}</div>${events.length?events.map(e=>`<div class="agenda-row"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc([
+  const agendaTitle=todays.length||!later.length?'Расписание дня':'Ближайшие встречи';
+  const agendaHint=todays.length?'Встречи и рабочее время':later.length?'Сегодня встреч нет':'Встречи и рабочее время';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>${esc(agendaTitle)}</h2><p class="muted">${esc(agendaHint)}</p></div>${can('calendar.create')?'<button data-action="event" class="button secondary small pressable">＋ Событие</button>':''}</div>${events.length?events.map(e=>`<div class="agenda-row"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc([
       Date.parse(e.startAt)>=dayEnd.getTime()?new Date(e.startAt).toLocaleDateString('ru-RU',{day:'numeric',month:'long'}):'',
       e.participantCount?`${e.participantCount} ${plural(e.participantCount,'участник','участника','участников')}`:'',
       e.needsMyAnswer?'нужен ответ':'',
@@ -1453,8 +1454,16 @@ function gamesBody(items,conversationId){
     <div class="stack" style="margin-top:16px"><button data-new-game class="button secondary">Позвать сыграть</button></div>`;
 }
 
-function newGameModal(conversationId){
-  const people=S.people.filter(p=>p.userId!==me().userId&&p.role!=='guest');
+async function newGameModal(conversationId){
+  let people=S.people.filter(p=>p.userId!==me().userId&&p.role!=='guest');
+  if(conversationId){
+    try{
+      const{items}=await api(`/api/v1/conversations/${conversationId}/members`);
+      const inRoom=new Set((items||[]).map(m=>m.userId));
+      people=people.filter(p=>inRoom.has(p.userId));
+    }catch{/* участников не прочитать — покажем всех, отказ объяснит сервер */}
+    if(!people.length)return toast('В этой беседе больше никого нет — позовите коллегу в неё или начните игру из раздела «Игры».');
+  }
   if(!people.length)return toast('Сначала пригласите коллег');
   modal('Позвать сыграть',`<form id="game-form" class="form-stack">
     <label>Игра<select name="kind" class="field">
@@ -2369,7 +2378,7 @@ function closeModal(){
 }
 /** Swap the open sheet for another. One navigation, not a close and an open. */
 function replaceModal(open){if(overlayStack.length)overlayStack.pop();open()}
-function quick(){modal('Создать',`<div class="module-grid"><button class="module-card" data-q="dm"><span class="module-icon">●</span><strong>Сообщение</strong></button><button class="module-card" data-q="group"><span class="module-icon">◎</span><strong>Группа</strong></button><button class="module-card" data-q="task"><span class="module-icon">✓</span><strong>Задача</strong></button><button class="module-card" data-q="event"><span class="module-icon">□</span><strong>Событие</strong></button><button class="module-card" data-q="channel"><span class="module-icon">#</span><strong>Канал</strong></button></div>`);$$('[data-q]').forEach(b=>b.onclick=()=>{const x=b.dataset.q;replaceModal(({dm:directModal,group:groupModal,task:()=>taskModal(),event:eventModal,channel:channelModal})[x])})}
+function quick(){modal('Создать',`<div class="module-grid"><button class="module-card" data-q="dm"><span class="module-icon">${navIcon.chats}</span><strong>Сообщение</strong></button><button class="module-card" data-q="group"><span class="module-icon">${tileIcon.team}</span><strong>Группа</strong></button><button class="module-card" data-q="task"><span class="module-icon">${msgIcon.task}</span><strong>Задача</strong></button><button class="module-card" data-q="event"><span class="module-icon">${navIcon.calendar}</span><strong>Событие</strong></button><button class="module-card" data-q="channel"><span class="module-icon">${roomIcon.channel}</span><strong>Канал</strong></button></div>`);$$('[data-q]').forEach(b=>b.onclick=()=>{const x=b.dataset.q;replaceModal(({dm:directModal,group:groupModal,task:()=>taskModal(),event:eventModal,channel:channelModal})[x])})}
 const TASK_PRIORITY={normal:'обычный',high:'высокий',urgent:'срочный',low:'низкий'};
 function taskModal(sourceMessageId=null,prefill=''){modal('Новая задача',`<form id="task-form" class="form-stack"><label>Что нужно сделать<input name="title" required value="${esc(prefill)}"></label><label>Ожидаемый результат<textarea name="outcome" rows="3" placeholder="Как понять, что задача выполнена?"></textarea></label><label>Ответственный<select name="ownerId" class="field">${S.people.map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Кто принимает результат<select name="acceptorId" class="field">${S.people.map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Срок<input name="promisedAt" type="datetime-local"></label><label>Приоритет<select name="priority" class="field"><option value="normal">Обычный</option><option value="high">Высокий</option><option value="urgent">Срочный</option><option value="low">Низкий</option></select></label><button class="button primary">Создать</button></form>`);$('#task-form').onsubmit=async e=>{
     e.preventDefault();

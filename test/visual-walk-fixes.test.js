@@ -236,7 +236,7 @@ test('a reply looks like a reply, a label on a message is visible', async () => 
 
 test('the day agenda does not pass tomorrow off as today', async () => {
   const app = await read('public/app.js');
-  assert.ok(app.includes("const agendaTitle=todays.length?'Расписание дня':'Ближайшие встречи'"),
+  assert.ok(app.includes("const agendaTitle=todays.length||!later.length?'Расписание дня':'Ближайшие встречи'"),
     'заголовок расписания не различает сегодня и потом');
   assert.ok(app.includes("dayEnd.setDate(dayEnd.getDate()+1)"), 'границы дня не вычисляются');
   assert.ok(app.includes('class="event-day"'), 'в списке недели и месяца у строк нет дня');
@@ -317,4 +317,21 @@ test('the marker keeps the selection it was given', async () => {
   assert.ok(app.includes('.filter(h=>text.slice(h.startOffset,h.endOffset)===h.quote)'),
     'выделение рисуется без проверки, что текст на месте');
   assert.ok(app.includes('function noteModal(message,existing=null)'), 'нет заметки на сообщение');
+});
+
+// Игра «в этой беседе» предлагала всех коллег, а сервер требует, чтобы
+// соперник был в этой комнате: любой выбор «не отсюда» кончался отказом.
+test('a game invite offers only people who can actually play here', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes('async function newGameModal(conversationId)'), 'форма игры не умеет ждать участников');
+  assert.ok(app.includes('const inRoom=new Set((items||[]).map(m=>m.userId));'), 'список соперников не сверяется с комнатой');
+  assert.ok(app.includes('В этой беседе больше никого нет'), 'нет объяснения, когда играть не с кем');
+});
+
+// Заголовок расписания обещал «Ближайшие встречи», а тело отвечало
+// «Свободный день»: встреч не было вовсе.
+test('the agenda heading never promises meetings that do not exist', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes("todays.length||!later.length?'Расписание дня':'Ближайшие встречи'"),
+    'заголовок снова обещает ближайшие встречи при пустом календаре');
 });
