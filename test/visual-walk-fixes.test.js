@@ -181,3 +181,15 @@ test('a meeting can be created with the people in it', async () => {
   // An affordance that cannot work is worse than none.
   assert.match(form, /S\.boot\?\.storageMode==='memory'\?''/);
 });
+
+// The server records every move and serves them at GET /games/{id}/moves;
+// the board never showed them, so a player could not see how the game got
+// where it is.
+test('the board shows the recorded moves', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes('/moves`).catch(()=>({items:[]}))'), 'запись партии не запрашивается');
+  assert.ok(app.includes('class="game-record"'), 'ходы негде показать');
+  assert.ok(app.includes('${status}${board}${recordBlock}'), 'запись не попала на страницу партии');
+  const css = await read('public/styles.css');
+  assert.ok(css.includes('.game-moves{'), 'у списка ходов нет оформления');
+});

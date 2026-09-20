@@ -1111,8 +1111,13 @@ function newGameModal(conversationId){
 /** One game: the board, whose move it is, and what can be done about it. */
 async function gamePage(id){
   const build=async()=>{
-    const{game}=await api(`/api/v1/games/${id}`);
+    const[{game},played]=await Promise.all([
+      api(`/api/v1/games/${id}`),
+      api(`/api/v1/games/${id}/moves`).catch(()=>({items:[]})),
+    ]);
     const opponent=game.challengerId===me().userId?game.opponentId:game.challengerId;
+    const record=(played.items||[]);
+    const recordBlock=record.length?`<div class="game-record"><div class="row-title">Ходы</div><ol class="game-moves">${record.slice(-16).map(mv=>`<li><span class="muted">${mv.ordinal}.</span> ${esc(mv.notation)} <span class="muted">— ${esc(mv.actorId===me().userId?'вы':name(mv.actorId))}</span></li>`).join('')}</ol>${record.length>16?`<div class="row-sub">Показаны последние 16 из ${record.length}.</div>`:''}</div>`:'';
     const heading=`${GAME_NAME[game.kind]||game.kind} · ${name(opponent)}`;
     const status=game.status==='finished'
       ? `<div class="game-status done">${game.winnerId?(game.winnerId===me().userId?'Вы выиграли':'Вы проиграли'):'Ничья'} — ${esc(GAME_RESULT[game.result]||game.result)}</div>`
@@ -1133,7 +1138,7 @@ async function gamePage(id){
       actions.unshift('<button data-fleet class="button primary">Расставить корабли</button>');
     }
 
-    return {title:heading,body:`${status}${board}
+    return {title:heading,body:`${status}${board}${recordBlock}
       <div class="stack" style="margin-top:14px">${actions.join('')}</div>`,after:()=>{
       $('[data-accept]')?.addEventListener('click',()=>respondGame(id,true,refresh));
       $('[data-decline]')?.addEventListener('click',()=>respondGame(id,false,refresh));

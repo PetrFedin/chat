@@ -190,3 +190,8 @@
 /* Icon-only controls in the composer and sidebar had no accessible name and
    no focus ring of their own beyond the global one. */
 select:focus-visible { outline: 2px solid var(--warm); outline-offset: 2px; }
+
+/* The server records every move; the board now shows the game's history. */
+.game-record{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.game-moves{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
+.game-moves li{white-space:nowrap}
