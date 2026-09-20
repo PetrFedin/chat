@@ -74,3 +74,42 @@ test('icons speak one language', async () => {
     'правило .module-card span снова перебивает плашку иконки');
   assert.match(css, /\.module-card \.module-icon svg\{/, 'иконка плитки без размера');
 });
+
+// Три поломки форм, которые видно сразу: флажок растягивался на всю
+// ширину и на пятьдесят пикселей, текстовая область оставалась
+// браузерной рядом со стилизованными полями, а один класс .field носил
+// два смысла — сам орган и обёртка с подписью, — и обёртка перебивала
+// орган: выпадающие списки выходили мельче и бледнее полей рядом.
+test('a form looks like one set of controls', async () => {
+  const css = await read('public/styles.css');
+  assert.match(css, /\.form-stack input:not\(\[type=checkbox\]\):not\(\[type=radio\]\)/,
+    'флажок снова считается полем ввода');
+  assert.match(css, /\.form-stack textarea\{[^}]*resize:vertical/, 'у текстовой области нет своего правила');
+  assert.doesNotMatch(css, /\n\.field\{display:flex/, 'класс .field снова носит два смысла');
+  assert.match(css, /\.field-group\{display:flex/, 'обёртка с подписью осталась без имени');
+
+  const app = await read('public/app.js');
+  assert.doesNotMatch(app, /<label class="field">/, 'обёртка снова называется как орган');
+});
+
+// В светлой теме кольцо фокуса было белым: на белой поверхности контраст
+// единица, и клавиатурная навигация там слепая.
+test('focus is visible in both themes', async () => {
+  const css = await read('public/styles.css');
+  const light = await read('public/preferences.css');
+  assert.match(css, /outline:2px solid var\(--focus\)/, 'обводка фокуса снова задана литералом');
+  assert.match(css, /--focus:/, 'нет токена фокуса');
+  assert.match(light, /html\[data-theme="light"\]\{--focus:/, 'в светлой теме фокус остался белым');
+  for (const rule of ['.nav-badge', '.day-chip.today', '.modal', '.composer-button.recording']) {
+    assert.ok(light.includes(`html[data-theme="light"] ${rule}`), `${rule} без пары в светлой теме`);
+  }
+});
+
+// Отмена движения проигрывала по весу правилу нажатия: для кнопок без
+// класса .pressable масштабирование оставалось.
+test('reduced motion actually wins', async () => {
+  const css = await read('public/styles.css');
+  const block = css.match(/@media \(prefers-reduced-motion: reduce\)\{\n\s*button:active[^}]*\}/);
+  assert.ok(block, 'нет правила, отменяющего нажатие при отключённом движении');
+  assert.match(block[0], /transform:none!important/, 'отмена движения снова слабее правила нажатия');
+});

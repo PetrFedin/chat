@@ -20,3 +20,14 @@ html[data-theme="light"] .game-cell.dark{background:#9c8b72}
 html[data-theme="light"] .sea-cell{background:#e9e9e5}
 html[data-theme="light"] .sea-cell.ship{background:#6b7c8d}
 html[data-theme="light"] .sea-cell.miss{background:#fff}
+
+/* Пары, которых не хватало светлой теме: без них кольцо фокуса
+   пропадало на белом, счётчик и «сегодня» сливались с фоном, лист
+   обводился тёмной рамкой, а кнопка записи оставалась бордовой. */
+html[data-theme="light"]{--focus:#171716}
+html[data-theme="light"] .nav-badge{background:var(--text);color:var(--bg)}
+html[data-theme="light"] .day-chip.today{background:var(--text);color:var(--bg)}
+html[data-theme="light"] .day-chip.today strong{color:var(--bg)}
+html[data-theme="light"] .modal{border-color:var(--line)}
+html[data-theme="light"] .composer-button.recording{background:#f6dcd8;color:#8d2f27}
+html[data-theme="light"] .presence-dot{background:#a6a8a3}

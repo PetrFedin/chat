@@ -70,7 +70,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     json(res,200,{items:page.items,nextCursor:page.nextCursor});return true
   }
   if(path==='/api/v1/tasks'&&method==='POST'){
-    const s=await requireSession(req);requirePermission(s.role,Permission.TASK_CREATE);const b=await readJson(req),task=await store.createTask(s,{title:cleanText(b.title,240),outcome:b.outcome?cleanText(b.outcome,1000):undefined,ownerId:b.ownerId??s.userId,acceptorId:b.acceptorId??s.userId,sourceMessageId:b.sourceMessageId??null,priority:b.priority??'normal',promisedAt:b.promisedAt??null,forecastAt:b.forecastAt??null});
+    const s=await requireSession(req);requirePermission(s.role,Permission.TASK_CREATE);const b=await readJson(req),task=await store.createTask(s,{title:cleanText(b.title,240),outcome:b.outcome?cleanText(b.outcome,1000):undefined,ownerId:b.ownerId??s.userId,acceptorId:b.acceptorId??s.userId,sourceMessageId:b.sourceMessageId??null,priority:b.priority??'normal',promisedAt:toDateOrNull(b.promisedAt)??null,forecastAt:toDateOrNull(b.forecastAt)??null});
     const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.created',taskRealtime(task));json(res,201,{task});return true
   }
   let m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}$`,'i'));
@@ -107,7 +107,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     const s=await requireSession(req),b=await readJson(req),task=await store.rescheduleTask(s,m[1],{promisedAt:toDateOrNull(b.promisedAt),forecastAt:toDateOrNull(b.forecastAt),reason:b.reason,expectedVersion:b.expectedVersion});
     const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',task);await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Срок задачи изменён',body:task.title,url:`/#/tasks/${task.id}`});json(res,200,{task});return true
   }
-  if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=url.searchParams.get('from'),to=url.searchParams.get('to');json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to}):await store.listCalendar(s,from,to)});return true}
+  if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=toDateOrNull(url.searchParams.get('from')),to=toDateOrNull(url.searchParams.get('to'));json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to}):await store.listCalendar(s,from,to)});return true}
   if(path==='/api/v1/calendar-events'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.CALENDAR_CREATE);const b=await readJson(req),startAt=new Date(b.startAt).toISOString(),endAt=b.endAt?new Date(b.endAt).toISOString():null;if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Calendar end must be after start'),{code:'INVALID_CALENDAR_RANGE'});const event=await store.createCalendarEvent(s,{kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:b.timezone??'UTC',allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null});hub.broadcastWorkspace(s.workspaceId,'calendar.created',event);
     const invited=Array.isArray(b.participantIds)?b.participantIds.filter(Boolean):[];
     if(invited.length){

@@ -1924,14 +1924,14 @@ function issueResetModal(person){
 }
 
 function editProfile(person){
-  const input=(name,label,value='')=>`<label class="field"><span>${esc(label)}</span><input name="${name}" value="${esc(value??'')}" maxlength="120"></label>`;
+  const input=(name,label,value='')=>`<label class="field-group"><span>${esc(label)}</span><input name="${name}" value="${esc(value??'')}" maxlength="120"></label>`;
   modal('Редактировать карточку',`<form id="profile-form" class="stack">
     ${input('displayName','Имя и фамилия',person.displayName)}
     ${input('title','Должность',person.title)}
     ${input('department','Подразделение',person.department)}
     ${input('location','Город',person.location)}
     ${input('phone','Телефон',person.phone)}
-    <label class="field"><span>О себе</span><textarea name="about" rows="3" maxlength="2000">${esc(person.about??'')}</textarea></label>
+    <label class="field-group"><span>О себе</span><textarea name="about" rows="3" maxlength="2000">${esc(person.about??'')}</textarea></label>
     <button class="button primary" type="submit">Сохранить</button>
   </form>`,()=>{
     $('#profile-form').onsubmit=async(event)=>{

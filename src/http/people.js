@@ -48,7 +48,18 @@ export function createPeopleHandler() {
         // An empty string is "clear this field", not a validation failure.
         patch[field] = body[field] === null || body[field] === '' ? null : cleanText(body[field], max);
       }
-      if (body.startedOn !== undefined) patch.startedOn = body.startedOn || null;
+      if (body.startedOn !== undefined) {
+        // Соседние поля проходят через cleanText; дата уходила в базу
+        // сырой и возвращалась пятисоткой на «когда-то».
+        if (body.startedOn === '' || body.startedOn === null) patch.startedOn = null;
+        else {
+          const startedOn = new Date(body.startedOn);
+          if (Number.isNaN(startedOn.getTime())) {
+            throw Object.assign(new Error('Invalid date'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
+          }
+          patch.startedOn = startedOn.toISOString().slice(0, 10);
+        }
+      }
       const canManageMembers = (ctx.permissions(session.role) ?? []).includes(Permission.MEMBER_MANAGE);
       json(res, 200, { person: await people.updateProfile(session, m[1], patch, { canManageMembers }) });
       return true;
