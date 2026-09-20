@@ -289,3 +289,32 @@ test('the vault is reachable and never leaks a secret into the list', async () =
   const css = await read('public/styles.css');
   assert.ok(css.includes('.vault-secret{'), 'у показанного пароля нет оформления');
 });
+
+// Звезда, маркер и заметка — личные пометки поверх чужих объектов, и все
+// три бесполезны без одного места, куда можно вернуться.
+test('favourites, highlights and notes are reachable in one place', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes('async function favouritesModal('), 'нет экрана избранного');
+  for (const tab of ['conversation', 'message', 'task', 'highlight', 'note']) {
+    assert.ok(app.includes(`['${tab}',`), `во вкладках избранного нет «${tab}»`);
+  }
+  assert.ok(app.includes("saved:()=>favouritesModal()"), 'плитка ведёт на старый список сохранённых');
+  assert.ok(app.includes("data-action=\"favour-room\""), 'беседу нельзя отметить звездой');
+  assert.ok(app.includes('data-task-favour'), 'задачу нельзя отметить звездой');
+  assert.ok(app.includes('async function toggleFavourite(type,id)'), 'нет переключателя избранного');
+});
+
+test('the marker keeps the selection it was given', async () => {
+  const app = await read('public/app.js');
+  // Выделение пропадает от любого нажатия, поэтому цвет предлагается
+  // сразу и рядом с выделенным текстом.
+  assert.ok(app.includes("document.addEventListener('selectionchange'"), 'панель маркера не следит за выделением');
+  assert.ok(app.includes("bar.addEventListener('mousedown',(event)=>event.preventDefault())"),
+    'нажатие по панели снимает выделение');
+  assert.ok(app.includes('function bodyWithHighlights(m)'), 'выделения не рисуются в тексте');
+  // Смещения могли уехать после правки сообщения: цветное пятно посреди
+  // чужой фразы хуже, чем отсутствие подсветки.
+  assert.ok(app.includes('.filter(h=>text.slice(h.startOffset,h.endOffset)===h.quote)'),
+    'выделение рисуется без проверки, что текст на месте');
+  assert.ok(app.includes('function noteModal(message,existing=null)'), 'нет заметки на сообщение');
+});

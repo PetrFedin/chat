@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
+const S={view:'today',boot:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -12,6 +12,9 @@ const navIcon={
   more:svg('<circle cx="5.4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.6" cy="12" r="1.5" fill="currentColor" stroke="none"/>'),
 };
 const msgIcon={
+  star:svg('<path d="M12 4.2l2.4 5 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 10l5.4-.8Z"/>'),
+  marker:svg('<path d="M14.4 4.6 19.4 9.6 10.6 18.4H5.6v-5Z"/><path d="m12.6 6.4 5 5"/><path d="M4.4 20.4h6"/>'),
+  note:svg('<path d="M6.4 3.8h8.2l4 4v12.4H6.4Z"/><path d="M14.6 3.8v4h4"/><path d="M9.2 12.4h6M9.2 15.6h4"/>'),
   react:svg('<circle cx="12" cy="12" r="8.2"/><path d="M8.8 14.4a4 4 0 0 0 6.4 0"/><path d="M9.2 9.6h.01M14.8 9.6h.01"/>'),
   reply:svg('<path d="M9.6 6.4 4.8 11l4.8 4.6"/><path d="M4.8 11h8.6a5.6 5.6 0 0 1 5.6 5.6v1"/>'),
   more:svg('<circle cx="5.4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.6" cy="12" r="1.5" fill="currentColor" stroke="none"/>'),
@@ -166,7 +169,7 @@ function forgotPasswordModal(){
   });
 }
 
-async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadPlan(),loadLabelTargets().catch(()=>{})]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
+async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
 async function routeFromHash(){if(!S.boot)return;const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?'),parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}}
 window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
 // The task list is paged now. The screen still shows one backlog, so it walks
@@ -325,7 +328,7 @@ const TASK_EVENT={
 const TASK_ACTION={accepted:'Принять ответственность',rejected:'Отказаться',clarify:'Запросить уточнение',scheduled:'Запланировать',in_progress:'Начать работу',blocked:'Есть блокировка',in_review:'Отправить на проверку',accepted_result:'Принять результат',closed:'Закрыть',deferred:'Отложить',cancelled:'Отменить'};
 function taskRow(t){return `<button class="task-card pressable" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span>${esc(dateTime(t.promisedAt))}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div></span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`}
 function kindLabel(k){return({voice:'Голосовое сообщение',file:'Файл',call:'Звонок',task:'Задача',calendar:'Событие'})[k]||''}
-function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button><button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button><button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button></div></header><div id="message-stream" class="message-stream">${messageStream(messages)}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
+function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button><button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button><button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button></div></header><div id="message-stream" class="message-stream">${messageStream(messages)}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
 /**
  * Лента переписки.
  *
@@ -378,7 +381,10 @@ function message(m,grouped=false){
   const body=deleted?'<p class="message-body muted">Сообщение удалено</p>'
     :m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`
     :m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`
-    :`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`;
+    :`<p class="message-body">${bodyWithHighlights(m)}</p>`;
+  const notes=(S.notes?.get(m.id)||[]);
+  const noteBlock=notes.length?`<div class="msg-notes">${notes.map(n=>
+    `<button class="msg-note kind-${esc(n.kind)}" data-note="${esc(n.id)}" title="Личная заметка — нажмите, чтобы изменить"><b>${esc(NOTE_KIND_LABEL[n.kind]||'заметка')}</b> ${esc(n.body.slice(0,120))}</button>`).join('')}</div>`:'';
   const stamp=`<span class="msg-stamp">${m.pinned?'<i title="Закреплено" aria-label="Закреплено">✦</i>':''}${m.saved?'<i title="В избранном" aria-label="В избранном">★</i>':''}${m.editedAt?`<i class="msg-edited" title="Изменено: ${esc(dateTime(m.editedAt))}">изменено</i>`:''}<time datetime="${esc(m.createdAt)}" title="${esc(dateTime(m.createdAt))}">${esc(time(m.createdAt))}</time></span>`;
 
   return `<article class="message-item${mine?' mine':''}${grouped?' grouped':''}" data-message-row="${m.id}">
@@ -388,6 +394,7 @@ function message(m,grouped=false){
       <div class="msg-bubble">
         ${forwarded}${quote}${body}${stamp}
       </div>
+      ${noteBlock}
       ${(S.labelTargets?.get('message:'+m.id)||[]).length?`<div class="chip-row msg-labels">${(S.labelTargets.get('message:'+m.id)||[]).map(labelChip).join('')}</div>`:''}
       ${Object.keys(reactions).length?`<div class="chip-row msg-reactions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}</div>`:''}
       ${deleted?'':`<div class="msg-toolbar">
@@ -557,7 +564,7 @@ async function eventPage(id){
   });
 }
 
-function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button><button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
+function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button><button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
@@ -587,7 +594,14 @@ function bind(){
     if(!row)return toast('Это сообщение осталось выше по истории — прокрутите вверх.');
     row.scrollIntoView({block:'center',behavior:'smooth'});
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
-  });$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-menu]').forEach(b=>b.onclick=()=>messageMenu(b.dataset.messageMenu));$$('[data-message-label]').forEach(b=>b.onclick=()=>labelPicker('message',b.dataset.messageLabel,{title:'Метки сообщения'}));$$('[data-message-remind]').forEach(b=>b.onclick=()=>{
+  });$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-menu]').forEach(b=>b.onclick=()=>messageMenu(b.dataset.messageMenu));$$('[data-highlight]').forEach(el=>el.onclick=async()=>{
+  try{await api(`/api/v1/highlights/${el.dataset.highlight}`,{method:'DELETE'});await loadMarks();render();toast('Выделение снято')}
+  catch(error){toast(error.message)}
+});$$('[data-note]').forEach(el=>el.onclick=()=>{
+  const note=[...(S.notes?.values()||[])].flat().find(n=>n.id===el.dataset.note);
+  const message=(S.messages.get(S.selected)||[]).find(m=>m.id===note?.messageId);
+  if(note&&message)noteModal(message,note);
+});$$('[data-message-label]').forEach(b=>b.onclick=()=>labelPicker('message',b.dataset.messageLabel,{title:'Метки сообщения'}));$$('[data-message-remind]').forEach(b=>b.onclick=()=>{
   const source=(S.messages.get(S.selected)||[]).find(x=>x.id===b.dataset.messageRemind);
   remindAboutModal((source?.body||'Вернуться к сообщению').trim(),{sourceType:'message',sourceId:b.dataset.messageRemind,conversationId:S.selected});
 });$$('[data-message-pin]').forEach(b=>b.onclick=()=>togglePin(b.dataset.messagePin,b.dataset.pinned!=='1'));$$('[data-message-forward]').forEach(b=>b.onclick=()=>forwardModal(b.dataset.messageForward));$$('[data-forward-origin-conversation]').forEach(b=>b.onclick=()=>openChatAtMessage(b.dataset.forwardOriginConversation,b.dataset.forwardOriginMessage));$$('[data-message-edit]').forEach(b=>b.onclick=()=>editMessageModal(b.dataset.messageEdit));$$('[data-message-delete]').forEach(b=>b.onclick=()=>deleteMessageModal(b.dataset.messageDelete));$$('[data-task-message]').forEach(b=>b.onclick=()=>{
@@ -605,7 +619,7 @@ function go(v){
 }
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
 // ── org structure: reading and reshaping ────────────────────────────────────
@@ -1928,6 +1942,282 @@ async function action(a){await actions[a]?.()}
 async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null})});append(S.selected,message);S.reply=null;render()}catch(e){toast(e.message)}}
 function append(id,m){const list=S.messages.get(id)||[];if(!list.some(x=>x.id===m.id))list.push(m);S.messages.set(id,list);const c=S.conversations.find(x=>x.id===id);if(c)c.lastMessage=m}
 const REACTIONS=['👍','👏','🔥','✅','❤️','😀','🤔','👀','🙏','🎯','⏱','❌'];
+/**
+ * Плавающая панель маркера.
+ *
+ * Выделение пропадает от любого нажатия — в том числе по кнопке «ещё»,
+ * — поэтому цвет надо предлагать сразу, пока текст ещё выделен, и рядом
+ * с ним. Панель ловит выделение внутри текста сообщения, встаёт над ним
+ * и исчезает, как только выделение снято.
+ */
+function ensureHighlightBar(){
+  let bar=$('#hl-bar');
+  if(bar)return bar;
+  bar=document.createElement('div');
+  bar.id='hl-bar'; bar.className='hl-bar'; bar.hidden=true;
+  bar.innerHTML=`<span class="hl-bar-label">Маркер</span>${HIGHLIGHT_COLOURS.map(([value,caption])=>
+    `<button type="button" class="hl-dot hl-${value}" data-hl-colour="${value}" title="${caption}" aria-label="Выделить: ${caption}"></button>`).join('')}`;
+  document.body.append(bar);
+  bar.addEventListener('mousedown',(event)=>event.preventDefault());
+  bar.addEventListener('click',async(event)=>{
+    const button=event.target.closest('[data-hl-colour]');
+    if(!button||!bar._target)return;
+    const{messageId,conversationId,quote,startOffset,endOffset}=bar._target;
+    bar.hidden=true;
+    try{
+      await api('/api/v1/highlights',{method:'POST',body:JSON.stringify({
+        conversationId,messageId,quote,startOffset,endOffset,colour:button.dataset.hlColour})});
+      await loadMarks();render();toast('Выделено');
+    }catch(error){toast(error.message)}
+  });
+  return bar;
+}
+
+function updateHighlightBar(){
+  const bar=ensureHighlightBar();
+  const selection=window.getSelection?.();
+  if(!selection||selection.isCollapsed||!selection.rangeCount){bar.hidden=true;return}
+  const body=selection.anchorNode?.parentElement?.closest?.('.message-body');
+  const row=body?.closest('[data-message-row]');
+  if(!body||!row||!body.contains(selection.focusNode)){bar.hidden=true;return}
+  const quote=selection.toString();
+  if(!quote.trim()){bar.hidden=true;return}
+  const range=selection.getRangeAt(0);
+  const before=range.cloneRange();
+  before.selectNodeContents(body);
+  before.setEnd(range.startContainer,range.startOffset);
+  const start=before.toString().length;
+  bar._target={messageId:row.dataset.messageRow,conversationId:S.selected,quote,startOffset:start,endOffset:start+quote.length};
+  const rect=range.getBoundingClientRect();
+  bar.hidden=false;
+  const width=bar.offsetWidth||190;
+  bar.style.left=`${Math.max(8,Math.min(window.innerWidth-width-8,rect.left+rect.width/2-width/2))}px`;
+  bar.style.top=`${Math.max(8,rect.top-bar.offsetHeight-8)}px`;
+}
+document.addEventListener('selectionchange',()=>{clearTimeout(window.__hlTimer);window.__hlTimer=setTimeout(updateHighlightBar,120)});
+document.addEventListener('scroll',()=>{const bar=$('#hl-bar');if(bar&&!bar.hidden)updateHighlightBar()},true);
+
+const FAVOURITE_TABS=[['conversation','Беседы'],['message','Сообщения'],['task','Задачи'],['highlight','Выделения'],['note','Заметки']];
+
+/**
+ * Избранное и пометки одним экраном.
+ *
+ * Разбросанные по продукту звёздочки, маркеры и заметки бесполезны, если
+ * к ним нельзя вернуться в одном месте. Здесь они и собраны: беседы,
+ * сообщения, задачи, выделения, заметки — по вкладке на вид, и из каждой
+ * строки можно перейти туда, где пометка стоит.
+ */
+async function favouritesModal(tab='conversation'){
+  S.favouriteTab=tab;
+  const build=async()=>{
+    const active=S.favouriteTab;
+    let rows='';
+    try{
+      if(active==='highlight'){
+        const items=(await api('/api/v1/highlights')).items||[];
+        rows=items.length?items.map(h=>`<button class="row pressable" data-go-message="${esc(h.messageId)}" data-go-conversation="${esc(h.conversationId)}">
+          <span class="menu-icon hl-${esc(h.colour)}">${msgIcon.marker}</span>
+          <span><div class="row-title">${esc(h.quote.slice(0,90))}</div><div class="row-sub">${esc(h.conversationTitle||'беседа')} · ${esc(dateTime(h.createdAt))}</div></span>
+          <span class="text-button danger" data-drop-highlight="${esc(h.id)}">×</span></button>`).join(''):'';
+      }else if(active==='note'){
+        const items=(await api('/api/v1/message-notes')).items||[];
+        rows=items.length?items.map(n=>`<button class="row pressable" data-go-message="${esc(n.messageId)}" data-go-conversation="${esc(n.conversationId)}">
+          <span class="menu-icon">${msgIcon.note}</span>
+          <span><div class="row-title">${esc(NOTE_KIND_LABEL[n.kind]||'заметка')}: ${esc(n.body.slice(0,80))}</div>
+            <div class="row-sub">${esc(n.conversationTitle||'беседа')} · ${esc((n.messagePreview||'').slice(0,50))}</div></span>
+          <span class="text-button danger" data-drop-note="${esc(n.id)}">×</span></button>`).join(''):'';
+      }else if(active==='message'){
+        const items=(await api('/api/v1/saved-messages')).items||[];
+        rows=items.length?items.map(m=>`<button class="row pressable" data-go-message="${esc(m.id)}" data-go-conversation="${esc(m.conversationId)}">
+          <span class="menu-icon">${msgIcon.star}</span>
+          <span><div class="row-title">${esc((m.body||'вложение').slice(0,90))}</div>
+            <div class="row-sub">${esc(name(m.authorId))} · ${esc(dateTime(m.createdAt))}</div></span><span></span></button>`).join(''):'';
+      }else{
+        const items=(await api(`/api/v1/favourites?type=${active}`)).items||[];
+        rows=items.length?items.map(f=>`<button class="row pressable" ${active==='conversation'?`data-go-conversation="${esc(f.targetId)}"`:`data-go-task="${esc(f.targetId)}"`}>
+          <span class="menu-icon">${active==='conversation'?tileIcon.team:msgIcon.task}</span>
+          <span><div class="row-title">${esc(f.title||'без названия')}</div><div class="row-sub">${esc(dateTime(f.createdAt))}</div></span>
+          <span class="text-button danger" data-drop-favourite="${esc(active)}:${esc(f.targetId)}">×</span></button>`).join(''):'';
+      }
+    }catch(error){
+      rows=`<div class="empty"><strong>Не удалось прочитать</strong>${esc(error.message)}</div>`;
+    }
+    const tabs=FAVOURITE_TABS.map(([value,caption])=>
+      `<button class="chipbtn pressable${active===value?' on':''}" data-fav-tab="${value}">${esc(caption)}</button>`).join('');
+    return {
+      title:'Избранное',
+      body:`<div class="chip-row">${tabs}</div>
+        <div class="stack" style="margin-top:12px">${rows||'<div class="empty"><strong>Пока пусто</strong>Отмечайте звездой беседы, сообщения и задачи — они соберутся здесь.</div>'}</div>`,
+      after:()=>{
+        $$('[data-fav-tab]').forEach(b=>b.onclick=async()=>{S.favouriteTab=b.dataset.favTab;await refresh()});
+        $$('[data-go-conversation]').forEach(b=>b.onclick=(event)=>{
+          if(event.target.closest('[data-drop-favourite],[data-drop-highlight],[data-drop-note]'))return;
+          const messageId=b.dataset.goMessage;
+          closeModal();openChat(b.dataset.goConversation);
+          if(messageId)setTimeout(()=>{
+            const row=document.querySelector(`[data-message-row="${CSS.escape(messageId)}"]`);
+            if(row){row.scrollIntoView({block:'center',behavior:'smooth'});row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash')}
+          },700);
+        });
+        $$('[data-go-task]').forEach(b=>b.onclick=(event)=>{
+          if(event.target.closest('[data-drop-favourite]'))return;
+          closeModal();openTask(b.dataset.goTask);
+        });
+        $$('[data-drop-favourite]').forEach(b=>b.onclick=async(event)=>{
+          event.stopPropagation();
+          const [type,id]=b.dataset.dropFavourite.split(':');
+          try{await api(`/api/v1/favourites/${type}/${id}`,{method:'DELETE'});await loadMarks();await refresh()}catch(error){toast(error.message)}
+        });
+        $$('[data-drop-highlight]').forEach(b=>b.onclick=async(event)=>{
+          event.stopPropagation();
+          try{await api(`/api/v1/highlights/${b.dataset.dropHighlight}`,{method:'DELETE'});await loadMarks();await refresh()}catch(error){toast(error.message)}
+        });
+        $$('[data-drop-note]').forEach(b=>b.onclick=async(event)=>{
+          event.stopPropagation();
+          try{await api(`/api/v1/message-notes/${b.dataset.dropNote}`,{method:'DELETE'});await loadMarks();await refresh()}catch(error){toast(error.message)}
+        });
+      },
+    };
+  };
+  const refresh=async()=>{
+    const next=await build();
+    const top=overlayStack[overlayStack.length-1];
+    if(top){Object.assign(top,next);renderOverlay()}
+  };
+  const first=await build();
+  modal(first.title,first.body,first.after,build);
+}
+
+/** Звезда: одна кнопка для беседы, задачи и всего остального. */
+async function toggleFavourite(type,id){
+  const key=`${type}:${id}`;
+  const on=S.favourites?.has(key);
+  try{
+    await api(`/api/v1/favourites/${type}/${id}`,{method:on?'DELETE':'PUT'});
+    await loadMarks();
+    toast(on?'Убрано из избранного':'В избранном');
+    render();
+  }catch(error){toast(error.message)}
+}
+
+const NOTE_KIND_LABEL={important:'важно',remember:'запомнить',question:'спросить',note:'заметка'};
+const HIGHLIGHT_COLOURS=[['yellow','жёлтый'],['green','зелёный'],['pink','розовый'],['blue','синий']];
+const NOTE_KINDS=[['important','важно'],['remember','запомнить'],['question','спросить'],['note','заметка']];
+
+/**
+ * Выделение маркером.
+ *
+ * Человек выделяет кусок текста мышью или пальцем прямо в сообщении, и
+ * тогда панель предлагает цвет. Если ничего не выделено — предлагается
+ * выделить сообщение целиком: это честнее, чем молчать.
+ */
+function selectionInMessage(messageId){
+  const selection=window.getSelection?.();
+  if(!selection||selection.isCollapsed)return null;
+  const row=document.querySelector(`[data-message-row="${CSS.escape(messageId)}"] .message-body`);
+  if(!row||!row.contains(selection.anchorNode)||!row.contains(selection.focusNode))return null;
+  const text=row.textContent||'';
+  const quote=selection.toString();
+  if(!quote.trim())return null;
+  const range=selection.getRangeAt(0);
+  const before=range.cloneRange();
+  before.selectNodeContents(row);
+  before.setEnd(range.startContainer,range.startOffset);
+  const start=before.toString().length;
+  return {quote,startOffset:start,endOffset:start+quote.length,full:text};
+}
+
+function highlightModal(message){
+  const picked=selectionInMessage(message.id);
+  const body=message.body||'';
+  const target=picked||{quote:body,startOffset:0,endOffset:body.length};
+  if(!target.quote.trim())return toast('В этом сообщении нечего выделять');
+  modal('Выделить маркером',`
+    <p class="muted">${picked?'Выделено вами:':'Ничего не выделено — будет отмечено всё сообщение:'}</p>
+    <p class="highlight-preview">${esc(target.quote.slice(0,300))}</p>
+    <div class="chip-row" style="margin-top:12px">${HIGHLIGHT_COLOURS.map(([value,caption])=>
+      `<button type="button" class="chipbtn pressable hl-${value}" data-colour="${value}">${esc(caption)}</button>`).join('')}</div>`,()=>{
+    $$('[data-colour]').forEach(b=>b.onclick=async()=>{
+      try{
+        await api('/api/v1/highlights',{method:'POST',body:JSON.stringify({
+          conversationId:message.conversationId??S.selected,messageId:message.id,
+          quote:target.quote,startOffset:target.startOffset,endOffset:target.endOffset,colour:b.dataset.colour,
+        })});
+        await loadMarks();
+        closeModal();render();toast('Выделено');
+      }catch(error){toast(error.message)}
+    });
+  });
+}
+
+function noteModal(message,existing=null){
+  modal(existing?'Изменить заметку':'Заметка к сообщению',`<form id="note-form" class="form-stack">
+    <p class="muted msg-menu-quote">${esc((message.body||'').slice(0,120))}</p>
+    <div class="chip-row">${NOTE_KINDS.map(([value,caption])=>
+      `<button type="button" class="chipbtn pressable${(existing?.kind??'note')===value?' on':''}" data-kind="${value}">${esc(caption)}</button>`).join('')}</div>
+    <label>Заметка<textarea name="body" rows="3" maxlength="2000" required>${esc(existing?.body??'')}</textarea></label>
+    <button class="button primary">${existing?'Сохранить':'Записать'}</button>
+  </form>`,()=>{
+    let kind=existing?.kind??'note';
+    $$('[data-kind]').forEach(b=>b.onclick=()=>{kind=b.dataset.kind;$$('[data-kind]').forEach(x=>x.classList.toggle('on',x===b))});
+    $('#note-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const text=new FormData(event.currentTarget).get('body');
+      try{
+        if(existing)await api(`/api/v1/message-notes/${existing.id}`,{method:'PATCH',body:JSON.stringify({body:text,kind})});
+        else await api('/api/v1/message-notes',{method:'POST',body:JSON.stringify({
+          conversationId:message.conversationId??S.selected,messageId:message.id,body:text,kind})});
+        await loadMarks();
+        closeModal();render();toast(existing?'Заметка изменена':'Заметка записана');
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+/** Свои пометки держатся в памяти: их рисуют на каждой перерисовке ленты. */
+async function loadMarks(){
+  try{
+    const [highlights,notes,favourites]=await Promise.all([
+      api('/api/v1/highlights').then(r=>r.items||[]).catch(()=>[]),
+      api('/api/v1/message-notes').then(r=>r.items||[]).catch(()=>[]),
+      api('/api/v1/favourites').then(r=>r.items||[]).catch(()=>[]),
+    ]);
+    S.highlights=new Map();
+    for(const h of highlights){
+      if(!S.highlights.has(h.messageId))S.highlights.set(h.messageId,[]);
+      S.highlights.get(h.messageId).push(h);
+    }
+    S.notes=new Map();
+    for(const n of notes){
+      if(!S.notes.has(n.messageId))S.notes.set(n.messageId,[]);
+      S.notes.get(n.messageId).push(n);
+    }
+    S.favourites=new Set(favourites.map(f=>`${f.targetType}:${f.targetId}`));
+  }catch{/* пометки не обязательны для работы ленты */}
+}
+
+/**
+ * Текст сообщения с выделениями. Выделение хранит и смещения, и сам
+ * текст: если по смещениям теперь стоит другое (сообщение поправили),
+ * подсветка не рисуется — лучше её отсутствие, чем цветное пятно
+ * посреди чужой фразы.
+ */
+function bodyWithHighlights(m){
+  const text=m.body||kindLabel(m.kind)||'';
+  const marks=(S.highlights?.get(m.id)||[])
+    .filter(h=>text.slice(h.startOffset,h.endOffset)===h.quote)
+    .sort((a,b)=>a.startOffset-b.startOffset);
+  if(!marks.length)return esc(text);
+  let out='',cursor=0;
+  for(const h of marks){
+    if(h.startOffset<cursor)continue;
+    out+=esc(text.slice(cursor,h.startOffset));
+    out+=`<mark class="hl hl-${esc(h.colour)}" data-highlight="${esc(h.id)}" title="Выделено вами — нажмите, чтобы снять">${esc(text.slice(h.startOffset,h.endOffset))}</mark>`;
+    cursor=h.endOffset;
+  }
+  return out+esc(text.slice(cursor));
+}
+
 function messageMenu(messageId){
   const message=(S.messages.get(S.selected)||[]).find(x=>x.id===messageId);
   if(!message)return toast('Сообщение не найдено');
@@ -1935,25 +2225,29 @@ function messageMenu(messageId){
   const rows=[
     ['react','Реакция',msgIcon.react],
     ['reply','Ответить',msgIcon.reply],
-    ['save',message.saved?'Убрать из сохранённых':'Сохранить',tileIcon.saved],
+    ['star',message.saved?'Из избранного':'В избранное',msgIcon.star],
+    ['highlight','Выделить',msgIcon.marker],
+    ['note','Заметка',msgIcon.note],
+    ['remind','Напомнить',tileIcon.reminders],
     ['forward','Переслать',msgIcon.forward],
     ['label','Метка',tileIcon.labels],
-    ['remind','Напомнить',tileIcon.reminders],
     ['pin',message.pinned?'Открепить':'Закрепить',msgIcon.pin],
     ['task','В задачу',msgIcon.task],
     ...(mine&&message.kind==='text'&&!message.forwarded?[['edit','Изменить',msgIcon.edit]]:[]),
     ...(mine||can('message.delete.any')?[['delete','Удалить',msgIcon.trash]]:[]),
   ];
-  modal('Сообщение',`<p class="muted">${esc((message.body||kindLabel(message.kind)||'').slice(0,120))}</p>
-    <div class="stack" style="margin-top:12px">${rows.map(([action,caption,icon])=>
-      `<button class="row pressable menu-row${action==='delete'?' danger':''}" data-menu="${action}"><span class="menu-icon">${icon}</span><span class="row-title">${esc(caption)}</span><span></span></button>`).join('')}</div>`,()=>{
+  modal('Сообщение',`<p class="muted msg-menu-quote">${esc((message.body||kindLabel(message.kind)||'').slice(0,120))}</p>
+    <div class="menu-grid">${rows.map(([action,caption,icon])=>
+      `<button class="menu-tile pressable${action==='delete'?' danger':''}" data-menu="${action}"><span class="menu-icon">${icon}</span><span>${esc(caption)}</span></button>`).join('')}</div>`,()=>{
     const act={
       react:()=>replaceModal(()=>reactionPicker(messageId)),
       reply:()=>{closeModal();S.reply=message;render();$('#message-input')?.focus()},
-      save:()=>{closeModal();toggleSave(messageId,!message.saved)},
+      star:()=>{closeModal();toggleSave(messageId,!message.saved)},
+      highlight:()=>replaceModal(()=>highlightModal(message)),
+      note:()=>replaceModal(()=>noteModal(message)),
+      remind:()=>replaceModal(()=>remindAboutModal((message.body||'Вернуться к сообщению').trim(),{sourceType:'message',sourceId:messageId,conversationId:S.selected})),
       forward:()=>replaceModal(()=>forwardModal(messageId)),
       label:()=>replaceModal(()=>labelPicker('message',messageId,{title:'Метки сообщения'})),
-      remind:()=>replaceModal(()=>remindAboutModal((message.body||'Вернуться к сообщению').trim(),{sourceType:'message',sourceId:messageId,conversationId:S.selected})),
       pin:()=>{closeModal();togglePin(messageId,!message.pinned)},
       task:()=>replaceModal(()=>taskModal(messageId,(message.body||'').trim().slice(0,120))),
       edit:()=>replaceModal(()=>editMessageModal(messageId)),
@@ -2112,7 +2406,7 @@ function taskDetailModal(task){
     <div class="surface"><div class="row-title">Ожидаемый результат</div><p class="muted">${esc(task.outcome||task.title)}</p><div class="row-sub">Ответственный: ${esc(name(task.ownerId))} · Принимает: ${esc(name(task.acceptorId))} · Поставил: ${esc(name(task.requesterId))}</div></div>
     <div><div class="row-title">Следующее действие</div>${task.status==='in_progress'&&!evidence.length?'<p class="muted" style="margin:6px 0 0">Чтобы сдать работу на проверку, приложите хотя бы одно доказательство — форма ниже.</p>':''}<div class="inline-actions" style="margin-top:8px">${(task.allowedTransitions||[]).map(to=>`<button class="button ${to==='accepted_result'||to==='closed'?'primary':'secondary'} small" data-task-transition="${esc(to)}">${esc(taskActionLabel(task,to))}</button>`).join('')||'<span class="muted">Доступных переходов сейчас нет.</span>'}</div></div>
     <form id="task-evidence-form" class="form-stack"><div class="row-title">Добавить результат / доказательство</div><label>Тип<select name="type" class="field"><option value="note">Комментарий / результат</option><option value="url">Ссылка</option><option value="metric">Метрика</option><option value="message">Ссылка на сообщение</option><option value="file">Идентификатор файла</option></select></label><label>Данные<textarea name="value" rows="3" required placeholder="Что сделано, где результат или чем это подтверждается"></textarea></label><button class="button secondary">Добавить доказательство</button></form>
-    <button data-task-remind class="button secondary">Напомнить о задаче</button>${canReassignTask(task)?'<button data-task-reassign class="button secondary">Передать задачу</button>':''}${canRescheduleTask(task)?'<button class="button secondary" data-task-reschedule>Изменить срок / прогноз</button>':''}
+    <button data-task-favour class="button secondary">${S.favourites?.has('task:'+task.id)?'Убрать из избранного':'В избранное'}</button><button data-task-remind class="button secondary">Напомнить о задаче</button>${canReassignTask(task)?'<button data-task-reassign class="button secondary">Передать задачу</button>':''}${canRescheduleTask(task)?'<button class="button secondary" data-task-reschedule>Изменить срок / прогноз</button>':''}
     <div><div class="row-title">Доказательства · ${evidence.length}</div>${evidence.length?evidence.map(e=>`<div class="row"><span>↗</span><span><div class="row-title">${esc(e.type)}</div><div class="row-sub">${esc(e.value)}</div></span><span class="time">${esc(dateTime(e.createdAt))}</span></div>`).join(''):'<div class="empty">Пока нет. Без доказательства результат нельзя отправить на проверку.</div>'}</div>
     ${acceptances.length?`<div><div class="row-title">Проверка результата</div>${acceptances.map(a=>`<div class="row"><span>${a.decision==='accepted'?'✓':'↩'}</span><span><div class="row-title">${a.decision==='accepted'?'Результат принят':'Возвращено на доработку'}</div><div class="row-sub">${esc(a.comment||'')}</div></span><span class="time">${esc(dateTime(a.createdAt))}</span></div>`).join('')}</div>`:''}
     ${audit.length?`<details><summary>История изменений · ${audit.length}</summary><div class="stack" style="margin-top:8px">${audit.map(a=>`<div class="row-sub">${esc(dateTime(a.createdAt))} · <span>${esc(TASK_EVENT[a.eventType]||a.eventType)}</span>${a.payload?.reason?` — «${esc(a.payload.reason)}»`:''}</div>`).join('')}</div></details>`:''}
@@ -2120,6 +2414,7 @@ function taskDetailModal(task){
   $$('[data-task-transition]').forEach(b=>b.onclick=()=>taskTransition(task,b.dataset.taskTransition));
   $('[data-task-labels]').onclick=()=>labelPicker('task',task.id,{title:`Метки: ${task.title}`});
   const form=$('#task-evidence-form');if(form)form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form);try{const r=await api(`/api/v1/tasks/${task.id}/evidence`,{method:'POST',body:JSON.stringify({type:f.get('type'),value:f.get('value'),expectedVersion:task.version})});upsertTask(r.task);toast('Доказательство добавлено');await openTask(task.id)}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}};
+  $('[data-task-favour]')?.addEventListener('click',async()=>{await toggleFavourite('task',task.id);resumeTop()});
   $('[data-task-remind]')?.addEventListener('click',()=>remindAboutModal(task.title,{sourceType:'task',sourceId:task.id}));
   $('[data-task-reassign]')?.addEventListener('click',()=>taskReassignModal(task));
   $('[data-task-reschedule]')?.addEventListener('click',()=>taskRescheduleModal(task));

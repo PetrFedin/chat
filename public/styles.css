@@ -371,3 +371,49 @@ button:active:not([disabled]):not(.game-cell):not(.sea-cell),
   .msg-toolbar{left:auto;right:4px;top:-14px}
   .message-item.mine .msg-toolbar{left:4px;right:auto}
 }
+
+/* ─── Личные пометки ──────────────────────────────────────────────────
+   Выделение маркером, заметка и звезда видны только тому, кто их
+   поставил, поэтому и выглядят как пометки на полях, а не как часть
+   сообщения: приглушённый фон, тонкая рамка, ничего кричащего. */
+.hl{border-radius:var(--r-1);padding:0 3px;color:inherit;cursor:pointer}
+.hl-yellow{background:rgba(228,189,106,.34)}
+.hl-green{background:rgba(119,212,150,.30)}
+.hl-pink{background:rgba(212,130,162,.32)}
+.hl-blue{background:rgba(122,166,224,.32)}
+.chipbtn.hl-yellow,.chipbtn.hl-green,.chipbtn.hl-pink,.chipbtn.hl-blue{color:var(--text)}
+.highlight-preview{margin:6px 0 0;padding:9px 11px;border-radius:var(--r-1);background:var(--surface-3);
+  border-left:2px solid var(--warm);font-size:13px;line-height:1.45}
+
+.msg-notes{display:grid;gap:4px;margin-top:5px;width:100%}
+.msg-note{display:block;width:100%;text-align:left;padding:6px 9px;border-radius:var(--r-1);
+  background:var(--surface-3);border-left:2px solid var(--muted-2);color:var(--muted);
+  font-size:13px;line-height:1.4;cursor:pointer;overflow-wrap:anywhere}
+.msg-note b{color:var(--text);text-transform:uppercase;font-size:11px;letter-spacing:.06em;margin-right:6px}
+.msg-note.kind-important{border-left-color:var(--danger)}
+.msg-note.kind-remember{border-left-color:var(--warning)}
+.msg-note.kind-question{border-left-color:var(--warm)}
+
+/* Компактное меню сообщения: сетка иконок вместо колонки во весь экран. */
+.menu-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px}
+.menu-tile{display:grid;justify-items:center;gap:6px;padding:11px 4px;border-radius:var(--r-2);
+  background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+  font-size:11px;line-height:1.2;text-align:center;cursor:pointer}
+.menu-tile .menu-icon{width:32px;height:32px;background:transparent}
+.menu-tile.danger{color:var(--danger)}
+.menu-tile.danger .menu-icon{color:var(--danger)}
+.msg-menu-quote{margin:0;padding:8px 10px;border-radius:var(--r-1);background:var(--surface-2);
+  font-size:13px;overflow-wrap:anywhere}
+
+/* Панель маркера встаёт над выделенным текстом и живёт, пока живёт
+   выделение: цвет выбирают сразу, не теряя того, что выделили. */
+.hl-bar{position:fixed;z-index:80;display:flex;align-items:center;gap:6px;padding:6px 9px;
+  border-radius:999px;background:var(--surface-3);border:1px solid var(--line);box-shadow:var(--shadow)}
+.hl-bar-label{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.04em}
+.hl-dot{width:20px;height:20px;border-radius:999px;border:1px solid rgba(255,255,255,.18);cursor:pointer}
+.hl-dot.hl-yellow{background:rgba(228,189,106,.9)}
+.hl-dot.hl-green{background:rgba(119,212,150,.9)}
+.hl-dot.hl-pink{background:rgba(212,130,162,.9)}
+.hl-dot.hl-blue{background:rgba(122,166,224,.9)}
+/* Зажжённая звезда: беседа в избранном. */
+.round-button.on{background:var(--warm-soft);color:var(--warm);border-color:transparent}

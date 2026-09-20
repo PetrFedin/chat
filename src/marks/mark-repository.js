@@ -1,0 +1,188 @@
+/**
+ * Личные пометки: избранное, выделения маркером и заметки на сообщения.
+ *
+ * Всё здесь принадлежит одному человеку и никому больше не видно, поэтому
+ * каждый запрос ограничен user_id, а не только workspace_id. Проверка
+ * доступа к самому объекту остаётся за тем, кто его отдаёт: пометка
+ * бесполезна без объекта, а объект отдаётся по своим правилам.
+ */
+
+const fail = (message, code, statusCode = 400) =>
+  Object.assign(new Error(message), { code, statusCode });
+
+const TARGETS = new Set(['conversation', 'message', 'task', 'event', 'file']);
+const COLOURS = new Set(['yellow', 'green', 'pink', 'blue']);
+const NOTE_KINDS = new Set(['important', 'remember', 'question', 'note']);
+
+export function createMarkRepository(pool) {
+  if (!pool) {
+    const stop = () => { throw fail('Marks need the PostgreSQL store', 'MARKS_UNAVAILABLE', 503); };
+    return {
+      enabled: false,
+      favourites: stop, favour: stop, unfavour: stop,
+      highlights: stop, highlight: stop, unhighlight: stop,
+      notes: stop, note: stop, editNote: stop, removeNote: stop,
+    };
+  }
+
+  return {
+    enabled: true,
+
+    /**
+     * Избранное одним списком с названиями: экран «Избранное» должен
+     * показывать, что именно отмечено, а не перечень идентификаторов.
+     */
+    async favourites(session, { type = null, limit = 200 } = {}) {
+      if (type && !TARGETS.has(type)) throw fail('Unknown favourite type', 'INVALID_FAVOURITE_TYPE', 400);
+      const { rows } = await pool.query(
+        `SELECT f.target_type "targetType", f.target_id "targetId", f.created_at "createdAt",
+                CASE f.target_type
+                  WHEN 'conversation' THEN (SELECT c.title FROM conversations c WHERE c.workspace_id=f.workspace_id AND c.id=f.target_id)
+                  WHEN 'message' THEN (SELECT left(m.body,140) FROM messages m WHERE m.workspace_id=f.workspace_id AND m.id=f.target_id)
+                  WHEN 'task' THEN (SELECT t.title FROM commitments t WHERE t.workspace_id=f.workspace_id AND t.id=f.target_id)
+                  WHEN 'event' THEN (SELECT e.title FROM calendar_events e WHERE e.workspace_id=f.workspace_id AND e.id=f.target_id)
+                  WHEN 'file' THEN (SELECT x.name FROM files x WHERE x.workspace_id=f.workspace_id AND x.id=f.target_id)
+                END title,
+                CASE f.target_type
+                  WHEN 'message' THEN (SELECT m.conversation_id FROM messages m WHERE m.workspace_id=f.workspace_id AND m.id=f.target_id)
+                  WHEN 'conversation' THEN f.target_id
+                END "conversationId"
+           FROM favourites f
+          WHERE f.workspace_id=$1 AND f.user_id=$2 AND ($3::text IS NULL OR f.target_type=$3)
+          ORDER BY f.created_at DESC LIMIT $4`,
+        [session.workspaceId, session.userId, type, Math.min(Math.max(Number(limit) || 200, 1), 500)],
+      );
+      return rows;
+    },
+
+    async favour(session, targetType, targetId) {
+      if (!TARGETS.has(targetType)) throw fail('Unknown favourite type', 'INVALID_FAVOURITE_TYPE', 400);
+      await pool.query(
+        `INSERT INTO favourites(organization_id,workspace_id,user_id,target_type,target_id)
+         VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
+        [session.organizationId, session.workspaceId, session.userId, targetType, targetId],
+      );
+      return { favourite: true, targetType, targetId };
+    },
+
+    async unfavour(session, targetType, targetId) {
+      await pool.query(
+        'DELETE FROM favourites WHERE workspace_id=$1 AND user_id=$2 AND target_type=$3 AND target_id=$4',
+        [session.workspaceId, session.userId, targetType, targetId],
+      );
+      return { favourite: false, targetType, targetId };
+    },
+
+    /** Выделения: либо все свои, либо только в одной беседе. */
+    async highlights(session, { conversationId = null, messageId = null, limit = 300 } = {}) {
+      const { rows } = await pool.query(
+        `SELECT h.id,h.conversation_id "conversationId",h.message_id "messageId",h.quote,
+                h.start_offset "startOffset",h.end_offset "endOffset",h.colour,h.created_at "createdAt",
+                (SELECT c.title FROM conversations c WHERE c.workspace_id=h.workspace_id AND c.id=h.conversation_id) "conversationTitle"
+           FROM message_highlights h
+          WHERE h.workspace_id=$1 AND h.user_id=$2
+            AND ($3::uuid IS NULL OR h.conversation_id=$3)
+            AND ($4::uuid IS NULL OR h.message_id=$4)
+          ORDER BY h.created_at DESC LIMIT $5`,
+        [session.workspaceId, session.userId, conversationId, messageId, Math.min(Math.max(Number(limit) || 300, 1), 500)],
+      );
+      return rows;
+    },
+
+    async highlight(session, body = {}) {
+      const quote = String(body.quote ?? '');
+      const start = Number(body.startOffset);
+      const end = Number(body.endOffset);
+      if (!quote.trim()) throw fail('A highlight needs the text it covers', 'INVALID_HIGHLIGHT', 400);
+      if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start || start < 0) {
+        throw fail('A highlight needs a valid range', 'INVALID_HIGHLIGHT_RANGE', 400);
+      }
+      if (end - start !== [...quote].length && end - start !== quote.length) {
+        throw fail('The highlighted range does not match its text', 'HIGHLIGHT_RANGE_MISMATCH', 400);
+      }
+      const colour = body.colour ?? 'yellow';
+      if (!COLOURS.has(colour)) throw fail('Unknown highlight colour', 'INVALID_HIGHLIGHT_COLOUR', 400);
+
+      // Сообщение должно существовать и быть в беседе, которую человек
+      // действительно видит: проверяет тот, кто отдаёт беседы.
+      const { rows } = await pool.query(
+        `INSERT INTO message_highlights(organization_id,workspace_id,user_id,conversation_id,message_id,quote,start_offset,end_offset,colour)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING id,conversation_id "conversationId",message_id "messageId",quote,
+                   start_offset "startOffset",end_offset "endOffset",colour,created_at "createdAt"`,
+        [session.organizationId, session.workspaceId, session.userId, body.conversationId, body.messageId,
+         quote.slice(0, 2000), start, end, colour],
+      );
+      return rows[0];
+    },
+
+    async unhighlight(session, id) {
+      const { rowCount } = await pool.query(
+        'DELETE FROM message_highlights WHERE workspace_id=$1 AND user_id=$2 AND id=$3',
+        [session.workspaceId, session.userId, id],
+      );
+      if (!rowCount) throw fail('Highlight not found', 'HIGHLIGHT_NOT_FOUND', 404);
+    },
+
+    async notes(session, { conversationId = null, messageId = null, limit = 300 } = {}) {
+      const { rows } = await pool.query(
+        `SELECT n.id,n.conversation_id "conversationId",n.message_id "messageId",n.kind,n.body,
+                n.created_at "createdAt",n.updated_at "updatedAt",
+                (SELECT c.title FROM conversations c WHERE c.workspace_id=n.workspace_id AND c.id=n.conversation_id) "conversationTitle",
+                (SELECT left(m.body,140) FROM messages m WHERE m.workspace_id=n.workspace_id AND m.id=n.message_id) "messagePreview"
+           FROM message_notes n
+          WHERE n.workspace_id=$1 AND n.user_id=$2
+            AND ($3::uuid IS NULL OR n.conversation_id=$3)
+            AND ($4::uuid IS NULL OR n.message_id=$4)
+          ORDER BY n.created_at DESC LIMIT $5`,
+        [session.workspaceId, session.userId, conversationId, messageId, Math.min(Math.max(Number(limit) || 300, 1), 500)],
+      );
+      return rows;
+    },
+
+    async note(session, body = {}) {
+      const text = String(body.body ?? '').trim();
+      if (!text) throw fail('A note needs text', 'INVALID_NOTE', 400);
+      const kind = body.kind ?? 'note';
+      if (!NOTE_KINDS.has(kind)) throw fail('Unknown note kind', 'INVALID_NOTE_KIND', 400);
+      const { rows } = await pool.query(
+        `INSERT INTO message_notes(organization_id,workspace_id,user_id,conversation_id,message_id,kind,body)
+         VALUES($1,$2,$3,$4,$5,$6,$7)
+         RETURNING id,conversation_id "conversationId",message_id "messageId",kind,body,created_at "createdAt",updated_at "updatedAt"`,
+        [session.organizationId, session.workspaceId, session.userId, body.conversationId, body.messageId, kind, text.slice(0, 2000)],
+      );
+      return rows[0];
+    },
+
+    async editNote(session, id, patch = {}) {
+      const sets = [];
+      const params = [session.workspaceId, session.userId, id];
+      if (patch.body !== undefined) {
+        const text = String(patch.body ?? '').trim();
+        if (!text) throw fail('A note needs text', 'INVALID_NOTE', 400);
+        params.push(text.slice(0, 2000)); sets.push(`body=$${params.length}`);
+      }
+      if (patch.kind !== undefined) {
+        if (!NOTE_KINDS.has(patch.kind)) throw fail('Unknown note kind', 'INVALID_NOTE_KIND', 400);
+        params.push(patch.kind); sets.push(`kind=$${params.length}`);
+      }
+      if (!sets.length) throw fail('Nothing to change', 'EMPTY_NOTE_PATCH', 400);
+      sets.push('updated_at=now()');
+      const { rows } = await pool.query(
+        `UPDATE message_notes SET ${sets.join(',')} WHERE workspace_id=$1 AND user_id=$2 AND id=$3
+         RETURNING id,conversation_id "conversationId",message_id "messageId",kind,body,created_at "createdAt",updated_at "updatedAt"`,
+        params,
+      );
+      if (!rows[0]) throw fail('Note not found', 'NOTE_NOT_FOUND', 404);
+      return rows[0];
+    },
+
+    async removeNote(session, id) {
+      const { rowCount } = await pool.query(
+        'DELETE FROM message_notes WHERE workspace_id=$1 AND user_id=$2 AND id=$3',
+        [session.workspaceId, session.userId, id],
+      );
+      if (!rowCount) throw fail('Note not found', 'NOTE_NOT_FOUND', 404);
+    },
+  };
+}
