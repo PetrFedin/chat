@@ -79,7 +79,7 @@ test('a screen does not repeat its own name as the first heading', async () => {
   assert.doesNotMatch(source, /#eyebrow/);
 
   // Sections that carry a name of their own are the point of the rule.
-  assert.match(source, /<h2>Расписание дня<\/h2>/);
+  assert.match(source, /'Расписание дня':'Ближайшие встречи'/);
   assert.match(source, /<h2>Мои дела<\/h2>/);
 });
 

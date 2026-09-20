@@ -254,3 +254,17 @@ button:active:not([disabled]):not(.game-cell):not(.sea-cell),
   *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
   .button:active,.pressable:active,.reaction-button:active,.close-button:active{transform:none}
 }
+
+/* Ответ теперь виден как ответ: строка с тем, на что отвечают, ведёт
+   к исходному сообщению и подсвечивает его в потоке. */
+.reply-quote{display:block;width:100%;max-width:520px;margin:2px 0 6px;padding:6px 10px;border-radius:var(--r-1);
+  border-left:2px solid var(--warm);background:var(--surface-2);color:var(--muted);
+  font-size:13px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.reply-quote b{color:var(--text);font-weight:700;margin-right:6px}
+.reply-quote:hover,.reply-quote:focus-visible{background:var(--surface-3);color:var(--text)}
+.message-item.flash{animation:msg-flash 1.2s ease}
+@keyframes msg-flash{0%{background:var(--warm-soft)}100%{background:transparent}}
+
+/* В списке недели и месяца строка должна называть день, иначе две встречи
+   на разные дни различаются только временем. */
+.event-day{display:block;margin-top:2px;font-style:normal;font-weight:600;font-size:11px;color:var(--muted-2);white-space:nowrap}

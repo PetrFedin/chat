@@ -208,3 +208,29 @@ test('the calls and notifications tiles open something', async () => {
   const calls = await read('public/calls-ui.js');
   assert.ok(calls.includes('window.CHAT_ERRORS?.[error.code]'), 'модуль звонков сообщает отказы по-английски');
 });
+
+// Три вещи хранились на сервере и не доходили до экрана, а «Расписание дня»
+// показывало завтрашнюю встречу как сегодняшнюю.
+test('a reply looks like a reply, a label on a message is visible', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes('class="reply-quote"'), 'ответ не показывает, на что отвечают');
+  assert.ok(app.includes("row.classList.add('flash')"), 'переход к исходному сообщению не подсвечивает его');
+  assert.ok(app.includes('async function loadLabelTargets()'), 'карта меток не строится');
+  assert.ok(app.includes("S.labelTargets?.get('message:'+m.id)"), 'метки сообщения не выводятся');
+  const css = await read('public/styles.css');
+  assert.ok(css.includes('.reply-quote{'), 'у цитаты ответа нет оформления');
+});
+
+test('the day agenda does not pass tomorrow off as today', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes("const agendaTitle=todays.length?'Расписание дня':'Ближайшие встречи'"),
+    'заголовок расписания не различает сегодня и потом');
+  assert.ok(app.includes("dayEnd.setDate(dayEnd.getDate()+1)"), 'границы дня не вычисляются');
+  assert.ok(app.includes('class="event-day"'), 'в списке недели и месяца у строк нет дня');
+});
+
+test('a task made from a message keeps the message', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes("taskModal(b.dataset.taskMessage,(source?.body||'').trim().slice(0,120))"),
+    'задача из сообщения открывается с пустым названием');
+});
