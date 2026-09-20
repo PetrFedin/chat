@@ -90,3 +90,20 @@ test('a guest cannot be made to carry a commitment', async (t) => {
   });
   assert.equal(normal.response.status, 201, 'штатная задача должна создаваться');
 });
+
+// The guest's own screen still offered «＋ Задача», «＋ Событие», the staff
+// directory, the org chart, the games and an invitation form. The server
+// refuses every one of them, so each was a button that could only fail.
+test('the guest is not offered what the server will refuse', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.ok(app.includes("${can('task.create')?'<button data-action=\"task\""), 'гостю всё ещё предлагают создать задачу');
+  assert.ok(app.includes("${can('calendar.create')?'<button data-action=\"event\""), 'гостю всё ещё предлагают создать событие');
+  assert.ok(app.includes("const staff=me().role!=='guest'"), 'плитки не различают сотрудника и гостя');
+  for (const tile of ['team', 'org', 'games']) {
+    assert.ok(app.includes(`\${staff?\`<button class="module-card pressable" data-action="${tile}"`),
+      `плитка «${tile}» открыта гостю`);
+  }
+  assert.ok(app.includes('${can(\'member.invite\')?`<button class="module-card pressable" data-action="invite"'),
+    'приглашение сотрудников открыто гостю');
+});
