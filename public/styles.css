@@ -57,7 +57,14 @@
 .sea-cell.hit{background:var(--danger)}
 .sea-cell.miss{background:var(--surface);position:relative}
 .sea-cell.miss::after{content:'';position:absolute;inset:38%;border-radius:50%;background:var(--muted)}
-.conversation-card .dwc-inline-badge{grid-column:3;justify-self:end;margin-top:4px}
+/* The notification centre appends its badge as a fourth child of a card
+   whose grid has three columns, so it started a second row: first under
+   the avatar, then under the time, and either way the card grew a strip
+   of empty space. It sits in the corner instead, the way every message
+   list puts a count, and the card keeps its own height. */
+.conversation-card{position:relative}
+.conversation-card .dwc-inline-badge{position:absolute;right:11px;bottom:9px;margin:0}
+.conversation-card .time{align-self:start}
 .chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
 .chipbtn{padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:600;cursor:pointer}
 .chipbtn.on{background:var(--text);color:var(--bg);border-color:var(--text)}

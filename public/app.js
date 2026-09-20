@@ -145,7 +145,7 @@ async function loadTasks(){
 }
 async function loadCalendar(){await loadCalendarRange()}
 async function loadMessages(id){if(id&&!S.messages.has(id))S.messages.set(id,(await api(`/api/v1/conversations/${id}/messages`)).items||[])}
-function shell(){const s=me();$('#workspace-switcher').innerHTML=`<span class="avatar">${esc(initials(s.organizationName))}</span><span><strong>${esc(s.organizationName)}</strong><small>${esc(s.workspaceName)}</small></span><span class="muted">⌄</span>`;$('#profile-card').innerHTML=`<span class="avatar dark">${esc(initials(s.displayName))}</span><span><strong>${esc(s.displayName)}</strong><small>${esc(s.role)}</small></span><span class="presence-dot online"></span>`;$('#top-avatar').textContent=initials(s.displayName);
+function shell(){const s=me();$('#workspace-switcher').innerHTML=`<span class="avatar">${esc(initials(s.organizationName))}</span><span><strong>${esc(s.organizationName)}</strong>${s.workspaceName&&s.workspaceName!==s.organizationName?`<small>${esc(s.workspaceName)}</small>`:`<small>${esc(PRESENCE[myPresence().state]||'в сети')}${myPresence().statusText?` · ${esc(myPresence().statusText)}`:''}</small>`}</span><span class="muted">⌄</span>`;$('#profile-card').innerHTML=`<span class="avatar dark">${esc(initials(s.displayName))}</span><span><strong>${esc(s.displayName)}</strong><small>${esc(s.role)}</small></span><span class="presence-dot online"></span>`;$('#top-avatar').textContent=initials(s.displayName);
   // Both of these carry a chevron and a press animation, so they promise an
   // action; neither had a handler of any kind.
   $('#workspace-switcher').onclick=()=>workspaceModal();
@@ -1287,9 +1287,12 @@ function randomFleetClient(){
 // everybody you were «не в сети» and gave you no say in it.
 const PRESENCE_CHOICES=[['online','В сети'],['away','Отошёл'],['busy','Занят'],['do_not_disturb','Не беспокоить'],['offline','Не в сети']];
 
+const myPresence=()=>person(me()?.userId)?.presence??{state:'online',statusText:null};
+
 function presenceModal(){
-  const current=S.boot?.session?.presenceState||'online';
-  const text=S.boot?.session?.statusText||'';
+  const mine=myPresence();
+  const current=mine.state||'online';
+  const text=mine.statusText||'';
   modal('Ваш статус',`<form id="presence-form" class="form-stack">
     <label>Состояние<select name="state" class="field">${PRESENCE_CHOICES.map(([value,caption])=>
       `<option value="${value}" ${current===value?'selected':''}>${esc(caption)}</option>`).join('')}</select></label>
@@ -1304,9 +1307,10 @@ function presenceModal(){
         await api('/api/v1/presence',{method:'POST',body:JSON.stringify({
           state:form.get('state'),statusText:form.get('statusText')||null,
         })});
-        if(S.boot?.session){S.boot.session.presenceState=form.get('state');S.boot.session.statusText=form.get('statusText')||null}
+        const self=person(me().userId);
+        if(self)self.presence={state:form.get('state'),statusText:form.get('statusText')||null};
         toast('Статус обновлён');
-        closeModal();render();
+        closeModal();shell();render();
       }catch(error){toast(error.message)}
     };
   });
@@ -1745,7 +1749,63 @@ function canReassignTask(task){
 }
 
 function taskRescheduleModal(task){modal('Изменить срок',`<form id="task-reschedule-form" class="form-stack"><label>Обещанный срок<input name="promisedAt" type="datetime-local" value="${esc(toLocalInput(task.promisedAt))}"></label><label>Прогноз<input name="forecastAt" type="datetime-local" value="${esc(toLocalInput(task.forecastAt))}"></label><label>Причина<textarea name="reason" rows="3" required placeholder="Почему срок или прогноз изменился"></textarea></label><button class="button primary">Сохранить изменение</button></form>`);$('#task-reschedule-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const{task:updated}=await api(`/api/v1/tasks/${task.id}/schedule`,{method:'PATCH',body:JSON.stringify({promisedAt:f.get('promisedAt')?new Date(f.get('promisedAt')).toISOString():null,forecastAt:f.get('forecastAt')?new Date(f.get('forecastAt')).toISOString():null,reason:f.get('reason'),expectedVersion:task.version})});upsertTask(updated);toast('Срок обновлён');await openTask(task.id);render()}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}}}
-function eventModal(prefill=''){modal('Новое событие',`<form id="event-form" class="form-stack"><label>Название<input name="title" required value="${esc(prefill)}"></label><label>Тип<select name="kind" class="field"><option value="meeting">Встреча</option><option value="focus">Фокус-время</option><option value="deadline">Дедлайн</option><option value="reminder">Напоминание</option></select></label><label>Начало<input name="start" type="datetime-local" required></label><label>Окончание<input name="end" type="datetime-local"></label><button class="button primary">Добавить</button></form>`);$('#event-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget),{event}=await api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({title:f.get('title'),kind:f.get('kind'),startAt:new Date(f.get('start')).toISOString(),endAt:f.get('end')?new Date(f.get('end')).toISOString():null,timezone:Intl.DateTimeFormat().resolvedOptions().timeZone})});S.calendar.push(event);closeModal();render()}}
+/**
+ * A meeting is people plus a time. The form asked only for the time: the
+ * invitations had to be added through the API afterwards, which is no use to
+ * anyone. It also swallowed refusals — an end before the start rejected on
+ * the server and the screen said nothing at all — and left the calendar
+ * where it was, so an event made for another week looked like nothing had
+ * happened.
+ */
+function eventModal(prefill=''){
+  const start=new Date(Date.now()+3600000);start.setMinutes(0,0,0);
+  const end=new Date(start.getTime()+3600000);
+  modal('Новое событие',`<form id="event-form" class="form-stack">
+    <label>Название<input name="title" required maxlength="240" value="${esc(prefill)}"></label>
+    <label>Тип<select name="kind" class="field">
+      <option value="meeting">Встреча</option><option value="focus">Фокус-время</option>
+      <option value="deadline">Дедлайн</option><option value="reminder">Напоминание</option>
+    </select></label>
+    <label>Начало<input name="start" type="datetime-local" required value="${esc(toLocalInput(start.toISOString()))}"></label>
+    <label>Окончание<input name="end" type="datetime-local" value="${esc(toLocalInput(end.toISOString()))}"></label>
+    <label>Описание<textarea name="description" rows="2" maxlength="2000"></textarea></label>
+    ${S.boot?.storageMode==='memory'?'':`<div><div class="row-title">Кого позвать</div>
+      <div class="row-sub">Каждый получит приглашение и подтвердит участие</div>
+      <div style="margin-top:8px">${participantChecks([], 'guest')}</div></div>`}
+    <button class="button primary">Создать</button>
+  </form>`,()=>{
+    $('#event-form').onsubmit=async(submitEvent)=>{
+      submitEvent.preventDefault();
+      const form=new FormData(submitEvent.currentTarget);
+      const startAt=new Date(form.get('start'));
+      const endRaw=form.get('end');
+      const endAt=endRaw?new Date(endRaw):null;
+      if(endAt&&endAt<=startAt)return toast('Окончание должно быть позже начала');
+      try{
+        const{event}=await api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({
+          title:form.get('title'),kind:form.get('kind'),
+          description:form.get('description')||null,
+          startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
+          timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+        })});
+        const invited=form.getAll('guest');
+        if(invited.length){
+          try{await api(`/api/v1/calendar-events/${event.id}/participants`,{method:'POST',body:JSON.stringify({userIds:invited})})}
+          catch(error){toast(`Событие создано, но пригласить не вышло: ${error.message}`)}
+        }
+        // Land on the day the event is on, or the person stares at a week
+        // that does not contain what they just made.
+        S.cal=S.cal||{view:'week',cursor:new Date(),selected:null};
+        S.cal.cursor=startAt;
+        closeModal();
+        await loadCalendarRange();
+        S.view='calendar';
+        render();
+        toast(invited.length?`Событие создано, приглашено ${invited.length}`:'Событие создано');
+      }catch(error){toast(error.message)}
+    };
+  });
+}
 /**
  * `openRoom` leaves guests out: a company-wide room is exactly the one an
  * outsider must not be in, and the server refuses it — offering the name
