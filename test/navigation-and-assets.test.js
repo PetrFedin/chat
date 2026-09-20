@@ -186,3 +186,21 @@ test('the answer-needed marker survives a phone screen, in the right column', as
   assert.match(css, /\.calendar-event\{grid-template-columns:55px 3px minmax\(0,1fr\)\}/,
     'мобильная сетка изменилась — проверь, в какой колонке окажется метка');
 });
+
+// Отказ клиенту — обычный ход работы, а не поломка сервера: стек для
+// каждого 404 хоронит настоящие ошибки в шуме. И, что важнее, всё, что
+// пишется в журнал, должно браться из запроса: переменные разбора живут
+// внутри try, и обращение к ним из catch роняет сам обработчик — ответ
+// тогда не уходит вовсе, а клиент висит до таймаута.
+test('a refusal is logged as a line, and logging cannot break the handler', async () => {
+  const source = await read('src/server.js');
+  const handler = source.match(/\}catch\(error\)\{([\s\S]*?)errorJson\(res,error\);/);
+  assert.ok(handler, 'обработчик ошибок не найден');
+  const body = handler[1];
+  assert.match(body, /status>=500\)console\.error\(error\)/, 'поломки сервера больше не печатаются со стеком');
+  assert.match(body, /console\.warn/, 'отказы не пишутся в журнал вовсе');
+  assert.match(body, /req\.method/, 'журнал берёт метод не из запроса');
+  assert.match(body, /req\.url/, 'журнал берёт путь не из запроса');
+  assert.doesNotMatch(body, /\$\{method\}|\$\{path\}/,
+    'журнал снова обращается к переменным, которых в catch нет');
+});
