@@ -160,3 +160,67 @@ test('a note hangs on a message and stays private', { skip: !DATABASE_URL && 'н
   });
   assert.equal(removed.status, 204);
 });
+
+// Пометка ставится на чужую вещь, и право её поставить — это право её
+// видеть. Раньше проверки не было ни одной: любой сотрудник и даже гость
+// вешал заметку на сообщение из чужой личной переписки и читал его
+// начало в собственном списке — сервер сам подставлял туда сто сорок
+// знаков чужого текста.
+test('a mark cannot reach a message the person may not see', { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const { base, owner, mate, conversationId, messageId } = await fixture(t);
+  const suffix = Math.random().toString(36).slice(2, 7);
+  const join = async (who, role) => {
+    const invitation = await request(base, '/api/v1/invitations', {
+      cookie: owner.cookie, method: 'POST', body: { email: `${who}-${suffix}@t.test`, role } });
+    const token = new URL(invitation.payload.invitation.inviteUrl).searchParams.get('invite');
+    return request(base, '/api/v1/invitations/accept', {
+      method: 'POST', body: { token, displayName: who, password: 'OwnerPassword42' } });
+  };
+  const outsider = await join('outsider', 'member');
+  const guest = await join('client', 'guest');
+
+  // Личная переписка, куда эти двое не входят.
+  const bootMate = await request(base, '/api/v1/bootstrap', { cookie: mate.cookie });
+  const direct = await request(base, '/api/v1/conversations', {
+    cookie: owner.cookie, method: 'POST',
+    body: { kind: 'direct', title: 'Личное', participantIds: [bootMate.payload.session.userId] },
+  });
+  const secret = await request(base, `/api/v1/conversations/${direct.payload.conversation.id}/messages`, {
+    cookie: owner.cookie, method: 'POST', body: { body: 'ЗАРПЛАТА обсуждается только здесь' },
+  });
+
+  for (const who of [outsider, guest]) {
+    const note = await request(base, '/api/v1/message-notes', {
+      cookie: who.cookie, method: 'POST',
+      body: { messageId: secret.payload.message.id, conversationId: direct.payload.conversation.id, body: '.' } });
+    assert.equal(note.code, 'NOT_FOUND', 'заметку повесили на чужое сообщение');
+
+    const star = await request(base, `/api/v1/favourites/message/${secret.payload.message.id}`, {
+      cookie: who.cookie, method: 'PUT' });
+    assert.equal(star.code, 'NOT_FOUND', 'чужое сообщение попало в избранное');
+
+    const highlight = await request(base, '/api/v1/highlights', {
+      cookie: who.cookie, method: 'POST',
+      body: { messageId: secret.payload.message.id, conversationId: direct.payload.conversation.id,
+        quote: 'ЗАРПЛАТА', startOffset: 0, endOffset: 8 } });
+    assert.equal(highlight.code, 'NOT_FOUND', 'чужое сообщение выделили маркером');
+
+    const lists = JSON.stringify([
+      (await request(base, '/api/v1/message-notes', { cookie: who.cookie })).payload,
+      (await request(base, '/api/v1/favourites', { cookie: who.cookie })).payload,
+      (await request(base, '/api/v1/highlights', { cookie: who.cookie })).payload,
+    ]);
+    assert.ok(!lists.includes('ЗАРПЛАТА'), 'текст чужого сообщения виден в списках пометок');
+  }
+
+  // Беседа в запросе не принимается на веру.
+  const wrongRoom = await request(base, '/api/v1/message-notes', {
+    cookie: owner.cookie, method: 'POST',
+    body: { messageId, conversationId: direct.payload.conversation.id, body: 'не туда' } });
+  assert.equal(wrongRoom.code, 'MESSAGE_NOT_IN_CONVERSATION');
+
+  // Свой доступ не пострадал.
+  const mine = await request(base, '/api/v1/message-notes', {
+    cookie: owner.cookie, method: 'POST', body: { messageId, conversationId, body: 'своя заметка' } });
+  assert.equal(mine.status, 201);
+});

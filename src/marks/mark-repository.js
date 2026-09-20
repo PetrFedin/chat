@@ -7,8 +7,26 @@
  * бесполезна без объекта, а объект отдаётся по своим правилам.
  */
 
+import { openConversationSql } from '../persistence/visibility.js';
+
 const fail = (message, code, statusCode = 400) =>
   Object.assign(new Error(message), { code, statusCode });
+
+/**
+ * Пометка ставится на чужую вещь, и право её поставить — это право её
+ * видеть. Раньше здесь стоял комментарий «проверяет тот, кто отдаёт
+ * беседы»: он был неверен, не проверял никто. Любой сотрудник и даже
+ * гость мог повесить заметку на сообщение из чужой личной переписки и
+ * прочитать его начало в собственном списке заметок — сервер сам
+ * подставлял туда первые сто сорок знаков чужого текста.
+ *
+ * Условие ниже — то же самое, по которому отдаются беседы: своя комната
+ * по членству либо открытый канал для сотрудника, но не для гостя.
+ */
+const seesConversation = (session, alias = 'c') =>
+  `(${openConversationSql(session, alias)} OR EXISTS(
+      SELECT 1 FROM conversation_members cm
+       WHERE cm.workspace_id=${alias}.workspace_id AND cm.conversation_id=${alias}.id AND cm.user_id=$2))`;
 
 const TARGETS = new Set(['conversation', 'message', 'task', 'event', 'file']);
 const COLOURS = new Set(['yellow', 'green', 'pink', 'blue']);
@@ -24,6 +42,34 @@ export function createMarkRepository(pool) {
       notes: stop, note: stop, editNote: stop, removeNote: stop,
     };
   }
+
+  /** Видит ли человек эту беседу — и, значит, вправе ли помечать её содержимое. */
+  const mayTouchConversation = async (session, conversationId) => {
+    if (!conversationId) throw fail('A mark needs the conversation it belongs to', 'MARK_TARGET_REQUIRED', 400);
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM conversations c
+        WHERE c.workspace_id=$1 AND c.id=$3 AND c.archived_at IS NULL AND ${seesConversation(session)}`,
+      [session.workspaceId, session.userId, conversationId],
+    );
+    if (!rowCount) throw fail('Not found', 'NOT_FOUND', 404);
+  };
+
+  /** То же для сообщения: оно должно лежать в видимой беседе. */
+  const mayTouchMessage = async (session, messageId, conversationId) => {
+    const { rows } = await pool.query(
+      `SELECT m.conversation_id "conversationId" FROM messages m
+         JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id
+        WHERE m.workspace_id=$1 AND m.id=$3 AND ${seesConversation(session)}`,
+      [session.workspaceId, session.userId, messageId],
+    );
+    if (!rows[0]) throw fail('Not found', 'NOT_FOUND', 404);
+    // Беседу в запросе не принимаем на веру: пометка ляжет туда, где
+    // сообщение лежит на самом деле.
+    if (conversationId && conversationId !== rows[0].conversationId) {
+      throw fail('That message is not in that conversation', 'MESSAGE_NOT_IN_CONVERSATION', 409);
+    }
+    return rows[0].conversationId;
+  };
 
   return {
     enabled: true,
@@ -49,6 +95,13 @@ export function createMarkRepository(pool) {
                 END "conversationId"
            FROM favourites f
           WHERE f.workspace_id=$1 AND f.user_id=$2 AND ($3::text IS NULL OR f.target_type=$3)
+            AND (f.target_type NOT IN ('message','conversation') OR EXISTS(
+                  SELECT 1 FROM conversations c
+                   WHERE c.workspace_id=f.workspace_id
+                     AND c.id = CASE f.target_type
+                           WHEN 'conversation' THEN f.target_id
+                           ELSE (SELECT m.conversation_id FROM messages m WHERE m.workspace_id=f.workspace_id AND m.id=f.target_id) END
+                     AND ${seesConversation(session)}))
           ORDER BY f.created_at DESC LIMIT $4`,
         [session.workspaceId, session.userId, type, Math.min(Math.max(Number(limit) || 200, 1), 500)],
       );
@@ -57,6 +110,19 @@ export function createMarkRepository(pool) {
 
     async favour(session, targetType, targetId) {
       if (!TARGETS.has(targetType)) throw fail('Unknown favourite type', 'INVALID_FAVOURITE_TYPE', 400);
+      // Звезда на чужом — тоже доступ к чужому: список избранного
+      // показывает название беседы и начало сообщения.
+      if (targetType === 'message') await mayTouchMessage(session, targetId, null);
+      if (targetType === 'conversation') await mayTouchConversation(session, targetId);
+      if (targetType === 'task') {
+        const { rowCount } = await pool.query(
+          `SELECT 1 FROM commitments t WHERE t.workspace_id=$1 AND t.id=$2
+             AND (t.owner_id=$3 OR t.requester_id=$3 OR t.acceptor_id=$3
+                  OR EXISTS(SELECT 1 FROM memberships m WHERE m.workspace_id=t.workspace_id AND m.user_id=$3 AND m.role IN('owner','admin','manager')))`,
+          [session.workspaceId, targetId, session.userId],
+        );
+        if (!rowCount) throw fail('Not found', 'NOT_FOUND', 404);
+      }
       await pool.query(
         `INSERT INTO favourites(organization_id,workspace_id,user_id,target_type,target_id)
          VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`,
@@ -83,6 +149,7 @@ export function createMarkRepository(pool) {
           WHERE h.workspace_id=$1 AND h.user_id=$2
             AND ($3::uuid IS NULL OR h.conversation_id=$3)
             AND ($4::uuid IS NULL OR h.message_id=$4)
+            AND EXISTS(SELECT 1 FROM conversations c WHERE c.workspace_id=h.workspace_id AND c.id=h.conversation_id AND ${seesConversation(session)})
           ORDER BY h.created_at DESC LIMIT $5`,
         [session.workspaceId, session.userId, conversationId, messageId, Math.min(Math.max(Number(limit) || 300, 1), 500)],
       );
@@ -102,6 +169,7 @@ export function createMarkRepository(pool) {
       }
       const colour = body.colour ?? 'yellow';
       if (!COLOURS.has(colour)) throw fail('Unknown highlight colour', 'INVALID_HIGHLIGHT_COLOUR', 400);
+      const conversationId = await mayTouchMessage(session, body.messageId, body.conversationId);
 
       // Сообщение должно существовать и быть в беседе, которую человек
       // действительно видит: проверяет тот, кто отдаёт беседы.
@@ -110,7 +178,7 @@ export function createMarkRepository(pool) {
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
          RETURNING id,conversation_id "conversationId",message_id "messageId",quote,
                    start_offset "startOffset",end_offset "endOffset",colour,created_at "createdAt"`,
-        [session.organizationId, session.workspaceId, session.userId, body.conversationId, body.messageId,
+        [session.organizationId, session.workspaceId, session.userId, conversationId, body.messageId,
          quote.slice(0, 2000), start, end, colour],
       );
       return rows[0];
@@ -134,6 +202,7 @@ export function createMarkRepository(pool) {
           WHERE n.workspace_id=$1 AND n.user_id=$2
             AND ($3::uuid IS NULL OR n.conversation_id=$3)
             AND ($4::uuid IS NULL OR n.message_id=$4)
+            AND EXISTS(SELECT 1 FROM conversations c WHERE c.workspace_id=n.workspace_id AND c.id=n.conversation_id AND ${seesConversation(session)})
           ORDER BY n.created_at DESC LIMIT $5`,
         [session.workspaceId, session.userId, conversationId, messageId, Math.min(Math.max(Number(limit) || 300, 1), 500)],
       );
@@ -145,11 +214,12 @@ export function createMarkRepository(pool) {
       if (!text) throw fail('A note needs text', 'INVALID_NOTE', 400);
       const kind = body.kind ?? 'note';
       if (!NOTE_KINDS.has(kind)) throw fail('Unknown note kind', 'INVALID_NOTE_KIND', 400);
+      const conversationId = await mayTouchMessage(session, body.messageId, body.conversationId);
       const { rows } = await pool.query(
         `INSERT INTO message_notes(organization_id,workspace_id,user_id,conversation_id,message_id,kind,body)
          VALUES($1,$2,$3,$4,$5,$6,$7)
          RETURNING id,conversation_id "conversationId",message_id "messageId",kind,body,created_at "createdAt",updated_at "updatedAt"`,
-        [session.organizationId, session.workspaceId, session.userId, body.conversationId, body.messageId, kind, text.slice(0, 2000)],
+        [session.organizationId, session.workspaceId, session.userId, conversationId, body.messageId, kind, text.slice(0, 2000)],
       );
       return rows[0];
     },
