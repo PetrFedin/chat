@@ -54,3 +54,23 @@ test('small controls are reachable by finger, and motion can be switched off', a
   const reduced = css.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\n\}/)[1];
   assert.match(reduced, /transition-duration:\.001ms!important/, 'переходы остаются при отключённом движении');
 });
+
+// Иконки были россыпью редких типографских знаков: ⌸, ◍, ⌑, ⚿. Половину
+// человек видит впервые, и ни один не объясняет, что за ним. Нижняя
+// навигация уже была нарисована штриховыми SVG — остальное пришло к ней.
+test('icons speak one language', async () => {
+  const app = await read('public/app.js');
+  assert.match(app, /const tileIcon=\{/, 'у плиток нет своего набора иконок');
+  assert.match(app, /const roomIcon=\{/, 'у шапки беседы нет своего набора иконок');
+  for (const glyph of ['⌸', '◍', '⌑', '⚿', '◔', '☏', '▣', '⊘']) {
+    assert.ok(!app.includes(`class="module-icon">${glyph}`), `плитка снова рисуется знаком ${glyph}`);
+  }
+  // Подстановка в обычной строке не работает: такую кнопку человек видит
+  // с текстом шаблона вместо иконки.
+  assert.ok(!app.includes("'<button data-action=\"members\""), 'иконка участников снова в обычной строке');
+
+  const css = await read('public/styles.css');
+  assert.match(css, /\.module-card \.module-icon\{[^}]*display:grid/,
+    'правило .module-card span снова перебивает плашку иконки');
+  assert.match(css, /\.module-card \.module-icon svg\{/, 'иконка плитки без размера');
+});
