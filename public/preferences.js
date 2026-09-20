@@ -735,8 +735,6 @@
     '.conversation-card strong',
     '.conversation-card .preview',
     '.sidebar-row .label',
-    '.workspace-card strong',
-    '.workspace-card small',
     '.profile-card strong',
     '.message-author',
     '.participant-label span:first-child',

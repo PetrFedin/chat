@@ -161,7 +161,8 @@ test('the translator replaces whole words, not pieces of them', async () => {
 
 test('controls that look pressable have handlers, and icons have names', async () => {
   const [app, html] = await Promise.all([read('public/app.js'), read('public/index.html')]);
-  assert.match(app, /\$\('#workspace-switcher'\)\.onclick/);
+  assert.doesNotMatch(app, /workspace-switcher/, 'карточка компании вернулась в боковую панель');
+  assert.doesNotMatch(html, /workspace-card/, 'разметка карточки компании осталась');
   assert.match(app, /\$\('#profile-card'\)\.onclick/);
   assert.match(app, /data-quick-form/, 'the quick capture bar must do something with what is typed');
   for (const action of ['attach', 'voice', 'send']) {

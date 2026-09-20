@@ -148,30 +148,13 @@ async function loadTasks(){
 }
 async function loadCalendar(){await loadCalendarRange()}
 async function loadMessages(id){if(id&&!S.messages.has(id))S.messages.set(id,(await api(`/api/v1/conversations/${id}/messages`)).items||[])}
-function shell(){const s=me();$('#workspace-switcher').innerHTML=`<span class="avatar">${esc(initials(s.organizationName))}</span><span><strong>${esc(s.organizationName)}</strong>${s.workspaceName&&s.workspaceName!==s.organizationName?`<small>${esc(s.workspaceName)}</small>`:`<small>${esc(PRESENCE[myPresence().state]||'в сети')}${myPresence().statusText?` · ${esc(myPresence().statusText)}`:''}</small>`}</span><span class="muted">⌄</span>`;$('#profile-card').innerHTML=`<span class="avatar dark">${esc(initials(s.displayName))}</span><span><strong>${esc(s.displayName)}</strong><small>${esc(s.role)}</small></span><span class="presence-dot online"></span>`;$('#top-avatar').textContent=initials(s.displayName);
+function shell(){const s=me();$('#profile-card').innerHTML=`<span class="avatar dark">${esc(initials(s.displayName))}</span><span><strong>${esc(s.displayName)}</strong><small>${esc(s.role)}</small></span><span class="presence-dot online"></span>`;$('#top-avatar').textContent=initials(s.displayName);
   // Both of these carry a chevron and a press animation, so they promise an
   // action; neither had a handler of any kind.
-  $('#workspace-switcher').onclick=()=>workspaceModal();
   $('#profile-card').onclick=()=>personPage(me().userId);
   navs();lists()}
 
 /** What the workspace actually is, since the switcher implies there is more than one. */
-function workspaceModal(){
-  const s=me();
-  modal(s.organizationName||'Организация',`
-    <div class="person-fields">
-      <div class="person-field"><span>Пространство</span><strong>${esc(s.workspaceName)}</strong></div>
-      <div class="person-field"><span>Ваша роль</span><strong>${esc(s.role)}</strong></div>
-      <div class="person-field"><span>Сотрудников</span><strong>${S.people.length}</strong></div>
-      <div class="person-field"><span>Бесед</span><strong>${S.conversations.length}</strong></div>
-    </div>
-    <p class="muted" style="margin-top:12px">Переключение между несколькими пространствами пока не поддерживается: аккаунт живёт в одном.</p>
-    <div class="stack" style="margin-top:14px"><button data-action-org class="button secondary">Оргструктура</button><button data-action-team class="button secondary">Команда</button></div>
-  `,()=>{
-    $('[data-action-org]').onclick=()=>replaceModal(orgModal);
-    $('[data-action-team]').onclick=()=>replaceModal(teamModal);
-  });
-}
 function navs(){const html=nav.map(([id,i,l])=>`<button class="nav-item pressable ${S.view===id?'active':''}" data-nav="${id}"><span class="nav-icon">${i}</span><span>${l}</span></button>`).join('');$('#desktop-nav').innerHTML=$('#mobile-nav').innerHTML=html}
 function lists(){const channels=S.conversations.filter(c=>['channel','team','project'].includes(c.kind)),dm=S.conversations.filter(c=>['direct','group'].includes(c.kind));$('#channel-list').innerHTML=channels.map(c=>side(c,'#')).join('');$('#direct-list').innerHTML=dm.map(c=>side(c,'')).join('')}
 function side(c,prefix){return `<button class="sidebar-row pressable ${S.selected===c.id?'active':''}" data-conversation="${c.id}"><span>${prefix||'<span class="presence-dot online"></span>'}</span><span class="label">${esc(c.title||'Диалог')}</span></button>`}
