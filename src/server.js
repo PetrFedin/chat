@@ -72,7 +72,10 @@ const sessionCookie=(token)=>`${cookieName}=${encodeURIComponent(token)}; Path=/
 const clearSession=()=>`${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV==='production'?'; Secure':''}`;
 const cookieToken=(req)=>cookies(req)[cookieName]||null;
 
-function defaultStore(){if(!process.env.DATABASE_URL)return{store:new MemoryStore(),pool:null,mode:'memory'};const pool=new Pool({connectionString:process.env.DATABASE_URL,max:Number(process.env.PG_POOL_MAX??10),ssl:process.env.PGSSL==='require'?{rejectUnauthorized:false}:undefined});return{store:new PostgresStore(pool),pool,mode:'postgres'}}
+function defaultStore(){if(!process.env.DATABASE_URL){
+  if(process.env.NODE_ENV==='production')throw new Error('DATABASE_URL не задан. В production память как хранилище не годится: данные исчезнут при первом же перезапуске.');
+  return{store:new MemoryStore(),pool:null,mode:'memory'};
+}const pool=new Pool({connectionString:process.env.DATABASE_URL,max:Number(process.env.PG_POOL_MAX??10),ssl:process.env.PGSSL==='require'?{rejectUnauthorized:false}:undefined});return{store:new PostgresStore(pool),pool,mode:'postgres'}}
 function pushConfig(){const publicKey=process.env.VAPID_PUBLIC_KEY??null,privateKey=process.env.VAPID_PRIVATE_KEY??null;if(publicKey&&privateKey)webpush.setVapidDetails(process.env.VAPID_SUBJECT??'mailto:admin@example.com',publicKey,privateKey);return{enabled:Boolean(publicKey&&privateKey),publicKey}}
 
 export async function createChatServer(options={}){

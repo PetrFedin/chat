@@ -21,7 +21,7 @@
 .label-list{display:grid;gap:7px;margin-top:8px}
 .label-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface)}
 .row[data-member-row]>span:last-child{display:flex;gap:6px;align-items:center;justify-content:flex-end}
-.row[data-member-row] select{min-width:0;width:auto;padding:7px 8px;font-size:12.5px;border-radius:var(--r-1)}
+.row[data-member-row] select{min-width:0;width:auto;padding:7px 8px;font-size:13px;border-radius:var(--r-1)}
 .row[data-member-row]{gap:8px}
 .row.candidate-row{grid-template-columns:auto auto minmax(0,1fr)}
 .row.candidate-row>:last-child{text-align:left}
@@ -63,7 +63,7 @@
 .conversation-card .dwc-inline-badge{position:absolute;right:11px;bottom:9px;margin:0}
 .conversation-card .time{align-self:start}
 .chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
-.chipbtn{padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:12.5px;font-weight:600;cursor:pointer}
+.chipbtn{padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:13px;font-weight:600;cursor:pointer}
 .chipbtn.on{background:var(--text);color:var(--bg);border-color:var(--text)}
 .plan-list{display:grid;gap:7px}
 .plan-row{display:grid;grid-template-columns:26px minmax(0,1fr);gap:10px;align-items:start;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface)}
@@ -125,7 +125,7 @@
 .person-chips{display:flex;flex-wrap:wrap;gap:6px;font-size:13px;color:var(--muted)}
 .person-chip{border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:var(--surface-2);color:var(--text);font-size:11px}
 .person-feed{display:flex;flex-direction:column;gap:1px;max-height:260px;overflow:auto}
-.person-event{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:12.5px}
+.person-event{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
 .person-event:first-child{border-top:0}
 .person-event time{color:var(--muted-2);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
 .field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
@@ -417,3 +417,12 @@ button:active:not([disabled]):not(.game-cell):not(.sea-cell),
 .hl-dot.hl-blue{background:rgba(122,166,224,.9)}
 /* Зажжённая звезда: беседа в избранном. */
 .round-button.on{background:var(--warm-soft);color:var(--warm);border-color:transparent}
+
+/* Заголовок без своего класса брал кегль у браузера (24px) и выпадал из
+   шкалы. Основание для всех уровней — из неё же; правила экранов, где
+   заголовку нужен другой размер, перекрывают это как и раньше. */
+h1,h2,h3,h4{margin:0;line-height:1.25;letter-spacing:-.02em}
+h1{font-size:27px;font-weight:800}
+h2{font-size:21px;font-weight:700}
+h3{font-size:17px;font-weight:700}
+h4{font-size:15px;font-weight:700}
