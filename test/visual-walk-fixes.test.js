@@ -234,3 +234,13 @@ test('a task made from a message keeps the message', async () => {
   assert.ok(app.includes("taskModal(b.dataset.taskMessage,(source?.body||'').trim().slice(0,120))"),
     'задача из сообщения открывается с пустым названием');
 });
+
+// В «В работе» переход «сдать на проверку» открывается только после первого
+// доказательства. Правило верное, но экран о нём молчал.
+test('the evidence gate explains itself, and priority is a word', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes("task.status==='in_progress'&&!evidence.length"), 'нет подсказки о доказательстве');
+  assert.ok(app.includes('Чтобы сдать работу на проверку'), 'подсказка не написана');
+  assert.ok(app.includes("const TASK_PRIORITY={normal:'обычный'"), 'приоритет печатается сырым значением');
+  assert.ok(!app.includes("esc(task.priority||'normal')"), 'в карточке остался сырой приоритет');
+});
