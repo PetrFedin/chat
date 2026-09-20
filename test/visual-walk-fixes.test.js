@@ -151,3 +151,33 @@ test('games are reachable and decide nothing themselves', async () => {
   // The board follows the opponent without a reload.
   assert.match(app, /p\.event==='game\.updated'/);
 });
+
+// A refused request left the sheet open and said nothing at all: a duplicate
+// email, a throttle, or a module that is not running all looked to a person
+// like a dead button.
+test('no form swallows a refusal', async () => {
+  const app = await read('public/app.js');
+  const unguarded = [];
+  for (const match of app.matchAll(/\$\('#([a-z-]+)'\)\.onsubmit=async/g)) {
+    const segment = app.slice(match.index, match.index + 1600);
+    const end = segment.indexOf('\n  };');
+    const body = segment.slice(0, end > 0 ? end : 1200);
+    if (body.includes('api(') && !body.includes('catch')) unguarded.push(match[1]);
+  }
+  assert.deepEqual(unguarded, [], 'эти формы молчат при отказе сервера');
+});
+
+// A meeting is people plus a time; the form asked only for the time.
+test('a meeting can be created with the people in it', async () => {
+  const app = await read('public/app.js');
+  const form = app.slice(app.indexOf('function eventModal('), app.indexOf('function participantChecks('));
+  assert.match(form, /participantChecks\(\[\], 'guest'\)/, 'из формы события некого позвать');
+  assert.match(form, /calendar-events\/\$\{event\.id\}\/participants/);
+  // Validate before sending, and say what happened either way.
+  assert.match(form, /Окончание должно быть позже начала/);
+  assert.match(form, /toast\(invited\.length\?/);
+  // Land where the event is, not where the calendar happened to be.
+  assert.match(form, /S\.cal\.cursor=startAt/);
+  // An affordance that cannot work is worse than none.
+  assert.match(form, /S\.boot\?\.storageMode==='memory'\?''/);
+});
