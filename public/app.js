@@ -454,7 +454,7 @@ async function eventPage(id){
   });
 }
 
-function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">◍</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">♞</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">☏</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="reminders"><span class="module-icon">◔</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
+function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">☆</span><strong>Сохранённые</strong><span>Личные сообщения для возврата к работе</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">⌑</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">◎</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">⌸</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">◍</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">♞</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">☏</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="vault"><span class="module-icon">⚿</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button><button class="module-card pressable" data-action="reminders"><span class="module-icon">◔</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">✓</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">◈</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">＋</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">↗</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">◉</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">◌</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">⚙</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
@@ -506,7 +506,7 @@ function go(v){
 }
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
 // ── org structure: reading and reshaping ────────────────────────────────────
@@ -891,6 +891,117 @@ function bindPlanRows(reload){
     }catch(error){toast(error.message);button.disabled=false}
   });
   $$('[data-plan-open]').forEach(button=>button.onclick=()=>planItemPage(button.dataset.planOpen));
+}
+
+/**
+ * Хранилище паролей.
+ *
+ * Экран списка секретов не содержит: пароль приходит отдельным запросом и
+ * только по нажатию — случайно увидеть чужой через плечо нельзя, и в
+ * аудите остаётся, что его смотрели. Показанный пароль прячется сам.
+ */
+function generatePassword(length=20){
+  // Без похожих знаков: 0/O и 1/l/I человек всё равно перепутает, когда
+  // будет диктовать пароль по телефону.
+  const alphabet='abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%^&*-_=+';
+  const bytes=new Uint32Array(length);
+  crypto.getRandomValues(bytes);
+  return [...bytes].map(v=>alphabet[v%alphabet.length]).join('');
+}
+
+function vaultRow(entry){
+  return `<div class="row" data-vault="${esc(entry.id)}">
+    <span class="avatar dark" aria-hidden="true">⚿</span>
+    <span><div class="row-title">${esc(entry.title)}</div>
+      <div class="row-sub">${esc([entry.login,entry.url].filter(Boolean).join(' · ')||'без логина')}</div>
+      <div class="vault-secret" data-vault-secret="${esc(entry.id)}" hidden></div></span>
+    <span class="inline-actions">
+      <button class="text-button" data-vault-reveal="${esc(entry.id)}">Показать</button>
+      <button class="text-button" data-vault-edit="${esc(entry.id)}">Изменить</button>
+      <button class="text-button danger" data-vault-delete="${esc(entry.id)}" aria-label="Удалить запись">×</button>
+    </span>
+  </div>`;
+}
+
+async function vaultModal(){
+  const build=async()=>{
+    let items=[];
+    try{items=(await api('/api/v1/vault')).items||[]}
+    catch(error){
+      return {title:'Пароли',body:`<div class="empty"><strong>Хранилище недоступно</strong>${esc(error.message)}</div>`,after:()=>{}};
+    }
+    return {
+      title:'Пароли',
+      body:`<p class="muted">Пароли хранятся зашифрованными, ключ лежит вне базы. Каждый показ пароля попадает в журнал действий.</p>
+      <div class="stack" style="margin-top:12px">${items.length?items.map(vaultRow).join(''):'<div class="empty"><strong>Пока пусто</strong>Запишите первый пароль — он не попадёт в переписку.</div>'}</div>
+      <button data-vault-new class="button primary" style="width:100%;margin-top:14px">＋ Новый пароль</button>`,
+      after:()=>{
+        $('[data-vault-new]').onclick=()=>vaultFormModal(null,refresh);
+        $$('[data-vault-edit]').forEach(b=>b.onclick=()=>vaultFormModal(items.find(x=>x.id===b.dataset.vaultEdit),refresh));
+        $$('[data-vault-delete]').forEach(b=>b.onclick=()=>{
+          const entry=items.find(x=>x.id===b.dataset.vaultDelete);
+          modal(`Удалить «${entry?.title??'запись'}»?`,`<p class="muted">Пароль пропадёт безвозвратно: расшифровать его потом будет нечем.</p>
+            <button id="confirm-vault-delete" class="button danger" style="width:100%">Удалить</button>`,()=>{
+            $('#confirm-vault-delete').onclick=async()=>{
+              try{await api(`/api/v1/vault/${b.dataset.vaultDelete}`,{method:'DELETE'});history.back();setTimeout(refresh,250);toast('Запись удалена')}
+              catch(error){toast(error.message)}
+            };
+          });
+        });
+        $$('[data-vault-reveal]').forEach(b=>b.onclick=async()=>{
+          const slot=$(`[data-vault-secret="${b.dataset.vaultReveal}"]`);
+          if(!slot.hidden){slot.hidden=true;slot.textContent='';b.textContent='Показать';return}
+          try{
+            const{entry}=await api(`/api/v1/vault/${b.dataset.vaultReveal}/secret`,{method:'POST'});
+            slot.textContent=entry.secret;slot.hidden=false;b.textContent='Скрыть';
+            try{await navigator.clipboard.writeText(entry.secret);toast('Пароль скопирован')}catch{toast('Пароль показан')}
+            // Открытый пароль не должен висеть на экране: через полминуты
+            // он прячется сам.
+            setTimeout(()=>{if(slot.isConnected&&!slot.hidden){slot.hidden=true;slot.textContent='';b.textContent='Показать'}},30000);
+          }catch(error){toast(error.message)}
+        });
+      },
+    };
+  };
+  const refresh=async()=>{
+    const next=await build();
+    const top=overlayStack[overlayStack.length-1];
+    if(top){Object.assign(top,next);renderOverlay()}
+  };
+  const first=await build();
+  modal(first.title,first.body,first.after,build);
+}
+
+function vaultFormModal(entry,after){
+  const editing=Boolean(entry);
+  modal(editing?'Изменить запись':'Новый пароль',`<form id="vault-form" class="form-stack">
+    <label>Название<input name="title" maxlength="200" required value="${esc(entry?.title??'')}" placeholder="Портал подрядчика"></label>
+    <label>Логин<input name="login" maxlength="200" value="${esc(entry?.login??'')}" autocomplete="off"></label>
+    <label>Адрес<input name="url" maxlength="500" value="${esc(entry?.url??'')}" placeholder="https://"></label>
+    <label>Пароль${editing?' <span class="muted">(оставьте пустым, чтобы не менять)</span>':''}
+      <input name="secret" type="password" maxlength="4000" autocomplete="new-password" ${editing?'':'required'}></label>
+    <div class="chip-row"><button type="button" class="chipbtn pressable" data-generate>Придумать пароль</button>
+      <button type="button" class="chipbtn pressable" data-show-secret>Показать ввод</button></div>
+    <label>Заметка<textarea name="note" maxlength="2000" rows="2">${esc(entry?.note??'')}</textarea></label>
+    <button class="button primary">${editing?'Сохранить':'Сохранить пароль'}</button>
+  </form>`,()=>{
+    const field=$('#vault-form [name="secret"]');
+    $('[data-generate]').onclick=()=>{field.value=generatePassword();field.type='text';toast('Пароль придуман — не забудьте сохранить')};
+    $('[data-show-secret]').onclick=()=>{field.type=field.type==='password'?'text':'password'};
+    $('#vault-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      const body={title:form.get('title'),login:form.get('login'),url:form.get('url'),note:form.get('note')};
+      const secret=form.get('secret');
+      if(secret)body.secret=secret;
+      try{
+        if(editing)await api(`/api/v1/vault/${entry.id}`,{method:'PATCH',body:JSON.stringify(body)});
+        else await api('/api/v1/vault',{method:'POST',body:JSON.stringify(body)});
+        history.back();setTimeout(()=>after?.(),250);
+        toast(editing?'Запись изменена':'Пароль записан');
+      }catch(error){toast(error.message)}
+    };
+  });
 }
 
 const REMINDER_FILTERS=[['open','Ждут'],['done','Сделанные'],['all','Все']];

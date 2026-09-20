@@ -258,3 +258,21 @@ test('reminders are offered where a person needs them', async () => {
   assert.ok(daily.includes("if(n.type==='calendar.reminder')return n.title||"),
     'центр внимания снова подменяет текст напоминания общим словом');
 });
+
+// Пароли люди всё равно где-то держат: в заметках, в переписке с самим
+// собой. Место получше — часть рабочего пространства, а не отдельная
+// программа, про которую надо помнить.
+test('the vault is reachable and never leaks a secret into the list', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes('async function vaultModal()'), 'нет хранилища паролей');
+  assert.ok(app.includes('data-action="vault"'), 'нет плитки паролей');
+  assert.ok(app.includes("api(`/api/v1/vault/${b.dataset.vaultReveal}/secret`,{method:'POST'})"),
+    'пароль раскрывается не отдельным запросом');
+  assert.ok(app.includes('function generatePassword('), 'нет генератора пароля');
+  assert.ok(app.includes("crypto.getRandomValues"), 'пароль придумывается небезопасным способом');
+  // Показанный пароль не должен висеть на экране.
+  assert.ok(app.includes('slot.hidden=true;slot.textContent=\'\';b.textContent=\'Показать\'}},30000)'),
+    'показанный пароль не прячется сам');
+  const css = await read('public/styles.css');
+  assert.ok(css.includes('.vault-secret{'), 'у показанного пароля нет оформления');
+});

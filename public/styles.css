@@ -268,3 +268,9 @@ button:active:not([disabled]):not(.game-cell):not(.sea-cell),
 /* В списке недели и месяца строка должна называть день, иначе две встречи
    на разные дни различаются только временем. */
 .event-day{display:block;margin-top:2px;font-style:normal;font-weight:600;font-size:11px;color:var(--muted-2);white-space:nowrap}
+
+/* Показанный пароль: моноширинный, чтобы его можно было прочесть вслух
+   без ошибок, и с переносом — длинный не обрежется. */
+.vault-secret{margin-top:6px;padding:7px 9px;border-radius:var(--r-1);background:var(--surface-3);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;letter-spacing:.02em;
+  overflow-wrap:anywhere;user-select:all}
