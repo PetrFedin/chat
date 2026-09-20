@@ -14,7 +14,7 @@ const TEXT_LIMITS = { displayName: 120, title: 120, department: 120, phone: 40, 
 
 export function createPeopleHandler() {
   return async function handlePeople(req, res, ctx, url, path, method) {
-    if (!path.startsWith('/api/v1/people/') && path !== '/api/v1/contacts') return false;
+    if (!path.startsWith('/api/v1/people') && path !== '/api/v1/contacts') return false;
     const session = await ctx.requireSession(req);
     const people = ctx.people;
     if (!people) throw unavailable();
@@ -24,6 +24,14 @@ export function createPeopleHandler() {
     // different question and lives in /bootstrap.
     if (path === '/api/v1/contacts' && method === 'GET') {
       json(res, 200, await people.contacts(session));
+      return true;
+    }
+
+    // Справочник людей: тот же список, что приходит в /bootstrap, но со
+    // своим адресом — клиенту, которому нужны только коллеги, незачем
+    // тянуть всё рабочее пространство.
+    if (path === '/api/v1/people' && method === 'GET') {
+      json(res, 200, { items: await ctx.store.listPeople(session) });
       return true;
     }
 

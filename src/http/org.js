@@ -89,6 +89,14 @@ export function createOrgHandler() {
     }
 
     m = path.match(UNIT_MEMBER);
+    if (m && method === 'PATCH') {
+      if (!(await mayManage(m[1]))) throw forbidden();
+      const body = await readJson(req);
+      if (body.role === undefined) throw Object.assign(new Error('A unit member patch changes the role'),
+        { code: 'EMPTY_UNIT_MEMBER_PATCH', statusCode: 400, expose: true });
+      json(res, 200, { member: await org.addMember(session, m[1], { userId: m[2], role: body.role }) });
+      return true;
+    }
     if (m && method === 'DELETE') {
       if (!(await mayManage(m[1]))) throw forbidden();
       await org.removeMember(session, m[1], m[2]);

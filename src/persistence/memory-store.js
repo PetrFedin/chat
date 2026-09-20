@@ -94,14 +94,19 @@ export class MemoryStore {
 
   async revokeSession(tokenHash) { const row = this.sessions.get(tokenHash); if (row) row.revokedAt = nowIso(); }
 
-  async getBootstrap(session) {
-    const conversations = await this.listConversations(session);
+  /** См. PostgreSQL-хранилище: справочник получил собственный адрес. */
+  async listPeople(session) {
     const sharesRoomWith = (userId) => [...this.conversationMembers.values()]
       .filter((cm) => cm.userId === session.userId)
       .some((cm) => this.conversationMembers.has(this.conversationMemberKey(cm.conversationId, userId)));
-    const people = [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId)
-      .filter((m) => session.role !== 'guest' || m.userId === session.userId || sharesRoomWith(m.userId)).map((m) => ({ ...clone(this.profiles.get(this.membershipKey(m.workspaceId, m.userId))), userId: m.userId, role: m.role, presence: clone(this.presence.get(this.membershipKey(m.workspaceId, m.userId)) ?? { state: 'offline' }) }));
-    return { session, conversations, people };
+    return [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId)
+      .filter((m) => session.role !== 'guest' || m.userId === session.userId || sharesRoomWith(m.userId))
+      .map((m) => ({ ...clone(this.profiles.get(this.membershipKey(m.workspaceId, m.userId))), userId: m.userId, role: m.role, presence: clone(this.presence.get(this.membershipKey(m.workspaceId, m.userId)) ?? { state: 'offline' }) }));
+  }
+
+  async getBootstrap(session) {
+    const conversations = await this.listConversations(session);
+    return { session, conversations, people: await this.listPeople(session) };
   }
 
   async createInvitation(session, { email, role, tokenHash, expiresAt }) {
