@@ -20,7 +20,7 @@ export function createIntegrationsHandler() {
     if (!webhooks) throw unavailable();
 
     if (method === 'GET' && path === '/api/v1/integrations/webhooks') {
-      json(res, 200, { endpoints: await webhooks.listEndpoints(session) });
+      json(res, 200, { items: await webhooks.listEndpoints(session) });
       return true;
     }
 
@@ -40,7 +40,7 @@ export function createIntegrationsHandler() {
         endpointId: url.searchParams.get('endpointId'),
         limit: url.searchParams.get('limit'),
       });
-      json(res, 200, { deliveries });
+      json(res, 200, { items: deliveries });
       return true;
     }
 

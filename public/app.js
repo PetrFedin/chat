@@ -1702,8 +1702,8 @@ const DELIVERY_STATUS={pending:'в очереди',delivering:'отправля�
 async function integrationsModal(){
   let endpoints=[],deliveries=[];
   try{
-    endpoints=(await api('/api/v1/integrations/webhooks')).endpoints||[];
-    deliveries=(await api('/api/v1/integrations/deliveries?limit=20')).deliveries||[];
+    endpoints=(await api('/api/v1/integrations/webhooks')).items||[];
+    deliveries=(await api('/api/v1/integrations/deliveries?limit=20')).items||[];
   }catch(error){
     toast(error.status===403?'Интеграции настраивает владелец или администратор':error.message);
     return;

@@ -86,3 +86,18 @@ test('every data-action in the markup has a handler', async () => {
   const orphans = [...used].filter((action) => !declared.has(action) && !elsewhere.has(action));
   assert.deepEqual(orphans, [], 'в разметке есть действия, которые никто не обрабатывает');
 });
+
+// Один и тот же вопрос — один и тот же ответ по форме. Список приходит
+// под ключом items везде; исключение заставляет клиента помнить, какой
+// модуль отвечает по-своему, и однажды он забудет.
+test('list answers all arrive under one key', () => {
+  const files = readdirSync(join(root, 'src/http')).map((f) => `src/http/${f}`);
+  const odd = [];
+  for (const file of files) {
+    const source = read(file);
+    for (const m of source.matchAll(/json\(res,\s*20[01],\s*\{\s*([a-zA-Z]+)\s*:\s*(?:await\s+)?[^,}]*(?:list|List|Deliveries|Endpoints)[^,}]*\s*\}/g)) {
+      if (m[1] !== 'items') odd.push(`${file}: { ${m[1]}: … }`);
+    }
+  }
+  assert.deepEqual(odd, [], 'список отвечает не под ключом items');
+});
