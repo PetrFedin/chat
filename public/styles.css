@@ -317,3 +317,8 @@ button:active:not([disabled]):not(.game-cell):not(.sea-cell),
 }
 .menu-row.danger .row-title{color:var(--danger)}
 .menu-row.danger .menu-icon{color:var(--danger)}
+
+/* Полоса прокрутки, появляясь, отнимает у содержимого свои пятнадцать
+   пикселей и сдвигает всё влево. На macOS её не видно, на Windows и Linux
+   видно сразу: место под неё резервируется заранее. */
+.modal,.message-stream,.conversation-pane,.sidebar,.screen{scrollbar-gutter:stable}

@@ -165,3 +165,20 @@ test('server-sent activity labels all have translations', async () => {
     assert.ok(prefs.includes(`    '${label}':`), `нет перевода для «${label}»`);
   }
 });
+
+// «3 участников» по-русски не говорят. Правило со вторым десятком:
+// одиннадцать участников, но двадцать один участник.
+test('counted nouns agree with their number everywhere', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
+  const [app, meetings] = await Promise.all([read('public/app.js'), read('public/meeting-intelligence.js')]);
+
+  assert.match(meetings, /const plural=\(n,one,few,many\)=>/, 'в модуле встреч нет правила склонения');
+  assert.match(meetings, /plural\(\(call\.participants\|\|\[\]\)\.length,'участник','участника','участников'\)/);
+  assert.match(meetings, /plural\(c\.decisions,'решение','решения','решений'\)/);
+  assert.match(meetings, /plural\(c\.actions,'действие','действия','действий'\)/);
+
+  // Правило второго десятка — то место, где обычно ошибаются.
+  const rule = app.match(/function plural\(n,one,few,many\)\{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.match(rule, /11|tens/, 'исключение для второго десятка потеряно');
+});
