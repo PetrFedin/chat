@@ -325,17 +325,80 @@ const TASK_EVENT={
 const TASK_ACTION={accepted:'Принять ответственность',rejected:'Отказаться',clarify:'Запросить уточнение',scheduled:'Запланировать',in_progress:'Начать работу',blocked:'Есть блокировка',in_review:'Отправить на проверку',accepted_result:'Принять результат',closed:'Закрыть',deferred:'Отложить',cancelled:'Отменить'};
 function taskRow(t){return `<button class="task-card pressable" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span>${esc(dateTime(t.promisedAt))}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div></span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`}
 function kindLabel(k){return({voice:'Голосовое сообщение',file:'Файл',call:'Звонок',task:'Задача',calendar:'Событие'})[k]||''}
-function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button><button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button><button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button></div></header><div id="message-stream" class="message-stream">${messages.map(message).join('')||'<div class="empty"><strong>Начните разговор</strong></div>'}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
-function message(m){const reactions=(m.reactions||[]).reduce((a,r)=>(a[r.reaction]=(a[r.reaction]||0)+1,a),{}),deleted=Boolean(m.deletedAt),canDelete=m.authorId===me().userId||can('message.delete.any');
+function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button><button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button><button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button></div></header><div id="message-stream" class="message-stream">${messageStream(messages)}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
+/**
+ * Лента переписки.
+ *
+ * Своё справа, чужое слева — так устроен любой мессенджер, и человек
+ * читает принадлежность реплики не по имени, а по стороне, ещё до того,
+ * как начал читать. Имя остаётся только у чужих сообщений: своё имя
+ * человек знает.
+ *
+ * Время стоит в самом пузыре, а не отдельной строкой: оно нужно почти
+ * всегда и не должно занимать место. Дата — разделителем между днями,
+ * один раз на день, а не у каждой реплики.
+ */
+function dayLabel(value){
+  const d=new Date(value), now=new Date();
+  const same=(a,b)=>a.toDateString()===b.toDateString();
+  const yesterday=new Date(now); yesterday.setDate(now.getDate()-1);
+  if(same(d,now))return 'Сегодня';
+  if(same(d,yesterday))return 'Вчера';
+  return new Intl.DateTimeFormat('ru',{day:'numeric',month:'long',...(d.getFullYear()!==now.getFullYear()?{year:'numeric'}:{})}).format(d);
+}
+
+function messageStream(items){
+  if(!items.length)return '<div class="empty"><strong>Начните разговор</strong></div>';
+  let out='',lastDay='',lastAuthor='',lastAt=0;
+  for(const m of items){
+    const day=new Date(m.createdAt).toDateString();
+    if(day!==lastDay){out+=`<div class="day-divider"><span>${esc(dayLabel(m.createdAt))}</span></div>`;lastDay=day;lastAuthor='';}
+    // Подряд идущие реплики одного человека за пять минут — одна связка:
+    // имя и аватар печатаются один раз.
+    const grouped=m.authorId===lastAuthor&&Date.parse(m.createdAt)-lastAt<5*60*1000;
+    out+=message(m,grouped);
+    lastAuthor=m.authorId;lastAt=Date.parse(m.createdAt);
+  }
+  return out;
+}
+
+function message(m,grouped=false){
+  const reactions=(m.reactions||[]).reduce((a,r)=>(a[r.reaction]=(a[r.reaction]||0)+1,a),{});
+  const deleted=Boolean(m.deletedAt);
+  const mine=m.authorId===me().userId;
   const parent=m.replyToId?(S.messages.get(m.conversationId)||[]).find(x=>x.id===m.replyToId):null;
   const quote=m.replyToId?`<button class="reply-quote" data-jump="${esc(m.replyToId)}" title="Перейти к сообщению">${parent
     ?`<b>${esc(parent.authorId===me().userId?'Вы':name(parent.authorId))}</b> ${esc(parent.deletedAt?'сообщение удалено':(parent.body||kindLabel(parent.kind)||'вложение').slice(0,90))}`
     :'<b>Ответ</b> на сообщение выше'}</button>`:'';
-  return `<article class="message-item" data-message-row="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><div><div class="message-meta"><span class="message-author">${esc(m.authorId===me().userId?'Вы':name(m.authorId))}</span><span class="message-time">${time(m.createdAt)}${m.editedAt?' · изменено':''}${m.pinned?' · закреплено':''}${m.saved?' · сохранено':''}</span></div>${m.forwardedFrom?(m.forwardedFrom.restricted?'<div class="row-sub">↪ Пересланное сообщение</div>':`<button class="reaction-button" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">↪ Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`):''}${quote}${deleted?'<p class="muted">Сообщение удалено</p>':m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`:m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`:`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`}${(S.labelTargets?.get('message:'+m.id)||[]).length?`<div class="chip-row msg-labels">${(S.labelTargets.get('message:'+m.id)||[]).map(labelChip).join('')}</div>`:''}${Object.keys(reactions).length?`<div class="chip-row msg-reactions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}</div>`:''}${deleted?'':`<div class="msg-toolbar">
-      <button class="msg-tool pressable" data-react-pick="${m.id}" title="Реакция" aria-label="Поставить реакцию">${msgIcon.react}</button>
-      <button class="msg-tool pressable" data-reply="${m.id}" title="Ответить" aria-label="Ответить на сообщение">${msgIcon.reply}</button>
-      <button class="msg-tool pressable" data-message-menu="${m.id}" title="Ещё" aria-label="Другие действия с сообщением">${msgIcon.more}</button>
-    </div>`}</div></article>`}
+  const forwarded=m.forwardedFrom
+    ?(m.forwardedFrom.restricted
+      ?'<div class="msg-forward">Пересланное сообщение</div>'
+      :`<button class="msg-forward" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`)
+    :'';
+  const body=deleted?'<p class="message-body muted">Сообщение удалено</p>'
+    :m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`
+    :m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`
+    :`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`;
+  const stamp=`<span class="msg-stamp">${m.pinned?'<i title="Закреплено" aria-label="Закреплено">✦</i>':''}${m.saved?'<i title="В избранном" aria-label="В избранном">★</i>':''}${m.editedAt?`<i class="msg-edited" title="Изменено: ${esc(dateTime(m.editedAt))}">изменено</i>`:''}<time datetime="${esc(m.createdAt)}" title="${esc(dateTime(m.createdAt))}">${esc(time(m.createdAt))}</time></span>`;
+
+  return `<article class="message-item${mine?' mine':''}${grouped?' grouped':''}" data-message-row="${m.id}">
+    ${mine||grouped?'':`<span class="avatar dark">${esc(initials(name(m.authorId)))}</span>`}
+    <div class="msg-column">
+      ${mine||grouped?'':`<div class="message-meta"><span class="message-author">${esc(name(m.authorId))}</span></div>`}
+      <div class="msg-bubble">
+        ${forwarded}${quote}${body}${stamp}
+      </div>
+      ${(S.labelTargets?.get('message:'+m.id)||[]).length?`<div class="chip-row msg-labels">${(S.labelTargets.get('message:'+m.id)||[]).map(labelChip).join('')}</div>`:''}
+      ${Object.keys(reactions).length?`<div class="chip-row msg-reactions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}</div>`:''}
+      ${deleted?'':`<div class="msg-toolbar">
+        <button class="msg-tool pressable" data-react-pick="${m.id}" title="Реакция" aria-label="Поставить реакцию">${msgIcon.react}</button>
+        <button class="msg-tool pressable" data-reply="${m.id}" title="Ответить" aria-label="Ответить на сообщение">${msgIcon.reply}</button>
+        <button class="msg-tool pressable" data-message-menu="${m.id}" title="Ещё" aria-label="Другие действия с сообщением">${msgIcon.more}</button>
+      </div>`}
+    </div>
+  </article>`;
+}
+
 function tasks(){return `<section class="surface"><div class="section-head"><div><p class="muted">Ответственность → выполнение → доказательство → проверка → закрытие</p></div>${can('task.create')?'<button data-action="task" class="button primary small pressable">＋ Задача</button>':''}</div><div class="task-list">${S.tasks.map(taskRow).join('')||'<div class="empty"><strong>Ничего не потеряется</strong>Создайте задачу вручную или из сообщения.</div>'}</div></section>`}
 function calendar(){
   const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});

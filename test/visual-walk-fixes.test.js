@@ -51,7 +51,10 @@ test('message controls never move the conversation', async () => {
 
   // Панель вынута из потока и её появление ничего не двигает.
   assert.match(css, /\.msg-toolbar\{position:absolute/, 'панель осталась в потоке');
-  assert.match(css, /\.message-item\{position:relative;padding-right:\d+px\}/, 'место под панель не зарезервировано');
+  assert.match(css, /\.msg-toolbar\{position:absolute;top:0;right:auto;left:calc\(100% \+ 6px\)\}/,
+    'панель больше не висит у внешнего края пузыря');
+  assert.match(css, /\.message-item\.mine \.msg-toolbar\{left:auto;right:calc\(100% \+ 6px\)\}/,
+    'у своих сообщений панель не переехала на другую сторону');
   assert.match(css, /\.message-item:hover \.msg-toolbar,\.message-item:focus-within \.msg-toolbar\{opacity:1/,
     'панель не показывается по наведению и фокусу');
   assert.match(css, /@media \(hover:none\)\{[\s\S]*?\.msg-toolbar\{opacity:1/, 'на сенсорном экране панель не видна');
