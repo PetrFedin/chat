@@ -27,6 +27,7 @@ const time=v=>v?new Intl.DateTimeFormat('ru',{hour:'2-digit',minute:'2-digit'}).
  */
 const ERROR_MESSAGE={
   LAST_CONVERSATION_OWNER:'Вы единственный владелец беседы. Сначала назначьте владельцем кого-то ещё в списке участников.',
+  MEDIA_PROVIDER_UNAVAILABLE:'Звонки на этом сервере ещё не подключены.',
   NOT_A_MEMBER:'Вы видите этот канал по его открытости — выходить не из чего, уберите его в архив.',
   DIRECT_CANNOT_LEAVE:'Личный диалог нельзя покинуть — его можно убрать в архив.',
   CONVERSATION_HAS_OWNER:'У беседы уже есть владелец — забирать её не нужно.',
@@ -494,7 +495,7 @@ function go(v){
 }
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:enablePush,files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:()=>toast('Откройте диалог или канал и запустите аудио- или видеозвонок из его шапки.'),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:savedModal,archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
 // ── org structure: reading and reshaping ────────────────────────────────────
@@ -1850,6 +1851,29 @@ function channelModal(){modal('Новый канал',`<form id="channel-form" c
  * yourself needed management rights, so a person invited into a channel
  * stayed in it.
  */
+// The tile advertised calls and then told you to find them yourself. It now
+// asks the one thing it needs: whom to call.
+function callsModal(){
+  const rooms=S.conversations.filter(c=>!c.archivedAt);
+  if(!rooms.length)return toast('Сначала начните беседу — звонок идёт в неё.');
+  modal('Позвонить',`<p class="muted">Звонок идёт в беседу: её участники увидят приглашение.</p>
+    <div>${rooms.map(c=>`<div class="row">
+      <span class="avatar dark">${c.kind==='channel'?'#':esc(initials(c.title||'Д'))}</span>
+      <span><div class="row-title">${esc(c.title||'Диалог')}</div><div class="row-sub">${esc(kindLabel(c.kind)||'')}</div></span>
+      <span class="inline-actions"><button class="button small secondary" data-call="audio" data-room="${c.id}">Аудио</button><button class="button small secondary" data-call="video" data-room="${c.id}">Видео</button></span>
+    </div>`).join('')}</div>`,()=>{
+    $$('[data-call]').forEach(button=>button.onclick=async()=>{
+      const{call,room}=button.dataset;
+      closeModal();
+      openChat(room);
+      // startOutgoing reads the open conversation from the page, so the call
+      // waits for the screen it was asked about.
+      await new Promise(resolve=>setTimeout(resolve,120));
+      try{await window.ChatCalls?.startOutgoing?.(call)}catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}
+    });
+  });
+}
+
 function conversationModal(){
   const c=S.conversations.find(x=>x.id===S.selected);
   if(!c)return toast('Сначала откройте беседу');
@@ -1949,4 +1973,5 @@ function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='
 async function voice(){if(S.recorder?.state==='recording'){S.recorder.stop();return}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true}),chunks=[],r=new MediaRecorder(stream);S.recorder=r;S.recordingAt=Date.now();r.ondataavailable=e=>e.data.size&&chunks.push(e.data);r.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:r.mimeType||'audio/webm'}),duration=Date.now()-S.recordingAt;S.recorder=null;const resp=await fetch(`/api/v1/conversations/${S.selected}/voice?durationMs=${duration}`,{method:'POST',credentials:'same-origin',headers:{'content-type':blob.type},body:blob}),p=await resp.json();if(resp.ok){append(S.selected,p.message);render()}else toast(p?.error?.message||'Ошибка записи')};r.start(250);toast('Запись началась — нажмите ещё раз, чтобы отправить.')}catch{toast('Нет доступа к микрофону.')}}
 $('#file-picker').onchange=async e=>{for(const file of e.target.files){const r=await fetch('/api/v1/files',{method:'POST',credentials:'same-origin',headers:{'content-type':file.type||'application/octet-stream','x-file-name':encodeURIComponent(file.name)},body:file}),p=await r.json();if(!r.ok){toast(p?.error?.message||'Ошибка загрузки');continue}const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({kind:'file',metadata:{fileId:p.file.id,name:file.name,mimeType:file.type,size:file.size,contentUrl:p.file.contentUrl}})});append(S.selected,message)}e.target.value='';render()};
 $$('[data-auth-mode]').forEach(b=>b.onclick=()=>setAuth(b.dataset.authMode));$('#login-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api('/api/v1/auth/login',{method:'POST',body:JSON.stringify({email:f.get('email'),password:f.get('password')})});bootstrap()}catch(x){$('#auth-error').textContent=x.message}};$('#register-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api('/api/v1/auth/register-company',{method:'POST',body:JSON.stringify({companyName:f.get('companyName'),ownerName:f.get('ownerName'),email:f.get('email'),password:f.get('password')})});bootstrap()}catch(x){$('#auth-error').textContent=x.message}};$('#accept-invite-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{await api('/api/v1/invitations/accept',{method:'POST',body:JSON.stringify({token:e.currentTarget.dataset.token,displayName:f.get('displayName'),password:f.get('password')})});history.replaceState({},'',location.pathname);bootstrap()}catch(x){$('#auth-error').textContent=x.message}};
+window.CHAT_ERRORS=ERROR_MESSAGE;
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').then(()=>{S.swReady=true}).catch(error=>{S.swError=error?.message||String(error)});bootstrap();

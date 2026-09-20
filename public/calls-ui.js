@@ -56,7 +56,7 @@
     root.querySelector('[data-call-answer]').onclick = () => {
       root.remove();
       history.replaceState(null, '', `/#/calls/${callId}`);
-      joinExisting(callId).catch((error) => status(error.message, true));
+      joinExisting(callId).catch((error) => status(window.CHAT_ERRORS?.[error.code] || error.message, true));
     };
   }
 
@@ -200,7 +200,7 @@
       syncControls();
     } catch (error) {
       if (type === 'screen') state.screen = false;
-      status(error.message || 'Не удалось изменить состояние звонка', true);
+      status(window.CHAT_ERRORS?.[error.code] || error.message || 'Не удалось изменить состояние звонка', true);
       syncControls();
     }
   }
@@ -303,7 +303,7 @@
     const app = document.querySelector('#app-view');
     if (!callId || state.room || state.joining || !app || app.hidden) return;
     joinExisting(callId).catch((error) => {
-      if (error.status !== 401) status(error.message, true);
+      if (error.status !== 401) status(window.CHAT_ERRORS?.[error.code] || error.message, true);
     });
   }
 
@@ -312,7 +312,7 @@
     if (!button) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    startOutgoing(button.dataset.action === 'audio' ? 'audio' : 'video').catch((error) => status(error.message, true));
+    startOutgoing(button.dataset.action === 'audio' ? 'audio' : 'video').catch((error) => status(window.CHAT_ERRORS?.[error.code] || error.message, true));
   }, true);
 
   window.addEventListener('hashchange', resumeHashCall);

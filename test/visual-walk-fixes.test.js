@@ -193,3 +193,18 @@ test('the board shows the recorded moves', async () => {
   const css = await read('public/styles.css');
   assert.ok(css.includes('.game-moves{'), 'у списка ходов нет оформления');
 });
+
+// Two tiles in «Ещё» promised a screen and delivered a toast: «Звонки» told
+// you to go and find the call buttons yourself, and «Уведомления», which
+// advertises mentions and deadlines, asked the browser for push instead of
+// opening the attention centre that already existed.
+test('the calls and notifications tiles open something', async () => {
+  const app = await read('public/app.js');
+  assert.ok(!app.includes("calls:()=>toast("), 'плитка звонков всё ещё только ругается');
+  assert.ok(app.includes('calls:callsModal'), 'плитка звонков никуда не ведёт');
+  assert.ok(app.includes('function callsModal()'), 'нет экрана звонка');
+  assert.ok(app.includes("push:()=>window.ChatDailyWork?.openNotifications?.()"), 'плитка уведомлений не открывает центр внимания');
+  assert.ok(app.includes("MEDIA_PROVIDER_UNAVAILABLE:"), 'отказ звонков не переведён');
+  const calls = await read('public/calls-ui.js');
+  assert.ok(calls.includes('window.CHAT_ERRORS?.[error.code]'), 'модуль звонков сообщает отказы по-английски');
+});
