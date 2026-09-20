@@ -38,18 +38,28 @@ test('Russian counts agree with their number', async () => {
 // Nine buttons sat under every message, on every screen: the hover-reveal rule
 // named .message-actions while the markup used .inline-actions, so it matched
 // nothing and the conversation was buried in its own controls.
-test('message controls stay out of the way until asked for', async () => {
+test('message controls never move the conversation', async () => {
   const [app, css] = await Promise.all([read('public/app.js'), read('public/styles.css')]);
 
-  assert.match(app, /class="inline-actions msg-actions"/, 'ряд действий не помечен');
-  assert.match(app, /data-message-actions="\$\{m\.id\}"/, 'нет кнопки, открывающей действия');
-  assert.match(app, /classList\.toggle\('actions-open'\)/);
-  assert.match(app, /aria-expanded/, 'состояние не объявлено для чтения с экрана');
+  // Раньше ряд кнопок раскрывался под сообщением и раздвигал поток: при
+  // наведении соседние сообщения уезжали вниз, а текст — из-под курсора.
+  assert.doesNotMatch(app, /class="inline-actions msg-actions"/, 'ряд действий снова в потоке');
+  assert.doesNotMatch(css, /actions-open/, 'осталось раскрытие в потоке');
+  assert.match(app, /class="msg-toolbar"/, 'нет плавающей панели действий');
+  assert.match(app, /data-message-menu="\$\{m\.id\}"/, 'нет кнопки «ещё»');
+  assert.match(app, /function messageMenu\(messageId\)/, 'нет листа действий сообщения');
 
-  assert.match(css, /\.msg-actions\{display:none/);
-  assert.match(css, /\.message-item\.actions-open \.msg-actions\{display:flex\}/);
-  assert.match(css, /@media\(hover:hover\)\{[\s\S]*?\.message-item:hover \.msg-actions/);
-  // The dead rule must not come back.
+  // Панель вынута из потока и её появление ничего не двигает.
+  assert.match(css, /\.msg-toolbar\{position:absolute/, 'панель осталась в потоке');
+  assert.match(css, /\.message-item\{position:relative;padding-right:\d+px\}/, 'место под панель не зарезервировано');
+  assert.match(css, /\.message-item:hover \.msg-toolbar,\.message-item:focus-within \.msg-toolbar\{opacity:1/,
+    'панель не показывается по наведению и фокусу');
+  assert.match(css, /@media \(hover:none\)\{[\s\S]*?\.msg-toolbar\{opacity:1/, 'на сенсорном экране панель не видна');
+
+  // Иконкам нужны имена: кнопка без подписи должна называться голосом.
+  for (const label of ['Поставить реакцию', 'Ответить на сообщение', 'Другие действия с сообщением']) {
+    assert.ok(app.includes(`aria-label="${label}"`), `кнопка «${label}» без имени`);
+  }
   assert.doesNotMatch(css, /\.message-actions\{/, 'правило снова целится в несуществующий класс');
 });
 

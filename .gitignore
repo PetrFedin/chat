@@ -9,3 +9,4 @@ coverage/
 
 # local port override, not a project default
 .claude/launch.json
+.secrets/

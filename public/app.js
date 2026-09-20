@@ -11,6 +11,16 @@ const navIcon={
   calendar:svg('<rect x="3.6" y="5.2" width="16.8" height="15.2" rx="2.4"/><path d="M3.6 10h16.8M8.4 3.6v3.2M15.6 3.6v3.2"/>'),
   more:svg('<circle cx="5.4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.6" cy="12" r="1.5" fill="currentColor" stroke="none"/>'),
 };
+const msgIcon={
+  react:svg('<circle cx="12" cy="12" r="8.2"/><path d="M8.8 14.4a4 4 0 0 0 6.4 0"/><path d="M9.2 9.6h.01M14.8 9.6h.01"/>'),
+  reply:svg('<path d="M9.6 6.4 4.8 11l4.8 4.6"/><path d="M4.8 11h8.6a5.6 5.6 0 0 1 5.6 5.6v1"/>'),
+  more:svg('<circle cx="5.4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.6" cy="12" r="1.5" fill="currentColor" stroke="none"/>'),
+  forward:svg('<path d="m14.4 6.4 4.8 4.6-4.8 4.6"/><path d="M19.2 11h-8.6A5.6 5.6 0 0 0 5 16.6v1"/>'),
+  pin:svg('<path d="M9.4 3.6h5.2l-.6 5 3 3.2-.9 1.4H8.9L8 11.8l3-3.2Z"/><path d="M12 13.2v7.2"/>'),
+  edit:svg('<path d="M14.6 5.4 18.6 9.4 9 19H5v-4Z"/><path d="m13.2 6.8 4 4"/>'),
+  trash:svg('<path d="M5.4 7.2h13.2"/><path d="M9.6 7.2V5.4h4.8v1.8"/><path d="M7.2 7.2 8 19.4a1.2 1.2 0 0 0 1.2 1.1h5.6a1.2 1.2 0 0 0 1.2-1.1l.8-12.2"/>'),
+  task:svg('<rect x="4.6" y="4.6" width="14.8" height="14.8" rx="3"/><path d="m8.6 12 2.4 2.4 4.4-4.8"/>'),
+};
 const roomIcon={
   pins:svg('<path d="M9.4 3.6h5.2l-.6 5 3 3.2-.9 1.4H8.9L8 11.8l3-3.2Z"/><path d="M12 13.2v7.2"/>'),
   muted:svg('<path d="M6.6 10.4a5.4 5.4 0 0 1 8.2-4.6"/><path d="M17.4 12.2c0 3.2 1.2 4.6 1.2 4.6H7.4"/><path d="M4.6 4.6 19.4 19.4"/><path d="M10.2 19a2 2 0 0 0 3.6 0"/>'),
@@ -321,7 +331,11 @@ function message(m){const reactions=(m.reactions||[]).reduce((a,r)=>(a[r.reactio
   const quote=m.replyToId?`<button class="reply-quote" data-jump="${esc(m.replyToId)}" title="Перейти к сообщению">${parent
     ?`<b>${esc(parent.authorId===me().userId?'Вы':name(parent.authorId))}</b> ${esc(parent.deletedAt?'сообщение удалено':(parent.body||kindLabel(parent.kind)||'вложение').slice(0,90))}`
     :'<b>Ответ</b> на сообщение выше'}</button>`:'';
-  return `<article class="message-item" data-message-row="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><div><div class="message-meta"><span class="message-author">${esc(m.authorId===me().userId?'Вы':name(m.authorId))}</span><span class="message-time">${time(m.createdAt)}${m.editedAt?' · изменено':''}${m.pinned?' · закреплено':''}${m.saved?' · сохранено':''}</span></div>${m.forwardedFrom?(m.forwardedFrom.restricted?'<div class="row-sub">↪ Пересланное сообщение</div>':`<button class="reaction-button" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">↪ Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`):''}${quote}${deleted?'<p class="muted">Сообщение удалено</p>':m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`:m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`:`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`}${(S.labelTargets?.get('message:'+m.id)||[]).length?`<div class="chip-row msg-labels">${(S.labelTargets.get('message:'+m.id)||[]).map(labelChip).join('')}</div>`:''}${deleted?'':`<button class="msg-more pressable" data-message-actions="${m.id}" aria-label="Действия с сообщением" aria-expanded="false">⋯</button><div class="inline-actions msg-actions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}<button class="reaction-button" data-react-pick="${m.id}" aria-label="Поставить реакцию">＋</button><button class="reaction-button" data-reply="${m.id}">Ответить</button><button class="reaction-button" data-message-save="${m.id}" data-saved="${m.saved?'1':'0'}">${m.saved?'Убрать из сохранённых':'Сохранить'}</button><button class="reaction-button" data-message-forward="${m.id}">Переслать</button><button class="reaction-button" data-message-label="${m.id}">Метка</button><button class="reaction-button" data-message-remind="${m.id}">Напомнить</button><button class="reaction-button" data-message-pin="${m.id}" data-pinned="${m.pinned?'1':'0'}">${m.pinned?'Открепить':'Закрепить'}</button><button class="reaction-button" data-task-message="${m.id}">В задачу</button>${m.authorId===me().userId&&m.kind==='text'&&!m.forwarded?`<button class="reaction-button" data-message-edit="${m.id}">Изменить</button>`:''}${canDelete?`<button class="reaction-button" data-message-delete="${m.id}">Удалить</button>`:''}</div>`}</div></article>`}
+  return `<article class="message-item" data-message-row="${m.id}"><span class="avatar dark">${esc(initials(name(m.authorId)))}</span><div><div class="message-meta"><span class="message-author">${esc(m.authorId===me().userId?'Вы':name(m.authorId))}</span><span class="message-time">${time(m.createdAt)}${m.editedAt?' · изменено':''}${m.pinned?' · закреплено':''}${m.saved?' · сохранено':''}</span></div>${m.forwardedFrom?(m.forwardedFrom.restricted?'<div class="row-sub">↪ Пересланное сообщение</div>':`<button class="reaction-button" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">↪ Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`):''}${quote}${deleted?'<p class="muted">Сообщение удалено</p>':m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`:m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`:`<p class="message-body">${esc(m.body||kindLabel(m.kind))}</p>`}${(S.labelTargets?.get('message:'+m.id)||[]).length?`<div class="chip-row msg-labels">${(S.labelTargets.get('message:'+m.id)||[]).map(labelChip).join('')}</div>`:''}${Object.keys(reactions).length?`<div class="chip-row msg-reactions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}</div>`:''}${deleted?'':`<div class="msg-toolbar">
+      <button class="msg-tool pressable" data-react-pick="${m.id}" title="Реакция" aria-label="Поставить реакцию">${msgIcon.react}</button>
+      <button class="msg-tool pressable" data-reply="${m.id}" title="Ответить" aria-label="Ответить на сообщение">${msgIcon.reply}</button>
+      <button class="msg-tool pressable" data-message-menu="${m.id}" title="Ещё" aria-label="Другие действия с сообщением">${msgIcon.more}</button>
+    </div>`}</div></article>`}
 function tasks(){return `<section class="surface"><div class="section-head"><div><p class="muted">Ответственность → выполнение → доказательство → проверка → закрытие</p></div>${can('task.create')?'<button data-action="task" class="button primary small pressable">＋ Задача</button>':''}</div><div class="task-list">${S.tasks.map(taskRow).join('')||'<div class="empty"><strong>Ничего не потеряется</strong>Создайте задачу вручную или из сообщения.</div>'}</div></section>`}
 function calendar(){
   const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
@@ -510,11 +524,7 @@ function bind(){
     if(!row)return toast('Это сообщение осталось выше по истории — прокрутите вверх.');
     row.scrollIntoView({block:'center',behavior:'smooth'});
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
-  });$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-actions]').forEach(b=>b.onclick=()=>{
-  const item=b.closest('.message-item');
-  const open=item.classList.toggle('actions-open');
-  b.setAttribute('aria-expanded',String(open));
-});$$('[data-message-label]').forEach(b=>b.onclick=()=>labelPicker('message',b.dataset.messageLabel,{title:'Метки сообщения'}));$$('[data-message-remind]').forEach(b=>b.onclick=()=>{
+  });$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-menu]').forEach(b=>b.onclick=()=>messageMenu(b.dataset.messageMenu));$$('[data-message-label]').forEach(b=>b.onclick=()=>labelPicker('message',b.dataset.messageLabel,{title:'Метки сообщения'}));$$('[data-message-remind]').forEach(b=>b.onclick=()=>{
   const source=(S.messages.get(S.selected)||[]).find(x=>x.id===b.dataset.messageRemind);
   remindAboutModal((source?.body||'Вернуться к сообщению').trim(),{sourceType:'message',sourceId:b.dataset.messageRemind,conversationId:S.selected});
 });$$('[data-message-pin]').forEach(b=>b.onclick=()=>togglePin(b.dataset.messagePin,b.dataset.pinned!=='1'));$$('[data-message-forward]').forEach(b=>b.onclick=()=>forwardModal(b.dataset.messageForward));$$('[data-forward-origin-conversation]').forEach(b=>b.onclick=()=>openChatAtMessage(b.dataset.forwardOriginConversation,b.dataset.forwardOriginMessage));$$('[data-message-edit]').forEach(b=>b.onclick=()=>editMessageModal(b.dataset.messageEdit));$$('[data-message-delete]').forEach(b=>b.onclick=()=>deleteMessageModal(b.dataset.messageDelete));$$('[data-task-message]').forEach(b=>b.onclick=()=>{
@@ -1855,6 +1865,41 @@ async function action(a){await actions[a]?.()}
 async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null})});append(S.selected,message);S.reply=null;render()}catch(e){toast(e.message)}}
 function append(id,m){const list=S.messages.get(id)||[];if(!list.some(x=>x.id===m.id))list.push(m);S.messages.set(id,list);const c=S.conversations.find(x=>x.id===id);if(c)c.lastMessage=m}
 const REACTIONS=['👍','👏','🔥','✅','❤️','😀','🤔','👀','🙏','🎯','⏱','❌'];
+function messageMenu(messageId){
+  const message=(S.messages.get(S.selected)||[]).find(x=>x.id===messageId);
+  if(!message)return toast('Сообщение не найдено');
+  const mine=message.authorId===me().userId;
+  const rows=[
+    ['react','Реакция',msgIcon.react],
+    ['reply','Ответить',msgIcon.reply],
+    ['save',message.saved?'Убрать из сохранённых':'Сохранить',tileIcon.saved],
+    ['forward','Переслать',msgIcon.forward],
+    ['label','Метка',tileIcon.labels],
+    ['remind','Напомнить',tileIcon.reminders],
+    ['pin',message.pinned?'Открепить':'Закрепить',msgIcon.pin],
+    ['task','В задачу',msgIcon.task],
+    ...(mine&&message.kind==='text'&&!message.forwarded?[['edit','Изменить',msgIcon.edit]]:[]),
+    ...(mine||can('message.delete.any')?[['delete','Удалить',msgIcon.trash]]:[]),
+  ];
+  modal('Сообщение',`<p class="muted">${esc((message.body||kindLabel(message.kind)||'').slice(0,120))}</p>
+    <div class="stack" style="margin-top:12px">${rows.map(([action,caption,icon])=>
+      `<button class="row pressable menu-row${action==='delete'?' danger':''}" data-menu="${action}"><span class="menu-icon">${icon}</span><span class="row-title">${esc(caption)}</span><span></span></button>`).join('')}</div>`,()=>{
+    const act={
+      react:()=>replaceModal(()=>reactionPicker(messageId)),
+      reply:()=>{closeModal();S.reply=message;render();$('#message-input')?.focus()},
+      save:()=>{closeModal();toggleSave(messageId,!message.saved)},
+      forward:()=>replaceModal(()=>forwardModal(messageId)),
+      label:()=>replaceModal(()=>labelPicker('message',messageId,{title:'Метки сообщения'})),
+      remind:()=>replaceModal(()=>remindAboutModal((message.body||'Вернуться к сообщению').trim(),{sourceType:'message',sourceId:messageId,conversationId:S.selected})),
+      pin:()=>{closeModal();togglePin(messageId,!message.pinned)},
+      task:()=>replaceModal(()=>taskModal(messageId,(message.body||'').trim().slice(0,120))),
+      edit:()=>replaceModal(()=>editMessageModal(messageId)),
+      delete:()=>replaceModal(()=>deleteMessageModal(messageId)),
+    };
+    $$('[data-menu]').forEach(b=>b.onclick=()=>act[b.dataset.menu]?.());
+  });
+}
+
 function reactionPicker(messageId){
   modal('Реакция',`<div class="chip-row">${REACTIONS.map(r=>`<button type="button" class="reaction-button" data-pick="${esc(r)}" style="font-size:22px;line-height:1">${esc(r)}</button>`).join('')}</div>`,()=>{
     $$('[data-pick]').forEach(b=>b.onclick=()=>{closeModal();react(messageId,b.dataset.pick)});

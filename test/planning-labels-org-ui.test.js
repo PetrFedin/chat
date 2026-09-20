@@ -41,7 +41,7 @@ test('labels reach every thing they can be put on', async () => {
   assert.match(app, /labelPicker\('message',/, 'у сообщения нет метки');
   assert.match(app, /labelPicker\('task',/, 'у задачи нет метки');
   assert.match(app, /labelPicker\('note',/, 'у личного дела нет метки');
-  assert.match(app, /data-message-label=/);
+  assert.match(app, /label:\(\)=>replaceModal\(\(\)=>labelPicker\('message'/);
   assert.match(app, /data-task-labels/);
   assert.match(app, /data-plan-labels/);
 
