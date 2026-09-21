@@ -174,7 +174,14 @@ export class MemoryStore {
         const since=Date.parse(member?.lastReadAt??member?.joinedAt??0)||0;
         const unreadCount=list.filter(message=>!message.deletedAt&&message.authorId!==session.userId
           &&Date.parse(message.createdAt)>since).length;
-        return {...clone(conversation),lastMessage:clone(lastMessage),unreadCount,archivedAt:member?.archivedAt??null,mutedUntil:member?.mutedUntil??null,memberRole:member?.role??null};
+        // См. PostgreSQL-хранилище: личная переписка зовётся именем собеседника.
+        const title=conversation.title??(conversation.kind==='direct'
+          ? (()=>{const other=[...this.conversationMembers.values()]
+              .find(cm=>cm.conversationId===conversation.id&&cm.userId!==session.userId);
+             const profile=other&&this.profiles.get(this.membershipKey(conversation.workspaceId,other.userId));
+             return profile?.displayName??profile?.email??null})()
+          : null);
+        return {...clone(conversation),title,lastMessage:clone(lastMessage),unreadCount,archivedAt:member?.archivedAt??null,mutedUntil:member?.mutedUntil??null,memberRole:member?.role??null};
       });
   }
 

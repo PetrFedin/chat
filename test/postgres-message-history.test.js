@@ -57,3 +57,45 @@ test('переписку можно дочитать до самого нача�
   assert.match(client, /messages\?before=/);
   assert.match(client, /loadOlderMessages/);
 });
+
+// Личная переписка называлась «Диалог» — все сразу. С двумя собеседниками
+// список превращался в загадку.
+test('личная переписка зовётся именем собеседника',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const app = await createChatServer({ databaseUrl: DATABASE_URL, startMeetingWorker: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const suffix = Math.random().toString(36).slice(2, 7);
+
+  const owner = await request(base, '/api/v1/auth/register-company', {
+    method: 'POST',
+    body: { companyName: `Диалоги ${suffix}`, ownerName: 'Владелец', email: `own-${suffix}@t.test`, password: 'OwnerPassword42' },
+  });
+  const join = async (tag, name) => {
+    const invitation = await request(base, '/api/v1/invitations', {
+      cookie: owner.cookie, method: 'POST', body: { email: `${tag}-${suffix}@t.test`, role: 'member' } });
+    const token = new URL(invitation.payload.invitation.inviteUrl).searchParams.get('invite');
+    const session = await request(base, '/api/v1/invitations/accept', {
+      method: 'POST', body: { token, displayName: name, password: 'OwnerPassword42' } });
+    const person = (await request(base, '/api/v1/people', { cookie: owner.cookie }))
+      .payload.items.find((p) => p.email === `${tag}-${suffix}@t.test`);
+    return { ...session, userId: person.userId };
+  };
+  const nina = await join('nina', 'Нина Бухгалтер');
+  const oleg = await join('oleg', 'Олег Прораб');
+
+  for (const mate of [nina, oleg]) {
+    await request(base, '/api/v1/conversations', {
+      cookie: owner.cookie, method: 'POST', body: { kind: 'direct', participantIds: [mate.userId] } });
+  }
+
+  const mine = (await request(base, '/api/v1/conversations', { cookie: owner.cookie })).payload.items
+    .filter((c) => c.kind === 'direct').map((c) => c.title).sort();
+  assert.deepEqual(mine, ['Нина Бухгалтер', 'Олег Прораб']);
+
+  // С той стороны переписка зовётся владельцем — имя всегда чужое, не своё.
+  const hers = (await request(base, '/api/v1/conversations', { cookie: nina.cookie })).payload.items
+    .filter((c) => c.kind === 'direct').map((c) => c.title);
+  assert.deepEqual(hers, ['Владелец']);
+});

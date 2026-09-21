@@ -1,4 +1,4 @@
-import { openConversationSql } from './visibility.js';
+import { openConversationSql, conversationListSql } from './visibility.js';
 import { randomUUID } from 'node:crypto';
 import { MemoryStore as BaseMemoryStore } from './memory-store.js';
 import { PostgresStore as BasePostgresStore } from './postgres-store.js';
@@ -359,23 +359,10 @@ export class PostgresStore extends BasePostgresStore {
   }
 
   async listConversations(session, { archived=false } = {}) {
-    const { rows } = await this.pool.query(`
-      SELECT c.id,c.kind,c.title,c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_at "createdAt",
-        cm.archived_at "archivedAt",cm.muted_until "mutedUntil",cm.role "memberRole",
-        (SELECT jsonb_build_object('id',m.id,'body',m.body,'kind',m.kind,'authorId',m.author_id,'createdAt',m.created_at)
-          FROM messages m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.deleted_at IS NULL
-          ORDER BY m.created_at DESC,m.id DESC LIMIT 1) "lastMessage",
-        COALESCE((SELECT count(*) FROM messages um
-          WHERE um.workspace_id=c.workspace_id AND um.conversation_id=c.id AND um.deleted_at IS NULL AND um.author_id<>$2
-            AND um.created_at>COALESCE(cm.last_read_at,cm.joined_at,'epoch'::timestamptz)),0)::int "unreadCount",
-        COALESCE((SELECT count(*) FROM message_mentions mm JOIN messages xm ON xm.workspace_id=mm.workspace_id AND xm.id=mm.message_id
-          WHERE mm.workspace_id=c.workspace_id AND mm.mentioned_user_id=$2 AND xm.conversation_id=c.id AND xm.deleted_at IS NULL
-            AND xm.created_at>COALESCE(cm.last_read_at,cm.joined_at,'epoch'::timestamptz)),0)::int "mentionCount"
-      FROM conversations c
-      LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$2
-      WHERE c.workspace_id=$1 AND c.archived_at IS NULL AND(${openConversationSql(session,'c')} OR cm.user_id IS NOT NULL)
-        AND(($3::boolean AND cm.archived_at IS NOT NULL) OR (NOT $3::boolean AND cm.archived_at IS NULL))
-      ORDER BY COALESCE((SELECT max(created_at) FROM messages m2 WHERE m2.workspace_id=c.workspace_id AND m2.conversation_id=c.id),c.created_at) DESC`,[session.workspaceId,session.userId,Boolean(archived)]);
+    // Тот же список, что у базового хранилища, плюс счётчик упоминаний:
+    // запрос один на всё приложение, чтобы копии снова не разошлись.
+    const { rows } = await this.pool.query(conversationListSql(session, { withMentions: true }),
+      [session.workspaceId, session.userId, Boolean(archived)]);
     return rows;
   }
 
