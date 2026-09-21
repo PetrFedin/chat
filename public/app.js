@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
+const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -188,7 +188,39 @@ async function loadTasks(){
   }catch{}
 }
 async function loadCalendar(){await loadCalendarRange()}
-async function loadMessages(id){if(id&&!S.messages.has(id))S.messages.set(id,(await api(`/api/v1/conversations/${id}/messages`)).items||[])}
+async function loadMessages(id){
+  if(!id||S.messages.has(id))return;
+  const page=await api(`/api/v1/conversations/${id}/messages`);
+  S.messages.set(id,page.items||[]);
+  S.messageCursor.set(id,page.nextCursor||null);
+}
+
+/**
+ * Переписка глубже первой сотни сообщений была недостижима: сервер честно
+ * отдавал курсор на следующую страницу, а клиент его выбрасывал. Договор
+ * трёхмесячной давности в рабочем чате было нельзя ни найти, ни дочитать.
+ *
+ * Прокрутка вверх подгружает предыдущую страницу и удерживает то же место:
+ * лента не прыгает под руками — ровно то, чего ждёшь от любого мессенджера.
+ */
+async function loadOlderMessages(id){
+  const cursor=S.messageCursor.get(id);
+  if(!cursor||S.loadingOlder)return;
+  S.loadingOlder=true;
+  const stream=$('#message-stream');
+  const anchor=stream?{height:stream.scrollHeight,top:stream.scrollTop}:null;
+  try{
+    const page=await api(`/api/v1/conversations/${id}/messages?before=${encodeURIComponent(cursor)}`);
+    const older=page.items||[];
+    S.messageCursor.set(id,page.nextCursor||null);
+    if(older.length){
+      S.messages.set(id,[...older,...(S.messages.get(id)||[])]);
+      S.keepScroll=anchor;
+      render();
+    }
+  }catch(error){toast(error.message)}
+  finally{S.loadingOlder=false}
+}
 function shell(){const s=me();$('#profile-card').innerHTML=`<span class="avatar dark">${esc(initials(s.displayName))}</span><span><strong>${esc(s.displayName)}</strong><small>${esc(s.role)}</small></span><span class="presence-dot online"></span>`;$('#top-avatar').textContent=initials(s.displayName);
   // Both of these carry a chevron and a press animation, so they promise an
   // action; neither had a handler of any kind.
@@ -330,7 +362,7 @@ const TASK_EVENT={
 const TASK_ACTION={accepted:'Принять ответственность',rejected:'Отказаться',clarify:'Запросить уточнение',scheduled:'Запланировать',in_progress:'Начать работу',blocked:'Есть блокировка',in_review:'Отправить на проверку',accepted_result:'Принять результат',closed:'Закрыть',deferred:'Отложить',cancelled:'Отменить'};
 function taskRow(t){return `<button class="task-card pressable" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span>${esc(dateTime(t.promisedAt))}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div></span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`}
 function kindLabel(k){return({voice:'Голосовое сообщение',file:'Файл',call:'Звонок',task:'Задача',calendar:'Событие'})[k]||''}
-function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button><button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button><button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button></div></header><div id="message-stream" class="message-stream">${messageStream(messages)}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
+function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${esc(x.lastMessage?.body||kindLabel(x.lastMessage?.kind)||'Нет сообщений')}</div></span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button><button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button><button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button></div></header><div id="message-stream" class="message-stream">${S.messageCursor.get(c.id)?'<button id="load-older" class="button secondary pressable" style="margin:0 auto 10px;display:block">Показать более ранние</button>':''}${messageStream(messages)}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
 /**
  * Лента переписки.
  *
@@ -658,7 +690,20 @@ function bind(){
 });$$('[data-message-pin]').forEach(b=>b.onclick=()=>togglePin(b.dataset.messagePin,b.dataset.pinned!=='1'));$$('[data-message-forward]').forEach(b=>b.onclick=()=>forwardModal(b.dataset.messageForward));$$('[data-forward-origin-conversation]').forEach(b=>b.onclick=()=>openChatAtMessage(b.dataset.forwardOriginConversation,b.dataset.forwardOriginMessage));$$('[data-message-edit]').forEach(b=>b.onclick=()=>editMessageModal(b.dataset.messageEdit));$$('[data-message-delete]').forEach(b=>b.onclick=()=>deleteMessageModal(b.dataset.messageDelete));$$('[data-task-message]').forEach(b=>b.onclick=()=>{
   const source=(S.messages.get(S.selected)||[]).find(x=>x.id===b.dataset.taskMessage);
   taskModal(b.dataset.taskMessage,(source?.body||'').trim().slice(0,120));
-});$$('[data-task-open]').forEach(b=>b.onclick=()=>openTask(b.dataset.taskOpen));const input=$('#message-input');if(input){input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};input.oninput=typing;requestAnimationFrame(()=>{$('#message-stream')?.scrollTo(0,999999)})}}
+});$$('[data-task-open]').forEach(b=>b.onclick=()=>openTask(b.dataset.taskOpen));const input=$('#message-input');if(input){input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};input.oninput=typing;
+  const stream=$('#message-stream');
+  if(stream){
+    // Подгрузка вверх не должна выбрасывать читающего вниз ленты.
+    if(S.keepScroll){
+      const anchor=S.keepScroll;S.keepScroll=null;
+      requestAnimationFrame(()=>{stream.scrollTop=stream.scrollHeight-anchor.height+anchor.top});
+    }else{
+      requestAnimationFrame(()=>{stream.scrollTo(0,999999)});
+    }
+    const older=$('#load-older');
+    if(older)older.onclick=()=>loadOlderMessages(S.selected);
+    stream.onscroll=()=>{if(stream.scrollTop<80)loadOlderMessages(S.selected)};
+  }}}
 function go(v){
   S.view=v;
   if(v!=='chats')S.mobileChat=false;
