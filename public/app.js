@@ -552,7 +552,25 @@ function calendar(){
   const sameDay=(a,b)=>a.toDateString()===b.toDateString();
   const today=new Date();
   const dayKey=(d)=>`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-  const eventsOn=(d)=>(S.calendar||[]).filter(e=>sameDay(new Date(e.startAt),d));
+  /**
+   * В какой день попадает событие.
+   *
+   * Встреча — это мгновение, и её день считается по часам смотрящего. А
+   * «весь день» — календарная дата в поясе того, кто её назначил: отчётный
+   * день 31 декабря, поставленный в Москве, у коллеги в Нью-Йорке
+   * оказывался тридцатым, потому что клиент раскладывал всё по своему
+   * поясу.
+   */
+  const eventDay=(e)=>{
+    const at=new Date(e.startAt);
+    if(!e.allDay||!e.timezone)return at;
+    try{
+      const parts=new Intl.DateTimeFormat('en-CA',{timeZone:e.timezone,year:'numeric',month:'2-digit',day:'2-digit'})
+        .formatToParts(at).reduce((acc,p)=>(acc[p.type]=p.value,acc),{});
+      return new Date(Number(parts.year),Number(parts.month)-1,Number(parts.day));
+    }catch{return at}
+  };
+  const eventsOn=(d)=>(S.calendar||[]).filter(e=>sameDay(eventDay(e),d));
   // An event still awaiting this person's answer pulses: the grid is where a
   // missed invitation actually costs something.
   const dot=(e)=>`<i class="cal-dot ${e.needsMyAnswer?'pending':esc(e.kind)}"></i>`;
@@ -596,12 +614,12 @@ function calendar(){
   // single day once one is picked. Showing the whole loaded window would put
   // next month's meetings under this week.
   const inPeriod=(e)=>{
-    const d=new Date(e.startAt);
+    const d=eventDay(e);
     if(c.view==='day')return sameDay(d,base);
     if(c.view==='week'){const s0=weekStart();return d>=s0&&d<new Date(s0.getTime()+7*864e5)}
     return d.getMonth()===base.getMonth()&&d.getFullYear()===base.getFullYear();
   };
-  const shown=(S.calendar||[]).filter(e=>c.selected?dayKey(new Date(e.startAt))===c.selected:inPeriod(e));
+  const shown=(S.calendar||[]).filter(e=>c.selected?dayKey(eventDay(e))===c.selected:inPeriod(e));
   const heading=c.selected?'Выбранный день':(c.view==='day'?'События дня':c.view==='week'?'События недели':'События месяца');
   const rows=shown.length?shown.map(e=>`<button class="calendar-event pressable ${e.needsMyAnswer?'needs-answer':''}" data-cal-event="${esc(e.id)}">
       <strong>${e.allDay?'весь день':esc(time(e.startAt))}${(c.view!=='day'&&!c.selected)?`<i class="event-day">${esc(new Date(e.startAt).toLocaleDateString('ru-RU',c.view==='month'?{day:'numeric',month:'short'}:{weekday:'short',day:'numeric'}))}</i>`:''}</strong><span class="event-line"></span>

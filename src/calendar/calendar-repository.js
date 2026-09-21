@@ -158,6 +158,12 @@ export function createCalendarRepository(pool, store = null) {
       const size = Math.min(Math.max(Number(limit) || 2000, 1), 5000);
       const { rows } = await pool.query(
         `SELECT e.id,e.kind,e.title,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",e.all_day "allDay",
+                -- Пояс встречи нужен сетке: «весь день» — это календарная
+                -- дата в поясе того, кто её назначил, а не мгновение. Без
+                -- этого поля клиент раскладывал события по своему поясу, и
+                -- отчётный день 31 декабря у коллеги в Нью-Йорке
+                -- оказывался тридцатым.
+                e.timezone,
                 e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
                 pa.response_status "myResponse",
                 (SELECT count(*)::int FROM calendar_event_participants x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id) "participantCount",
