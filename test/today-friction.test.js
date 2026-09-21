@@ -61,3 +61,31 @@ test('взгляд в беседу не считается прочтением'
   assert.match(app, /setTimeout\(\(\)=>\{\s*const pane=\$\('#message-stream'\);/);
   assert.match(app, /class="unread-divider"/, 'в ленте нет границы непрочитанного');
 });
+
+/**
+ * Сообщение → задача занимало шестнадцать нажатий: три, чтобы добраться
+ * до десятой плитки в меню «ещё», и тринадцать на форму из шести полей.
+ * На объекте с телефона так никто делать не будет — вопрос остаётся
+ * висеть в переписке.
+ */
+test('задача из сообщения ставится одним движением', () => {
+  // Кнопка в самой панели пузыря, а не в меню «ещё».
+  assert.match(app, /data-quick-task="\$\{m\.id\}"/);
+  assert.match(app, /function quickTaskModal\(message\)/);
+  // Только то, без чего обязательства не бывает: что, кто и когда.
+  const form = app.slice(app.indexOf('function quickTaskModal'), app.indexOf('function taskModal'));
+  assert.match(form, /name="title"/);
+  assert.match(form, /name="ownerId"/);
+  assert.match(form, /data-due=/);
+  assert.match(form, /sourceMessageId:message\.id/, 'связь с сообщением не передаётся');
+  assert.doesNotMatch(form, /name="priority"/, 'в короткой форме снова лишние поля');
+});
+
+test('связь задачи и сообщения видна в обе стороны', () => {
+  // На сообщении — отметка с задачей.
+  assert.match(app, /S\.tasksFromMessage\?\.get\(m\.id\)/);
+  assert.match(app, /function indexTasksByMessage\(\)/);
+  // В карточке задачи — ссылка на обсуждение.
+  assert.match(app, /data-task-source="\$\{esc\(task\.sourceMessageId\)\}"/);
+  assert.match(app, /\$\('\[data-task-source\]'\)\?\.addEventListener/);
+});

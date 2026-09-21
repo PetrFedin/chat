@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),unreadFrom:new Map(),readUpTo:new Map(),invitations:[],taskFilter:'active',taskScope:'mine',taskCounts:null,tasksPage:null,tasksCursor:null,loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
+const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),unreadFrom:new Map(),readUpTo:new Map(),tasksFromMessage:new Map(),invitations:[],taskFilter:'active',taskScope:'mine',taskCounts:null,tasksPage:null,tasksCursor:null,loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -232,6 +232,24 @@ async function routeFromHash(){
 window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
 // The task list is paged now. The screen still shows one backlog, so it walks
 // the cursor to the end — bounded, so a runaway cursor cannot spin forever.
+/**
+ * Какие задачи выросли из какого сообщения.
+ *
+ * Связь хранится в базе и приходит в ответе с первого дня, но в
+ * интерфейсе не была отрисована нигде: коллеги продолжали обсуждать
+ * смету, не зная, что вопрос уже кому-то поручен.
+ */
+function indexTasksByMessage(){
+  const index=new Map();
+  for(const task of S.tasks||[]){
+    if(!task.sourceMessageId)continue;
+    const list=index.get(task.sourceMessageId)??[];
+    list.push(task);
+    index.set(task.sourceMessageId,list);
+  }
+  S.tasksFromMessage=index;
+}
+
 async function loadTasks(){
   try{
     const items=[];let cursor=null,pages=0;
@@ -241,6 +259,7 @@ async function loadTasks(){
       cursor=page.nextCursor||null;
     }while(cursor&&++pages<20);
     S.tasks=items;
+    indexTasksByMessage();
   }catch{}
 }
 async function loadCalendar(){await loadCalendarRange()}
@@ -613,11 +632,13 @@ function message(m,grouped=false){
         ${forwarded}${quote}${body}${stamp}
       </div>
       ${noteBlock}
+      ${(S.tasksFromMessage?.get(m.id)||[]).length?`<div class="chip-row msg-labels">${(S.tasksFromMessage.get(m.id)||[]).map(t=>`<button class="chip warm pressable" data-task-open="${esc(t.id)}" title="Открыть задачу">${msgIcon.task} ${esc(t.title.slice(0,40))}</button>`).join('')}</div>`:''}
       ${(S.labelTargets?.get('message:'+m.id)||[]).length?`<div class="chip-row msg-labels">${(S.labelTargets.get('message:'+m.id)||[]).map(labelChip).join('')}</div>`:''}
       ${Object.keys(reactions).length?`<div class="chip-row msg-reactions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}</div>`:''}
       ${deleted?'':`<div class="msg-toolbar">
         <button class="msg-tool pressable" data-react-pick="${m.id}" title="Реакция" aria-label="Поставить реакцию">${msgIcon.react}</button>
         <button class="msg-tool pressable" data-reply="${m.id}" title="Ответить" aria-label="Ответить на сообщение">${msgIcon.reply}</button>
+        ${can('task.create')?`<button class="msg-tool pressable" data-quick-task="${m.id}" title="В задачу" aria-label="Превратить сообщение в задачу">${msgIcon.task}</button>`:''}
         <button class="msg-tool pressable" data-message-menu="${m.id}" title="Ещё" aria-label="Другие действия с сообщением">${msgIcon.more}</button>
       </div>`}
     </div>
@@ -1008,7 +1029,7 @@ function bind(){
     if(!row)return toast('Это сообщение осталось выше по истории — прокрутите вверх.');
     row.scrollIntoView({block:'center',behavior:'smooth'});
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
-  });$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-menu]').forEach(b=>b.onclick=()=>messageMenu(b.dataset.messageMenu));$$('[data-voice]').forEach(card=>{
+  });$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-quick-task]').forEach(b=>b.onclick=()=>{const m=(S.messages.get(S.selected)||[]).find(x=>x.id===b.dataset.quickTask);if(m)quickTaskModal(m)});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-menu]').forEach(b=>b.onclick=()=>messageMenu(b.dataset.messageMenu));$$('[data-voice]').forEach(card=>{
   const button=card.querySelector('.voice-play');
   if(!button)return;
   button.onclick=()=>{
@@ -3052,6 +3073,62 @@ function closeModal(){
 function replaceModal(open){if(overlayStack.length)overlayStack.pop();open()}
 function quick(){modal('Создать',`<div class="module-grid"><button class="module-card" data-q="dm"><span class="module-icon">${navIcon.chats}</span><strong>Сообщение</strong></button><button class="module-card" data-q="group"><span class="module-icon">${tileIcon.team}</span><strong>Группа</strong></button><button class="module-card" data-q="task"><span class="module-icon">${msgIcon.task}</span><strong>Задача</strong></button><button class="module-card" data-q="event"><span class="module-icon">${navIcon.calendar}</span><strong>Событие</strong></button><button class="module-card" data-q="channel"><span class="module-icon">${roomIcon.channel}</span><strong>Канал</strong></button></div>`);$$('[data-q]').forEach(b=>b.onclick=()=>{const x=b.dataset.q;replaceModal(({dm:directModal,group:groupModal,task:()=>taskModal(),event:eventModal,channel:channelModal})[x])})}
 const TASK_PRIORITY={normal:'обычный',high:'высокий',urgent:'срочный',low:'низкий'};
+/**
+ * Сообщение → задача одним движением.
+ *
+ * Полный путь занимал шестнадцать нажатий: три, чтобы добраться до
+ * пункта «В задачу» (десятая плитка из двенадцати в меню «ещё»), и
+ * тринадцать на форму из шести полей. На объекте с телефона так никто
+ * делать не будет — вопрос останется висеть в переписке.
+ *
+ * Здесь только то, без чего обязательства не бывает: что, кто и когда.
+ * Остальное у задачи уже есть по умолчанию и правится в карточке.
+ */
+function quickTaskModal(message){
+  const text=String(message.body||kindLabel(message.kind)||'').trim();
+  const presets=[
+    ['Сегодня',new Date(new Date().setHours(18,0,0,0))],
+    ['Завтра',new Date(new Date(Date.now()+86400000).setHours(18,0,0,0))],
+    ['В пятницу',(()=>{const d=new Date();d.setDate(d.getDate()+((5-d.getDay()+7)%7||7));d.setHours(18,0,0,0);return d})()],
+  ];
+  modal('В задачу',`<form id="quick-task" class="form-stack">
+    <label>Что нужно сделать<input name="title" required maxlength="240" value="${esc(text.slice(0,240))}"></label>
+    <label>Кто сделает<select name="ownerId" class="field">${colleagues().map(p=>`<option value="${esc(p.userId)}"${p.userId===me().userId?' selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label>
+    <div><div class="row-title">Когда</div>
+      <div class="chip-row" style="margin-top:8px">${presets.map(([caption,when])=>`<button type="button" class="chipbtn pressable" data-due="${esc(when.toISOString())}">${caption}</button>`).join('')}
+        <button type="button" class="chipbtn pressable on" data-due="">Без срока</button></div>
+      <input type="hidden" name="promisedAt" value="">
+    </div>
+    <p class="muted">Остальное — приёмку, важность, доказательства — можно задать в карточке задачи.</p>
+    <button class="button primary">Поставить задачу</button>
+  </form>`,()=>{
+    const form=$('#quick-task');
+    $$('[data-due]').forEach(b=>b.onclick=()=>{
+      $$('[data-due]').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      form.querySelector('[name="promisedAt"]').value=b.dataset.due;
+    });
+    form.onsubmit=async(event)=>{
+      event.preventDefault();
+      const data=new FormData(form);
+      try{
+        const{task}=await api('/api/v1/tasks',{method:'POST',body:JSON.stringify({
+          title:data.get('title'),
+          ownerId:data.get('ownerId'),
+          acceptorId:me().userId,
+          promisedAt:data.get('promisedAt')||null,
+          sourceMessageId:message.id,
+        })});
+        toast('Задача поставлена');
+        closeModal();
+        await Promise.all([loadTasks(),loadTaskPage()]);
+        render();
+        void task;
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
 function taskModal(sourceMessageId=null,prefill=''){modal('Новая задача',`<form id="task-form" class="form-stack"><label>Что нужно сделать<input name="title" required value="${esc(prefill)}"></label><label>Ожидаемый результат<textarea name="outcome" rows="3" placeholder="Как понять, что задача выполнена?"></textarea></label><label>Ответственный<select name="ownerId" class="field">${colleagues().map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Кто принимает результат<select name="acceptorId" class="field">${colleagues().map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Срок<input name="promisedAt" type="datetime-local"></label><label>Приоритет<select name="priority" class="field"><option value="normal">Обычный</option><option value="high">Высокий</option><option value="urgent">Срочный</option><option value="low">Низкий</option></select></label><button class="button primary">Создать</button></form>`);$('#task-form').onsubmit=async e=>{
     e.preventDefault();
     const f=new FormData(e.currentTarget);
@@ -3084,6 +3161,7 @@ function taskDetailModal(task){
     <div class="row"><span class="task-status"></span><span><div class="row-title">${esc(TASK_STATUS[task.status]||task.status)}</div><div class="row-sub">Версия ${Number(task.version||1)} · ${esc(TASK_PRIORITY[task.priority]||task.priority||'обычный')}</div></span><span class="chip">${esc(dateTime(task.promisedAt))}</span></div>
     <div><div class="row-title">Метки <button class="text-button" data-task-labels>изменить</button></div>
       <div class="person-chips" data-task-label-slot><span class="muted">загружаем…</span></div></div>
+    ${task.sourceMessageId?`<div class="row"><span><div class="row-title">Из сообщения</div><div class="row-sub">Обсуждение, из которого выросла эта задача</div></span><button class="button small secondary pressable" data-task-source="${esc(task.sourceMessageId)}">Открыть</button></div>`:''}
     <div class="surface"><div class="row-title">Ожидаемый результат</div><p class="muted">${esc(task.outcome||task.title)}</p><div class="row-sub">Ответственный: ${esc(name(task.ownerId))} · Принимает: ${esc(name(task.acceptorId))} · Поставил: ${esc(name(task.requesterId))}</div></div>
     <div><div class="row-title">Следующее действие</div>${task.status==='in_progress'&&!evidence.length?'<p class="muted" style="margin:6px 0 0">Чтобы сдать работу на проверку, приложите хотя бы одно доказательство — форма ниже.</p>':''}<div class="inline-actions" style="margin-top:8px">${(task.allowedTransitions||[]).map(to=>`<button class="button ${to==='accepted_result'||to==='closed'?'primary':'secondary'} small" data-task-transition="${esc(to)}">${esc(taskActionLabel(task,to))}</button>`).join('')||'<span class="muted">Доступных переходов сейчас нет.</span>'}</div></div>
     <form id="task-evidence-form" class="form-stack"><div class="row-title">Добавить результат / доказательство</div><label>Тип<select name="type" class="field"><option value="note">Комментарий / результат</option><option value="url">Ссылка</option><option value="metric">Метрика</option><option value="message">Ссылка на сообщение</option><option value="file">Идентификатор файла</option></select></label><label>Данные<textarea name="value" rows="3" required placeholder="Что сделано, где результат или чем это подтверждается"></textarea></label><button class="button secondary">Добавить доказательство</button></form>
@@ -3099,6 +3177,15 @@ function taskDetailModal(task){
   $('[data-task-remind]')?.addEventListener('click',()=>remindAboutModal(task.title,{sourceType:'task',sourceId:task.id}));
   $('[data-task-reassign]')?.addEventListener('click',()=>taskReassignModal(task));
   $('[data-task-reschedule]')?.addEventListener('click',()=>taskRescheduleModal(task));
+  // Связь задача ↔ сообщение хранилась и отдавалась с первого дня, но
+  // открыть обсуждение из задачи было нельзя: его искали руками.
+  $('[data-task-source]')?.addEventListener('click',async()=>{
+    const messageId=task.sourceMessageId;
+    const conversationId=S.conversations.find(c=>(S.messages.get(c.id)||[]).some(m=>m.id===messageId))?.id;
+    closeModal();
+    if(conversationId)await openChatAtMessage(conversationId,messageId);
+    else toast('Это сообщение в беседе, которая сейчас не открыта');
+  });
 }
 function taskTransition(task,to){if(taskReasonRequired(task,to)){modal(taskActionLabel(task,to),`<form id="task-transition-form" class="form-stack"><p class="muted">Причина будет сохранена в истории задачи.</p><label>Причина<textarea name="reason" rows="4" required></textarea></label><button class="button primary">${esc(taskActionLabel(task,to))}</button></form>`);$('#task-transition-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await executeTaskTransition(task,to,f.get('reason'))};return}executeTaskTransition(task,to,null)}
 async function executeTaskTransition(task,to,reason){try{const{task:updated}=await api(`/api/v1/tasks/${task.id}/transitions`,{method:'POST',body:JSON.stringify({to,reason,expectedVersion:task.version})});upsertTask(updated);toast(TASK_STATUS[updated.status]||'Задача обновлена');await openTask(task.id);render()}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}}
