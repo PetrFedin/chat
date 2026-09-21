@@ -102,3 +102,41 @@ test('край ввода отвечает внятно, а не пятисот�
   assert.equal(everything.status, 200);
   assert.equal(everything.payload.items.length, 0, 'поиск по шаблону выдал всю ленту');
 });
+
+// Смещения выделения принимались в двух единицах сразу и не сверялись с
+// самим сообщением: выделение эмодзи рисовалось по одной единице, а
+// сохранялось в другой, а смещения за пределами текста подсвечивали пустоту.
+test('выделение маркером обязано совпасть с текстом сообщения',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const app = await createChatServer({ databaseUrl: DATABASE_URL, startMeetingWorker: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const suffix = Math.random().toString(36).slice(2, 7);
+
+  const owner = await request(base, '/api/v1/auth/register-company', {
+    method: 'POST',
+    body: { companyName: `Маркер ${suffix}`, ownerName: 'Владелец', email: `own-${suffix}@t.test`, password: 'OwnerPassword42' },
+  });
+  const cookie = owner.cookie;
+  const conversation = (await request(base, '/api/v1/bootstrap', { cookie })).payload.conversations[0];
+  const text = 'Привет 👍 мир';
+  const message = (await request(base, `/api/v1/conversations/${conversation.id}/messages`, {
+    cookie, method: 'POST', body: { body: text } })).payload.message;
+
+  const paint = (startOffset, endOffset, quote) => request(base, '/api/v1/highlights', {
+    cookie, method: 'POST',
+    body: { messageId: message.id, conversationId: conversation.id, startOffset, endOffset, quote, colour: 'yellow' } });
+
+  // Единица одна — та, которой меряет браузер: эмодзи занимает две.
+  const emojiStart = text.indexOf('👍');
+  assert.equal((await paint(emojiStart, emojiStart + 2, '👍')).status, 201);
+  assert.equal((await paint(emojiStart, emojiStart + 1, '👍')).code, 'HIGHLIGHT_RANGE_MISMATCH',
+    'та же метка принята в другой единице — рисовать её будут по-разному');
+
+  // За пределами текста выделять нечего.
+  assert.equal((await paint(999998, 999999, 'x')).code, 'HIGHLIGHT_RANGE_MISMATCH');
+  // И кусок должен быть именно тем, который назвали.
+  assert.equal((await paint(0, 6, 'Другое')).code, 'HIGHLIGHT_RANGE_MISMATCH');
+  assert.equal((await paint(0, 6, 'Привет')).status, 201);
+});

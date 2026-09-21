@@ -2927,7 +2927,7 @@ function eventModal(prefill=''){
       <option value="deadline">Дедлайн</option><option value="reminder">Напоминание</option>
     </select></label>
     <label>Начало<input name="start" type="datetime-local" required value="${esc(toLocalInput(start.toISOString()))}"></label>
-    <label>Окончание<input name="end" type="datetime-local" value="${esc(toLocalInput(end.toISOString()))}"></label>
+    <label>Окончание<input name="end" type="datetime-local" required value="${esc(toLocalInput(end.toISOString()))}"></label>
     <label>Описание<textarea name="description" rows="2" maxlength="2000"></textarea></label>
     ${S.boot?.storageMode==='memory'?'':`<div><div class="row-title">Кого позвать</div>
       <div class="row-sub">Каждый получит приглашение и подтвердит участие</div>

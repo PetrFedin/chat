@@ -138,7 +138,12 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     // Раньше здесь стоял голый new Date: `null` давал первое января
     // 1970-го, а несуществующий день молча съезжал на следующий.
     const startAt=toDateOrNull(b.startAt??null),endAt=toDateOrNull(b.endAt??null);
-    if(!startAt)throw Object.assign(new Error('Invalid date'),{code:'INVALID_DATE',statusCode:400});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Calendar end must be after start'),{code:'INVALID_CALENDAR_RANGE'});const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:b.timezone??'UTC',allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null};
+    if(!startAt)throw Object.assign(new Error('Invalid date'),{code:'INVALID_DATE',statusCode:400});
+    // Встрече и фокус-времени окончание обязательно — это правило схемы, и
+    // раньше человек узнавал о нём фразой «A value failed a validation
+    // rule» из базы, хотя в форме поле не помечено обязательным.
+    const needsEnd=['meeting','focus','task_block'].includes(b.kind??'meeting');
+    if(needsEnd&&!endAt)throw Object.assign(new Error('У встречи должно быть время окончания'),{code:'CALENDAR_END_REQUIRED',statusCode:400,expose:true});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Calendar end must be after start'),{code:'INVALID_CALENDAR_RANGE'});const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:b.timezone??'UTC',allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null};
     const wanted=Array.isArray(b.participantIds)?b.participantIds.filter(Boolean):[];
     // Встреча и приглашения — одно решение, поэтому и одна транзакция: иначе
     // в календаре оставалась встреча, на которую никого не позвали.

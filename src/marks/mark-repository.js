@@ -209,12 +209,26 @@ export function createMarkRepository(pool) {
       if (!Number.isInteger(start) || !Number.isInteger(end) || end <= start || start < 0) {
         throw fail('A highlight needs a valid range', 'INVALID_HIGHLIGHT_RANGE', 400);
       }
-      if (end - start !== [...quote].length && end - start !== quote.length) {
-        throw fail('The highlighted range does not match its text', 'HIGHLIGHT_RANGE_MISMATCH', 400);
-      }
       const colour = body.colour ?? 'yellow';
       if (!COLOURS.has(colour)) throw fail('Unknown highlight colour', 'INVALID_HIGHLIGHT_COLOUR', 400);
       const conversationId = await mayTouchMessage(session, body.messageId, body.conversationId);
+
+      // Смещения сверяются с самим сообщением, а не только с длиной цитаты.
+      //
+      // Раньше проверка принимала обе единицы измерения сразу — и кодовые
+      // точки, и единицы UTF-16, — так что одно и то же выделение эмодзи
+      // было законно и как 7..8, и как 7..9, а рисовалось по одной из них.
+      // Смещения 999998..999999 сохранялись без возражений и подсвечивали
+      // пустоту. Теперь единица одна — единицы UTF-16, как их считает
+      // браузер, — и кусок текста обязан совпасть с цитатой.
+      const { rows: source } = await pool.query(
+        'SELECT body FROM messages WHERE workspace_id=$1 AND id=$2 AND deleted_at IS NULL',
+        [session.workspaceId, body.messageId],
+      );
+      const text = source[0]?.body ?? '';
+      if (end > text.length || text.slice(start, end) !== quote) {
+        throw fail('The highlighted range does not match its text', 'HIGHLIGHT_RANGE_MISMATCH', 400);
+      }
 
       // Сообщение должно существовать и быть в беседе, которую человек
       // действительно видит: проверяет тот, кто отдаёт беседы.

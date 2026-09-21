@@ -75,10 +75,19 @@ const sessionCookie=(token)=>`${cookieName}=${encodeURIComponent(token)}; Path=/
 const clearSession=()=>`${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV==='production'?'; Secure':''}`;
 const cookieToken=(req)=>cookies(req)[cookieName]||null;
 
-function defaultStore(){if(!process.env.DATABASE_URL){
+/**
+ * Хранилище по умолчанию.
+ *
+ * `databaseUrl` в параметрах тихо игнорировался: его передают все
+ * postgres-тесты, а сервер читал только переменную окружения и молча
+ * поднимался на памяти. Тесты падали на 503 из-за отсутствия напоминаний
+ * и пометок, и понять причину было нельзя — тихая подмена хранилища
+ * опаснее отказа.
+ */
+function defaultStore(databaseUrl=process.env.DATABASE_URL){if(!databaseUrl){
   if(process.env.NODE_ENV==='production')throw new Error('DATABASE_URL не задан. В production память как хранилище не годится: данные исчезнут при первом же перезапуске.');
   return{store:new MemoryStore(),pool:null,mode:'memory'};
-}const pool=new Pool({connectionString:process.env.DATABASE_URL,max:Number(process.env.PG_POOL_MAX??10),ssl:process.env.PGSSL==='require'?{rejectUnauthorized:false}:undefined});
+}const pool=new Pool({connectionString:databaseUrl,max:Number(process.env.PG_POOL_MAX??10),ssl:process.env.PGSSL==='require'?{rejectUnauthorized:false}:undefined});
 // Простаивающее соединение может оборваться само: перезапуск базы, таймаут
 // на стороне сети. Без этого слушателя такой обрыв всплывает как
 // необработанное исключение и уносит весь процесс, хотя пул сам поднимет
@@ -89,7 +98,7 @@ function pushConfig(){const publicKey=process.env.VAPID_PUBLIC_KEY??null,private
 
 export async function createChatServer(options={}){
   await mkdir(uploadsRoot,{recursive:true});
-  const defaults=options.store?{store:options.store,pool:options.pool??null,mode:'custom'}:defaultStore();
+  const defaults=options.store?{store:options.store,pool:options.pool??null,mode:'custom'}:defaultStore(options.databaseUrl??process.env.DATABASE_URL);
   const {store,pool,mode}=defaults;
   const objectStore=options.objectStore??createObjectStore({uploadsRoot});
   const persistenceStatus=()=>{
