@@ -515,6 +515,22 @@ const ROUTES = [
   { route: 'PATCH /api/v1/people/{себя}', method: 'PATCH', path: (w) => `/api/v1/people/${w.actor.userId}`, body: () => ({ about: 'о себе' }), expect: 200 },
   { route: 'GET /api/v1/people/{другой}/activity', path: (w) => `/api/v1/people/${w.stranger.userId}/activity`, expect: 200 },
 
+  // --- сама компания --------------------------------------------------------
+  {
+    route: 'PATCH /api/v1/workspace', method: 'PATCH', path: () => '/api/v1/workspace',
+    body: () => ({ workspaceName: `Офис ${rnd()}` }),
+    expect: { owner: 200, admin: 403, manager: 403, member: 403, guest: 403 },
+  },
+  {
+    route: 'POST /api/v1/workspace/owner', method: 'POST', path: () => '/api/v1/workspace/owner',
+    body: (w) => ({ userId: w.stranger.userId }),
+    // Владельцу здесь ответили бы 200 и передали компанию — матрица не
+    // должна ломать собственное рабочее пространство, поэтому проверяем
+    // только отказы остальным.
+    skipRoles: ['owner'],
+    expect: { admin: 403, manager: 403, member: 403, guest: 403 },
+  },
+
   // --- журнал ---------------------------------------------------------------
   {
     route: 'GET /api/v1/audit', path: () => '/api/v1/audit',
@@ -624,6 +640,9 @@ test('матрица «роль × маршрут»', { skip, concurrency: false
     await t.test(`роль ${role}`, async (tt) => {
       const world = await buildWorld(base, actors, stranger, actors[role]);
       for (const row of ROUTES) {
+        // Некоторые действия у своей роли необратимы — передача владения
+        // сломала бы остаток матрицы. Их проверяем отдельным тестом.
+        if (row.skipRoles?.includes(role)) continue;
         const expected = expectedFor(row, role);
         await tt.test(`${row.route} → ${expected}`, async () => {
           const response = await call(base, row.path(world), {
@@ -655,12 +674,10 @@ test('матрица «роль × маршрут»', { skip, concurrency: false
 // никто не держит. Список тает по мере того, как обещания исполняются:
 // calendar.manage.team ушёл отсюда, когда встречу уволившегося стало
 // кому вести.
-// task.manage.team ушло отсюда, когда полномочия по чужим задачам
-// перестали держаться на списке ролей внутри task-authority.js;
-// audit.read — когда у журнала появился маршрут.
-const UNENFORCED = [
-  Permission.ORGANIZATION_MANAGE,
-];
+// Список опустел: task.manage.team перестало держаться на списке ролей
+// внутри task-authority.js, audit.read получило маршрут журнала, а
+// organization.manage — переименование компании и передачу владения.
+const UNENFORCED = [];
 
 test('права, которые объявлены, но нигде не проверяются', async () => {
   const src = fileURLToPath(new URL('../src/', import.meta.url));
@@ -684,12 +701,12 @@ test('права, которые объявлены, но нигде не про
   }
 
   // Следствие первое: владелец и администратор различаются ровно одним
-  // правом, и это право — необеспеченное. Функционально это одна роль.
+  // правом — и теперь это право что-то значит.
   const owner = ROLE_PERMISSIONS.owner;
   const admin = ROLE_PERMISSIONS.admin;
   const difference = [...owner].filter((permission) => !admin.has(permission));
   assert.deepEqual(difference, [Permission.ORGANIZATION_MANAGE]);
-  assert.ok(UNENFORCED.includes(difference[0]), 'единственное отличие владельца от администратора ничего не значит');
+  assert.ok(!UNENFORCED.includes(difference[0]), 'отличие владельца от администратора должно быть обеспечено');
 
   // Следствие второе: полномочия по чужим задачам держатся на праве, а не на
   // списке ролей рядом с задачами — иначе выдать право новой роли было мало.

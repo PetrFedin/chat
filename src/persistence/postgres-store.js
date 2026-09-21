@@ -58,6 +58,52 @@ export class PostgresStore {
     };
   }
 
+  /**
+   * Имя компании и имя рабочего пространства.
+   *
+   * Компании переименовываются, сливаются и меняют бренд, а название было
+   * вписано один раз при регистрации и оставалось навсегда.
+   */
+  async renameWorkspace(s,{companyName=null,workspaceName=null}={}){
+    return this.tx(async c=>{
+      if(companyName)await c.query('UPDATE organizations SET name=$2 WHERE id=$1',[s.organizationId,companyName]);
+      if(workspaceName)await c.query('UPDATE workspaces SET name=$2 WHERE id=$1',[s.workspaceId,workspaceName]);
+      await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+        VALUES($1,$2,'workspace',$2,'workspace.renamed',$3,$4)`,
+        [s.organizationId,s.workspaceId,s.userId,{companyName,workspaceName}]);
+      const{rows}=await c.query(`SELECT w.id,w.name workspace_name,o.name organization_name
+        FROM workspaces w JOIN organizations o ON o.id=w.organization_id WHERE w.id=$1`,[s.workspaceId]);
+      return{workspaceId:rows[0].id,workspaceName:rows[0].workspace_name,organizationName:rows[0].organization_name};
+    });
+  }
+
+  /**
+   * Передача владения.
+   *
+   * Владелец один, и до сих пор это было навсегда: человек уходил из
+   * компании, а компания оставалась привязанной к его учётной записи —
+   * ни уволить его, ни передать дела было нельзя. Передача меняет обе
+   * стороны в одной транзакции: новый владелец получает права, прежний
+   * становится администратором и остаётся работать.
+   */
+  async transferOwnership(s,userId){
+    return this.tx(async c=>{
+      if(userId===s.userId)throw Object.assign(new Error('Вы уже владелец'),{code:'ALREADY_OWNER',statusCode:400});
+      const{rows:member}=await c.query(
+        `SELECT m.role,u.disabled_at FROM memberships m JOIN users u ON u.id=m.user_id
+          WHERE m.workspace_id=$1 AND m.user_id=$2`,[s.workspaceId,userId]);
+      if(!member[0])throw Object.assign(new Error('Person not found'),{code:'PERSON_NOT_FOUND',statusCode:404});
+      if(member[0].disabled_at)throw Object.assign(new Error('Уволенному сотруднику компанию не передают'),{code:'PERSON_INACTIVE',statusCode:409});
+      if(member[0].role==='guest')throw Object.assign(new Error('Компанию не передают внешнему участнику'),{code:'CANNOT_TRANSFER_TO_GUEST',statusCode:403});
+      await c.query("UPDATE memberships SET role='owner' WHERE workspace_id=$1 AND user_id=$2",[s.workspaceId,userId]);
+      await c.query("UPDATE memberships SET role='admin' WHERE workspace_id=$1 AND user_id=$2",[s.workspaceId,s.userId]);
+      await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+        VALUES($1,$2,'membership',$3,'ownership.transferred',$4,$5)`,
+        [s.organizationId,s.workspaceId,userId,s.userId,{from:s.userId,to:userId,previousRole:member[0].role}]);
+      return{ownerId:userId,previousOwnerId:s.userId};
+    });
+  }
+
   async getBootstrap(s){const conversations=await this.listConversations(s);return{session:s,conversations,people:await this.listPeople(s)}}
   /**
    * Password recovery without a mail server.

@@ -94,6 +94,26 @@ export class MemoryStore {
 
   async revokeSession(tokenHash) { const row = this.sessions.get(tokenHash); if (row) row.revokedAt = nowIso(); }
 
+  /** См. PostgreSQL-хранилище: компания переименовывается и меняет владельца. */
+  async renameWorkspace(session, { companyName = null, workspaceName = null } = {}) {
+    const workspace = this.workspaces.get(session.workspaceId);
+    const organization = this.organizations.get(session.organizationId);
+    if (companyName && organization) organization.name = companyName;
+    if (workspaceName && workspace) workspace.name = workspaceName;
+    return { workspaceId: session.workspaceId, workspaceName: workspace?.name, organizationName: organization?.name };
+  }
+
+  async transferOwnership(session, userId) {
+    if (userId === session.userId) throw Object.assign(new Error('Вы уже владелец'), { code: 'ALREADY_OWNER', statusCode: 400 });
+    const next = this.memberships.get(this.membershipKey(session.workspaceId, userId));
+    const current = this.memberships.get(this.membershipKey(session.workspaceId, session.userId));
+    if (!next) throw Object.assign(new Error('Person not found'), { code: 'PERSON_NOT_FOUND', statusCode: 404 });
+    if (next.role === 'guest') throw Object.assign(new Error('Компанию не передают внешнему участнику'), { code: 'CANNOT_TRANSFER_TO_GUEST', statusCode: 403 });
+    next.role = 'owner';
+    if (current) current.role = 'admin';
+    return { ownerId: userId, previousOwnerId: session.userId };
+  }
+
   /**
    * В памяти журнал не ведётся: он нужен затем, чтобы пережить перезапуск,
    * а память его не переживает. Отвечаем пустой страницей, а не ошибкой —
