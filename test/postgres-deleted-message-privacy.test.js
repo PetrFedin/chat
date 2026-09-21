@@ -57,3 +57,47 @@ test('удалённое сообщение не читается в уведо�
   const messages = await request(base, `/api/v1/conversations/${conversation.id}/messages`, { cookie: mate.cookie });
   assert.ok(!JSON.stringify(messages.payload.items).includes(SECRET));
 });
+
+// Человека вывели из приватной беседы, а уведомления по ней остались висеть:
+// нажатие давало «беседа не найдена», а название закрытой комнаты
+// продолжало светиться в списке.
+test('уведомления по беседе уходят вместе с доступом к ней',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const app = await createChatServer({ databaseUrl: DATABASE_URL, startMeetingWorker: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const suffix = Math.random().toString(36).slice(2, 7);
+
+  const owner = await request(base, '/api/v1/auth/register-company', {
+    method: 'POST',
+    body: { companyName: `Вывод ${suffix}`, ownerName: 'Владелец', email: `own-${suffix}@t.test`, password: 'OwnerPassword42' },
+  });
+  const invitation = await request(base, '/api/v1/invitations', {
+    cookie: owner.cookie, method: 'POST', body: { email: `mate-${suffix}@t.test`, role: 'member' } });
+  const token = new URL(invitation.payload.invitation.inviteUrl).searchParams.get('invite');
+  const mate = await request(base, '/api/v1/invitations/accept', {
+    method: 'POST', body: { token, displayName: 'Коллега', password: 'OwnerPassword42' } });
+  const mateId = (await request(base, '/api/v1/people', { cookie: owner.cookie }))
+    .payload.items.find((p) => p.email === `mate-${suffix}@t.test`).userId;
+
+  const room = (await request(base, '/api/v1/conversations', {
+    cookie: owner.cookie, method: 'POST',
+    body: { kind: 'group', title: `Смета ${suffix}`, visibility: 'private', participantIds: [mateId] } })).payload.conversation;
+  await request(base, `/api/v1/conversations/${room.id}/messages`, {
+    cookie: owner.cookie, method: 'POST', body: { body: `Смета по объекту ${suffix}` } });
+
+  const before = await request(base, '/api/v1/notifications?limit=100', { cookie: mate.cookie });
+  assert.ok(before.payload.items.some((item) => item.conversationId === room.id), 'уведомление о беседе пришло');
+
+  await request(base, `/api/v1/conversations/${room.id}/members/${mateId}`, { cookie: owner.cookie, method: 'DELETE' });
+
+  const after = await request(base, '/api/v1/notifications?limit=100', { cookie: mate.cookie });
+  assert.ok(!after.payload.items.some((item) => item.conversationId === room.id),
+    'после вывода из беседы её уведомления не висят в центре внимания');
+  // Беседа и правда закрыта.
+  assert.equal((await request(base, `/api/v1/conversations/${room.id}/messages`, { cookie: mate.cookie })).status, 404);
+  // И вывод участника остался в журнале.
+  const journal = await request(base, '/api/v1/audit?type=conversation', { cookie: owner.cookie });
+  assert.ok(journal.payload.items.some((item) => item.eventType === 'conversation.member_removed' && item.aggregateId === room.id));
+});
