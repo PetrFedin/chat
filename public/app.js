@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),invitations:[],loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
+const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),unreadFrom:new Map(),readUpTo:new Map(),invitations:[],loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -552,7 +552,18 @@ function dayLabel(value){
 function messageStream(items){
   if(!items.length)return '<div class="empty"><strong>Начните разговор</strong></div>';
   let out='',lastDay='',lastAuthor='',lastAt=0;
+  // Граница непрочитанного: без неё вернувшийся из отпуска не понимает,
+  // с какого места читать, — сто сообщений выглядят одной стеной.
+  const boundary=S.unreadFrom.get(S.selected)||null;
   for(const m of items){
+    if(boundary&&m.id===boundary){
+      // «Непрочитанное · с Сегодня» читается коряво: подпись с датой
+      // нужна, только когда пропущено не сегодняшнее.
+      const since=m.createdAt?dayLabel(m.createdAt):'';
+      const sameDay=since==='Сегодня'||since==='Today';
+      out+=`<div class="unread-divider"><span>Непрочитанное${since&&!sameDay?` · с ${esc(since)}`:''}</span></div>`;
+      lastAuthor='';
+    }
     const day=new Date(m.createdAt).toDateString();
     if(day!==lastDay){out+=`<div class="day-divider"><span>${esc(dayLabel(m.createdAt))}</span></div>`;lastDay=day;lastAuthor='';}
     // Подряд идущие реплики одного человека за пять минут — одна связка:
@@ -981,7 +992,19 @@ function bind(){
     }
     const older=$('#load-older');
     if(older)older.onclick=()=>loadOlderMessages(S.selected);
-    stream.onscroll=()=>{if(stream.scrollTop<80)loadOlderMessages(S.selected)};
+    stream.onscroll=()=>{
+      if(stream.scrollTop<80)loadOlderMessages(S.selected);
+      // Долистал до низа — значит прочитал. Раньше отметка ставилась уже
+      // за то, что человек заглянул в беседу.
+      if(stream.scrollHeight-stream.scrollTop-stream.clientHeight<40)markConversationRead(S.selected);
+    };
+    // Короткая переписка помещается целиком — тогда она и прочитана.
+    // Через таймер, а не кадр анимации: в фоновой вкладке кадры не
+    // рисуются, и отметка не ставилась бы вовсе.
+    setTimeout(()=>{
+      const pane=$('#message-stream');
+      if(pane&&pane.scrollHeight-pane.clientHeight<40)markConversationRead(S.selected);
+    },0);
   }}}
 function go(v,{silent=false}={}){
   S.view=v;
@@ -999,7 +1022,42 @@ function go(v,{silent=false}={}){
   window.scrollTo(0,0);
   render();
 }
-async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
+/**
+ * Открыть беседу — ещё не значит прочитать её.
+ *
+ * Отметка о прочтении ставилась сразу при открытии, по последнему
+ * сообщению: человек, вернувшийся из отпуска, заглядывал в канал оценить
+ * масштаб — и сто непрочитанных превращались в ноль за одно нажатие, а
+ * вернуться к точке остановки было нечем.
+ *
+ * Теперь граница запоминается при входе и рисуется в ленте, а прочитанным
+ * считается то, до чего человек долистал.
+ */
+async function openChat(id){
+  S.selected=id;S.view='chats';S.mobileChat=true;
+  await loadMessages(id);
+  const conversation=S.conversations.find(c=>c.id===id);
+  const unread=Number(conversation?.unreadCount||0);
+  const list=S.messages.get(id)||[];
+  // Граница — первое сообщение из непрочитанных: их столько, сколько
+  // насчитал сервер, и все они в хвосте.
+  S.unreadFrom.set(id,unread>0&&list.length?list[Math.max(0,list.length-unread)]?.id??null:null);
+  render();
+}
+
+/** Отметить прочитанным до конца — когда человек дошёл до низа ленты. */
+async function markConversationRead(id){
+  const list=S.messages.get(id)||[];
+  const last=list.at(-1)?.id||null;
+  if(!last||S.readUpTo.get(id)===last)return;
+  S.readUpTo.set(id,last);
+  try{
+    await api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:last})});
+    const conversation=S.conversations.find(c=>c.id===id);
+    if(conversation)conversation.unreadCount=0;
+    window.ChatDailyWork?.refresh?.();
+  }catch{ /* следующая прокрутка попробует снова */ }
+}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
 const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,journal:()=>journalModal(),company:()=>companyModal(),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 

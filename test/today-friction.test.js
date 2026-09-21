@@ -41,3 +41,23 @@ test('задачу, которая ждёт решения, видно и мож
   assert.match(app, /data-answer-task="\$\{esc\(t\.id\)\}" data-answer-to="accepted"/);
   assert.match(app, /expectedVersion:task\.version/, 'переход уходит без версии — потеряется на гонке');
 });
+
+/**
+ * Возвращение из отпуска: отметка о прочтении ставилась при открытии, по
+ * последнему сообщению. Заглянуть в канал, чтобы оценить масштаб, было
+ * нельзя — взгляд стирал отметку, и сто непрочитанных превращались в ноль
+ * за одно нажатие, а вернуться к точке остановки было нечем.
+ */
+test('взгляд в беседу не считается прочтением', () => {
+  const opener = app.slice(app.indexOf('async function openChat(id)'));
+  const body = opener.slice(0, opener.indexOf('/** Отметить прочитанным'));
+  assert.doesNotMatch(body, /\/read`/, 'открытие беседы снова отмечает её прочитанной');
+  assert.match(body, /S\.unreadFrom\.set/, 'граница непрочитанного не запоминается');
+
+  // Прочитанным считается то, до чего долистали.
+  assert.match(app, /scrollHeight-stream\.scrollTop-stream\.clientHeight<40\)markConversationRead/);
+  // Короткая переписка помещается целиком — тогда она и прочитана; через
+  // таймер, а не кадр анимации, иначе в фоновой вкладке отметки не будет.
+  assert.match(app, /setTimeout\(\(\)=>\{\s*const pane=\$\('#message-stream'\);/);
+  assert.match(app, /class="unread-divider"/, 'в ленте нет границы непрочитанного');
+});
