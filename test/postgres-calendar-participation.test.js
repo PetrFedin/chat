@@ -69,7 +69,16 @@ test('calendar participation', { skip: databaseUrl ? false : 'DATABASE_URL is no
     assert.equal(answer.note, 'Уже занят');
 
     await assert.rejects(() => calendar.respond(anna, event.id, 'maybe'), (e) => e.code === 'INVALID_RESPONSE');
-    await assert.rejects(() => calendar.respond(bob, event.id, 'accepted'), (e) => e.code === 'NOT_INVITED');
+    // Закрытая встреча для постороннего не существует вовсе — иначе отказ
+    // «вас не приглашали» сам по себе рассказывал бы, что встреча есть.
+    await assert.rejects(() => calendar.respond(bob, event.id, 'accepted'), (e) => e.code === 'CALENDAR_EVENT_NOT_FOUND');
+
+    // А во встрече, открытой всей компании, Боб её видит — и слышит по делу,
+    // что приглашения у него нет.
+    const open = await store.createCalendarEvent(owner, {
+      kind: 'meeting', title: 'Открытая планёрка', startAt: soon(30), endAt: soon(31), timezone: 'UTC', visibility: 'workspace',
+    });
+    await assert.rejects(() => calendar.respond(bob, open.id, 'accepted'), (e) => e.code === 'NOT_INVITED');
     assert.equal((await calendar.pendingInvitations(anna)).length, 0, 'an answered invitation stops asking');
   });
 

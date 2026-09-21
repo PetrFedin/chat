@@ -1,3 +1,5 @@
+import { Permission, hasPermission } from '../rbac.js';
+
 const KINDS = new Set(['priority', 'tag', 'folder', 'status']);
 const TARGETS = new Set(['message', 'file', 'task', 'event', 'conversation', 'person', 'note']);
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
@@ -49,6 +51,24 @@ export function createLabelRepository(pool, store = null) {
   // the shared vocabulary. Kept in one place so the list and the apply agree.
   const ownScope = (session) => (session.role === 'guest' ? 'owner_id=$3' : '(owner_id IS NULL OR owner_id=$3)');
 
+  /**
+   * Кто вправе менять метку.
+   *
+   * Личную — только её владелец. Общий словарь компании — тот, кто им
+   * распоряжается: раньше переименовать и удалить общую метку мог любой
+   * сотрудник, и вчерашняя «Важно» назавтра оказывалась «Не важно» у
+   * всех сразу, без следа о том, кто это сделал.
+   */
+  const assertMayChange = (session, row) => {
+    if (row.owner_id) {
+      if (row.owner_id !== session.userId) throw fail('Label not found', 'LABEL_NOT_FOUND', 404);
+      return;
+    }
+    if (!hasPermission(session.role, Permission.CHANNEL_MANAGE)) {
+      throw fail('Общий словарь компании ведут те, кто распоряжается каналами', 'LABEL_SHARED_FORBIDDEN', 403);
+    }
+  };
+
   const loadLabel = async (client, session, id) => {
     const { rows } = await client.query(
       `SELECT * FROM labels WHERE workspace_id=$1 AND id=$2 AND ${ownScope(session)} FOR UPDATE`,
@@ -97,6 +117,11 @@ export function createLabelRepository(pool, store = null) {
       // Only folders nest. A nested importance or tag has no meaning and would
       // make the filter ambiguous.
       if (parentId && kind !== 'folder') throw fail('Only folders can be nested', 'LABEL_NESTING_NOT_ALLOWED', 409);
+      // Гость — сотрудник другой компании, пришедший по одному делу.
+      // Личные метки у него свои, общий словарь компании — не его.
+      if (!personal && session.role === 'guest') {
+        throw fail('Внешний участник заводит только личные метки', 'GUEST_LABEL_SHARED', 403);
+      }
       const { rows } = await pool.query(
         `INSERT INTO labels(organization_id,workspace_id,kind,name,colour,parent_id,owner_id,description,position,created_by)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
@@ -108,7 +133,7 @@ export function createLabelRepository(pool, store = null) {
 
     async updateLabel(session, id, patch) {
       return tx(async (client) => {
-        await loadLabel(client, session, id);
+        assertMayChange(session, await loadLabel(client, session, id));
         const columns = { name: 'name', colour: 'colour', description: 'description', position: 'position' };
         const fields = Object.keys(columns).filter((f) => patch[f] !== undefined);
         if (!fields.length) throw fail('Nothing to update', 'EMPTY_PATCH');
@@ -124,7 +149,7 @@ export function createLabelRepository(pool, store = null) {
 
     async deleteLabel(session, id) {
       return tx(async (client) => {
-        await loadLabel(client, session, id);
+        assertMayChange(session, await loadLabel(client, session, id));
         // Links go with it: a label nobody can see must not keep marking things.
         await client.query('DELETE FROM labels WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id]);
         return { deleted: true };

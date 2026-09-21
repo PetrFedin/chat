@@ -54,6 +54,14 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   const probe=new pg.Pool({connectionString:databaseUrl});
   let firstApp=null,secondApp=null;
 
+  // Демонстрационное пространство заводится под одной и той же почтой, а
+  // тестовая база живёт между прогонами. Убираем прошлый прогон целиком —
+  // так же чисто, как на пустой базе в CI.
+  await probe.query(`DELETE FROM organizations WHERE id IN (
+    SELECT m.organization_id FROM memberships m
+    JOIN users u ON u.id=m.user_id WHERE u.email LIKE '%@northstar.example')`);
+  await probe.query("DELETE FROM users WHERE email LIKE '%@northstar.example'");
+
   const partialStore=new PostgresStore(probe);
   const partialPassword=hashPassword('DemoWorkspace2026');
   const partial=await partialStore.createCompany({

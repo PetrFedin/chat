@@ -518,8 +518,8 @@ const ROUTES = [
   // --- метки ----------------------------------------------------------------
   { route: 'GET /api/v1/labels', path: () => '/api/v1/labels', expect: 200 },
   {
-    route: 'POST /api/v1/labels', method: 'POST', path: () => '/api/v1/labels', body: () => ({ name: `Метка ${rnd()}` }), expect: 201,
-    gap: 'guest: посторонний заводит общую метку рабочего пространства — её видит весь штат',
+    route: 'POST /api/v1/labels', method: 'POST', path: () => '/api/v1/labels', body: () => ({ name: `Метка ${rnd()}` }),
+    expect: { owner: 201, admin: 201, manager: 201, member: 201, guest: 403 },
   },
   { route: 'GET /api/v1/labels/{id}/targets', path: (w) => `/api/v1/labels/${id(w.sharedLabel)}/targets`, expect: 200 },
   {
@@ -531,13 +531,11 @@ const ROUTES = [
   {
     route: 'PATCH /api/v1/labels/{чужая общая}', method: 'PATCH', path: (w) => `/api/v1/labels/${id(w.sharedLabelToRename)}`,
     body: () => ({ name: `Переименовано ${rnd()}` }),
-    expect: { owner: 200, admin: 200, manager: 200, member: 200, guest: 404 },
-    gap: 'member: любой сотрудник переименовывает общую метку, заведённую владельцем — у общей таксономии нет хозяина',
+    expect: { owner: 200, admin: 200, manager: 200, member: 403, guest: 404 },
   },
   {
     route: 'DELETE /api/v1/labels/{чужая общая}', method: 'DELETE', path: (w) => `/api/v1/labels/${id(w.sharedLabelToDelete)}`,
-    expect: { owner: 204, admin: 204, manager: 204, member: 204, guest: 404 },
-    gap: 'member: и удаляет её тоже',
+    expect: { owner: 204, admin: 204, manager: 204, member: 403, guest: 404 },
   },
 
   // --- личное планирование --------------------------------------------------
