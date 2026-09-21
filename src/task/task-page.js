@@ -1,3 +1,4 @@
+import { pageSize } from '../http/helpers.js';
 // Both stores answer GET /api/v1/tasks, so the page order and the cursor that
 // walks it live here rather than being written twice.
 //
@@ -41,4 +42,4 @@ export function decodeTaskCursor(raw) {
   };
 }
 
-export const taskPageSize = (limit) => Math.min(Math.max(Number(limit) || 50, 1), 200);
+export const taskPageSize = (limit) => pageSize(limit, 50, 200);

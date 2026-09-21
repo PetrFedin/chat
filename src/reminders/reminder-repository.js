@@ -1,3 +1,4 @@
+import { pageSize } from '../http/helpers.js';
 import { randomUUID } from 'node:crypto';
 
 /**
@@ -72,7 +73,7 @@ export function createReminderRepository(pool) {
 
     /** Свои напоминания: сработавшие впереди, дальше по времени. */
     async list(session, { status = 'open', limit = 100 } = {}) {
-      const size = Math.min(Math.max(Number(limit) || 100, 1), 200);
+      const size = pageSize(limit, 100, 200);
       const states = status === 'done' ? ['done', 'cancelled']
         : status === 'all' ? ['pending', 'fired', 'done', 'cancelled']
         : ['pending', 'fired'];
@@ -155,7 +156,7 @@ export function createReminderRepository(pool) {
             ORDER BY remind_at
             FOR UPDATE SKIP LOCKED
             LIMIT $2`,
-          [now.toISOString(), Math.min(Math.max(Number(limit) || 50, 1), 200)],
+          [now.toISOString(), pageSize(limit, 50, 200)],
         );
         for (const row of rows) {
           await client.query(

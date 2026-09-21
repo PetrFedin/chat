@@ -1,3 +1,4 @@
+import { pageSize } from '../http/helpers.js';
 /**
  * Личные пометки: избранное, выделения маркером и заметки на сообщения.
  *
@@ -145,7 +146,7 @@ export function createMarkRepository(pool) {
                            ELSE (SELECT m.conversation_id FROM messages m WHERE m.workspace_id=f.workspace_id AND m.id=f.target_id) END
                      AND ${seesConversation(session)}))
           ORDER BY f.created_at DESC LIMIT $4`,
-        [session.workspaceId, session.userId, type, Math.min(Math.max(Number(limit) || 200, 1), 500), session.role],
+        [session.workspaceId, session.userId, type, pageSize(limit, 200, 500), session.role],
       );
       return rows;
     },
@@ -195,7 +196,7 @@ export function createMarkRepository(pool) {
             AND ($4::uuid IS NULL OR h.message_id=$4)
             AND EXISTS(SELECT 1 FROM conversations c WHERE c.workspace_id=h.workspace_id AND c.id=h.conversation_id AND ${seesConversation(session)})
           ORDER BY h.created_at DESC LIMIT $5`,
-        [session.workspaceId, session.userId, conversationId, messageId, Math.min(Math.max(Number(limit) || 300, 1), 500)],
+        [session.workspaceId, session.userId, conversationId, messageId, pageSize(limit, 300, 500)],
       );
       return rows;
     },
@@ -248,7 +249,7 @@ export function createMarkRepository(pool) {
             AND ($4::uuid IS NULL OR n.message_id=$4)
             AND EXISTS(SELECT 1 FROM conversations c WHERE c.workspace_id=n.workspace_id AND c.id=n.conversation_id AND ${seesConversation(session)})
           ORDER BY n.created_at DESC LIMIT $5`,
-        [session.workspaceId, session.userId, conversationId, messageId, Math.min(Math.max(Number(limit) || 300, 1), 500)],
+        [session.workspaceId, session.userId, conversationId, messageId, pageSize(limit, 300, 500)],
       );
       return rows;
     },
@@ -256,6 +257,11 @@ export function createMarkRepository(pool) {
     async note(session, body = {}) {
       const text = String(body.body ?? '').trim();
       if (!text) throw fail('A note needs text', 'INVALID_NOTE', 400);
+      // Раньше длинная заметка молча обрезалась до двух тысяч знаков под
+      // ответом «сохранено»: человек терял написанное и узнавал об этом,
+      // только вернувшись к ней. Остальные текстовые поля в продукте
+      // отказывают — эта тоже.
+      if (text.length > 2000) throw fail('A note is at most 2000 characters', 'INVALID_NOTE', 400);
       const kind = body.kind ?? 'note';
       if (!NOTE_KINDS.has(kind)) throw fail('Unknown note kind', 'INVALID_NOTE_KIND', 400);
       const conversationId = await mayTouchMessage(session, body.messageId, body.conversationId);
@@ -263,7 +269,7 @@ export function createMarkRepository(pool) {
         `INSERT INTO message_notes(organization_id,workspace_id,user_id,conversation_id,message_id,kind,body)
          VALUES($1,$2,$3,$4,$5,$6,$7)
          RETURNING id,conversation_id "conversationId",message_id "messageId",kind,body,created_at "createdAt",updated_at "updatedAt"`,
-        [session.organizationId, session.workspaceId, session.userId, conversationId, body.messageId, kind, text.slice(0, 2000)],
+        [session.organizationId, session.workspaceId, session.userId, conversationId, body.messageId, kind, text],
       );
       return rows[0];
     },
@@ -274,7 +280,8 @@ export function createMarkRepository(pool) {
       if (patch.body !== undefined) {
         const text = String(patch.body ?? '').trim();
         if (!text) throw fail('A note needs text', 'INVALID_NOTE', 400);
-        params.push(text.slice(0, 2000)); sets.push(`body=$${params.length}`);
+        if (text.length > 2000) throw fail('A note is at most 2000 characters', 'INVALID_NOTE', 400);
+        params.push(text); sets.push(`body=$${params.length}`);
       }
       if (patch.kind !== undefined) {
         if (!NOTE_KINDS.has(patch.kind)) throw fail('Unknown note kind', 'INVALID_NOTE_KIND', 400);

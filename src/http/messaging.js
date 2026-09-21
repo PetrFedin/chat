@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Permission, hasPermission, requirePermission } from '../rbac.js';
-import { allowedConversationKinds, allowedMessageKinds, serverOnlyMessageKinds, cleanText, json, noContent, readJson, messageKindLabel } from './helpers.js';
+import { allowedConversationKinds, allowedMessageKinds, serverOnlyMessageKinds, cleanText, json, noContent, readJson, messageKindLabel, stripControl, pageSize } from './helpers.js';
 
 const CONVERSATION_ID='([0-9a-f-]+)';
 const USER_ID='([0-9a-f-]+)';
@@ -147,7 +147,7 @@ export async function handleMessaging(req,res,ctx,url,path,method){
   m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/messages$`,'i'));
   if(m&&method==='GET'){
     const s=await requireSession(req);
-    const limit=Math.min(Math.max(Number(url.searchParams.get('limit')??100),1),200);
+    const limit=pageSize(url.searchParams.get('limit'), 100, 200);
     const raw=url.searchParams.get('before');
     let before=null;
     if(raw){
@@ -175,8 +175,13 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     const b=await readJson(req),kind=String(b.kind??'text');
     if(!allowedMessageKinds.has(kind))throw httpError('Unsupported message kind','INVALID_MESSAGE_KIND',400);
     if(serverOnlyMessageKinds.has(kind))throw httpError('That message kind is written by the server, not by a client','MESSAGE_KIND_RESERVED',403);
-    if(kind==='text'&&!String(b.body??'').trim())throw httpError('Message body required','INVALID_MESSAGE_BODY',400);
     if(b.body!==undefined&&b.body!==null&&typeof b.body!=='string')throw httpError('Message body must be text','INVALID_MESSAGE_BODY',400);
+    // Нулевой байт и прочие управляющие символы база не хранит, а запрос с
+    // ними падал пятисоткой. Убираем до проверок, иначе «сообщение» из
+    // одних невидимок пройдёт как непустое.
+    if(typeof b.body==='string')b.body=stripControl(b.body);
+    // Пробел нулевой ширины — не текст: пузырь в ленте выходил пустым.
+    if(kind==='text'&&!String(b.body??'').replace(/[\u200b\u200c\u200d\ufeff]/g,'').trim())throw httpError('Message body required','INVALID_MESSAGE_BODY',400);
     if(typeof b.body==='string'&&b.body.length>12000)throw httpError('Message body is too long','MESSAGE_TOO_LONG',400);
     const message=await store.createMessage(s,m[1],{kind,body:b.body??null,replyToId:b.replyToId??null,threadRootId:b.threadRootId??null,metadata:b.metadata??{},mentionedUserIds:Array.isArray(b.mentionedUserIds)?b.mentionedUserIds:[],clientRequestId:b.clientRequestId??randomUUID()});
     const audience=await store.conversationAudience(s,m[1]),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,m[1]):audience;

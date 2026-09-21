@@ -1,3 +1,19 @@
+
+/**
+ * Порядковый номер в списке.
+ *
+ * Дробное значение молча становилось нулём при создании и роняло запрос
+ * в пятисотку при правке, а число больше двух миллиардов — в пятисотку в
+ * обоих случаях: колонка объявлена int4, и отказ прилетал из базы.
+ */
+const readPosition = (value) => {
+  if (value === undefined || value === null || value === '') return 0;
+  const number = Number(value);
+  if (!Number.isSafeInteger(number) || Math.abs(number) > 2147483647) {
+    throw Object.assign(new Error('Position must be a whole number'), { code: 'INVALID_POSITION', statusCode: 400, expose: true });
+  }
+  return number;
+};
 import { cleanText, json, noContent, readJson } from './helpers.js';
 
 const ID = '([0-9a-f-]{36})';
@@ -11,7 +27,26 @@ const unavailable = () => Object.assign(
   { code: 'PERSONAL_UNAVAILABLE', statusCode: 503, expose: true },
 );
 
-const iso = (value) => (value ? new Date(value).toISOString() : null);
+/**
+ * Срок личной записи разбирается так же строго, как срок задачи:
+ * `new Date('2027-02-30')` молча давало второе марта, и сервер отвечал
+ * «сохранено» на дату, которой не существует.
+ */
+const iso = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  const invalid = () => Object.assign(new Error('Invalid date'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
+  if (Number.isNaN(date.getTime())) throw invalid();
+  const written = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (written) {
+    const day = `${written[1]}-${written[2]}-${written[3]}`;
+    const local = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    if (!date.toISOString().startsWith(day) && local !== day) throw invalid();
+  }
+  const year = date.getUTCFullYear();
+  if (year < 1970 || year > 2200) throw invalid();
+  return date.toISOString();
+};
 
 export function createPersonalHandler() {
   return async function handlePersonal(req, res, ctx, url, path, method) {
@@ -41,7 +76,7 @@ export function createPersonalHandler() {
           dueAt: iso(body.dueAt),
           plannedStart: iso(body.plannedStart),
           plannedEnd: iso(body.plannedEnd),
-          position: Number.isInteger(body.position) ? body.position : 0,
+          position: readPosition(body.position),
         }),
       });
       return true;
@@ -80,7 +115,7 @@ export function createPersonalHandler() {
       if (body.dueAt !== undefined) patch.dueAt = iso(body.dueAt);
       if (body.plannedStart !== undefined) patch.plannedStart = iso(body.plannedStart);
       if (body.plannedEnd !== undefined) patch.plannedEnd = iso(body.plannedEnd);
-      if (body.position !== undefined) patch.position = body.position;
+      if (body.position !== undefined) patch.position = readPosition(body.position);
       json(res, 200, { item: await personal.update(session, m[1], patch) });
       return true;
     }

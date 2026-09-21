@@ -51,10 +51,16 @@ test('undated work sorts after every dated task, newest first within a tie', () 
 
 test('the page size is clamped rather than trusted', () => {
   assert.equal(taskPageSize(undefined), 50);
+  // Ноль и отрицательное — не размер страницы, а опечатка: отвечаем
+  // умолчанием. Раньше ноль давал пятьдесят, а минус пять — одну строку,
+  // и на соседних маршрутах правило было своё.
   assert.equal(taskPageSize(0), 50);
-  assert.equal(taskPageSize(-5), 1);
+  assert.equal(taskPageSize(-5), 50);
   assert.equal(taskPageSize(10_000), 200);
   assert.equal(taskPageSize('25'), 25);
+  // Дробное доходило до PostgreSQL и возвращалось отказом формата.
+  assert.equal(taskPageSize('1.5'), 1);
+  assert.equal(taskPageSize('abc'), 50);
 });
 
 // The list used to return a workspace's whole backlog in a single answer.

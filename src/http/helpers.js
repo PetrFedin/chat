@@ -8,14 +8,38 @@ export const allowedConversationKinds=new Set(['direct','group','channel','team'
 export const serverOnlyMessageKinds=new Set(['system','call','task','calendar']);
 export const allowedMessageKinds=new Set(['text','system','file','call','task','calendar','poll']);
 export const messageKindLabel=(kind)=>({voice:'Голосовое сообщение',file:'Файл',call:'Звонок',task:'Задача',calendar:'Событие'})[kind]||'Новое сообщение';
-export const cleanText=(value,max=500)=>{const s=String(value??'').trim();if(!s||s.length>max)throw Object.assign(new Error('Invalid text value'),{code:'INVALID_TEXT'});return s};
+// Нулевой байт PostgreSQL в текст не принимает, и запрос падал пятисоткой
+// «внутренняя ошибка сервера» — на обычную вставку из внешней системы.
+// Заодно уходят прочие управляющие символы, кроме перевода строки и
+// табуляции: в названии задачи им делать нечего.
+const CONTROL=/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+export const cleanText=(value,max=500)=>{const s=String(value??'').replace(CONTROL,'').trim();if(!s||s.length>max)throw Object.assign(new Error('Invalid text value'),{code:'INVALID_TEXT'});return s};
+// То же для длинных текстов, которые не проходят через cleanText: тело
+// сообщения, заметки. Здесь только вычищаем, длину меряет вызывающий.
+export const stripControl=(value)=>String(value??'').replace(CONTROL,'');
+/**
+ * Размер страницы.
+ *
+ * Зажим был написан по-своему в шести местах: где-то `Number(x)||50`,
+ * где-то `Math.min(Math.max(...))` без запасного значения, где-то ничего.
+ * Дробное `1.5` проходило все проверки и падало уже в PostgreSQL —
+ * «A value has the wrong format» на безобидный параметр в адресе.
+ */
+export const pageSize=(value,fallback,max)=>{
+  const number=Math.trunc(Number(value));
+  // Ноль и отрицательное — не размер страницы, а опечатка: отвечаем
+  // умолчанием, как это и делал список задач. Раньше одни маршруты
+  // возвращали на такой запрос одну строку, другие — пятьдесят.
+  if(!Number.isFinite(number)||number<1)return fallback;
+  return Math.min(number,max);
+};
 export const cookies=(req)=>Object.fromEntries(String(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');return i<0?[x,'']:[x.slice(0,i),decodeURIComponent(x.slice(i+1))]}));
 export const json=(res,status,value,headers={})=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers});res.end(JSON.stringify(value))};
 export const noContent=(res,headers={})=>{res.writeHead(204,{'cache-control':'no-store',...headers});res.end()};
 // A driver error (a 5-digit SQLSTATE, a constraint name) is internal detail:
 // it names our tables to anyone who can POST. Map the ones a client can
 // legitimately provoke, hide the rest behind a generic 400.
-const PG_CODES={'23505':{code:'ALREADY_EXISTS',statusCode:409,message:'A record with these values already exists'},'23503':{code:'REFERENCE_NOT_FOUND',statusCode:400,message:'A referenced record does not exist'},'23514':{code:'INVALID_VALUE',statusCode:400,message:'A value failed a validation rule'},'22P02':{code:'INVALID_VALUE',statusCode:400,message:'A value has the wrong format'}};
+const PG_CODES={'23505':{code:'ALREADY_EXISTS',statusCode:409,message:'A record with these values already exists'},'23503':{code:'REFERENCE_NOT_FOUND',statusCode:400,message:'A referenced record does not exist'},'23514':{code:'INVALID_VALUE',statusCode:400,message:'A value failed a validation rule'},'22P02':{code:'INVALID_VALUE',statusCode:400,message:'A value has the wrong format'},'22021':{code:'INVALID_TEXT',statusCode:400,message:'The text contains characters the database cannot store'},'22008':{code:'INVALID_DATE',statusCode:400,message:'The date is out of range'},'22003':{code:'INVALID_VALUE',statusCode:400,message:'The number is out of range'}};
 export const normalizeError=(error)=>{if(!/^[0-9A-Z]{5}$/.test(String(error?.code??''))||error.statusCode)return error;const mapped=PG_CODES[error.code]??{code:'STORAGE_ERROR',statusCode:500,message:'Internal server error'};return Object.assign(new Error(mapped.message),mapped)};
 export const errorJson=(res,rawError)=>{const error=normalizeError(rawError);
   // A handler that already answered and then threw must not take the process

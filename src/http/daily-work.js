@@ -1,4 +1,4 @@
-import { json, readJson } from './helpers.js';
+import { json, readJson, pageSize } from './helpers.js';
 
 const SEARCH_TYPES = new Set(['message','conversation','task','file','person','event']);
 
@@ -27,7 +27,7 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     const session = await requireSession(req);
     const status = url.searchParams.get('status');
     const type = url.searchParams.get('type');
-    const limit = Number(url.searchParams.get('limit') ?? 50);
+    const limit = pageSize(url.searchParams.get('limit'), 50, 100);
     json(res,200,{ items:await store.listNotifications(session,{status,type,limit}) });
     return true;
   }
@@ -56,7 +56,7 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     const query = boundedQuery(url.searchParams.get('q'));
     if (query.length < 2) return json(res,200,{query,items:[]});
     const types = parseTypes(url.searchParams.get('types'));
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 30),1),60);
+    const limit = pageSize(url.searchParams.get('limit'), 30, 60);
     json(res,200,{query,items:await store.searchWorkspace(session,query,{types,limit})});
     return true;
   }
@@ -65,14 +65,14 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     const session = await requireSession(req);
     const query = boundedQuery(url.searchParams.get('q'));
     const mime = url.searchParams.get('mime');
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 60),1),100);
+    const limit = pageSize(url.searchParams.get('limit'), 60, 100);
     json(res,200,{items:await store.listFiles(session,{query,mime,limit})});
     return true;
   }
 
   if (path === '/api/v1/mentions' && method === 'GET') {
     const session = await requireSession(req);
-    const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 50),1),100);
+    const limit = pageSize(url.searchParams.get('limit'), 50, 100);
     json(res,200,{items:await store.listNotifications(session,{type:'mentions',limit})});
     return true;
   }

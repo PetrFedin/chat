@@ -1,4 +1,10 @@
-import { openConversationSql, conversationTitleSql } from './visibility.js';
+import { openConversationSql, conversationTitleSql, visibleEventSql } from './visibility.js';
+
+/**
+ * Проценты и подчёркивания в запросе — это символы, которые человек ищет,
+ * а не шаблон. Поиск «НДС 20%» возвращал всю доступную ленту.
+ */
+const escapeLike = (value) => String(value).replace(/[\\%_]/g, (char) => `\\${char}`);
 import { PostgresStore as DailyWorkPostgresStore } from './daily-work-store.js';
 
 export class PostgresStore extends DailyWorkPostgresStore {
@@ -6,7 +12,7 @@ export class PostgresStore extends DailyWorkPostgresStore {
     const q=String(query??'').trim();
     if(q.length<2)return[];
     const wanted=new Set(types?.length?types:['message','conversation','task','file','person','event']);
-    const each=Math.min(Math.max(Number(limit)||30,5),60),items=[],like=`%${q}%`,jobs=[];
+    const each=Math.min(Math.max(Number(limit)||30,5),60),items=[],like=`%${escapeLike(q)}%`,jobs=[];
 
     // Поиск по сообщениям идёт двумя плечами, у каждого своя опора:
     // полнотекстовое — по хранимому body_tsv, подстрочное — по триграммам.
@@ -42,7 +48,7 @@ export class PostgresStore extends DailyWorkPostgresStore {
     // list contiguous so PostgreSQL can infer every placeholder type.
     if(wanted.has('person'))jobs.push(this.pool.query(`SELECT 'person' type,m.user_id id,COALESCE(p.display_name,u.email) title,concat_ws(' · ',p.title,p.department) snippet,m.created_at "createdAt",ts_rank_cd(to_tsvector('simple',coalesce(p.display_name,'')||' '||coalesce(p.email,u.email)||' '||coalesce(p.title,'')||' '||coalesce(p.department,'')),plainto_tsquery('simple',$2)) score FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN workspace_profiles p ON p.workspace_id=m.workspace_id AND p.user_id=m.user_id WHERE m.workspace_id=$1 AND(to_tsvector('simple',coalesce(p.display_name,'')||' '||coalesce(p.email,u.email)||' '||coalesce(p.title,'')||' '||coalesce(p.department,''))@@plainto_tsquery('simple',$2) OR p.display_name ILIKE $3 OR COALESCE(p.email,u.email) ILIKE $3 OR p.title ILIKE $3 OR p.department ILIKE $3) ORDER BY score DESC,m.created_at DESC LIMIT $4`,[session.workspaceId,q,like,each]).then(r=>items.push(...r.rows)));
 
-    if(wanted.has('event'))jobs.push(this.pool.query(`SELECT 'event' type,e.id,e.title,COALESCE(e.description,e.kind) snippet,e.conversation_id "conversationId",e.created_at "createdAt",ts_rank_cd(to_tsvector('simple',coalesce(e.title,'')||' '||coalesce(e.description,'')),plainto_tsquery('simple',$3)) score FROM calendar_events e LEFT JOIN calendar_event_participants ep ON ep.workspace_id=e.workspace_id AND ep.calendar_event_id=e.id AND ep.user_id=$2 WHERE e.workspace_id=$1 AND(e.owner_id=$2 OR e.visibility='workspace' OR ep.user_id IS NOT NULL) AND(to_tsvector('simple',coalesce(e.title,'')||' '||coalesce(e.description,''))@@plainto_tsquery('simple',$3) OR e.title ILIKE $4 OR e.description ILIKE $4) ORDER BY score DESC,e.created_at DESC LIMIT $5`,[session.workspaceId,session.userId,q,like,each]).then(r=>items.push(...r.rows)));
+    if(wanted.has('event'))jobs.push(this.pool.query(`SELECT 'event' type,e.id,e.title,COALESCE(e.description,e.kind) snippet,e.conversation_id "conversationId",e.created_at "createdAt",ts_rank_cd(to_tsvector('simple',coalesce(e.title,'')||' '||coalesce(e.description,'')),plainto_tsquery('simple',$3)) score FROM calendar_events e LEFT JOIN calendar_event_participants ep ON ep.workspace_id=e.workspace_id AND ep.calendar_event_id=e.id AND ep.user_id=$2 WHERE e.workspace_id=$1 AND ${visibleEventSql('e','$2','$6')} AND(to_tsvector('simple',coalesce(e.title,'')||' '||coalesce(e.description,''))@@plainto_tsquery('simple',$3) OR e.title ILIKE $4 OR e.description ILIKE $4) ORDER BY score DESC,e.created_at DESC LIMIT $5`,[session.workspaceId,session.userId,q,like,each,session.role]).then(r=>items.push(...r.rows)));
     if(wanted.has('file'))jobs.push(this.listFiles(session,{query:q,limit:each}).then(rows=>items.push(...rows.map(f=>({type:'file',id:f.id,title:f.name,snippet:f.mimeType,conversationId:f.context?.conversationId,messageId:f.context?.messageId,createdAt:f.createdAt,previewUrl:f.previewUrl,contentUrl:f.contentUrl,score:1})))));
 
     await Promise.all(jobs);

@@ -49,7 +49,11 @@ export function createPeopleHandler() {
       const patch = {};
       for (const [field, max] of Object.entries(TEXT_LIMITS)) {
         if (body[field] === undefined) continue;
-        // An empty string is "clear this field", not a validation failure.
+        // Пустая строка — «очистить поле», а не отказ. Но имя очистить
+        // нельзя: у человека оно всегда есть, а колонка объявлена NOT NULL,
+        // и пустое значение отвечало пятисоткой, тогда как строка из
+        // пробелов — внятным отказом.
+        if (field === 'displayName') { patch[field] = cleanText(body[field], max); continue; }
         patch[field] = body[field] === null || body[field] === '' ? null : cleanText(body[field], max);
       }
       if (body.startedOn !== undefined) {

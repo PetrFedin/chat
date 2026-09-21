@@ -82,3 +82,21 @@ export const conversationTitleSql = (idExpr, workspaceExpr, viewerParam) => `(
      WHERE cm3.workspace_id=ct.workspace_id AND cm3.conversation_id=ct.id AND cm3.user_id<>${viewerParam}
      LIMIT 1) END)
     FROM conversations ct WHERE ct.workspace_id=${workspaceExpr} AND ct.id=${idExpr})`;
+
+/**
+ * Кто видит встречу.
+ *
+ * Правило было написано в пяти местах, и в одном из них — в поиске —
+ * потеряли условие про гостя: внешний подрядчик не видел встречу
+ * руководства в календаре, получал 404 по прямой ссылке и при этом
+ * находил её поиском по названию. Теперь правило одно на всех.
+ *
+ * `viewer` и `role` — номера параметров с тем, кто смотрит.
+ */
+export const visibleEventSql = (alias, viewer, role) => `(
+     ${alias}.owner_id=${viewer}
+     OR (${alias}.visibility='workspace' AND ${role}<>'guest')
+     OR EXISTS(SELECT 1 FROM calendar_event_participants vp
+                WHERE vp.workspace_id=${alias}.workspace_id AND vp.calendar_event_id=${alias}.id AND vp.user_id=${viewer})
+     OR EXISTS(SELECT 1 FROM conversation_members vcm
+                WHERE vcm.workspace_id=${alias}.workspace_id AND vcm.conversation_id=${alias}.conversation_id AND vcm.user_id=${viewer}))`;
