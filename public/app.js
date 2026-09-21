@@ -2846,18 +2846,16 @@ function eventModal(prefill=''){
       const endRaw=form.get('end');
       const endAt=endRaw?new Date(endRaw):null;
       if(endAt&&endAt<=startAt)return toast('Окончание должно быть позже начала');
+      const invited=form.getAll('guest');
       try{
-        const{event}=await api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({
+        // Встреча и приглашения — одним запросом, без половинчатого результата.
+        await api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({
           title:form.get('title'),kind:form.get('kind'),
           description:form.get('description')||null,
           startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
           timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+          participantIds:invited,
         })});
-        const invited=form.getAll('guest');
-        if(invited.length){
-          try{await api(`/api/v1/calendar-events/${event.id}/participants`,{method:'POST',body:JSON.stringify({userIds:invited})})}
-          catch(error){toast(`Событие создано, но пригласить не вышло: ${error.message}`)}
-        }
         // Land on the day the event is on, or the person stares at a week
         // that does not contain what they just made.
         S.cal=S.cal||{view:'week',cursor:new Date(),selected:null};

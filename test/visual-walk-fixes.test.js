@@ -172,9 +172,11 @@ test('no form swallows a refusal', async () => {
   const app = await read('public/app.js');
   const unguarded = [];
   for (const match of app.matchAll(/\$\('#([a-z-]+)'\)\.onsubmit=async/g)) {
-    const segment = app.slice(match.index, match.index + 1600);
+    // Окно взято с запасом: проверяем наличие catch в теле обработчика, а не
+    // его длину — иначе лишний поясняющий комментарий «ломает» правило.
+    const segment = app.slice(match.index, match.index + 3000);
     const end = segment.indexOf('\n  };');
-    const body = segment.slice(0, end > 0 ? end : 1200);
+    const body = segment.slice(0, end > 0 ? end : 2600);
     if (body.includes('api(') && !body.includes('catch')) unguarded.push(match[1]);
   }
   assert.deepEqual(unguarded, [], 'эти формы молчат при отказе сервера');
@@ -185,7 +187,9 @@ test('a meeting can be created with the people in it', async () => {
   const app = await read('public/app.js');
   const form = app.slice(app.indexOf('function eventModal('), app.indexOf('function participantChecks('));
   assert.match(form, /participantChecks\(\[\], 'guest'\)/, 'из формы события некого позвать');
-  assert.match(form, /calendar-events\/\$\{event\.id\}\/participants/);
+  // Событие и приглашения уходят одним запросом: половинчатый результат —
+  // встреча, на которую никого не позвали, — больше не возможен.
+  assert.match(form, /participantIds:invited/);
   // Validate before sending, and say what happened either way.
   assert.match(form, /Окончание должно быть позже начала/);
   assert.match(form, /toast\(invited\.length\?/);

@@ -185,6 +185,51 @@ export function createCalendarRepository(pool, store = null) {
       return rows;
     },
 
+    /**
+     * Встреча вместе с приглашёнными, одной транзакцией.
+     *
+     * Клиент заводил событие, а потом отдельным запросом звал людей: если
+     * второй запрос не проходил, в календаре оставалась встреча, на которую
+     * никого не позвали, и никто об этом не знал. Либо есть встреча с
+     * участниками, либо нет ничего.
+     */
+    async createWithParticipants(session, body, userIds = [], { optional = false } = {}) {
+      const ids = [...new Set(userIds)].filter(Boolean);
+      return tx(async (client) => {
+        const id = randomUUID();
+        const { rows } = await client.query(
+          `INSERT INTO calendar_events(id,organization_id,workspace_id,kind,title,description,owner_id,start_at,end_at,timezone,all_day,visibility,commitment_id,conversation_id)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+           RETURNING id,kind,title,description,owner_id "ownerId",start_at "startAt",end_at "endAt",timezone,
+                     all_day "allDay",visibility,commitment_id "commitmentId",conversation_id "conversationId",
+                     created_at "createdAt",updated_at "updatedAt"`,
+          [id, session.organizationId, session.workspaceId, body.kind || 'meeting', body.title, body.description,
+           session.userId, body.startAt, body.endAt, body.timezone || 'UTC', Boolean(body.allDay),
+           body.visibility || 'participants', body.commitmentId ?? null, body.conversationId ?? null],
+        );
+        const event = rows[0];
+        if (!ids.length) return { event, invited: 0 };
+
+        const { rows: staff } = await client.query(
+          "SELECT user_id FROM memberships WHERE workspace_id=$1 AND user_id=ANY($2::uuid[]) AND role<>'guest'",
+          [session.workspaceId, ids],
+        );
+        if (staff.length !== ids.length) throw fail('Those people are not workspace staff', 'NOT_WORKSPACE_STAFF', 409);
+        for (const row of staff) {
+          await client.query(
+            `INSERT INTO calendar_event_participants(organization_id,workspace_id,calendar_event_id,user_id,optional,invited_by)
+             VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (workspace_id,calendar_event_id,user_id) DO NOTHING`,
+            [session.organizationId, session.workspaceId, event.id, row.user_id, optional, session.userId],
+          );
+        }
+        await notify(client, session, {
+          recipients: staff.map((r) => r.user_id), type: 'calendar.invited', eventId: event.id,
+          title: event.title, body: 'Приглашение на встречу — требуется ответ',
+        });
+        return { event, invited: staff.length };
+      });
+    },
+
     async invite(session, eventId, userIds, { optional = false } = {}) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
@@ -196,7 +241,12 @@ export function createCalendarRepository(pool, store = null) {
           [session.workspaceId, ids],
         );
         const allowed = staff.map((r) => r.user_id);
-        if (!allowed.length) throw fail('Those people are not workspace staff', 'NOT_WORKSPACE_STAFF', 409);
+        // Раньше приглашались те, кого нашли, а остальные молча пропадали:
+        // организатор видел «приглашено 2» вместо трёх и узнавал о пропаже
+        // на самой встрече. Либо зовём всех названных, либо никого.
+        if (allowed.length !== ids.length) {
+          throw fail('Those people are not workspace staff', 'NOT_WORKSPACE_STAFF', 409);
+        }
         for (const userId of allowed) {
           // Re-inviting somebody must not erase the answer they already gave.
           await client.query(

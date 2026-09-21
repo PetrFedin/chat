@@ -145,4 +145,39 @@ test('calendar participation', { skip: databaseUrl ? false : 'DATABASE_URL is no
     );
     assert.equal(told.rowCount, 1);
   });
+
+  await t.test('встреча и приглашения появляются вместе или не появляются вовсе', async () => {
+    const { owner, join } = await company();
+    const anna = await join('member', 'Anna');
+    const guest = await join('guest', 'Client');
+
+    // Гость в списке приглашённых — встреча не заводится вовсе, а не
+    // «создаётся, но позвать не вышло».
+    const before = Number((await pool.query(
+      'SELECT count(*) n FROM calendar_events WHERE workspace_id=$1', [owner.workspaceId])).rows[0].n);
+    await assert.rejects(
+      () => calendar.createWithParticipants(owner,
+        { kind: 'meeting', title: 'Сорвётся', startAt: soon(10), endAt: soon(11), timezone: 'UTC' },
+        [anna.userId, guest.userId]),
+      (e) => e.code === 'NOT_WORKSPACE_STAFF');
+    const after = Number((await pool.query(
+      'SELECT count(*) n FROM calendar_events WHERE workspace_id=$1', [owner.workspaceId])).rows[0].n);
+    assert.equal(after, before, 'встречи без приглашённых в календаре не остаётся');
+
+    const created = await calendar.createWithParticipants(owner,
+      { kind: 'meeting', title: 'Состоится', startAt: soon(12), endAt: soon(13), timezone: 'UTC' },
+      [anna.userId]);
+    assert.equal(created.invited, 1);
+    assert.equal((await calendar.pendingInvitations(anna)).some((i) => i.title === 'Состоится'), true);
+  });
+
+  await t.test('приглашение либо доходит до всех названных, либо ни до кого', async () => {
+    const { owner, join, event } = await company();
+    const anna = await join('member', 'Anna');
+    const guest = await join('guest', 'Client');
+    await assert.rejects(() => calendar.invite(owner, event.id, [anna.userId, guest.userId]),
+      (e) => e.code === 'NOT_WORKSPACE_STAFF');
+    assert.equal((await calendar.getEvent(owner, event.id)).participants.length, 0,
+      'молча позвать половину названных нельзя');
+  });
 });
