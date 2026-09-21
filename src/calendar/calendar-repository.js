@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 const ANSWERS = new Set(['accepted', 'tentative', 'declined']);
+import { Permission, hasPermission } from '../rbac.js';
+
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
 
 const participantView = (row) => ({
@@ -40,31 +42,47 @@ export function createCalendarRepository(pool, store = null) {
     }
   };
 
+  /**
+   * Встречу ведёт организатор. Но организатор увольняется, уходит в
+   * отпуск, теряет доступ — а встреча остаётся в календаре у всех.
+   * Поэтому её ведёт ещё и тот, кому компания доверила чужое расписание:
+   * право calendar.manage.team было объявлено ролью и не проверялось
+   * нигде, из-за чего такую встречу нельзя было тронуть вообще никому.
+   */
+  const assertMayRun = (session, event, what) => {
+    if (event.owner_id === session.userId) return;
+    if (hasPermission(session.role, Permission.CALENDAR_MANAGE_TEAM)) return;
+    throw fail(what, 'CALENDAR_NOT_ORGANISER', 403);
+  };
+
   const loadEvent = async (client, session, id) => {
     const { rows } = await client.query(
-      `SELECT * FROM calendar_events e WHERE e.workspace_id=$1 AND e.id=$2 AND (
-         e.owner_id=$3
-         OR (e.visibility='workspace' AND $4<>'guest')
-         OR EXISTS(SELECT 1 FROM calendar_event_participants p
-                    WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.user_id=$3)
-         OR EXISTS(SELECT 1 FROM conversation_members cm
-                    WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))
-       FOR UPDATE`,
-      [session.workspaceId, id, session.userId, session.role],
+      `SELECT * FROM calendar_events e WHERE e.workspace_id=$1 AND e.id=$2 AND ${VISIBLE_EVENT} FOR UPDATE`,
+      visibilityArgs(session, id),
     );
     if (!rows[0]) throw fail('Event not found', 'CALENDAR_EVENT_NOT_FOUND', 404);
     return rows[0];
   };
 
-  const maySee = async (session, id) => {
-    const { rowCount } = await pool.query(
-      `SELECT 1 FROM calendar_events e WHERE e.workspace_id=$1 AND e.id=$2 AND (
+  /**
+   * Кто видит встречу: организатор, весь штат для общей, приглашённый,
+   * участник связанной комнаты — и тот, кому доверены чужие встречи.
+   * Правило одно на чтение и на правку: когда оно было записано дважды,
+   * они разошлись, и руководитель получал 404 на собственную правку.
+   */
+  const VISIBLE_EVENT = `(
          e.owner_id=$3
          OR (e.visibility='workspace' AND $4<>'guest')
-         OR (e.visibility='participants' AND (
-              EXISTS(SELECT 1 FROM calendar_event_participants p WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.user_id=$3)
-              OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))))`,
-      [session.workspaceId, id, session.userId, session.role],
+         OR EXISTS(SELECT 1 FROM calendar_event_participants p WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.user_id=$3)
+         OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3)
+         OR $5)`;
+  const visibilityArgs = (session, id) => [session.workspaceId, id, session.userId, session.role,
+    hasPermission(session.role, Permission.CALENDAR_MANAGE_TEAM)];
+
+  const maySee = async (session, id) => {
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM calendar_events e WHERE e.workspace_id=$1 AND e.id=$2 AND ${VISIBLE_EVENT}`,
+      visibilityArgs(session, id),
     );
     return rowCount > 0;
   };
@@ -166,7 +184,7 @@ export function createCalendarRepository(pool, store = null) {
     async invite(session, eventId, userIds, { optional = false } = {}) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
-        if (event.owner_id !== session.userId) throw fail('Only the organiser invites people', 'CALENDAR_NOT_ORGANISER', 403);
+        assertMayRun(session, event, 'Приглашать может организатор или тот, кто ведёт чужие встречи');
         const ids = [...new Set(userIds)].filter(Boolean);
         if (!ids.length) throw fail('Nobody to invite', 'NO_PARTICIPANTS');
         const { rows: staff } = await client.query(
@@ -212,7 +230,7 @@ export function createCalendarRepository(pool, store = null) {
     async removeParticipant(session, eventId, userId) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
-        if (event.owner_id !== session.userId) throw fail('Only the organiser changes the guest list', 'CALENDAR_NOT_ORGANISER', 403);
+        assertMayRun(session, event, 'Менять состав может организатор или тот, кто ведёт чужие встречи');
         const { rowCount } = await client.query(
           'DELETE FROM calendar_event_participants WHERE workspace_id=$1 AND calendar_event_id=$2 AND user_id=$3',
           [session.workspaceId, eventId, userId],
@@ -225,7 +243,7 @@ export function createCalendarRepository(pool, store = null) {
     async updateEvent(session, eventId, patch) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
-        if (event.owner_id !== session.userId) throw fail('Only the organiser edits the event', 'CALENDAR_NOT_ORGANISER', 403);
+        assertMayRun(session, event, 'Править встречу может организатор или тот, кто ведёт чужие встречи');
         const columns = { title: 'title', description: 'description', startAt: 'start_at', endAt: 'end_at', visibility: 'visibility', kind: 'kind', allDay: 'all_day' };
         const fields = Object.keys(columns).filter((f) => patch[f] !== undefined);
         if (!fields.length) throw fail('Nothing to update', 'EMPTY_PATCH');
@@ -257,7 +275,7 @@ export function createCalendarRepository(pool, store = null) {
     async cancelEvent(session, eventId) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
-        if (event.owner_id !== session.userId) throw fail('Only the organiser cancels the event', 'CALENDAR_NOT_ORGANISER', 403);
+        assertMayRun(session, event, 'Отменить встречу может организатор или тот, кто ведёт чужие встречи');
         const { rows: attendees } = await client.query('SELECT user_id FROM calendar_event_participants WHERE workspace_id=$1 AND calendar_event_id=$2', [session.workspaceId, eventId]);
         await notify(client, session, {
           recipients: attendees.map((a) => a.user_id), type: 'calendar.cancelled', eventId,
@@ -271,7 +289,7 @@ export function createCalendarRepository(pool, store = null) {
     async attachFile(session, eventId, fileId) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
-        if (event.owner_id !== session.userId) throw fail('Only the organiser attaches files', 'CALENDAR_NOT_ORGANISER', 403);
+        assertMayRun(session, event, 'Приложить материалы может организатор или тот, кто ведёт чужие встречи');
         if (store && !(await store.getFile(session, fileId))) throw fail('File not found', 'FILE_NOT_FOUND', 404);
         await client.query(
           `INSERT INTO calendar_event_files(organization_id,workspace_id,calendar_event_id,file_id,added_by)

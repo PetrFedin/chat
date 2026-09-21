@@ -210,8 +210,8 @@ const ROUTES = [
   {
     route: 'POST /api/v1/invitations (role=admin)', method: 'POST', path: () => '/api/v1/invitations',
     body: () => ({ email: `escalated-${rnd()}@matrix.test`, role: 'admin' }),
-    expect: { owner: 201, admin: 201, manager: 201, member: 403, guest: 403 },
-    gap: 'manager: member.invite не ограничивает выдаваемую роль — руководитель заводит администратора',
+    expect: { owner: 201, admin: 201, manager: 403, member: 403, guest: 403 },
+    note: 'пригласить можно на свою ступень и ниже: руководитель админа не выпишет',
   },
   {
     route: 'POST /api/v1/password-resets', method: 'POST', path: () => '/api/v1/password-resets',
@@ -285,13 +285,13 @@ const ROUTES = [
   {
     route: 'PATCH /api/v1/calendar-events/{чужая}', method: 'PATCH', path: (w) => `/api/v1/calendar-events/${id(w.foreignEvent)}`,
     body: () => ({ title: 'Перенесено' }),
-    expect: 403,
-    gap: 'owner/admin/manager: calendar.manage.team обещает распоряжаться встречами команды, организатор — единственный, кто может',
+    expect: { owner: 200, admin: 200, manager: 200, member: 403, guest: 404 },
+    note: 'право calendar.manage.team исполнено: встречу уволившегося есть кому вести',
   },
   {
     route: 'DELETE /api/v1/calendar-events/{чужая}', method: 'DELETE', path: (w) => `/api/v1/calendar-events/${id(w.foreignEventToCancel)}`,
-    expect: 403,
-    gap: 'owner/admin/manager: отменить встречу уволившегося нельзя никем',
+    expect: { owner: 204, admin: 204, manager: 204, member: 403, guest: 404 },
+    note: 'встречу уволившегося отменяет тот, кому доверены встречи команды',
   },
   {
     route: 'POST /api/v1/calendar-events/{чужая}/respond', method: 'POST', path: (w) => `/api/v1/calendar-events/${id(w.foreignEvent)}/respond`,
@@ -303,13 +303,13 @@ const ROUTES = [
     route: 'POST /api/v1/calendar-events/{чужая}/participants', method: 'POST',
     path: (w) => `/api/v1/calendar-events/${id(w.foreignEventGuests)}/participants`,
     body: (w) => ({ userIds: [w.actors.member.userId] }),
-    expect: 403,
-    gap: 'manager: calendar.manage.team не даёт позвать человека на чужую встречу',
+    expect: { owner: 201, admin: 201, manager: 201, member: 403, guest: 404 },
+    note: 'позвать на чужую встречу может тот, кому доверены встречи команды',
   },
   {
     route: 'POST /api/v1/calendar-events/{чужая}/files', method: 'POST', path: (w) => `/api/v1/calendar-events/${id(w.foreignEvent)}/files`,
     body: (w) => ({ fileId: id(w.ownFile) }),
-    expect: 403,
+    expect: { owner: 201, admin: 201, manager: 201, member: 403, guest: 404 },
   },
 
   // --- присутствие ----------------------------------------------------------
@@ -647,10 +647,13 @@ test('матрица «роль × маршрут»', { skip, concurrency: false
  * Тест зафиксирован на текущем факте намеренно: как только право начнут
  * проверять, он упадёт и напомнит убрать его отсюда.
  */
+// Право, объявленное ролью и не проверяемое нигде, — обещание, которого
+// никто не держит. Список тает по мере того, как обещания исполняются:
+// calendar.manage.team ушёл отсюда, когда встречу уволившегося стало
+// кому вести.
 const UNENFORCED = [
   Permission.ORGANIZATION_MANAGE,
   Permission.TASK_MANAGE_TEAM,
-  Permission.CALENDAR_MANAGE_TEAM,
   Permission.AUDIT_READ,
 ];
 
