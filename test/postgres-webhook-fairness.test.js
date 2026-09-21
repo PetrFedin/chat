@@ -143,3 +143,27 @@ test('адрес проверяется не только при заведен�
   assert.equal(delivery.status, 'dead', 'и повторять такую доставку незачем');
   assert.match(delivery.error, /внутреннюю сеть/);
 });
+
+// Запись успеха под протухшей арендой молча терялась: работник считал
+// доставку успешной, а в базе она оставалась чужой.
+test('успех под чужой арендой не записывается и не считается',
+  { skip: databaseUrl ? false : 'DATABASE_URL is not set' }, async (t) => {
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  t.after(() => pool.end());
+  const repository = createWebhookRepository(pool);
+  const session = await fixture(pool);
+  await repository.createEndpoint(session, { label: 'Приёмник', url: 'https://slow.example.test/hook', topics: [] });
+  await emit(pool, session, 'task.transitioned');
+  await repository.publishPending({ workspaceIds: [session.workspaceId] });
+
+  const [claimed] = await repository.claimDue({ limit: 1, leaseMs: 60_000, workspaceIds: [session.workspaceId] });
+  assert.ok(claimed, 'доставка взята в работу');
+
+  // Пока мы «ходили к получателю», аренду перехватил другой работник.
+  await pool.query("UPDATE webhook_deliveries SET lock_token=gen_random_uuid() WHERE id=$1", [claimed.id]);
+
+  const written = await repository.recordSuccess(claimed, 200);
+  assert.equal(written.applied, false, 'чужую строку не трогаем');
+  const row = (await pool.query('SELECT status FROM webhook_deliveries WHERE id=$1', [claimed.id])).rows[0];
+  assert.notEqual(row.status, 'delivered', 'и статус остаётся за тем, кто держит аренду');
+});

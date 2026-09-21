@@ -26,7 +26,7 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
   const workspaceIds = options.workspaceIds ?? null;
   const checkTarget = options.checkTarget ?? checkOutboundTarget;
 
-  const state = { running: false, stopping: false, published: 0, delivered: 0, failed: 0, dead: 0, lastError: null, lastRunAt: null };
+  const state = { running: false, stopping: false, published: 0, delivered: 0, failed: 0, dead: 0, lostLease: 0, lastError: null, lastRunAt: null };
   let timer = null;
 
   async function deliver(delivery) {
@@ -61,7 +61,15 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
         redirect: 'manual',
       });
       if (response.ok) {
-        await repository.recordSuccess(delivery, response.status);
+        const written = await repository.recordSuccess(delivery, response.status);
+        if (written?.applied === false) {
+          // Аренду перехватил другой работник: доставка уйдёт ещё раз. Для
+          // получателя это ожидаемо — договор «хотя бы один раз», — но знать
+          // об этом нужно, иначе двойные доставки выглядят необъяснимыми.
+          state.lostLease += 1;
+          console.warn(`доставка ${delivery.id}: аренда истекла до записи успеха`);
+          return;
+        }
         state.delivered += 1;
         return;
       }

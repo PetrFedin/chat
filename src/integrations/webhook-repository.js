@@ -200,20 +200,32 @@ export function createWebhookRepository(pool, { env = process.env } = {}) {
       return rows.map((row) => ({ ...deliveryView(row), url: row.url, secret: row.secret, lockToken: row.lock_token, payload: row.payload }));
     },
 
+    /**
+     * Успех записывается только под своей арендой.
+     *
+     * Если аренда протухла и строку успел забрать другой работник, запись
+     * не применяется — и раньше об этом никто не узнавал: работник считал
+     * доставку успешной, а в базе она оставалась чужой. Теперь метод честно
+     * говорит, применилась ли запись.
+     */
     async recordSuccess(delivery, responseStatus) {
+      let applied = false;
       await tx(async (client) => {
-        await client.query(
+        const { rowCount } = await client.query(
           `UPDATE webhook_deliveries SET status='delivered', delivered_at=now(), response_status=$2,
              error=NULL, lock_token=NULL, locked_until=NULL
            WHERE id=$1 AND lock_token=$3`,
           [delivery.id, responseStatus, delivery.lockToken],
         );
+        applied = rowCount > 0;
+        if (!applied) return;
         await client.query(
           `UPDATE webhook_endpoints SET last_delivery_at=now(), consecutive_failures=0, last_failure_reason=NULL
            WHERE id=$1`,
           [delivery.endpointId],
         );
       });
+      return { applied };
     },
 
     /** `terminal` is the receiver saying "never send this again" — a 4xx that
