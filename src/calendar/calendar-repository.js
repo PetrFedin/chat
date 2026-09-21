@@ -149,7 +149,13 @@ export function createCalendarRepository(pool, store = null) {
      * A range read that also says, per event, whether this viewer still owes
      * an answer — which is what the month and week grids mark.
      */
-    async listRange(session, { from = null, to = null } = {}) {
+    async listRange(session, { from = null, to = null, limit = 2000 } = {}) {
+      // Без диапазона сервер честно собирал всю историю: пять лет работы —
+      // это девять тысяч событий в одном ответе. Календарь всегда смотрят
+      // вокруг какой-то даты, поэтому умолчание — три месяца в обе стороны.
+      const since = from ?? new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
+      const until = to ?? new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
+      const size = Math.min(Math.max(Number(limit) || 2000, 1), 5000);
       const { rows } = await pool.query(
         `SELECT e.id,e.kind,e.title,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",e.all_day "allDay",
                 e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
@@ -165,8 +171,9 @@ export function createCalendarRepository(pool, store = null) {
                 OR (e.visibility='workspace' AND $5<>'guest')
                 OR (e.visibility='participants' AND (pa.user_id IS NOT NULL
                     OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$4))))
-         ORDER BY e.start_at, e.id`,
-        [session.workspaceId, from, to, session.userId, session.role],
+         ORDER BY e.start_at, e.id
+         LIMIT $6`,
+        [session.workspaceId, since, until, session.userId, session.role, size],
       );
       return rows.map((row) => ({ ...row, needsMyAnswer: row.myResponse === 'invited' }));
     },

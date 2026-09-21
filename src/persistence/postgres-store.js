@@ -334,7 +334,21 @@ export class PostgresStore {
   async saveVoiceMessage(s,id,v){return this.tx(async c=>{const messageId=randomUUID(),voiceId=randomUUID(),{rows}=await c.query(`INSERT INTO messages(id,organization_id,workspace_id,conversation_id,kind,author_id,body,metadata) VALUES($1,$2,$3,$4,'voice',$5,NULL,$6) RETURNING id,kind,author_id "authorId",metadata,created_at "createdAt"`,[messageId,s.organizationId,s.workspaceId,id,s.userId,{fileId:v.file.id,durationMs:v.durationMs}]);await c.query('INSERT INTO voice_messages(id,organization_id,workspace_id,message_id,file_id,duration_ms,waveform) VALUES($1,$2,$3,$4,$5,$6,$7)',[voiceId,s.organizationId,s.workspaceId,messageId,v.file.id,v.durationMs,JSON.stringify(v.waveform)]);return{message:rows[0],voice:{id:voiceId,messageId,fileId:v.file.id,durationMs:v.durationMs,waveform:v.waveform},file:v.file}})}
   taskSelect(){return `SELECT c.id,c.organization_id "organizationId",c.workspace_id "workspaceId",c.title,c.outcome,c.owner_id "ownerId",c.requester_id "requesterId",c.acceptor_id "acceptorId",c.source_message_id "sourceMessageId",c.status,c.priority,c.promised_at "promisedAt",c.forecast_at "forecastAt",c.version,c.created_at "createdAt",c.updated_at "updatedAt",(SELECT count(*)::int FROM evidence e WHERE e.workspace_id=c.workspace_id AND e.commitment_id=c.id) "evidenceCount" FROM commitments c`}
   taskView(s,row){if(!row||!canViewTask(row,s))return null;return{...row,allowedTransitions:allowedTaskTransitions(row,s,Number(row.evidenceCount||0))}}
-  async listTasks(s){const{rows}=await this.pool.query(`${this.taskSelect()} WHERE c.workspace_id=$1 ORDER BY c.promised_at NULLS LAST,c.created_at DESC`,[s.workspaceId]);return rows.filter(row=>canViewTask(row,s)).map(row=>this.taskView(s,row))}
+  /**
+   * Задачи без курсора — для поиска и сводок.
+   *
+   * Метод читал весь бэклог компании целиком и фильтровал видимость уже в
+   * JavaScript: на двадцати тысячах задач это пять с половиной секунд и
+   * десятки мегабайт в память процесса. Предел обязателен: страницы — дело
+   * listTasksPage, а здесь нужен ограниченный срез.
+   */
+  async listTasks(s,{limit=500}={}){
+    const size=Math.min(Math.max(Number(limit)||500,1),2000);
+    const{rows}=await this.pool.query(
+      `${this.taskSelect()} WHERE c.workspace_id=$1 ORDER BY c.promised_at NULLS LAST,c.created_at DESC LIMIT $2`,
+      [s.workspaceId,size]);
+    return rows.filter(row=>canViewTask(row,s)).map(row=>this.taskView(s,row));
+  }
   // listTasks loads a workspace's whole backlog, which is fine for search but
   // not for an API. This page pushes the visibility rule into SQL so LIMIT
   // counts rows the caller can actually see, and walks a keyset over the same

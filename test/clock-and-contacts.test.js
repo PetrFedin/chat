@@ -56,9 +56,12 @@ test('contacts are built from rooms and from the chart', async () => {
   const app = await read('public/app.js');
 
   assert.match(repo, /async contacts\(session\)/);
-  // Counting rows after the join to messages turned a chatty colleague into
-  // twenty shared rooms.
-  assert.match(repo, /count\(DISTINCT c\.id\)::int "sharedCount"/, 'беседы считаются не различно');
+  // Беседы считаются различно — иначе разговорчивый коллега выглядел бы
+  // двадцатью общими комнатами. Сообщения теперь вообще не участвуют в
+  // соединении: время последнего считается по беседе, а не по паре людей.
+  assert.match(repo, /count\(DISTINCT conv\.id\)::int "sharedCount"/, 'беседы считаются не различно');
+  assert.doesNotMatch(repo, /LEFT JOIN messages m ON m\.workspace_id=c\.workspace_id AND m\.conversation_id=c\.id/,
+    'соединение с сообщениями внутри самосоединения умножает строки');
   // An open channel is membership by visibility, not a relationship.
   assert.match(repo, /FROM conversation_members a/);
   // A guest has no place in the chart and gets no unit groups.

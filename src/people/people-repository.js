@@ -203,19 +203,34 @@ export function createPeopleRepository(pool, org = null) {
     async contacts(session) {
       const [talking, unitRows] = await Promise.all([
         pool.query(
-          // The join to messages multiplies the row per message, so the
-          // conversations have to be counted distinctly or two colleagues who
-          // chat a lot look like twenty shared rooms.
-          `SELECT b.user_id "userId", count(DISTINCT c.id)::int "sharedCount",
-                  max(c.title) FILTER (WHERE c.kind='direct') "directTitle",
-                  bool_or(c.kind='direct') "hasDirect",
-                  max(m.created_at) "lastMessageAt"
-             FROM conversation_members a
+          // Соединение с сообщениями стояло внутри самосоединения по
+          // участникам: каждая пара «я ↔ коллега» умножалась на каждое
+          // сообщение в общей беседе. Двести коллег, сорок бесед и сто
+          // пятьдесят тысяч сообщений давали двадцать три миллиона
+          // промежуточных строк ради двухсот в ответе — экран «Контакты»
+          // открывался шестнадцать секунд и с каждым сообщением дольше.
+          //
+          // Время последнего сообщения — свойство беседы, а не пары людей,
+          // поэтому считается отдельно, по одному разу на беседу.
+          `WITH mine AS (
+             SELECT a.conversation_id FROM conversation_members a
+              WHERE a.workspace_id=$1 AND a.user_id=$2
+           ), conv AS (
+             SELECT c.id, c.kind, c.title,
+                    (SELECT max(m.created_at) FROM messages m
+                      WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id
+                        AND m.deleted_at IS NULL) last_at
+               FROM conversations c
+               JOIN mine ON mine.conversation_id=c.id
+              WHERE c.workspace_id=$1 AND c.archived_at IS NULL
+           )
+           SELECT b.user_id "userId", count(DISTINCT conv.id)::int "sharedCount",
+                  max(conv.title) FILTER (WHERE conv.kind='direct') "directTitle",
+                  bool_or(conv.kind='direct') "hasDirect",
+                  max(conv.last_at) "lastMessageAt"
+             FROM conv
              JOIN conversation_members b
-               ON b.workspace_id=a.workspace_id AND b.conversation_id=a.conversation_id AND b.user_id<>a.user_id
-             JOIN conversations c ON c.workspace_id=a.workspace_id AND c.id=a.conversation_id
-             LEFT JOIN messages m ON m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.deleted_at IS NULL
-            WHERE a.workspace_id=$1 AND a.user_id=$2 AND c.archived_at IS NULL
+               ON b.workspace_id=$1 AND b.conversation_id=conv.id AND b.user_id<>$2
             GROUP BY b.user_id`,
           [session.workspaceId, session.userId],
         ),

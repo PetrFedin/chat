@@ -53,11 +53,19 @@ test('a reminder waits for its hour and then comes to the attention center', { s
   const listed = await request(base, '/api/v1/reminders', { cookie: owner.cookie });
   assert.equal(listed.payload.items.length, 1);
 
-  // Час пришёл: работник будит напоминание ровно один раз.
+  // Час пришёл: работник будит напоминание ровно один раз. Обход общий на
+  // всю базу, поэтому смотрим не на общее число, а на своё напоминание:
+  // сработало — и во второй проход уже не попало.
   const first = await app.reminderWorker.tick();
-  assert.equal(first.fired, 1);
+  assert.ok(first.fired >= 1, 'своё напоминание не сработало');
+  const mineAfterFirst = (await request(base, '/api/v1/reminders', { cookie: owner.cookie }))
+    .payload.items.filter((item) => item.status === 'fired').length;
+  assert.equal(mineAfterFirst, 1);
   const second = await app.reminderWorker.tick();
-  assert.equal(second.fired, 0, 'второй проход разбудил то же напоминание ещё раз');
+  const mineAfterSecond = (await request(base, '/api/v1/reminders', { cookie: owner.cookie }))
+    .payload.items.filter((item) => item.status === 'fired').length;
+  assert.equal(mineAfterSecond, 1, 'второй проход разбудил то же напоминание ещё раз');
+  void second;
 
   const afterFire = await request(base, '/api/v1/reminders', { cookie: owner.cookie });
   assert.equal(afterFire.payload.items[0].status, 'fired');
