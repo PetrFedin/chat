@@ -136,7 +136,11 @@ export function createCalendarRepository(pool, store = null) {
         participants: participants.rows.map(participantView),
         files: files.rows,
         myResponse: mine?.response_status ?? null,
-        canEdit: event.rows[0].ownerId === session.userId,
+        // Карточка обещала кнопки только организатору, хотя вести чужие
+        // встречи разрешено и по праву calendar.manage.team — иначе встречу
+        // уволившегося снова оказывалось некому перенести.
+        canEdit: event.rows[0].ownerId === session.userId
+          || hasPermission(session.role, Permission.CALENDAR_MANAGE_TEAM),
         needsMyAnswer: mine?.response_status === 'invited',
       };
     },

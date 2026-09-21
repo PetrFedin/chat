@@ -110,3 +110,29 @@ test('журнал в интерфейсе закрыт тем же правом
   assert.match(app, /journal:\(\)=>journalModal\(\)/);
   assert.match(app, /\/api\/v1\/audit\?/);
 });
+
+// Обязательство берёт на себя сотрудник компании: гость — представитель
+// заказчика, а уволенного некому спрашивать. Списки выбора людей не должны
+// обещать того, что сервер не позволит.
+test('в выборе людей нет гостей и уволенных', () => {
+  const app = read('public/app.js');
+  assert.match(app, /const colleagues=\(\)=>S\.people\.filter\(p=>p\.role!=='guest'&&p\.active!==false\)/);
+  assert.match(app, /name="ownerId"[^$]*\$\{colleagues\(\)/);
+  assert.match(app, /name="acceptorId"[^$]*\$\{colleagues\(\)/);
+  // Кандидаты в участники беседы и встречи — тоже.
+  assert.doesNotMatch(app, /filter\(p=>p\.userId!==me\(\)\.userId&&\(!openRoom/);
+});
+
+// Сервер умел менять и отменять встречу с самого начала, но в карточке не
+// было ни одной кнопки: договорённость жила в календаре как высеченная.
+test('встречу можно изменить, дополнить и отменить из интерфейса', () => {
+  const app = read('public/app.js');
+  assert.match(app, /data-event-edit/);
+  assert.match(app, /data-event-invite/);
+  assert.match(app, /data-event-cancel/);
+  assert.match(app, /data-uninvite/);
+  assert.match(app, /calendar-events\/\$\{event\.id\}`,\{method:'PATCH'/);
+  assert.match(app, /calendar-events\/\$\{event\.id\}`,\{method:'DELETE'/);
+  // И строка встречи в расписании дня открывает её карточку.
+  assert.match(app, /class="agenda-row pressable" data-cal-event=/);
+});

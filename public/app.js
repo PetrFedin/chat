@@ -53,6 +53,10 @@ const tileIcon={
   settings:svg('<circle cx="12" cy="12" r="3"/><path d="M19.2 14.2a1.4 1.4 0 0 0 .3 1.5l.1.1a1.7 1.7 0 1 1-2.4 2.4l-.1-.1a1.4 1.4 0 0 0-2.4 1v.3a1.7 1.7 0 1 1-3.4 0v-.2a1.4 1.4 0 0 0-2.4-1l-.1.1a1.7 1.7 0 1 1-2.4-2.4l.1-.1a1.4 1.4 0 0 0-1-2.4h-.3a1.7 1.7 0 1 1 0-3.4h.2a1.4 1.4 0 0 0 1-2.4l-.1-.1a1.7 1.7 0 1 1 2.4-2.4l.1.1a1.4 1.4 0 0 0 2.4-1v-.3a1.7 1.7 0 1 1 3.4 0v.2a1.4 1.4 0 0 0 2.4 1l.1-.1a1.7 1.7 0 1 1 2.4 2.4l-.1.1a1.4 1.4 0 0 0 1 2.4h.2a1.7 1.7 0 1 1 0 3.4h-.3a1.4 1.4 0 0 0-1.3.9Z"/>'),
 };
 const nav=[['today',navIcon.today,'Сегодня'],['chats',navIcon.chats,'Сообщения'],['tasks',navIcon.tasks,'Задачи'],['calendar',navIcon.calendar,'Календарь'],['more',navIcon.more,'Ещё']];
+// Обязательство берёт на себя сотрудник компании. Гость — представитель
+// заказчика: предлагать его ответственным значит обещать то, чего сервер
+// не позволит, и заодно показывать чужим людям штат.
+const colleagues=()=>S.people.filter(p=>p.role!=='guest'&&p.active!==false);
 const me=()=>S.boot?.session,can=permission=>(S.boot?.permissions||[]).includes(permission),person=id=>S.people.find(p=>p.userId===id),name=id=>person(id)?.displayName||person(id)?.email||(id===me()?.userId?me()?.displayName:'Сотрудник');
 const initials=(v='?')=>v.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]?.toUpperCase()).join('')||'?';
 const time=v=>v?new Intl.DateTimeFormat('ru',{hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'',dateTime=v=>v?new Intl.DateTimeFormat('ru',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(new Date(v)):'Без срока';
@@ -240,11 +244,11 @@ function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','ca
   const later=S.calendar.filter(e=>Date.parse(e.startAt)>=dayEnd.getTime()).sort(byStart);
   const events=(todays.length?todays:later).slice(0,4);
   const agendaTitle=todays.length||!later.length?'Расписание дня':'Ближайшие встречи';
-  const agendaHint=todays.length?'Встречи и рабочее время':later.length?'Сегодня встреч нет':'Встречи и рабочее время';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>${esc(agendaTitle)}</h2><p class="muted">${esc(agendaHint)}</p></div>${can('calendar.create')?'<button data-action="event" class="button secondary small pressable">＋ Событие</button>':''}</div>${events.length?events.map(e=>`<div class="agenda-row"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc([
+  const agendaHint=todays.length?'Встречи и рабочее время':later.length?'Сегодня встреч нет':'Встречи и рабочее время';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>${esc(agendaTitle)}</h2><p class="muted">${esc(agendaHint)}</p></div>${can('calendar.create')?'<button data-action="event" class="button secondary small pressable">＋ Событие</button>':''}</div>${events.length?events.map(e=>`<button type="button" class="agenda-row pressable" data-cal-event="${esc(e.id)}" style="width:100%;text-align:left"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc([
       Date.parse(e.startAt)>=dayEnd.getTime()?new Date(e.startAt).toLocaleDateString('ru-RU',{day:'numeric',month:'long'}):'',
       e.participantCount?`${e.participantCount} ${plural(e.participantCount,'участник','участника','участников')}`:'',
       e.needsMyAnswer?'нужен ответ':'',
-    ].filter(Boolean).join(' · '))}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></div>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или фокус-время.</div>'}</section><section class="surface"><div class="section-head"><h2>Мои задачи</h2>${can('task.create')?'<button data-action="task" class="button secondary small pressable">＋ Задача</button>':''}</div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section>${planSection()}</div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>${plural(active.length,'активная задача','активные задачи','активных задач')}</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>${plural(S.people.length,'сотрудник','сотрудника','сотрудников')}</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>${plural(S.conversations.length,'диалог','диалога','диалогов')}</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
+    ].filter(Boolean).join(' · '))}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></button>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или фокус-время.</div>'}</section><section class="surface"><div class="section-head"><h2>Мои задачи</h2>${can('task.create')?'<button data-action="task" class="button secondary small pressable">＋ Задача</button>':''}</div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section>${planSection()}</div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>${plural(active.length,'активная задача','активные задачи','активных задач')}</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>${plural(S.people.length,'сотрудник','сотрудника','сотрудников')}</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>${plural(S.conversations.length,'диалог','диалога','диалогов')}</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
 /**
  * The personal list, on the screen where the day is planned. A commitment
  * belongs to «Мои задачи» above; this is the work nobody promised to anybody.
@@ -592,7 +596,7 @@ async function eventPage(id){
   catch(error){toast(error.code==='CALENDAR_UNAVAILABLE'?'Детали встречи доступны в режиме с базой данных':error.message);return}
   const range=`${esc(dateTime(event.startAt))}${event.endAt?` — ${esc(time(event.endAt))}`:''}`;
   const people=event.participants.length
-    ? event.participants.map(p=>`<div class="person-event"><span>${esc(p.displayName||'—')}${p.optional?' · необязательно':''}${p.note?` — ${esc(p.note)}`:''}</span><span class="chip ${p.response==='invited'?'pulse':'warm'}">${esc(RESPONSE_LABEL[p.response])}</span></div>`).join('')
+    ? event.participants.map(p=>`<div class="person-event"><span>${esc(p.displayName||'—')}${p.optional?' · необязательно':''}${p.note?` — ${esc(p.note)}`:''}</span><span class="inline-actions"><span class="chip ${p.response==='invited'?'pulse':'warm'}">${esc(RESPONSE_LABEL[p.response])}</span>${event.canEdit?`<button class="close-button" data-uninvite="${esc(p.userId)}" title="Убрать из встречи" aria-label="Убрать ${esc(p.displayName||'участника')} из встречи">×</button>`:''}</span></div>`).join('')
     : '<p class="muted">Участники не приглашены.</p>';
   const files=event.files.length
     ? event.files.map(f=>`<a class="person-event" href="/api/v1/files/${esc(f.id)}/content" target="_blank" rel="noopener"><span>${esc(f.name)}</span><time>${esc(String(f.sizeBytes))} Б</time></a>`).join('')
@@ -614,6 +618,11 @@ async function eventPage(id){
     ${answer}
     <h3 class="person-section"><span>Участники</span> — ${event.participants.length}</h3><div class="person-feed">${people}</div>
     <h3 class="person-section">Материалы</h3><div class="person-feed">${files}</div>
+    ${event.canEdit?`<div class="stack" style="margin-top:16px">
+      <button data-event-edit class="button secondary">Изменить встречу</button>
+      <button data-event-invite class="button secondary">Позвать ещё</button>
+      <button data-event-cancel class="button danger">Отменить встречу</button>
+    </div>`:''}
   `,()=>{
     $$('[data-answer]').forEach(b=>b.onclick=async()=>{
       try{
@@ -623,11 +632,98 @@ async function eventPage(id){
         await loadCalendarRange();render();
       }catch(error){toast(error.message)}
     });
+    $$('[data-uninvite]').forEach(b=>b.onclick=async()=>{
+      try{
+        await api(`/api/v1/calendar-events/${id}/participants/${b.dataset.uninvite}`,{method:'DELETE'});
+        toast('Участник убран');closeModal();
+        await loadCalendarRange();render();await eventPage(id);
+      }catch(error){toast(error.message)}
+    });
+    const edit=$('[data-event-edit]');
+    if(edit)edit.onclick=()=>eventEditModal(event);
+    const invite=$('[data-event-invite]');
+    if(invite)invite.onclick=()=>eventInviteModal(event);
+    const cancel=$('[data-event-cancel]');
+    if(cancel)cancel.onclick=()=>eventCancelModal(event);
+  });
+}
+
+/**
+ * Встречу можно было только завести и ответить на приглашение. Перенести,
+ * переименовать, позвать ещё одного или отменить — всё это сервер умел с
+ * самого начала, а в интерфейсе не было ни одной кнопки: договорённость
+ * жила в календаре как высеченная.
+ */
+function eventEditModal(event){
+  modal('Изменить встречу',`<form id="event-edit" class="form-stack">
+    <label>Название<input name="title" required maxlength="240" value="${esc(event.title||'')}"></label>
+    <label>Начало<input name="start" type="datetime-local" required value="${esc(toLocalInput(event.startAt))}"></label>
+    <label>Окончание<input name="end" type="datetime-local" value="${event.endAt?esc(toLocalInput(event.endAt)):''}"></label>
+    <label>Описание<textarea name="description" rows="2" maxlength="2000">${esc(event.description||'')}</textarea></label>
+    <p class="muted">Перенос времени спрашивает участников заново: ответ на старый час не считается согласием на новый.</p>
+    <button class="button primary">Сохранить</button>
+  </form>`,()=>{
+    $('#event-edit').onsubmit=async(submitEvent)=>{
+      submitEvent.preventDefault();
+      const form=new FormData(submitEvent.currentTarget);
+      const startAt=new Date(form.get('start'));
+      const endRaw=form.get('end');
+      const endAt=endRaw?new Date(endRaw):null;
+      if(endAt&&endAt<=startAt)return toast('Окончание должно быть позже начала');
+      try{
+        await api(`/api/v1/calendar-events/${event.id}`,{method:'PATCH',body:JSON.stringify({
+          title:form.get('title'),description:form.get('description')||null,
+          startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
+        })});
+        toast('Встреча изменена');closeModal();
+        await loadCalendarRange();render();await eventPage(event.id);
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+function eventInviteModal(event){
+  const already=new Set(event.participants.map(p=>p.userId));
+  const candidates=colleagues().filter(p=>!already.has(p.userId)&&p.userId!==event.ownerId);
+  modal('Позвать на встречу',candidates.length?`<form id="event-invite" class="form-stack">
+    <div>${candidates.map(p=>`<label class="row candidate-row" style="cursor:pointer"><input type="checkbox" name="who" value="${esc(p.userId)}"><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||p.role)}</div></span></label>`).join('')}</div>
+    <button class="button primary">Пригласить</button>
+  </form>`:'<div class="empty"><strong>Звать больше некого</strong>Все сотрудники уже приглашены.</div>',()=>{
+    const form=$('#event-invite');
+    if(!form)return;
+    form.onsubmit=async(submitEvent)=>{
+      submitEvent.preventDefault();
+      const userIds=[...form.querySelectorAll('input[name="who"]:checked')].map(x=>x.value);
+      if(!userIds.length)return toast('Выберите, кого позвать');
+      try{
+        await api(`/api/v1/calendar-events/${event.id}/participants`,{method:'POST',body:JSON.stringify({userIds})});
+        toast('Приглашения отправлены');closeModal();
+        await loadCalendarRange();render();await eventPage(event.id);
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+function eventCancelModal(event){
+  modal('Отменить встречу',`
+    <p class="muted">Встреча пропадёт из календарей всех участников, и каждый получит уведомление об отмене.</p>
+    <p class="muted" style="margin-top:10px">Вернуть её нельзя — придётся назначить заново.</p>
+    <button id="confirm-cancel-event" class="button danger" style="width:100%;margin-top:14px">Отменить встречу</button>`,()=>{
+    $('#confirm-cancel-event').onclick=async()=>{
+      try{
+        await api(`/api/v1/calendar-events/${event.id}`,{method:'DELETE'});
+        toast('Встреча отменена');closeModal();closeModal();
+        await loadCalendarRange();render();
+      }catch(error){toast(error.message)}
+    };
   });
 }
 
 function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.manage')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>Название и передача владения</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button><button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){
+  // Строка встречи в расписании дня выглядела нажимаемой и не открывала
+  // ничего: карточку встречи знал только календарь.
+  $$('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
   const quickForm=$('[data-quick-form]');
@@ -2627,7 +2723,7 @@ function closeModal(){
 function replaceModal(open){if(overlayStack.length)overlayStack.pop();open()}
 function quick(){modal('Создать',`<div class="module-grid"><button class="module-card" data-q="dm"><span class="module-icon">${navIcon.chats}</span><strong>Сообщение</strong></button><button class="module-card" data-q="group"><span class="module-icon">${tileIcon.team}</span><strong>Группа</strong></button><button class="module-card" data-q="task"><span class="module-icon">${msgIcon.task}</span><strong>Задача</strong></button><button class="module-card" data-q="event"><span class="module-icon">${navIcon.calendar}</span><strong>Событие</strong></button><button class="module-card" data-q="channel"><span class="module-icon">${roomIcon.channel}</span><strong>Канал</strong></button></div>`);$$('[data-q]').forEach(b=>b.onclick=()=>{const x=b.dataset.q;replaceModal(({dm:directModal,group:groupModal,task:()=>taskModal(),event:eventModal,channel:channelModal})[x])})}
 const TASK_PRIORITY={normal:'обычный',high:'высокий',urgent:'срочный',low:'низкий'};
-function taskModal(sourceMessageId=null,prefill=''){modal('Новая задача',`<form id="task-form" class="form-stack"><label>Что нужно сделать<input name="title" required value="${esc(prefill)}"></label><label>Ожидаемый результат<textarea name="outcome" rows="3" placeholder="Как понять, что задача выполнена?"></textarea></label><label>Ответственный<select name="ownerId" class="field">${S.people.map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Кто принимает результат<select name="acceptorId" class="field">${S.people.map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Срок<input name="promisedAt" type="datetime-local"></label><label>Приоритет<select name="priority" class="field"><option value="normal">Обычный</option><option value="high">Высокий</option><option value="urgent">Срочный</option><option value="low">Низкий</option></select></label><button class="button primary">Создать</button></form>`);$('#task-form').onsubmit=async e=>{
+function taskModal(sourceMessageId=null,prefill=''){modal('Новая задача',`<form id="task-form" class="form-stack"><label>Что нужно сделать<input name="title" required value="${esc(prefill)}"></label><label>Ожидаемый результат<textarea name="outcome" rows="3" placeholder="Как понять, что задача выполнена?"></textarea></label><label>Ответственный<select name="ownerId" class="field">${colleagues().map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Кто принимает результат<select name="acceptorId" class="field">${colleagues().map(p=>`<option value="${p.userId}" ${p.userId===me().userId?'selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>Срок<input name="promisedAt" type="datetime-local"></label><label>Приоритет<select name="priority" class="field"><option value="normal">Обычный</option><option value="high">Высокий</option><option value="urgent">Срочный</option><option value="low">Низкий</option></select></label><button class="button primary">Создать</button></form>`);$('#task-form').onsubmit=async e=>{
     e.preventDefault();
     const f=new FormData(e.currentTarget);
     try{
@@ -2780,7 +2876,7 @@ function eventModal(prefill=''){
  * outsider must not be in, and the server refuses it — offering the name
  * would only produce a refusal.
  */
-function participantChecks(selected=[],name='participant',{openRoom=false}={}){const chosen=new Set(selected);return S.people.filter(p=>p.userId!==me().userId&&(!openRoom||p.role!=='guest')).map(p=>`<label class="row candidate-row" style="cursor:pointer"><input type="checkbox" name="${name}" value="${p.userId}" ${chosen.has(p.userId)?'checked':''}><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||p.role)}</div></span></label>`).join('')||'<div class="empty">Сначала пригласите сотрудников.</div>'}
+function participantChecks(selected=[],name='participant',{openRoom=false}={}){const chosen=new Set(selected);return S.people.filter(p=>p.userId!==me().userId&&p.active!==false&&(!openRoom||p.role!=='guest')).map(p=>`<label class="row candidate-row" style="cursor:pointer"><input type="checkbox" name="${name}" value="${p.userId}" ${chosen.has(p.userId)?'checked':''}><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||p.role)}</div></span></label>`).join('')||'<div class="empty">Сначала пригласите сотрудников.</div>'}
 
 function groupModal(){modal('Новая группа',`<form id="group-form" class="form-stack"><label>Название группы<input name="title" required maxlength="120"></label><div><div class="row-title">Участники</div><div class="row-sub">Выберите минимум одного коллегу</div><div style="margin-top:8px">${participantChecks()}</div></div><button class="button primary">Создать группу</button></form>`);$('#group-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,ids=[...form.querySelectorAll('input[name="participant"]:checked')].map(x=>x.value);if(ids.length<1)return toast('Для группового чата выберите минимум одного коллегу.');try{const f=new FormData(form),{conversation}=await api('/api/v1/conversations',{method:'POST',body:JSON.stringify({kind:'group',title:f.get('title'),participantIds:ids})});S.conversations.unshift(conversation);closeModal();openChat(conversation.id)}catch(error){toast(error.message)}}}
 
@@ -2884,7 +2980,7 @@ function conversationEditModal(c){
   });
 }
 
-async function membersModal(){const conversation=S.conversations.find(x=>x.id===S.selected);if(!conversation)return toast('Сначала откройте группу или канал.');try{const payload=await api(`/api/v1/conversations/${conversation.id}/members`),members=payload.items||[],orphaned=conversation.kind!=='direct'&&!members.some(x=>x.role==='owner')&&['owner','admin','manager'].includes(me().role),memberIds=new Set(members.map(x=>x.userId)),available=S.people.filter(p=>p.userId!==me().userId&&!memberIds.has(p.userId));modal('Участники',`<div class="stack"><div>${members.map(m=>`<div class="row" data-member-row="${m.userId}"><span class="avatar dark">${esc(initials(m.displayName||m.email))}</span><span><div class="row-title">${esc(m.displayName||m.email)}</div><div class="row-sub">${esc(m.title||m.workspaceRole||'')}</div></span>${payload.canManage?`<span class="inline-actions"><select class="field" data-member-role="${m.userId}" style="min-width:120px">${m.workspaceRole==='guest'?'':`<option value="owner" ${m.role==='owner'?'selected':''}>Владелец</option><option value="moderator" ${m.role==='moderator'?'selected':''}>Модератор</option>`}<option value="member" ${m.role==='member'?'selected':''}>Участник</option><option value="guest" ${m.role==='guest'?'selected':''}>Гость</option></select><button type="button" class="close-button" data-member-remove="${m.userId}" title="Удалить">×</button></span>`:`<span class="chip">${esc(m.role)}</span>`}</div>`).join('')}</div>${orphaned?`<div class="stack" style="margin:12px 0"><p class="muted">У беседы не осталось владельца: настраивать её и вести список участников некому.</p><button type="button" data-conv-claim class="button secondary">Стать владельцем</button></div>`:''}${payload.canManage&&available.length?`<form id="add-members-form" class="form-stack"><div><div class="row-title">Добавить участников</div><div style="margin-top:8px">${available.filter(p=>!['workspace','organization'].includes(conversation.visibility)||p.role!=='guest').map(p=>`<label class="row candidate-row" style="cursor:pointer"><input type="checkbox" name="candidate" value="${p.userId}"><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||p.role)}</div></span></label>`).join('')}</div></div><button class="button secondary">Добавить выбранных</button></form>`:''}</div>`);const claimButton=$('[data-conv-claim]');if(claimButton)claimButton.onclick=async()=>{try{await api(`/api/v1/conversations/${conversation.id}/claim`,{method:'POST'});const i=S.conversations.findIndex(x=>x.id===conversation.id);if(i>=0)S.conversations[i]={...S.conversations[i],memberRole:'owner'};toast('Вы стали владельцем беседы');await membersModal();render()}catch(error){toast(error.message)}};if(payload.canManage){$$('[data-member-role]').forEach(select=>select.onchange=async()=>{try{await api(`/api/v1/conversations/${conversation.id}/members/${select.dataset.memberRole}`,{method:'PATCH',body:JSON.stringify({role:select.value})});toast('Роль обновлена');await membersModal()}catch(error){toast(error.message);await membersModal()}});$$('[data-member-remove]').forEach(button=>button.onclick=async()=>{try{await api(`/api/v1/conversations/${conversation.id}/members/${button.dataset.memberRemove}`,{method:'DELETE'});toast('Участник удалён');await membersModal()}catch(error){toast(error.message)}});const form=$('#add-members-form');if(form)form.onsubmit=async e=>{e.preventDefault();const ids=[...form.querySelectorAll('input[name="candidate"]:checked')].map(x=>x.value);if(!ids.length)return toast('Выберите участников.');try{await api(`/api/v1/conversations/${conversation.id}/members`,{method:'POST',body:JSON.stringify({userIds:ids})});toast('Участники добавлены');await membersModal()}catch(error){toast(error.message)}}}}catch(error){toast(error.message)}}
+async function membersModal(){const conversation=S.conversations.find(x=>x.id===S.selected);if(!conversation)return toast('Сначала откройте группу или канал.');try{const payload=await api(`/api/v1/conversations/${conversation.id}/members`),members=payload.items||[],orphaned=conversation.kind!=='direct'&&!members.some(x=>x.role==='owner')&&['owner','admin','manager'].includes(me().role),memberIds=new Set(members.map(x=>x.userId)),available=S.people.filter(p=>p.userId!==me().userId&&p.active!==false&&!memberIds.has(p.userId));modal('Участники',`<div class="stack"><div>${members.map(m=>`<div class="row" data-member-row="${m.userId}"><span class="avatar dark">${esc(initials(m.displayName||m.email))}</span><span><div class="row-title">${esc(m.displayName||m.email)}</div><div class="row-sub">${esc(m.title||m.workspaceRole||'')}</div></span>${payload.canManage?`<span class="inline-actions"><select class="field" data-member-role="${m.userId}" style="min-width:120px">${m.workspaceRole==='guest'?'':`<option value="owner" ${m.role==='owner'?'selected':''}>Владелец</option><option value="moderator" ${m.role==='moderator'?'selected':''}>Модератор</option>`}<option value="member" ${m.role==='member'?'selected':''}>Участник</option><option value="guest" ${m.role==='guest'?'selected':''}>Гость</option></select><button type="button" class="close-button" data-member-remove="${m.userId}" title="Удалить">×</button></span>`:`<span class="chip">${esc(m.role)}</span>`}</div>`).join('')}</div>${orphaned?`<div class="stack" style="margin:12px 0"><p class="muted">У беседы не осталось владельца: настраивать её и вести список участников некому.</p><button type="button" data-conv-claim class="button secondary">Стать владельцем</button></div>`:''}${payload.canManage&&available.length?`<form id="add-members-form" class="form-stack"><div><div class="row-title">Добавить участников</div><div style="margin-top:8px">${available.filter(p=>!['workspace','organization'].includes(conversation.visibility)||p.role!=='guest').map(p=>`<label class="row candidate-row" style="cursor:pointer"><input type="checkbox" name="candidate" value="${p.userId}"><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||p.role)}</div></span></label>`).join('')}</div></div><button class="button secondary">Добавить выбранных</button></form>`:''}</div>`);const claimButton=$('[data-conv-claim]');if(claimButton)claimButton.onclick=async()=>{try{await api(`/api/v1/conversations/${conversation.id}/claim`,{method:'POST'});const i=S.conversations.findIndex(x=>x.id===conversation.id);if(i>=0)S.conversations[i]={...S.conversations[i],memberRole:'owner'};toast('Вы стали владельцем беседы');await membersModal();render()}catch(error){toast(error.message)}};if(payload.canManage){$$('[data-member-role]').forEach(select=>select.onchange=async()=>{try{await api(`/api/v1/conversations/${conversation.id}/members/${select.dataset.memberRole}`,{method:'PATCH',body:JSON.stringify({role:select.value})});toast('Роль обновлена');await membersModal()}catch(error){toast(error.message);await membersModal()}});$$('[data-member-remove]').forEach(button=>button.onclick=async()=>{try{await api(`/api/v1/conversations/${conversation.id}/members/${button.dataset.memberRemove}`,{method:'DELETE'});toast('Участник удалён');await membersModal()}catch(error){toast(error.message)}});const form=$('#add-members-form');if(form)form.onsubmit=async e=>{e.preventDefault();const ids=[...form.querySelectorAll('input[name="candidate"]:checked')].map(x=>x.value);if(!ids.length)return toast('Выберите участников.');try{await api(`/api/v1/conversations/${conversation.id}/members`,{method:'POST',body:JSON.stringify({userIds:ids})});toast('Участники добавлены');await membersModal()}catch(error){toast(error.message)}}}}catch(error){toast(error.message)}}
 
 function directModal(){const others=S.people.filter(p=>p.userId!==me().userId);modal('Новое сообщение',others.map(p=>`<button class="conversation-card" data-person="${p.userId}"><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><strong>${esc(p.displayName||p.email)}</strong><div class="preview">${esc(p.title||p.role)}</div></span></button>`).join('')||'<div class="empty">Сначала пригласите сотрудников.</div>');$$('[data-person]').forEach(b=>b.onclick=async()=>{const p=person(b.dataset.person),{conversation}=await api('/api/v1/conversations',{method:'POST',body:JSON.stringify({kind:'direct',title:p?.displayName||null,participantIds:[b.dataset.person]})});S.conversations.unshift(conversation);closeModal();openChat(conversation.id)})}
 function inviteModal(){modal('Пригласить сотрудника',`<form id="invite-form" class="form-stack"><label>Email<input name="email" type="email" required></label><label>Роль<select name="role" class="field"><option value="member">Сотрудник</option><option value="manager">Руководитель</option><option value="admin">Администратор</option><option value="guest">Гость</option></select></label><button class="button primary">Создать приглашение</button></form>`);$('#invite-form').onsubmit=async e=>{
@@ -2905,7 +3001,7 @@ function inviteModal(){modal('Пригласить сотрудника',`<form 
     }catch(error){toast(error.message)}
   };
 }
-function teamModal(){modal('Команда',S.people.map(p=>`<button class="row pressable" data-person="${esc(p.userId)}" style="width:100%;text-align:left"><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||p.role)}</div></span><span class="presence-dot ${esc(p.presence?.state||'offline')}"></span></button>`).join(''),()=>{
+function teamModal(){modal('Команда',S.people.map(p=>`<button class="row pressable" data-person="${esc(p.userId)}" style="width:100%;text-align:left"><span class="avatar dark">${esc(initials(p.displayName||p.email))}</span><span><div class="row-title">${esc(p.displayName||p.email)}${p.active===false?' · уволен':''}</div><div class="row-sub">${esc(p.title||p.role)}</div></span><span class="presence-dot ${esc(p.presence?.state||'offline')}"></span></button>`).join(''),()=>{
   $$('[data-person]').forEach(b=>{b.onclick=()=>personPage(b.dataset.person)});
 })}
 function profileModal(){modal('Профиль и безопасность',`<div class="row"><span class="avatar">${esc(initials(me().displayName))}</span><span><div class="row-title">${esc(me().displayName)}</div><div class="row-sub">${esc(me().email)} · ${esc(me().role)}</div></span></div><div class="stack" style="margin-top:14px"><button data-push class="button secondary">Включить push</button><button data-logout class="button danger">Выйти</button></div>`);$('[data-push]').onclick=enablePush;$('[data-logout]').onclick=logout}
