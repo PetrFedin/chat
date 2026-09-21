@@ -1,4 +1,5 @@
 import { createEndpointSecret, topicMatches } from './webhook-signature.js';
+import { checkOutboundUrl } from '../net/outbound-url.js';
 
 const endpointView = (row, { includeSecret = false } = {}) => ({
   id: row.id,
@@ -60,7 +61,8 @@ export function createWebhookRepository(pool) {
     },
 
     async createEndpoint(session, { label, url, topics = [] }) {
-      if (!/^https?:\/\//.test(String(url ?? ''))) throw invalid('Endpoint URL must be http or https', 'INVALID_ENDPOINT_URL');
+      const outbound = checkOutboundUrl(url);
+      if (!outbound.ok) throw invalid(outbound.reason, 'INVALID_ENDPOINT_URL');
       if (!String(label ?? '').trim()) throw invalid('Endpoint label is required', 'INVALID_ENDPOINT_LABEL');
       if (!Array.isArray(topics)) throw invalid('Topics must be an array of patterns', 'INVALID_TOPICS');
       const secret = createEndpointSecret();
