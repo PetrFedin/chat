@@ -149,7 +149,7 @@ async function company(base, tag) {
 
   const upload = async (cookie, name) => ok('file', await call(base, '/api/v1/files', {
     cookie, method: 'POST', raw: Buffer.from(`body-${name}`),
-    headers: { 'content-type': 'text/plain', 'x-file-name': name },
+    headers: { 'content-type': 'text/plain', 'x-file-name': encodeURIComponent(name) },
   })).file.id;
   s.fileId = await upload(M, `file-${suffix}.txt`);
   s.otherFileId = await upload(X, `ЧУЖОЙ-ФАЙЛ-${suffix}.txt`);
