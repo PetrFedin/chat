@@ -1,3 +1,5 @@
+import { Permission, hasPermission } from '../rbac.js';
+
 const TRANSITIONS = new Map([
   ['inbox', new Set(['clarify','proposed','cancelled'])],
   ['clarify', new Set(['proposed','cancelled'])],
@@ -15,7 +17,14 @@ const TRANSITIONS = new Map([
 ]);
 
 const TERMINAL = new Set(['closed','rejected','cancelled']);
-export const TEAM_MANAGERS = new Set(['owner','admin','manager']);
+/**
+ * «Ведёт чужие задачи» — это право, а не список ролей.
+ *
+ * Список ролей жил здесь отдельно от таблицы прав, и добавить роли право
+ * `task.manage.team` было мало: задачи о ней не знали. Теперь источник
+ * один — таблица в rbac.js.
+ */
+export const managesTeamTasks = (session) => hasPermission(session?.role, Permission.TASK_MANAGE_TEAM);
 const REASON_REQUIRED = new Set(['blocked','deferred','cancelled']);
 
 export class TaskAuthorityError extends Error {
@@ -36,7 +45,7 @@ export function canViewTask(task,session){
     task.ownerId===session.userId ||
     task.requesterId===session.userId ||
     task.acceptorId===session.userId ||
-    TEAM_MANAGERS.has(session.role)
+    managesTeamTasks(session)
   ));
 }
 
@@ -45,7 +54,7 @@ export function assertTaskVisible(task,session){
 }
 
 export function isTaskTeamManager(session){
-  return TEAM_MANAGERS.has(session.role);
+  return managesTeamTasks(session);
 }
 
 function assertExpectedVersion(task,expectedVersion){
@@ -55,7 +64,7 @@ function assertExpectedVersion(task,expectedVersion){
 }
 
 function mayCancel(task,session){
-  return task.ownerId===session.userId || task.requesterId===session.userId || TEAM_MANAGERS.has(session.role);
+  return task.ownerId===session.userId || task.requesterId===session.userId || managesTeamTasks(session);
 }
 
 function actorTransitions(task,session,evidenceCount=0){
@@ -63,7 +72,7 @@ function actorTransitions(task,session,evidenceCount=0){
   const actor=session.userId;
   switch(task.status){
     case 'inbox':
-      if(task.requesterId===actor||TEAM_MANAGERS.has(session.role)) result.add('cancelled');
+      if(task.requesterId===actor||managesTeamTasks(session)) result.add('cancelled');
       break;
     case 'clarify':
       if(task.requesterId===actor) result.add('proposed');
@@ -71,7 +80,7 @@ function actorTransitions(task,session,evidenceCount=0){
       break;
     case 'proposed':
       if(task.ownerId===actor){ result.add('accepted'); result.add('rejected'); result.add('clarify'); }
-      if(task.requesterId===actor||TEAM_MANAGERS.has(session.role)) result.add('cancelled');
+      if(task.requesterId===actor||managesTeamTasks(session)) result.add('cancelled');
       break;
     case 'accepted':
       if(task.ownerId===actor){ result.add('scheduled'); result.add('in_progress'); result.add('deferred'); }
@@ -129,7 +138,7 @@ export function assertTaskEvidenceAuthority(task,session,{expectedVersion}){
   assertTaskVisible(task,session);
   assertExpectedVersion(task,expectedVersion);
   if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','Evidence cannot be added to a terminal task',409);
-  if(![task.ownerId,task.requesterId,task.acceptorId].includes(session.userId)&&!TEAM_MANAGERS.has(session.role)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot add evidence to this task',403);
+  if(![task.ownerId,task.requesterId,task.acceptorId].includes(session.userId)&&!managesTeamTasks(session)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot add evidence to this task',403);
 }
 
 /**
@@ -149,7 +158,7 @@ export function assertTaskReassignAuthority(task,session,{expectedVersion,reason
   assertTaskVisible(task,session);
   assertExpectedVersion(task,expectedVersion);
   if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','A terminal task cannot be reassigned',409);
-  if(task.requesterId!==session.userId&&!TEAM_MANAGERS.has(session.role)) {
+  if(task.requesterId!==session.userId&&!managesTeamTasks(session)) {
     throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','Only the requester or a team manager can reassign this task',403);
   }
   if(!ownerId&&!acceptorId) throw new TaskAuthorityError('TASK_NOTHING_TO_CHANGE','Name a new owner or a new acceptor',400);
@@ -171,7 +180,7 @@ export function assertTaskScheduleAuthority(task,session,{expectedVersion,reason
   assertTaskVisible(task,session);
   assertExpectedVersion(task,expectedVersion);
   if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','A terminal task cannot be rescheduled',409);
-  if(![task.ownerId,task.requesterId].includes(session.userId)&&!TEAM_MANAGERS.has(session.role)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot reschedule this task',403);
+  if(![task.ownerId,task.requesterId].includes(session.userId)&&!managesTeamTasks(session)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot reschedule this task',403);
   if(typeof reason!=='string'||!reason.trim()) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Rescheduling requires a reason',400);
   return reason.trim();
 }

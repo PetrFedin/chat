@@ -44,6 +44,7 @@ const tileIcon={
   vault:svg('<circle cx="9.6" cy="11" r="3.4"/><path d="M12.6 12.4h7.8v3"/><path d="M17.4 12.4v2.6"/>'),
   reminders:svg('<circle cx="12" cy="13" r="7.4"/><path d="M12 9.4V13l2.4 1.6"/><path d="m5.6 4.6 2.8 2M18.4 4.6l-2.8 2"/>'),
   plan:svg('<path d="m4.6 12.6 3.2 3.2 7.6-8.4"/><path d="M12.6 16.6h6.8"/><path d="M4.6 19.4h14.8"/>'),
+  journal:svg('<path d="M5.6 4.4h9.2l4 4v11.2a1.2 1.2 0 0 1-1.2 1.2H5.6a1.2 1.2 0 0 1-1.2-1.2V5.6a1.2 1.2 0 0 1 1.2-1.2Z"/><path d="M14.4 4.4v4.4h4"/><path d="M8 12.6h7M8 16h5"/>'),
   labels:svg('<path d="M4.4 10.6V5.6a1.2 1.2 0 0 1 1.2-1.2h5l9 9-6.2 6.2-9-9Z"/><circle cx="8.6" cy="8.6" r="1.2" fill="currentColor" stroke="none"/>'),
   invite:svg('<circle cx="9.6" cy="8.8" r="3.4"/><path d="M3.8 19.4c0-3.1 2.6-5.2 5.8-5.2 1.3 0 2.5.35 3.4.95"/><path d="M17.4 13.6v6M14.4 16.6h6"/>'),
   files:svg('<path d="M6.4 3.8h7l4.2 4.2v12.2H6.4Z"/><path d="M13.2 3.8V8h4.4"/>'),
@@ -593,7 +594,7 @@ async function eventPage(id){
   });
 }
 
-function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button><button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
+function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button><button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button><button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button><button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="profile"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Профиль и безопасность</span></button></div>`}
 function bind(){
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
@@ -669,7 +670,7 @@ function go(v){
 }
 async function openChat(id){S.selected=id;S.view='chats';S.mobileChat=true;await loadMessages(id);api(`/api/v1/conversations/${id}/read`,{method:'POST',body:JSON.stringify({messageId:S.messages.get(id)?.at(-1)?.id||null})}).catch(()=>{});render()}
 async function openChatAtMessage(id,messageId=null){await openChat(id);if(messageId)requestAnimationFrame(()=>document.querySelector(`[data-message-row="${messageId}"]`)?.scrollIntoView({behavior:'smooth',block:'center'}))}
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,journal:()=>journalModal(),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>toast('Файлы доступны в связанных чатах; общий браузер — следующий экран.'),calls:callsModal,audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 const UNIT_KIND={company:'компания',department:'департамент',division:'отдел',team:'группа',office:'офис',guild:'сообщество'};
 // ── org structure: reading and reshaping ────────────────────────────────────
@@ -1749,6 +1750,82 @@ function presenceModal(){
       }catch(error){toast(error.message)}
     };
   });
+}
+
+// ── журнал рабочего пространства ────────────────────────────────────────────
+
+/**
+ * Записи велись с первого дня, а посмотреть их было негде. Здесь они на
+ * человеческом языке: кого позвали, кто вошёл, кому выдали ссылку на смену
+ * пароля, кто раскрыл пароль из общего сейфа.
+ */
+const JOURNAL_EVENT={
+  'invitation.issued':['Приглашение отправлено', e=>`${e.payload?.email??''} — ${WORKSPACE_ROLE[e.payload?.role]??e.payload?.role??''}`],
+  'invitation.accepted':['Человек вошёл в компанию', e=>`${e.payload?.email??''} — ${WORKSPACE_ROLE[e.payload?.role]??e.payload?.role??''}`],
+  'password.reset.issued':['Выдана ссылка на смену пароля', ()=>'Ссылка действует ограниченное время'],
+  'password.reset.used':['Пароль сменён по ссылке', ()=>''],
+  'vault.created':['Пароль добавлен в сейф', e=>e.payload?.title??''],
+  'vault.updated':['Запись в сейфе изменена', e=>e.payload?.title??''],
+  'vault.revealed':['Пароль раскрыт из сейфа', e=>e.payload?.title??''],
+  'vault.deleted':['Запись из сейфа удалена', e=>e.payload?.title??''],
+  'profile.updated':['Карточка сотрудника изменена', ()=>''],
+  'commitment.created':['Заведена задача', e=>e.payload?.title??''],
+  'commitment.transitioned':['Задача перешла в новое состояние', e=>`${WORK_STATUS[e.payload?.to]??e.payload?.to??''}`],
+  'commitment.reassigned':['Задачу передали другому', ()=>''],
+  'commitment.rescheduled':['Срок задачи перенесён', ()=>''],
+  'evidence.added':['Добавлено доказательство', ()=>''],
+  'conversation.ownership_claimed':['Беседа осталась без владельца и принята', e=>e.payload?.title??''],
+};
+
+const JOURNAL_FILTERS=[['','Все'],['membership','Люди'],['commitment','Задачи'],['vault_entry','Пароли'],['conversation','Беседы']];
+
+function journalRow(event){
+  const[caption,detail]=JOURNAL_EVENT[event.eventType]??[event.eventType,()=>''];
+  const extra=detail(event);
+  return `<div class="row" style="width:100%">
+    <span><div class="row-title">${esc(caption)}</div>
+    <div class="row-sub">${esc(when(event.createdAt))} · ${esc(event.actorName||'—')}${extra?` · ${esc(extra)}`:''}</div></span>
+  </div>`;
+}
+
+async function journalModal(){
+  S.journalType=S.journalType??'';
+  S.journalItems=[];
+  S.journalCursor=null;
+  const load=async(more=false)=>{
+    const query=new URLSearchParams({limit:'50'});
+    if(S.journalType)query.set('type',S.journalType);
+    if(more&&S.journalCursor)query.set('cursor',S.journalCursor);
+    const page=await api(`/api/v1/audit?${query}`);
+    S.journalItems=more?[...S.journalItems,...(page.items||[])]:(page.items||[]);
+    S.journalCursor=page.nextCursor??null;
+  };
+  const build=async(more=false)=>{
+    try{await load(more)}
+    catch(error){return{title:'Журнал',body:`<div class="empty"><strong>Журнал недоступен</strong>${esc(error.message)}</div>`,after:()=>{}}}
+    const filters=JOURNAL_FILTERS.map(([value,caption])=>
+      `<button class="chipbtn pressable${S.journalType===value?' on':''}" data-journal-type="${esc(value)}">${esc(caption)}</button>`).join('');
+    return{
+      title:'Журнал',
+      body:`<div class="chip-row">${filters}</div>
+      <div class="stack" style="margin-top:10px">${S.journalItems.length
+        ?S.journalItems.map(journalRow).join('')
+        :'<div class="empty"><strong>Записей пока нет</strong>Здесь появятся приглашения, входы, смены паролей и движение задач.</div>'}</div>
+      ${S.journalCursor?'<button class="button" id="journal-more" style="margin-top:10px;width:100%">Показать ещё</button>':''}`,
+      after:()=>{
+        $$('[data-journal-type]').forEach(b=>b.onclick=async()=>{S.journalType=b.dataset.journalType;await refresh()});
+        const more=$('#journal-more');
+        if(more)more.onclick=async()=>{await refresh(true)};
+      },
+    };
+  };
+  const refresh=async(more=false)=>{
+    const next=await build(more);
+    const top=overlayStack[overlayStack.length-1];
+    if(top){Object.assign(top,next);renderOverlay()}
+  };
+  const first=await build();
+  modal(first.title,first.body,first.after,()=>build());
 }
 
 // ── outbound integrations ───────────────────────────────────────────────────

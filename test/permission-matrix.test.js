@@ -515,6 +515,12 @@ const ROUTES = [
   { route: 'PATCH /api/v1/people/{себя}', method: 'PATCH', path: (w) => `/api/v1/people/${w.actor.userId}`, body: () => ({ about: 'о себе' }), expect: 200 },
   { route: 'GET /api/v1/people/{другой}/activity', path: (w) => `/api/v1/people/${w.stranger.userId}/activity`, expect: 200 },
 
+  // --- журнал ---------------------------------------------------------------
+  {
+    route: 'GET /api/v1/audit', path: () => '/api/v1/audit',
+    expect: { owner: 200, admin: 200, manager: 200, member: 403, guest: 403 },
+  },
+
   // --- метки ----------------------------------------------------------------
   { route: 'GET /api/v1/labels', path: () => '/api/v1/labels', expect: 200 },
   {
@@ -649,10 +655,11 @@ test('матрица «роль × маршрут»', { skip, concurrency: false
 // никто не держит. Список тает по мере того, как обещания исполняются:
 // calendar.manage.team ушёл отсюда, когда встречу уволившегося стало
 // кому вести.
+// task.manage.team ушло отсюда, когда полномочия по чужим задачам
+// перестали держаться на списке ролей внутри task-authority.js;
+// audit.read — когда у журнала появился маршрут.
 const UNENFORCED = [
   Permission.ORGANIZATION_MANAGE,
-  Permission.TASK_MANAGE_TEAM,
-  Permission.AUDIT_READ,
 ];
 
 test('права, которые объявлены, но нигде не проверяются', async () => {
@@ -684,8 +691,9 @@ test('права, которые объявлены, но нигде не про
   assert.deepEqual(difference, [Permission.ORGANIZATION_MANAGE]);
   assert.ok(UNENFORCED.includes(difference[0]), 'единственное отличие владельца от администратора ничего не значит');
 
-  // Следствие второе: полномочия руководителя по чужим задачам держатся не на
-  // праве task.manage.team, а на списке ролей в src/task/task-authority.js.
+  // Следствие второе: полномочия по чужим задачам держатся на праве, а не на
+  // списке ролей рядом с задачами — иначе выдать право новой роли было мало.
   const authority = await readFile(fileURLToPath(new URL('../src/task/task-authority.js', import.meta.url)), 'utf8');
-  assert.match(authority, /TEAM_MANAGERS\s*=\s*new Set\(\['owner','admin','manager'\]\)/);
+  assert.doesNotMatch(authority, /new Set\(\['owner','admin','manager'\]\)/);
+  assert.match(authority, /Permission\.TASK_MANAGE_TEAM/);
 });

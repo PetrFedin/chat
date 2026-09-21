@@ -23,6 +23,7 @@ import { createMediaHandler } from './http/media.js';
 import { createCallHandler } from './http/calls.js';
 import { createIntegrationsHandler } from './http/integrations.js';
 import { createOrgHandler } from './http/org.js';
+import { createAuditHandler } from './http/audit.js';
 import { createGamesHandler } from './http/games.js';
 import { createRemindersHandler } from './http/reminders.js';
 import { createVaultHandler } from './http/vault.js';
@@ -154,7 +155,7 @@ export async function createChatServer(options={}){
   if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.();reminderWorker.start?.()}
 
   const ctx={store,mode,hub,authThrottle,webhooks,deliveryWorker,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleAudit=createAuditHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{try{
     for(const [name,value] of Object.entries(baseHeaders))res.setHeader(name,value);
@@ -197,6 +198,7 @@ export async function createChatServer(options={}){
     if(await handleCalls(req,res,ctx,path,method))return;
     if(await handleIntegrations(req,res,ctx,url,path,method))return;
     if(await handleOrg(req,res,ctx,url,path,method))return;
+    if(await handleAudit(req,res,ctx,url,path,method))return;
     if(await handleGames(req,res,ctx,url,path,method))return;
     if(await handleReminders(req,res,ctx,url,path,method))return;
     if(await handleVault(req,res,ctx,url,path,method))return;

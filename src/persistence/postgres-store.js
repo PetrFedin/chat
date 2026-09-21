@@ -1,6 +1,6 @@
 import { openConversationSql, isGuest, GUEST_ROLE } from './visibility.js';
 import { randomUUID } from 'node:crypto';
-import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskReassignAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask, TEAM_MANAGERS as TASK_MANAGER_ROLES } from '../task/task-authority.js';
+import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskReassignAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask, managesTeamTasks } from '../task/task-authority.js';
 
 import { encodeTaskCursor, decodeTaskCursor, taskPageSize } from '../task/task-page.js';
 
@@ -22,6 +22,41 @@ export class PostgresStore {
    * в одной комнате, — записано один раз.
    */
   async listPeople(s){const {rows}=await this.pool.query(`SELECT m.user_id,m.role,p.display_name,p.email,p.title,p.department,p.avatar_url,COALESCE(pr.state,'offline') state,pr.status_emoji,pr.status_text FROM memberships m LEFT JOIN workspace_profiles p ON p.workspace_id=m.workspace_id AND p.user_id=m.user_id LEFT JOIN user_presence pr ON pr.workspace_id=m.workspace_id AND pr.user_id=m.user_id WHERE m.workspace_id=$1 AND($2::uuid IS NULL OR m.user_id=$2 OR m.user_id=ANY(SELECT cm2.user_id FROM conversation_members cm1 JOIN conversation_members cm2 ON cm2.conversation_id=cm1.conversation_id AND cm2.workspace_id=cm1.workspace_id WHERE cm1.workspace_id=$1 AND cm1.user_id=$2)) ORDER BY p.display_name NULLS LAST`,[s.workspaceId,s.role==='guest'?s.userId:null]);return rows.map(r=>({userId:r.user_id,role:r.role,displayName:r.display_name,email:r.email,title:r.title,department:r.department,avatarUrl:r.avatar_url,presence:{state:r.state,statusEmoji:r.status_emoji,statusText:r.status_text}}))}
+
+  /**
+   * Журнал рабочего пространства.
+   *
+   * Запись велась с первого дня — приглашения, смены ролей, выдача ссылок на
+   * восстановление пароля, раскрытие паролей из сейфа, — но прочитать её было
+   * нельзя ниоткуда. Журнал, в который нельзя заглянуть, не журнал.
+   *
+   * Листается по возрастающему `sequence` в обратную сторону: курсор — номер
+   * последней показанной записи, поэтому вставка новых страниц не сдвигает.
+   */
+  async listAuditEvents(s,{limit=50,cursor=null,aggregateType=null,actorId=null}={}){
+    const size=Math.min(Math.max(Number(limit)||50,1),200);
+    const params=[s.workspaceId];
+    const where=['a.workspace_id=$1'];
+    if(cursor){params.push(Number(cursor));where.push(`a.sequence < $${params.length}`)}
+    if(aggregateType){params.push(String(aggregateType));where.push(`a.aggregate_type = $${params.length}`)}
+    if(actorId){params.push(String(actorId));where.push(`a.actor_id = $${params.length}`)}
+    params.push(size+1);
+    const {rows}=await this.pool.query(
+      `SELECT a.sequence,a.id,a.aggregate_type,a.aggregate_id,a.event_type,a.actor_id,a.payload,a.created_at,
+              p.display_name actor_name
+         FROM audit_events a
+         LEFT JOIN workspace_profiles p ON p.workspace_id=a.workspace_id AND p.user_id=a.actor_id
+        WHERE ${where.join(' AND ')}
+        ORDER BY a.sequence DESC LIMIT $${params.length}`,params);
+    const page=rows.slice(0,size);
+    return{
+      items:page.map(r=>({
+        id:r.id,sequence:Number(r.sequence),aggregateType:r.aggregate_type,aggregateId:r.aggregate_id,
+        eventType:r.event_type,actorId:r.actor_id,actorName:r.actor_name??null,payload:r.payload,createdAt:r.created_at,
+      })),
+      nextCursor:rows.length>size?String(page[page.length-1].sequence):null,
+    };
+  }
 
   async getBootstrap(s){const conversations=await this.listConversations(s);return{session:s,conversations,people:await this.listPeople(s)}}
   /**
@@ -86,8 +121,16 @@ export class PostgresStore {
     });
   }
 
-  async createInvitation(s,v){const id=randomUUID(),{rows}=await this.pool.query(`INSERT INTO workspace_invitations(id,organization_id,workspace_id,email,role,invited_by,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,email,role,status,expires_at "expiresAt",created_at "createdAt"`,[id,s.organizationId,s.workspaceId,v.email,v.role,s.userId,v.tokenHash,v.expiresAt]);return rows[0]}
-  async acceptInvitation(v){return this.tx(async c=>{const{rows}=await c.query("SELECT * FROM workspace_invitations WHERE token_hash=$1 AND status='pending' FOR UPDATE",[v.tokenHash]);const i=rows[0];if(!i)throw Object.assign(new Error('Invitation is not available'),{code:'INVITATION_NOT_FOUND',statusCode:404});if(Date.parse(i.expires_at)<=Date.now()){await c.query("UPDATE workspace_invitations SET status='expired' WHERE id=$1",[i.id]);throw Object.assign(new Error('Invitation has expired'),{code:'INVITATION_EXPIRED',statusCode:410})}if((await c.query('SELECT 1 FROM users WHERE lower(email)=lower($1)',[i.email])).rowCount)throw Object.assign(new Error('This email already has an account; sign in before joining another workspace'),{code:'EXISTING_ACCOUNT_LOGIN_REQUIRED',statusCode:409});const userId=randomUUID();await c.query('INSERT INTO users(id,email) VALUES($1,$2)',[userId,i.email]);await c.query('INSERT INTO memberships(organization_id,workspace_id,user_id,role) VALUES($1,$2,$3,$4)',[i.organization_id,i.workspace_id,userId,i.role]);await c.query('INSERT INTO workspace_profiles(organization_id,workspace_id,user_id,display_name,email) VALUES($1,$2,$3,$4,$5)',[i.organization_id,i.workspace_id,userId,v.displayName,i.email]);await c.query('INSERT INTO auth_credentials(user_id,password_hash,password_salt) VALUES($1,$2,$3)',[userId,v.passwordHash,v.passwordSalt]);await c.query(`INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role) SELECT organization_id,workspace_id,id,$2,'member' FROM conversations WHERE workspace_id=$1 AND kind='channel' AND visibility='workspace' AND $3<>'guest' AND archived_at IS NULL ON CONFLICT DO NOTHING`,[i.workspace_id,userId,i.role]);await c.query("UPDATE workspace_invitations SET status='accepted',accepted_by=$2,accepted_at=now() WHERE id=$1",[i.id,userId]);const w=(await c.query('SELECT id,organization_id,name FROM workspaces WHERE id=$1',[i.workspace_id])).rows[0];return{user:{id:userId,email:i.email},workspace:{id:w.id,organizationId:w.organization_id,name:w.name},membership:{organizationId:i.organization_id,workspaceId:i.workspace_id,userId,role:i.role}}})}
+  // Кого позвали в компанию и кто вошёл — первое, что спрашивают у журнала.
+  async createInvitation(s,v){return this.tx(async c=>{
+    const id=randomUUID();
+    const{rows}=await c.query(`INSERT INTO workspace_invitations(id,organization_id,workspace_id,email,role,invited_by,token_hash,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,email,role,status,expires_at "expiresAt",created_at "createdAt"`,[id,s.organizationId,s.workspaceId,v.email,v.role,s.userId,v.tokenHash,v.expiresAt]);
+    await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+      VALUES($1,$2,'membership',$3,'invitation.issued',$4,$5)`,[s.organizationId,s.workspaceId,id,s.userId,{email:v.email,role:v.role,expiresAt:v.expiresAt}]);
+    return rows[0];
+  })}
+  async acceptInvitation(v){return this.tx(async c=>{const{rows}=await c.query("SELECT * FROM workspace_invitations WHERE token_hash=$1 AND status='pending' FOR UPDATE",[v.tokenHash]);const i=rows[0];if(!i)throw Object.assign(new Error('Invitation is not available'),{code:'INVITATION_NOT_FOUND',statusCode:404});if(Date.parse(i.expires_at)<=Date.now()){await c.query("UPDATE workspace_invitations SET status='expired' WHERE id=$1",[i.id]);throw Object.assign(new Error('Invitation has expired'),{code:'INVITATION_EXPIRED',statusCode:410})}if((await c.query('SELECT 1 FROM users WHERE lower(email)=lower($1)',[i.email])).rowCount)throw Object.assign(new Error('This email already has an account; sign in before joining another workspace'),{code:'EXISTING_ACCOUNT_LOGIN_REQUIRED',statusCode:409});const userId=randomUUID();await c.query('INSERT INTO users(id,email) VALUES($1,$2)',[userId,i.email]);await c.query('INSERT INTO memberships(organization_id,workspace_id,user_id,role) VALUES($1,$2,$3,$4)',[i.organization_id,i.workspace_id,userId,i.role]);await c.query('INSERT INTO workspace_profiles(organization_id,workspace_id,user_id,display_name,email) VALUES($1,$2,$3,$4,$5)',[i.organization_id,i.workspace_id,userId,v.displayName,i.email]);await c.query('INSERT INTO auth_credentials(user_id,password_hash,password_salt) VALUES($1,$2,$3)',[userId,v.passwordHash,v.passwordSalt]);await c.query(`INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role) SELECT organization_id,workspace_id,id,$2,'member' FROM conversations WHERE workspace_id=$1 AND kind='channel' AND visibility='workspace' AND $3<>'guest' AND archived_at IS NULL ON CONFLICT DO NOTHING`,[i.workspace_id,userId,i.role]);await c.query("UPDATE workspace_invitations SET status='accepted',accepted_by=$2,accepted_at=now() WHERE id=$1",[i.id,userId]);await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+      VALUES($1,$2,'membership',$3,'invitation.accepted',$3,$4)`,[i.organization_id,i.workspace_id,userId,{email:i.email,role:i.role,invitationId:i.id,invitedBy:i.invited_by}]);const w=(await c.query('SELECT id,organization_id,name FROM workspaces WHERE id=$1',[i.workspace_id])).rows[0];return{user:{id:userId,email:i.email},workspace:{id:w.id,organizationId:w.organization_id,name:w.name},membership:{organizationId:i.organization_id,workspaceId:i.workspace_id,userId,role:i.role}}})}
   async listConversations(s,{archived=false}={}){const{rows}=await this.pool.query(`SELECT c.id,c.kind,c.title,c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_at "createdAt",cm.archived_at "archivedAt",cm.muted_until "mutedUntil",cm.role "memberRole",(SELECT jsonb_build_object('id',m.id,'body',m.body,'kind',m.kind,'authorId',m.author_id,'createdAt',m.created_at) FROM messages m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.deleted_at IS NULL ORDER BY m.created_at DESC,m.id DESC LIMIT 1) "lastMessage" FROM conversations c LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$2 WHERE c.workspace_id=$1 AND c.archived_at IS NULL AND(${openConversationSql(s,'c')} OR cm.user_id IS NOT NULL) AND(($3::boolean AND cm.archived_at IS NOT NULL) OR (NOT $3::boolean AND cm.archived_at IS NULL)) ORDER BY COALESCE((SELECT max(created_at) FROM messages m2 WHERE m2.workspace_id=c.workspace_id AND m2.conversation_id=c.id),c.created_at) DESC`,[s.workspaceId,s.userId,Boolean(archived)]);return rows.map(r=>({...r,unreadCount:0}))}
   async canAccessConversation(s,id){return(await this.pool.query(`SELECT 1 FROM conversations c LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$3 WHERE c.workspace_id=$1 AND c.id=$2 AND c.archived_at IS NULL AND(${openConversationSql(s,'c')} OR cm.user_id IS NOT NULL)`,[s.workspaceId,id,s.userId])).rowCount>0}
   async conversationPolicy(s,id){const{rows}=await this.pool.query(`SELECT c.id,c.kind,c.title,c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_by "createdBy",c.created_at "createdAt",cm.role "memberRole",cm.archived_at "archivedAt",cm.muted_until "mutedUntil" FROM conversations c LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$3 WHERE c.workspace_id=$1 AND c.id=$2 AND c.archived_at IS NULL AND(${openConversationSql(s,'c')} OR cm.user_id IS NOT NULL)`,[s.workspaceId,id,s.userId]);const r=rows[0];return r?{conversation:{id:r.id,kind:r.kind,title:r.title,slug:r.slug,purpose:r.purpose,visibility:r.visibility,announcementOnly:r.announcementOnly,createdBy:r.createdBy,createdAt:r.createdAt},memberRole:r.memberRole??null,preferences:{archivedAt:r.archivedAt??null,mutedUntil:r.mutedUntil??null}}:null}
@@ -178,7 +221,7 @@ export class PostgresStore {
   async listTasksPage(s,{limit=50,cursor=null}={}){
     if(isGuest(s))return{items:[],nextCursor:null};
     const params=[s.workspaceId],where=['c.workspace_id=$1'];
-    if(!TASK_MANAGER_ROLES.has(s.role)){
+    if(!managesTeamTasks(s)){
       params.push(s.userId);
       where.push(`(c.owner_id=$${params.length} OR c.requester_id=$${params.length} OR c.acceptor_id=$${params.length})`);
     }

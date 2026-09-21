@@ -94,6 +94,16 @@ export class MemoryStore {
 
   async revokeSession(tokenHash) { const row = this.sessions.get(tokenHash); if (row) row.revokedAt = nowIso(); }
 
+  /**
+   * В памяти журнал не ведётся: он нужен затем, чтобы пережить перезапуск,
+   * а память его не переживает. Отвечаем пустой страницей, а не ошибкой —
+   * интерфейс тогда показывает «записей пока нет», что для режима без базы
+   * и есть правда.
+   */
+  async listAuditEvents() {
+    return { items: [], nextCursor: null };
+  }
+
   /** См. PostgreSQL-хранилище: справочник получил собственный адрес. */
   async listPeople(session) {
     const sharesRoomWith = (userId) => [...this.conversationMembers.values()]

@@ -101,3 +101,12 @@ test('list answers all arrive under one key', () => {
   }
   assert.deepEqual(odd, [], 'список отвечает не под ключом items');
 });
+
+// Журнал показывают тем, кто отвечает за порядок. Плитка, которую видит
+// рядовой сотрудник, обещала бы ему экран, отвечающий 403.
+test('журнал в интерфейсе закрыт тем же правом, что и маршрут', () => {
+  const app = read('public/app.js');
+  assert.match(app, /can\('audit\.read'\)[\s\S]{0,200}data-action="journal"/);
+  assert.match(app, /journal:\(\)=>journalModal\(\)/);
+  assert.match(app, /\/api\/v1\/audit\?/);
+});

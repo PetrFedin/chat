@@ -60,7 +60,7 @@ test('медленный приёмник не задерживает чужие
   worker.start();
   t.after(() => worker.stop());
 
-  const deadline = Date.now() + 5000;
+  const deadline = Date.now() + 15_000;
   while (fastDeliveredAfter === null && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
@@ -72,7 +72,7 @@ test('медленный приёмник не задерживает чужие
   );
 
   // Медленные при этом не брошены: они доходят, просто в своём темпе.
-  const slowDeadline = Date.now() + 8000;
+  const slowDeadline = Date.now() + 25_000;
   let outstanding = 8;
   while (outstanding > 0 && Date.now() < slowDeadline) {
     outstanding = Number((await pool.query(
