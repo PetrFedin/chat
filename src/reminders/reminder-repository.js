@@ -187,17 +187,21 @@ export function createReminderRepository(pool) {
 /**
  * Работник очереди: спит между проходами и не держит процесс живым.
  */
-export function createReminderWorker(repository, { intervalMs = 30_000 } = {}) {
+export function createReminderWorker(repository, { intervalMs, env = process.env } = {}) {
+  // Как часто заглядывать в напоминания и включён ли обход вообще — решение
+  // эксплуатации, а не константа в коде.
+  const everyMs = Math.max(1000, Number(intervalMs ?? env.REMINDER_WORKER_POLL_MS ?? 30_000));
+  const enabled = env.REMINDER_WORKER_ENABLED !== 'false';
   let timer = null;
   let running = false;
-  const schedule = (loop) => { timer = setTimeout(loop, intervalMs); timer.unref?.(); };
+  const schedule = (loop) => { timer = setTimeout(loop, everyMs); timer.unref?.(); };
   return {
     async tick() {
       if (!repository?.enabled) return { fired: 0 };
       return repository.due({});
     },
     start() {
-      if (!repository?.enabled || running) return;
+      if (!enabled || !repository?.enabled || running) return;
       running = true;
       const loop = async () => {
         try { await repository.due({}); } catch { /* следующий проход попробует снова */ }

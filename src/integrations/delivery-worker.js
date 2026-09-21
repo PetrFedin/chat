@@ -1,4 +1,5 @@
 import { backoffMs, signPayload } from './webhook-signature.js';
+import { checkOutboundTarget } from '../net/outbound-url.js';
 
 const RETRYABLE_STATUS = (status) => status === 408 || status === 429 || status >= 500;
 
@@ -23,11 +24,23 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
   // По умолчанию работник обслуживает всю базу; список пространств пригоден
   // для того, чтобы развести нагрузку по нескольким работникам.
   const workspaceIds = options.workspaceIds ?? null;
+  const checkTarget = options.checkTarget ?? checkOutboundTarget;
 
   const state = { running: false, stopping: false, published: 0, delivered: 0, failed: 0, dead: 0, lastError: null, lastRunAt: null };
   let timer = null;
 
   async function deliver(delivery) {
+    // Адрес принимали когда-то, а идём по нему сейчас: за это время имя
+    // могло начать указывать внутрь нашей же сети.
+    const target = await checkTarget(delivery.url);
+    if (!target.ok) {
+      const result = await repository.recordFailure(delivery, {
+        error: `адрес отклонён перед отправкой: ${target.reason}`,
+        terminal: true,
+      });
+      state[result.dead ? 'dead' : 'failed'] += 1;
+      return;
+    }
     const rawBody = JSON.stringify(delivery.payload);
     const signature = signPayload(delivery.secret, rawBody);
     const controller = new AbortController();

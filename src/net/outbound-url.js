@@ -1,4 +1,5 @@
 import { isIP } from 'node:net';
+import { lookup } from 'node:dns/promises';
 
 /**
  * Проверка адреса, по которому сервер пойдёт сам.
@@ -72,4 +73,36 @@ export function checkOutboundUrl(raw) {
   if (kind === 4 && isPrivateV4(host)) return { ok: false, reason: 'Этот адрес ведёт во внутреннюю сеть' };
   if (kind === 6 && isPrivateV6(host)) return { ok: false, reason: 'Этот адрес ведёт во внутреннюю сеть' };
   return { ok: true, url };
+}
+
+/**
+ * Та же проверка, но перед самой отправкой и с разрешением имени.
+ *
+ * Адрес принимается один раз, а живёт годами: имя, указывавшее наружу,
+ * назавтра может указывать на 127.0.0.1 или на служебный адрес облака —
+ * менять для этого подписку не нужно. Поэтому перед каждой отправкой имя
+ * разрешается и все полученные адреса проверяются.
+ *
+ * Гонка между разрешением и соединением этим не закрывается: между ними
+ * ответ DNS может смениться. Полностью её снимает только соединение по уже
+ * проверенному адресу; здесь мы честно закрываем массовый случай, а не
+ * прицельную подмену в миллисекундном окне.
+ */
+export async function checkOutboundTarget(raw, { resolve = lookup } = {}) {
+  const checked = checkOutboundUrl(raw);
+  if (!checked.ok) return checked;
+  const host = checked.url.hostname.replace(/^\[|\]$/g, '');
+  if (isIP(host)) return checked;
+  let addresses;
+  try {
+    addresses = await resolve(host, { all: true });
+  } catch {
+    return { ok: false, reason: 'Имя в адресе не разрешается' };
+  }
+  if (!addresses?.length) return { ok: false, reason: 'Имя в адресе не разрешается' };
+  for (const { address, family } of addresses) {
+    const privateAddress = family === 6 ? isPrivateV6(address) : isPrivateV4(address);
+    if (privateAddress) return { ok: false, reason: 'Имя в адресе указывает во внутреннюю сеть' };
+  }
+  return checked;
 }

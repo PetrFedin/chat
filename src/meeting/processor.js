@@ -50,6 +50,8 @@ export class MeetingProcessor{
     retryDelayMs=30_000,
     onReviewReady=null,
     maxInMemoryBytes=DEFAULT_MAX_IN_MEMORY_BYTES,
+    jobLeaseMs=null,
+    env=process.env,
   }={}){
     this.repository=repository;
     this.objectStore=objectStore;
@@ -58,6 +60,10 @@ export class MeetingProcessor{
     this.retryDelayMs=retryDelayMs;
     this.onReviewReady=onReviewReady;
     this.maxInMemoryBytes=Math.max(1024*1024,Number(maxInMemoryBytes)||DEFAULT_MAX_IN_MEMORY_BYTES);
+    // Аренда задачи — обещание «я верну её через столько-то, если упаду».
+    // Расшифровка часового совещания на медленном провайдере в пять минут не
+    // укладывается, поэтому срок настраивается, а не зашит в код.
+    this.jobLeaseMs=Math.max(1000,Number(jobLeaseMs??env.MEETING_JOB_LEASE_MS??5*60*1000));
   }
 
   status(){
@@ -66,6 +72,7 @@ export class MeetingProcessor{
       transcription:this.transcriptionProvider?.status?.()??{enabled:false},
       summary:this.summaryProvider?.status?.()??{enabled:false},
       maxInMemoryBytes:this.maxInMemoryBytes,
+      jobLeaseMs:this.jobLeaseMs,
     };
   }
 
@@ -73,7 +80,7 @@ export class MeetingProcessor{
     if(!this.repository||!this.objectStore)return{processed:false,reason:'processor_unavailable'};
     if(kind==='transcribe'&&!this.transcriptionProvider?.status?.().enabled)return{processed:false,reason:'transcription_provider_unavailable'};
     if(kind==='summarize'&&!this.summaryProvider?.status?.().enabled)return{processed:false,reason:'summary_provider_unavailable'};
-    const job=await this.repository.claimJob(kind);
+    const job=await this.repository.claimJob(kind,{leaseMs:this.jobLeaseMs});
     if(!job)return{processed:false,reason:'no_job'};
     try{
       const context=await contextFor(this.repository,job);

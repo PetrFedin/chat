@@ -19,16 +19,10 @@ async function fixture(pool) {
   return { session: { organizationId, workspaceId, userId, role: 'owner' } };
 }
 
-/**
- * The publisher and the dispatcher are deliberately global — one worker drains
- * every workspace — so subtests sharing a database would see each other's
- * deliveries. Parking everything outstanding gives each subtest a clean slate
- * without weakening what it asserts.
- */
-const quiesce = async (pool) => {
-  await pool.query("UPDATE webhook_deliveries SET status='delivered', delivered_at=now() WHERE status <> 'delivered'");
-  await pool.query('UPDATE outbox_events SET published_at=now() WHERE published_at IS NULL');
-};
+// Публикация и рассылка по умолчанию обслуживают всю базу, поэтому каждый
+// подтест работает со своим пространством и передаёт его работнику: соседние
+// тесты в общей базе больше не мешают друг другу и ничего не приходится
+// «глушить» всем подряд.
 
 const emit = (pool, session, topic, payload = {}) => pool.query(
   'INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload) VALUES($1,$2,$3,$4,$5) RETURNING id',
@@ -41,7 +35,6 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
   const repository = createWebhookRepository(pool);
 
   await t.test('an event fans out only to endpoints subscribed to its topic', async () => {
-    await quiesce(pool);
     const { session } = await fixture(pool);
     const meetings = await repository.createEndpoint(session, { label: 'Meetings', url: 'https://example.test/meetings', topics: ['meeting.*'] });
     await repository.createEndpoint(session, { label: 'Tasks only', url: 'https://example.test/tasks', topics: ['task.transitioned'] });
@@ -57,7 +50,6 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
   });
 
   await t.test('the secret is returned once at creation and never listed again', async () => {
-    await quiesce(pool);
     const { session } = await fixture(pool);
     const created = await repository.createEndpoint(session, { label: 'Portal', url: 'https://example.test/hook', topics: [] });
     assert.match(created.secret, /^whsec_/);
@@ -67,7 +59,6 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
   });
 
   await t.test('publishing twice does not duplicate a delivery', async () => {
-    await quiesce(pool);
     const { session } = await fixture(pool);
     await repository.createEndpoint(session, { label: 'Everything', url: 'https://example.test/all', topics: [] });
     await emit(pool, session, 'task.transitioned', { taskId: 't1' });
@@ -77,7 +68,6 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
   });
 
   await t.test('a delivered event carries a signature the receiver can verify', async () => {
-    await quiesce(pool);
     const { session } = await fixture(pool);
     const endpoint = await repository.createEndpoint(session, { label: 'Receiver', url: 'https://example.test/ok', topics: [] });
     const eventId = await emit(pool, session, 'task.transitioned', { taskId: 't2', to: 'in_progress' });
@@ -85,6 +75,7 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
 
     const seen = [];
     const worker = createDeliveryWorker(repository, { WEBHOOK_WORKER_POLL_MS: '10' }, {
+      checkTarget: async () => ({ ok: true }),
       workspaceIds: [session.workspaceId],
       send: async (url, init) => { seen.push({ url, init }); return new Response('', { status: 200 }); },
     });
@@ -104,7 +95,6 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
   });
 
   await t.test('a 500 is retried later, a 404 dies immediately', async () => {
-    await quiesce(pool);
     const { session } = await fixture(pool);
     const flaky = await repository.createEndpoint(session, { label: 'Flaky', url: 'https://example.test/500', topics: ['a.b'] });
     const gone = await repository.createEndpoint(session, { label: 'Gone', url: 'https://example.test/404', topics: ['a.b'] });
@@ -112,6 +102,7 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
     await repository.publishPending({ workspaceIds: [session.workspaceId] });
 
     const worker = createDeliveryWorker(repository, {}, {
+      checkTarget: async () => ({ ok: true }),
       workspaceIds: [session.workspaceId],
       send: async (url) => new Response('', { status: url.endsWith('/500') ? 500 : 404 }),
     });
@@ -124,14 +115,13 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
   });
 
   await t.test('a delivery dies once its attempt budget is spent', async () => {
-    await quiesce(pool);
     const { session } = await fixture(pool);
     await repository.createEndpoint(session, { label: 'Down', url: 'https://example.test/down', topics: [] });
     await emit(pool, session, 'c.d', {});
     await repository.publishPending({ workspaceIds: [session.workspaceId] });
     await pool.query("UPDATE webhook_deliveries SET max_attempts=2 WHERE workspace_id=$1", [session.workspaceId]);
 
-    const worker = createDeliveryWorker(repository, {}, { workspaceIds: [session.workspaceId], send: async () => new Response('', { status: 503 }) });
+    const worker = createDeliveryWorker(repository, {}, { checkTarget: async () => ({ ok: true }), workspaceIds: [session.workspaceId], send: async () => new Response('', { status: 503 }) });
     await worker.tick();
     await pool.query("UPDATE webhook_deliveries SET next_attempt_at=now() WHERE workspace_id=$1", [session.workspaceId]);
     await worker.tick();
@@ -142,7 +132,6 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
   });
 
   await t.test('a disabled endpoint stops receiving new events', async () => {
-    await quiesce(pool);
     const { session } = await fixture(pool);
     const endpoint = await repository.createEndpoint(session, { label: 'Paused', url: 'https://example.test/paused', topics: [] });
     await repository.setEndpointEnabled(session, endpoint.id, false);
@@ -152,7 +141,6 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
   });
 
   await t.test('one workspace never receives another workspace events', async () => {
-    await quiesce(pool);
     const a = await fixture(pool);
     const b = await fixture(pool);
     await repository.createEndpoint(a.session, { label: 'A', url: 'https://example.test/a', topics: [] });

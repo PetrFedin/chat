@@ -33,7 +33,9 @@ const deliveryView = (row) => ({
 
 const invalid = (message, code) => Object.assign(new Error(message), { code, statusCode: 400 });
 
-export function createWebhookRepository(pool) {
+export function createWebhookRepository(pool, { env = process.env } = {}) {
+  // Сколько неудач подряд считать приговором приёмнику.
+  const failureLimit = Math.max(1, Number(env.WEBHOOK_ENDPOINT_FAILURE_LIMIT ?? 20));
   if (!pool) return null;
 
   const tx = async (run) => {
@@ -218,6 +220,7 @@ export function createWebhookRepository(pool) {
      *  is not 408 or 429. Retrying it only burns the attempt budget. */
     async recordFailure(delivery, { responseStatus = null, error = 'delivery failed', retryInMs = 0, terminal = false }) {
       const exhausted = terminal || delivery.attempts >= delivery.maxAttempts;
+      let disabled = false;
       await tx(async (client) => {
         await client.query(
           `UPDATE webhook_deliveries
@@ -226,14 +229,32 @@ export function createWebhookRepository(pool) {
            WHERE id=$1 AND lock_token=$6`,
           [delivery.id, exhausted ? 'dead' : 'failed', responseStatus, String(error).slice(0, 500), Math.ceil(retryInMs / 1000), delivery.lockToken],
         );
-        await client.query(
+        // Приёмник, который не отвечает подряд столько раз, — не «временно
+        // недоступен», а снят с эксплуатации: его забыли выключить, домен
+        // отдали другим, служба закрыта. Долбиться в него бесконечно значит
+        // копить мёртвые доставки и тратить на них очередь живых. Отключаем
+        // и оставляем причину: владелец включит обратно одним движением,
+        // и счётчик обнулится.
+        const { rows } = await client.query(
           `UPDATE webhook_endpoints
-           SET last_failure_at=now(), last_failure_reason=$2, consecutive_failures=consecutive_failures+1
-           WHERE id=$1`,
-          [delivery.endpointId, String(error).slice(0, 500)],
+           SET last_failure_at=now(), last_failure_reason=$2, consecutive_failures=consecutive_failures+1,
+               enabled=CASE WHEN consecutive_failures+1 >= $3 THEN false ELSE enabled END,
+               updated_at=now()
+           WHERE id=$1 RETURNING enabled, consecutive_failures`,
+          [delivery.endpointId, String(error).slice(0, 500), failureLimit],
         );
+        disabled = rows[0] ? rows[0].enabled === false : false;
+        if (disabled) {
+          // Ждущие доставки отключённого приёмника больше не занимают очередь.
+          await client.query(
+            `UPDATE webhook_deliveries SET status='dead', lock_token=NULL, locked_until=NULL,
+               error=COALESCE(error,'приёмник отключён после череды неудач')
+             WHERE endpoint_id=$1 AND status IN ('pending','failed')`,
+            [delivery.endpointId],
+          );
+        }
       });
-      return { dead: exhausted };
+      return { dead: exhausted, endpointDisabled: disabled };
     },
   };
 }

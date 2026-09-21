@@ -7,11 +7,6 @@ import { createDeliveryWorker } from '../src/integrations/delivery-worker.js';
 
 const databaseUrl = process.env.DATABASE_URL;
 
-const quiesce = async (pool) => {
-  await pool.query("UPDATE webhook_deliveries SET status='delivered', delivered_at=now() WHERE status <> 'delivered'");
-  await pool.query('UPDATE outbox_events SET published_at=now() WHERE published_at IS NULL');
-};
-
 async function fixture(pool) {
   const organizationId = randomUUID();
   const workspaceId = randomUUID();
@@ -39,7 +34,6 @@ test('медленный приёмник не задерживает чужие
   const pool = new pg.Pool({ connectionString: databaseUrl });
   t.after(() => pool.end());
   const repository = createWebhookRepository(pool);
-  await quiesce(pool);
   const session = await fixture(pool);
 
   const slow = await repository.createEndpoint(session, { label: 'Медленный', url: 'https://slow.example.test/hook', topics: ['task.transitioned'] });
@@ -55,6 +49,7 @@ test('медленный приёмник не задерживает чужие
   const started = Date.now();
   let fastDeliveredAfter = null;
   const worker = createDeliveryWorker(repository, { WEBHOOK_WORKER_POLL_MS: '10', WEBHOOK_WORKER_BATCH: '4' }, {
+    checkTarget: async () => ({ ok: true }),
     send: async (url) => {
       if (url.includes('slow.')) await new Promise((resolve) => setTimeout(resolve, SLOW_MS));
       else fastDeliveredAfter ??= Date.now() - started;
@@ -87,4 +82,64 @@ test('медленный приёмник не задерживает чужие
   assert.equal(outstanding, 0, 'медленные доставки должны дойти все');
   assert.equal(Number((await pool.query(
     "SELECT count(*) n FROM webhook_deliveries WHERE endpoint_id=$1 AND status='delivered'", [fast.id])).rows[0].n), 1);
+});
+
+// Приёмник, которого больше нет, годами копил неудачные доставки: счётчик
+// рос, а очередь продолжала стучаться в закрытую дверь.
+test('приёмник, не отвечающий раз за разом, отключается сам',
+  { skip: databaseUrl ? false : 'DATABASE_URL is not set' }, async (t) => {
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  t.after(() => pool.end());
+  const repository = createWebhookRepository(pool, { env: { WEBHOOK_ENDPOINT_FAILURE_LIMIT: '3' } });
+  const session = await fixture(pool);
+  const endpoint = await repository.createEndpoint(session, { label: 'Мёртвый', url: 'https://dead.example.test/hook', topics: [] });
+
+  for (let i = 0; i < 5; i += 1) await emit(pool, session, 'task.transitioned');
+  await repository.publishPending({ workspaceIds: [session.workspaceId] });
+
+  const worker = createDeliveryWorker(repository, { WEBHOOK_WORKER_BATCH: '1' }, {
+    checkTarget: async () => ({ ok: true }),
+    workspaceIds: [session.workspaceId],
+    send: async () => new Response('', { status: 503 }),
+  });
+  for (let i = 0; i < 4; i += 1) await worker.tick();
+
+  const [listed] = await repository.listEndpoints(session);
+  assert.equal(listed.enabled, false, 'после череды неудач подписка отключается');
+  assert.match(listed.lastFailureReason, /503/);
+  const waiting = Number((await pool.query(
+    "SELECT count(*) n FROM webhook_deliveries WHERE endpoint_id=$1 AND status IN ('pending','failed')", [endpoint.id])).rows[0].n);
+  assert.equal(waiting, 0, 'и её доставки перестают занимать очередь');
+
+  // Владелец включает обратно — счётчик начинается заново.
+  const back = await repository.setEndpointEnabled(session, endpoint.id, true);
+  assert.equal(back.enabled, true);
+  assert.equal(back.consecutiveFailures, 0);
+});
+
+// Адрес принимали один раз, а ходим по нему годами: имя могло начать
+// указывать внутрь нашей же сети.
+test('адрес проверяется не только при заведении, но и перед каждой отправкой',
+  { skip: databaseUrl ? false : 'DATABASE_URL is not set' }, async (t) => {
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  t.after(() => pool.end());
+  const repository = createWebhookRepository(pool);
+  const session = await fixture(pool);
+  await repository.createEndpoint(session, { label: 'Подменённый', url: 'https://rebind.example.test/hook', topics: [] });
+  await emit(pool, session, 'task.transitioned');
+  await repository.publishPending({ workspaceIds: [session.workspaceId] });
+
+  let sent = 0;
+  const worker = createDeliveryWorker(repository, {}, {
+    workspaceIds: [session.workspaceId],
+    // Имя разрешилось в петлю — ровно то, ради чего проверка и делается.
+    checkTarget: async () => ({ ok: false, reason: 'Имя в адресе указывает во внутреннюю сеть' }),
+    send: async () => { sent += 1; return new Response('', { status: 200 }); },
+  });
+  await worker.tick();
+
+  assert.equal(sent, 0, 'запрос во внутреннюю сеть не уходит');
+  const delivery = (await repository.listDeliveries(session))[0];
+  assert.equal(delivery.status, 'dead', 'и повторять такую доставку незачем');
+  assert.match(delivery.error, /внутреннюю сеть/);
 });

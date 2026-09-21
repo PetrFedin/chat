@@ -235,6 +235,22 @@ VAPID_SUBJECT=mailto:admin@example.com
 Доставка гарантируется **как минимум один раз** — дедуплицируйте по
 `x-chat-event-id`.
 
+Очередь разбирается честно: порядок — по кругу между приёмниками, а не по
+времени создания, и на одного приёмника работник держит не больше своей доли
+одновременных доставок. Медленный получатель занимает свои места, а не всю
+очередь. Адрес проверяется не только при заведении подписки, но и перед
+каждой отправкой — имя, начавшее указывать внутрь сети, дальше не пойдёт.
+Приёмник, не отвечающий `WEBHOOK_ENDPOINT_FAILURE_LIMIT` раз подряд (по
+умолчанию 20), отключается сам; владелец включает его обратно, и счётчик
+обнуляется.
+
+Настройки работников (все необязательны): `WEBHOOK_WORKER_ENABLED=false`
+останавливает рассылку, `WEBHOOK_WORKER_POLL_MS`, `WEBHOOK_WORKER_BATCH`,
+`WEBHOOK_WORKER_CONCURRENCY`, `WEBHOOK_WORKER_PER_ENDPOINT`,
+`WEBHOOK_DELIVERY_TIMEOUT_MS`, `WEBHOOK_DELIVERY_LEASE_MS`. Аналогично
+`MEETING_WORKER_ENABLED` и `MEETING_JOB_LEASE_MS` для обработки совещаний,
+`REMINDER_WORKER_ENABLED` и `REMINDER_WORKER_POLL_MS` — для напоминаний.
+
 Без `DATABASE_URL` маршруты отвечают `503 INTEGRATIONS_UNAVAILABLE`:
 in-memory store не даёт durable-очереди, а webhook без retry хуже,
 чем его отсутствие.

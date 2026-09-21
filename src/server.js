@@ -75,7 +75,13 @@ const cookieToken=(req)=>cookies(req)[cookieName]||null;
 function defaultStore(){if(!process.env.DATABASE_URL){
   if(process.env.NODE_ENV==='production')throw new Error('DATABASE_URL не задан. В production память как хранилище не годится: данные исчезнут при первом же перезапуске.');
   return{store:new MemoryStore(),pool:null,mode:'memory'};
-}const pool=new Pool({connectionString:process.env.DATABASE_URL,max:Number(process.env.PG_POOL_MAX??10),ssl:process.env.PGSSL==='require'?{rejectUnauthorized:false}:undefined});return{store:new PostgresStore(pool),pool,mode:'postgres'}}
+}const pool=new Pool({connectionString:process.env.DATABASE_URL,max:Number(process.env.PG_POOL_MAX??10),ssl:process.env.PGSSL==='require'?{rejectUnauthorized:false}:undefined});
+// Простаивающее соединение может оборваться само: перезапуск базы, таймаут
+// на стороне сети. Без этого слушателя такой обрыв всплывает как
+// необработанное исключение и уносит весь процесс, хотя пул сам поднимет
+// новое соединение на следующем запросе.
+pool.on('error',(error)=>console.error('Соединение с PostgreSQL оборвалось в простое:',error.message));
+return{store:new PostgresStore(pool),pool,mode:'postgres'}}
 function pushConfig(){const publicKey=process.env.VAPID_PUBLIC_KEY??null,privateKey=process.env.VAPID_PRIVATE_KEY??null;if(publicKey&&privateKey)webpush.setVapidDetails(process.env.VAPID_SUBJECT??'mailto:admin@example.com',publicKey,privateKey);return{enabled:Boolean(publicKey&&privateKey),publicKey}}
 
 export async function createChatServer(options={}){
@@ -106,7 +112,12 @@ export async function createChatServer(options={}){
   const calendar=options.calendar??createCalendarRepository(pool,store);
   const labels=options.labels??createLabelRepository(pool,store);
   const personal=options.personal??createPersonalRepository(pool,store,labels);
-  const deliveryWorker=options.deliveryWorker??createDeliveryWorker(webhooks,process.env,{enabled:options.deliveryWorkerEnabled??mode!=='custom'});
+  // Без базы работникам нечего делать, поэтому 'custom' глушит их жёстко.
+  // В остальных случаях решение остаётся за переменными окружения: иначе
+  // WEBHOOK_WORKER_ENABLED=false и MEETING_WORKER_ENABLED=false ничего не
+  // выключали — сервер перебивал их своим «включено».
+  const forceWorkersOff=mode==='custom'?false:undefined;
+  const deliveryWorker=options.deliveryWorker??createDeliveryWorker(webhooks,process.env,{enabled:options.deliveryWorkerEnabled??forceWorkersOff});
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
   const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
@@ -137,7 +148,7 @@ export async function createChatServer(options={}){
   }
 
   const meetingWorker=options.meetingWorker??createMeetingWorker(meetingProcessor,process.env,{
-    enabled:options.meetingWorkerEnabled??mode!=='custom',
+    enabled:options.meetingWorkerEnabled??forceWorkersOff,
   });
   const startMeetingWorker=options.startMeetingWorker??mode!=='custom';
   if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.();reminderWorker.start?.()}
