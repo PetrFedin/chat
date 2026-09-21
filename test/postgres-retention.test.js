@@ -54,6 +54,34 @@ test('уборка убирает отработавшее и не трогае�
   assert.equal(await alive('SELECT count(*) n FROM notifications WHERE id=$1', [freshNotice]), 1, 'непрочитанное не трогаем, сколько бы ему ни было лет');
   assert.equal(await alive('SELECT count(*) n FROM notifications WHERE id=$1', [readNotice]), 0);
 
+  // Самое тонкое правило уборки: событие очереди уходит, только когда от
+  // него не осталось доставок. Иначе уборщик съест исходное событие у
+  // недоставленного вебхука — интеграция заказчика молча недосчитается
+  // события, и следов в базе не останется.
+  const liveEvent = (await pool.query(
+    `INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload,published_at,created_at)
+     VALUES($1,$2,'task.transitioned',$3,'{}',${old},${old}) RETURNING id`,
+    [organizationId, workspaceId, randomUUID()])).rows[0].id;
+  const doneEvent = (await pool.query(
+    `INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload,published_at,created_at)
+     VALUES($1,$2,'task.transitioned',$3,'{}',${old},${old}) RETURNING id`,
+    [organizationId, workspaceId, randomUUID()])).rows[0].id;
+  const endpoint = (await pool.query(
+    `INSERT INTO webhook_endpoints(organization_id,workspace_id,label,url,secret,topics,created_by)
+     VALUES($1,$2,'Приёмник','https://example.test/hook','whsec_'||repeat('x',40),ARRAY[]::text[],$3) RETURNING id`,
+    [organizationId, workspaceId, userId])).rows[0].id;
+  // Доставка, которая ещё ждёт своего часа.
+  await pool.query(
+    `INSERT INTO webhook_deliveries(organization_id,workspace_id,endpoint_id,event_id,topic,payload,status,created_at)
+     VALUES($1,$2,$3,$4,'task.transitioned','{}','pending',${old})`,
+    [organizationId, workspaceId, endpoint, liveEvent]);
+
+  await sweeper.sweep();
+  assert.equal(await alive('SELECT count(*) n FROM outbox_events WHERE id=$1', [liveEvent]), 1,
+    'уборщик съел событие, у которого осталась недоставленная доставка');
+  assert.equal(await alive('SELECT count(*) n FROM outbox_events WHERE id=$1', [doneEvent]), 0,
+    'событие без доставок должно уйти');
+
   // Журнал не чистится никогда — он для того и ведётся.
   await pool.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload,created_at)
     VALUES($1,$2,'membership',$3,'invitation.issued',$3,'{}',${old})`, [organizationId, workspaceId, userId]);
