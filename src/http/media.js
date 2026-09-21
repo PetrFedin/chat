@@ -3,7 +3,7 @@ import { extname } from 'node:path';
 import { Permission, hasPermission, requirePermission } from '../rbac.js';
 import { MAX_FILE, cleanText, json, readBuffer, readJson, sha256 } from './helpers.js';
 
-const PREVIEWABLE = /^(image\/|application\/pdf$|text\/)/;
+const PREVIEWABLE = /^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/;
 
 export function createMediaHandler(objectStore){
   return async function handleMedia(req,res,ctx,url,path,method){

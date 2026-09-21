@@ -442,3 +442,14 @@ h4{font-size:15px;font-weight:700}
    своя внутренняя высота строки, поэтому задаём её явно. */
 .form-stack input:not([type=checkbox]):not([type=radio]),.form-stack select,.field{height:48px;padding-block:0}
 .form-stack textarea{height:auto;padding-block:12px}
+
+/* Вложение — это ссылка: нажатие открывает картинку и PDF в окне,
+   остальное отдаёт на скачивание. Голосовое играет на месте. */
+.file-card{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;
+  text-decoration:none;color:inherit;cursor:pointer}
+.file-card strong{display:block}
+.file-mark{width:34px;height:34px;display:grid;place-items:center;border-radius:var(--r-1);
+  background:var(--surface-3);color:var(--text)}
+.file-mark svg{width:18px;height:18px;display:block}
+.voice-card-play.playing .waveform{opacity:1}
+.voice-card-play.playing .voice-play{background:var(--warm);color:var(--bg)}

@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
+const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -342,6 +342,26 @@ function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.m
  * всегда и не должно занимать место. Дата — разделителем между днями,
  * один раз на день, а не у каждой реплики.
  */
+/** Длительность голосового: «0:07», а не «7с». */
+function voiceLength(ms){
+  const total=Math.max(0,Math.round((ms||0)/1000));
+  return `${Math.floor(total/60)}:${String(total%60).padStart(2,'0')}`;
+}
+const PREVIEWABLE_TYPE=/^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/i;
+const filePreviewable=(meta)=>PREVIEWABLE_TYPE.test(meta?.mimeType??'');
+/** Картинку и PDF открываем в окне, остальное отдаём на скачивание. */
+const fileHref=(meta)=>{
+  if(!meta?.fileId)return meta?.contentUrl??'#';
+  return filePreviewable(meta)?`/api/v1/files/${meta.fileId}/preview`:`/api/v1/files/${meta.fileId}/content`;
+};
+const fileSize=(bytes)=>{
+  if(!bytes&&bytes!==0)return '';
+  if(bytes<1024)return `${bytes} Б`;
+  if(bytes<1024*1024)return `${Math.round(bytes/1024)} КБ`;
+  return `${(bytes/1048576).toFixed(1)} МБ`;
+};
+const fileMeta=(meta)=>[fileSize(meta?.size),filePreviewable(meta)?'открыть':'скачать'].filter(Boolean).join(' · ');
+
 function dayLabel(value){
   const d=new Date(value), now=new Date();
   const same=(a,b)=>a.toDateString()===b.toDateString();
@@ -380,8 +400,16 @@ function message(m,grouped=false){
       :`<button class="msg-forward" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`)
     :'';
   const body=deleted?'<p class="message-body muted">Сообщение удалено</p>'
-    :m.kind==='voice'?`<div class="voice-card"><button class="voice-play">▶</button><div class="waveform"></div><span>${Math.round((m.metadata?.durationMs||0)/1000)}с</span></div>`
-    :m.kind==='file'?`<div class="voice-card"><span>↗</span><div><strong>${esc(m.metadata?.name||'Файл')}</strong><div class="row-sub">${esc(m.metadata?.mimeType||'Вложение')}</div></div></div>`
+    :m.kind==='voice'?`<div class="voice-card voice-card-play" data-voice="${esc(m.metadata?.fileId??'')}">
+      <button type="button" class="voice-play pressable" aria-label="Прослушать голосовое сообщение">▶</button>
+      <div class="waveform"></div>
+      <span class="mono">${voiceLength(m.metadata?.durationMs)}</span>
+    </div>`
+    :m.kind==='file'?`<a class="voice-card file-card" href="${esc(fileHref(m.metadata))}"${filePreviewable(m.metadata)?' target="_blank" rel="noopener"':' download'} title="${filePreviewable(m.metadata)?'Открыть':'Скачать'}">
+      <span class="file-mark" aria-hidden="true">${tileIcon.files}</span>
+      <span><strong>${esc(m.metadata?.name||'Файл')}</strong>
+        <span class="row-sub">${esc(fileMeta(m.metadata))}</span></span>
+    </a>`
     :`<p class="message-body">${bodyWithHighlights(m)}</p>`;
   const notes=(S.notes?.get(m.id)||[]);
   const noteBlock=notes.length?`<div class="msg-notes">${notes.map(n=>
@@ -595,7 +623,28 @@ function bind(){
     if(!row)return toast('Это сообщение осталось выше по истории — прокрутите вверх.');
     row.scrollIntoView({block:'center',behavior:'smooth'});
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
-  });$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-menu]').forEach(b=>b.onclick=()=>messageMenu(b.dataset.messageMenu));$$('[data-highlight]').forEach(el=>el.onclick=async()=>{
+  });$$('[data-reply]').forEach(b=>b.onclick=()=>{S.reply=(S.messages.get(S.selected)||[]).find(m=>m.id===b.dataset.reply);render()});$$('[data-message-save]').forEach(b=>b.onclick=()=>toggleSave(b.dataset.messageSave,b.dataset.saved!=='1'));$$('[data-message-menu]').forEach(b=>b.onclick=()=>messageMenu(b.dataset.messageMenu));$$('[data-voice]').forEach(card=>{
+  const button=card.querySelector('.voice-play');
+  if(!button)return;
+  button.onclick=()=>{
+    const fileId=card.dataset.voice;
+    if(!fileId)return toast('Запись не найдена');
+    if(S.voice&&S.voice.card!==card){S.voice.audio.pause();S.voice.card.classList.remove('playing');S.voice=null}
+    if(S.voice){
+      const{audio}=S.voice;
+      if(audio.paused)audio.play().catch(()=>toast('Не удалось воспроизвести запись'));
+      else audio.pause();
+      return;
+    }
+    const audio=new Audio(`/api/v1/files/${fileId}/preview`);
+    audio.onplay=()=>{card.classList.add('playing');button.textContent='❚❚';button.setAttribute('aria-label','Пауза')};
+    audio.onpause=()=>{card.classList.remove('playing');button.textContent='▶';button.setAttribute('aria-label','Прослушать голосовое сообщение')};
+    audio.onended=()=>{S.voice=null;card.classList.remove('playing');button.textContent='▶'};
+    audio.onerror=()=>{S.voice=null;card.classList.remove('playing');button.textContent='▶';toast('Запись не открывается')};
+    S.voice={audio,card};
+    audio.play().catch(()=>{S.voice=null;toast('Не удалось воспроизвести запись')});
+  };
+});$$('[data-highlight]').forEach(el=>el.onclick=async()=>{
   try{await api(`/api/v1/highlights/${el.dataset.highlight}`,{method:'DELETE'});await loadMarks();render();toast('Выделение снято')}
   catch(error){toast(error.message)}
 });$$('[data-note]').forEach(el=>el.onclick=()=>{

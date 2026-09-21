@@ -335,3 +335,27 @@ test('the agenda heading never promises meetings that do not exist', async () =>
   assert.ok(app.includes("todays.length||!later.length?'Расписание дня':'Ближайшие встречи'"),
     'заголовок снова обещает ближайшие встречи при пустом календаре');
 });
+
+// Голосовое сообщение рисовалось кнопкой «▶» без обработчика и пустой
+// полоской вместо волны: прослушать его было нельзя вовсе. Вложение
+// печатало имя и тип, но не давало ссылки — скачать тоже было нельзя,
+// хотя сервер и отдаёт файл, и умеет открыть картинку или PDF в окне.
+test('a voice message plays and an attachment opens', async () => {
+  const app = await read('public/app.js');
+  assert.ok(app.includes("data-voice=\"${esc(m.metadata?.fileId??'')}\""), 'у голосового нет привязки к файлу');
+  assert.ok(app.includes("$$('[data-voice]').forEach(card=>{"), 'нет обработчика проигрывания');
+  assert.ok(app.includes('S.voice.audio.pause()'), 'два голосовых могут играть разом');
+  assert.ok(app.includes('function voiceLength(ms)'), 'длительность печатается сырыми секундами');
+  assert.ok(app.includes('class="voice-card file-card"'), 'вложение осталось без ссылки');
+  assert.ok(app.includes('const fileHref=(meta)=>'), 'адрес вложения не строится');
+
+  // Картинку и PDF открываем в окне, остальное отдаём на скачивание.
+  assert.ok(app.includes("filePreviewable(m.metadata)?' target=\"_blank\" rel=\"noopener\"':' download'"),
+    'вложение открывается одинаково независимо от вида');
+
+  // SVG может нести сценарий: открытый на нашем домене, он ходит в наш
+  // API от имени того, кто его открыл.
+  const media = await read('src/http/media.js');
+  assert.match(media, /image\\\/\(\?!svg\\\+xml\)/, 'SVG снова открывается в окне');
+  assert.match(media, /audio\\\/\|video\\\//, 'звук и видео снова не открываются в окне');
+});
