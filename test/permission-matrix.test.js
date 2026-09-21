@@ -662,24 +662,18 @@ test('матрица «роль × маршрут»', { skip, concurrency: false
 });
 
 /**
- * Право, которое не проверяется нигде, вводит в заблуждение и того, кто его
- * выдаёт, и того, кто его получил. Эти четыре — именно такие: они есть в
- * ROLE_PERMISSIONS, показываются пользователю в /api/v1/me и не встречаются
- * больше нигде в src/.
+ * Каждое объявленное право должно где-то что-то решать.
  *
- * Тест зафиксирован на текущем факте намеренно: как только право начнут
- * проверять, он упадёт и напомнит убрать его отсюда.
+ * Раньше здесь жил список необеспеченных прав, и тест утверждал, что они
+ * действительно нигде не проверяются. Список опустел — и тест выродился в
+ * цикл по пустому массиву, то есть перестал проверять что бы то ни было.
+ * Хуже: он не заметил бы нового права, выданного роли и не подкреплённого
+ * ни одной проверкой, — ровно того, ради чего был написан.
+ *
+ * Поэтому утверждение перевёрнуто: не «эти права не проверяются», а «нет
+ * права, которое не проверяется». Новое право без проверки уронит тест.
  */
-// Право, объявленное ролью и не проверяемое нигде, — обещание, которого
-// никто не держит. Список тает по мере того, как обещания исполняются:
-// calendar.manage.team ушёл отсюда, когда встречу уволившегося стало
-// кому вести.
-// Список опустел: task.manage.team перестало держаться на списке ролей
-// внутри task-authority.js, audit.read получило маршрут журнала, а
-// organization.manage — переименование компании и передачу владения.
-const UNENFORCED = [];
-
-test('права, которые объявлены, но нигде не проверяются', async () => {
+test('каждое объявленное право где-то проверяется', async () => {
   const src = fileURLToPath(new URL('../src/', import.meta.url));
   const files = [];
   const walk = async (dir) => {
@@ -690,23 +684,39 @@ test('права, которые объявлены, но нигде не про
     }
   };
   await walk(src);
-  const sources = await Promise.all(files.map((file) => readFile(file, 'utf8')));
-  const corpus = sources.join('\n');
+  const corpus = (await Promise.all(files.map((file) => readFile(file, 'utf8')))).join('\n');
 
-  for (const permission of UNENFORCED) {
-    assert.ok(
-      !corpus.includes(permission),
-      `${permission} где-то проверяется — обновите список UNENFORCED и ожидания в матрице`,
-    );
-  }
+  // Код ссылается на права по имени константы (Permission.MESSAGE_SEND), а
+  // не по строке, поэтому ищем и то и другое.
+  const nameOf = Object.fromEntries(Object.entries(Permission).map(([name, value]) => [value, name]));
+  const declared = [...new Set(Object.values(ROLE_PERMISSIONS).flatMap((set) => [...set]))];
+  const unenforced = declared
+    .filter((permission) => !corpus.includes(permission) && !corpus.includes(`Permission.${nameOf[permission]}`))
+    .sort();
+  assert.deepEqual(unenforced, [],
+    `эти права объявлены ролям и не проверяются нигде в src/: ${unenforced.join(', ')}`);
+});
 
-  // Следствие первое: владелец и администратор различаются ровно одним
-  // правом — и теперь это право что-то значит.
+test('владелец и администратор различаются обеспеченным правом', async () => {
+  const src = fileURLToPath(new URL('../src/', import.meta.url));
+  const files = [];
+  const walk = async (dir) => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.name.endsWith('.js') && entry.name !== 'rbac.js') files.push(full);
+    }
+  };
+  await walk(src);
+  const corpus = (await Promise.all(files.map((file) => readFile(file, 'utf8')))).join('\n');
+
+  // Владелец и администратор различаются ровно одним правом, и это право
+  // обязано что-то решать — иначе это одна роль под двумя именами.
   const owner = ROLE_PERMISSIONS.owner;
   const admin = ROLE_PERMISSIONS.admin;
   const difference = [...owner].filter((permission) => !admin.has(permission));
   assert.deepEqual(difference, [Permission.ORGANIZATION_MANAGE]);
-  assert.ok(!UNENFORCED.includes(difference[0]), 'отличие владельца от администратора должно быть обеспечено');
+  assert.ok(corpus.includes(difference[0]), 'отличие владельца от администратора ничем не обеспечено');
 
   // Следствие второе: полномочия по чужим задачам держатся на праве, а не на
   // списке ролей рядом с задачами — иначе выдать право новой роли было мало.

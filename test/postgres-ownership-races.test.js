@@ -44,6 +44,7 @@ test('владелец у компании остаётся один, даже �
   t.after(() => app.close());
   const base = `http://127.0.0.1:${app.server.address().port}`;
 
+  const raced = {};
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const suffix = Math.random().toString(36).slice(2, 7);
     const { owner, join } = await company(base, suffix);
@@ -54,16 +55,25 @@ test('владелец у компании остаётся один, даже �
       cookie: owner.cookie, method: 'POST', body: { userId: mate.userId } })));
     const ok = results.filter((r) => r.status === 200);
     assert.equal(ok.length, 1, `прошли обе передачи: ${results.map((r) => r.status).join('/')}`);
-    // Проигравший получает внятный отказ, а не сбой базы: либо «вас
-    // опередили», либо «вы больше не владелец» — смотря что успело
-    // произойти раньше.
+    // Проигравший получает внятный отказ, а не сбой базы. Какой именно —
+    // зависит от того, что успело произойти раньше: если первая передача
+    // уже завершилась, маршрут отвечает «вы больше не владелец» (403), если
+    // обе шли ноздря в ноздрю — «вас опередили» (409). Оба варианта
+    // проверяем по коду, а не только по номеру, и оба обязаны быть
+    // осмысленными: 500 или сырой 23505 тест не примет.
     const refused = results.find((r) => r.status !== 200);
+    const expected = refused.status === 403
+      ? 'FORBIDDEN'
+      : 'NOT_OWNER_ANYMORE';
     assert.ok([403, 409].includes(refused.status), `отказ должен быть внятным, а не ${refused.status}`);
-    assert.ok(['NOT_OWNER_ANYMORE', 'ALREADY_OWNER', 'FORBIDDEN'].includes(refused.code), String(refused.code));
+    assert.equal(refused.code, expected, `неожиданный код отказа при ${refused.status}`);
+    raced[refused.status] = (raced[refused.status] ?? 0) + 1;
 
     const live = await owners(base, anna.cookie);
     assert.equal(live.length, 1, `владельцев в компании: ${live.length}`);
   }
+  // Ради полноты картины: сколько раз какой отказ случился.
+  assert.ok(Object.keys(raced).length > 0, JSON.stringify(raced));
 });
 
 // Передача владения и увольнение того же человека шли по устаревшему

@@ -207,7 +207,9 @@ export function createReminderWorker(repository, { intervalMs, env = process.env
         try { await repository.due({}); } catch { /* следующий проход попробует снова */ }
         if (running) schedule(loop);
       };
-      schedule(loop);
+      // Первый обход — сразу, а не через интервал: после перезапуска
+      // напоминания, чей час уже настал, ждали ещё полминуты.
+      void loop();
     },
     stop() { running = false; if (timer) clearTimeout(timer); timer = null; },
   };

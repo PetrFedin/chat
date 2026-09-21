@@ -15,7 +15,7 @@ test('the personal list is reachable and carries its own controls', async () => 
   assert.match(app, /plan:\(\)=>planModal\(\)/, 'действие plan не зарегистрировано');
   assert.match(app, /function planSection\(\)/, 'на экране «Сегодня» нет секции дел');
   assert.match(app, /\$\{planSection\(\)\}/, 'секция дел не вставлена в экран');
-  assert.match(app, /loadTasks\(\),loadCalendar\(\),loadPlan\(\)/, 'список не загружается при входе');
+  assert.match(app, /loadTasks\(\),loadCalendar\(\),loadInvitations\(\),loadPlan\(\)/, 'список не загружается при входе');
 
   // A row does two things and both must be bound wherever it is rendered.
   assert.match(app, /data-plan-toggle=/);

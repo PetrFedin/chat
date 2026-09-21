@@ -73,77 +73,22 @@ jobs:
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_meeting_ops_cost_control.sql
       - name: Verify integration delivery constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_integration_delivery.sql
-      - name: Verify conversation authority Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-conversation-authority.test.js
-      - name: Verify task lifecycle Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-task-lifecycle.test.js
-      - name: Verify task paging Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-task-paging.test.js
-      - name: Verify password recovery Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-password-reset.test.js
-      - name: Verify message work actions Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-message-work-actions.test.js
-      - name: Verify daily work Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-daily-work.test.js
-      - name: Verify meeting intelligence Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-meeting-intelligence.test.js
-      - name: Verify meeting processing observability Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-meeting-processing-observability.test.js
-      - name: Verify meeting operations and cost Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-meeting-ops-cost-control.test.js
-      - name: Verify idempotency and room ownership Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-idempotency.test.js
-      - name: Verify register fixes Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-register-fixes.test.js
-      - name: Verify personal planning Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-personal-planning.test.js
-      - name: Verify labels Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-labels.test.js
-      - name: Verify calendar participation Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-calendar-participation.test.js
       - name: Verify org structure constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_org_structure.sql
-      - name: Verify org structure Postgres runtime
+
+      # Весь набор целиком, а не выбранные файлы по именам.
+      #
+      # Раньше здесь перечислялись восемнадцать файлов из тридцати трёх, и
+      # список отставал от каталога: матрица «роль × маршрут» и проверка
+      # изоляции арендаторов — самые тщательные тесты в проекте — не
+      # запускались вообще ни в одном job. Зелёный CI о них не знал.
+      #
+      # VAULT_KEY здесь одноразовый: без него тесты сейфа вырождаются в
+      # «всем 503», то есть проверяют недоступность вместо доступа.
+      - name: Run the whole suite against PostgreSQL
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-org-structure.test.js
-      - name: Verify guest containment Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-guest-containment.test.js
-      - name: Verify outbound webhook delivery Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-webhook-delivery.test.js
-      - name: Verify persistent preview Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-preview-demo.test.js
+          POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/chat_test
+        run: |
+          export VAULT_KEY="$(openssl rand -base64 32)"
+          node --test

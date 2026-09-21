@@ -7,7 +7,7 @@ import { MeetingProcessor } from '../src/meeting/processor.js';
 // Выключатель, который не выключает, хуже отсутствующего: в аварии на него
 // рассчитывают. Сервер передавал работникам своё «включено» поверх
 // переменной окружения, и WEBHOOK_WORKER_ENABLED=false ничего не значил.
-test('переменные окружения действительно выключают работников', () => {
+test('переменные окружения действительно выключают работников', async () => {
   const repository = { publishPending: async () => ({ events: 0, deliveries: 0 }), claimDue: async () => [] };
 
   const off = createDeliveryWorker(repository, { WEBHOOK_WORKER_ENABLED: 'false' });
@@ -18,10 +18,23 @@ test('переменные окружения действительно вык�
   assert.equal(on.status().configured, true);
   on.stop();
 
-  const reminders = { enabled: true, due: async () => ({ fired: 0 }) };
-  const remindersOff = createReminderWorker(reminders, { env: { REMINDER_WORKER_ENABLED: 'false' } });
+  // Здесь было три вызова без единого утверждения: работник напоминаний мог
+  // полностью игнорировать переменную, и тест оставался зелёным. Считаем
+  // обходы: выключенный не должен сделать ни одного, включённый — сделать.
+  let sweeps = 0;
+  const reminders = { enabled: true, due: async () => { sweeps += 1; return { fired: 0 }; } };
+
+  const remindersOff = createReminderWorker(reminders, { env: { REMINDER_WORKER_ENABLED: 'false' }, intervalMs: 1000 });
   remindersOff.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
   remindersOff.stop();
+  assert.equal(sweeps, 0, 'выключенный работник всё равно пошёл по напоминаниям');
+
+  const remindersOn = createReminderWorker(reminders, { env: {}, intervalMs: 1000 });
+  remindersOn.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  remindersOn.stop();
+  assert.ok(sweeps >= 1, 'включённый работник не сделал ни одного обхода');
 });
 
 // Аренда задачи — обещание вернуть её, если работник упадёт. Часовая

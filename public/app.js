@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
+const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),invitations:[],loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -210,7 +210,7 @@ function forgotPasswordModal(){
   });
 }
 
-async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
+async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadInvitations(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
 /**
  * Адрес страницы и то, что на ней видно, — одно и то же.
  *
@@ -244,6 +244,19 @@ async function loadTasks(){
   }catch{}
 }
 async function loadCalendar(){await loadCalendarRange()}
+
+/**
+ * Встречи, которые ждут ответа именно от вас.
+ *
+ * Сервер считал их с самого начала — и никто не спрашивал: приглашение
+ * замечали, только наткнувшись на встречу в сетке календаря. Ответ на
+ * приглашение — самое срочное, что может быть в рабочем дне: от него
+ * зависит чужое расписание.
+ */
+async function loadInvitations(){
+  try{S.invitations=(await api('/api/v1/calendar-invitations')).items||[]}
+  catch{S.invitations=[]}
+}
 async function loadMessages(id){
   if(!id||S.messages.has(id))return;
   const page=await api(`/api/v1/conversations/${id}/messages`);
@@ -296,7 +309,7 @@ function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','ca
   const later=S.calendar.filter(e=>Date.parse(e.startAt)>=dayEnd.getTime()).sort(byStart);
   const events=(todays.length?todays:later).slice(0,4);
   const agendaTitle=todays.length||!later.length?'Расписание дня':'Ближайшие встречи';
-  const agendaHint=todays.length?'Встречи и рабочее время':later.length?'Сегодня встреч нет':'Встречи и рабочее время';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section><section class="surface"><div class="section-head"><div><h2>${esc(agendaTitle)}</h2><p class="muted">${esc(agendaHint)}</p></div>${can('calendar.create')?'<button data-action="event" class="button secondary small pressable">＋ Событие</button>':''}</div>${events.length?events.map(e=>`<button type="button" class="agenda-row pressable" data-cal-event="${esc(e.id)}" style="width:100%;text-align:left"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc([
+  const agendaHint=todays.length?'Встречи и рабочее время':later.length?'Сегодня встреч нет':'Встречи и рабочее время';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2><form class="quick-bar" data-quick-form><input name="quick" placeholder="Сообщение, задача или встреча…" aria-label="Быстрый захват"><button type="submit" class="button primary small pressable">Создать</button></form></section>${S.invitations.length?`<section class="surface"><div class="section-head"><div><h2>Ждут вашего ответа</h2><p class="muted">${S.invitations.length} ${plural(S.invitations.length,'приглашение','приглашения','приглашений')} на встречу</p></div></div>${S.invitations.map(i=>`<div class="agenda-row"><span class="agenda-time">${time(i.startAt)}</span><span><div class="row-title">${esc(i.title)}</div><div class="row-sub">${esc(new Date(i.startAt).toLocaleDateString('ru-RU',{day:'numeric',month:'long'}))}${i.organiser?` · ${esc(i.organiser)}`:''}</div></span><span class="inline-actions">${[['accepted','Приду'],['tentative','Под вопросом'],['declined','Не приду']].map(([value,caption])=>`<button class="button small ${value==='accepted'?'primary':'secondary'} pressable" data-invite-answer="${value}" data-invite-event="${esc(i.id)}">${caption}</button>`).join('')}</span></div>`).join('')}</section>`:''}<section class="surface"><div class="section-head"><div><h2>${esc(agendaTitle)}</h2><p class="muted">${esc(agendaHint)}</p></div>${can('calendar.create')?'<button data-action="event" class="button secondary small pressable">＋ Событие</button>':''}</div>${events.length?events.map(e=>`<button type="button" class="agenda-row pressable" data-cal-event="${esc(e.id)}" style="width:100%;text-align:left"><span class="agenda-time">${time(e.startAt)}</span><span><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc([
       Date.parse(e.startAt)>=dayEnd.getTime()?new Date(e.startAt).toLocaleDateString('ru-RU',{day:'numeric',month:'long'}):'',
       e.participantCount?`${e.participantCount} ${plural(e.participantCount,'участник','участника','участников')}`:'',
       e.needsMyAnswer?'нужен ответ':'',
@@ -783,6 +796,16 @@ function bind(){
   // Строка встречи в расписании дня выглядела нажимаемой и не открывала
   // ничего: карточку встречи знал только календарь.
   $$('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
+  // Ответить на приглашение можно прямо из «Сегодня», не открывая встречу.
+  $$('[data-invite-answer]').forEach(b=>b.onclick=async()=>{
+    try{
+      await api(`/api/v1/calendar-events/${b.dataset.inviteEvent}/respond`,{method:'POST',
+        body:JSON.stringify({response:b.dataset.inviteAnswer})});
+      toast('Ответ отправлен');
+      await Promise.all([loadInvitations(),loadCalendarRange()]);
+      render();
+    }catch(error){toast(error.message)}
+  });
   // A phrase typed here becomes the thing it sounds like: a task by default,
   // an event when it names a time. Better than swallowing the text.
   const quickForm=$('[data-quick-form]');
