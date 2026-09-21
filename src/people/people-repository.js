@@ -13,6 +13,19 @@ const ACTIVITY_LABEL = {
   'commitment.rescheduled': 'перенёс(ла) срок',
   'conversation.created': 'создал(а) беседу',
   'member.joined': 'присоединился(ась)',
+  'invitation.issued': 'позвал(а) человека в компанию',
+  'invitation.accepted': 'принял(а) приглашение и вышел(шла) на работу',
+  'member.deactivated': 'проводил(а) сотрудника',
+  'member.reactivated': 'вернул(а) сотрудника на работу',
+  'password.reset.issued': 'выписал(а) ссылку для смены пароля',
+  'password.reset.used': 'сменил(а) пароль по ссылке',
+  'vault.created': 'добавил(а) пароль в сейф',
+  'vault.updated': 'изменил(а) запись в сейфе',
+  'vault.revealed': 'раскрыл(а) пароль из сейфа',
+  'vault.deleted': 'удалил(а) запись из сейфа',
+  'profile.updated': 'изменил(а) карточку сотрудника',
+  'commitment.reassigned': 'передал(а) задачу другому',
+  'conversation.ownership_claimed': 'принял(а) беседу, оставшуюся без владельца',
 };
 
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
@@ -107,6 +120,60 @@ export function createPeopleRepository(pool, org = null) {
          VALUES($1,$2,'profile',$3,'profile.updated',$4,$5)`,
         [session.organizationId, session.workspaceId, userId, session.userId, { fields, onBehalfOf: userId !== session.userId }],
       );
+      return this.getPerson(session, userId);
+    },
+
+    /**
+     * Увольнение.
+     *
+     * До сих пор ушедший сотрудник сохранял доступ навсегда: механизм в
+     * схеме был (`users.disabled_at` проверяется и при входе, и при каждом
+     * запросе), а выставить признак было нечем. Это и есть та самая
+     * незакрытая дверь, о которой в компании вспоминают последней.
+     *
+     * Кто провожает: тот, кто зовёт, — по праву `member.invite`, и только
+     * человека ниже себя по лестнице. Владельца не увольняет никто, себя —
+     * тоже: компанию нельзя оставить без хозяина случайным нажатием.
+     *
+     * Что происходит: признак выставляется, все живые сессии обрываются в
+     * той же транзакции, запись уходит в журнал. Данные остаются на месте —
+     * задачи, сообщения и доказательства ушедшего никуда не деваются, иначе
+     * увольнение стирало бы историю работы компании.
+     */
+    async setActive(session, userId, active, { rank = () => 0 } = {}) {
+      if (userId === session.userId) throw fail('Себя уволить нельзя', 'CANNOT_DEACTIVATE_SELF', 400);
+      const profile = await profileRow(session, userId);
+      if (!profile) throw fail('Person not found', 'PERSON_NOT_FOUND', 404);
+      if (profile.workspaceRole === 'owner') throw fail('Владельца компании уволить нельзя', 'CANNOT_DEACTIVATE_OWNER', 403);
+      if (rank(profile.workspaceRole) >= rank(session.role)) {
+        throw fail('Увольнять можно только тех, кто ниже вас по лестнице', 'ROLE_TOO_HIGH', 403);
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows } = await client.query(
+          `UPDATE users SET disabled_at=$2 WHERE id=$1 RETURNING id, disabled_at "disabledAt"`,
+          [userId, active ? null : new Date().toISOString()],
+        );
+        if (!rows[0]) throw fail('Person not found', 'PERSON_NOT_FOUND', 404);
+        if (!active) {
+          await client.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [userId]);
+        }
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'membership',$3,$4,$5,$6)`,
+          [session.organizationId, session.workspaceId, userId,
+           active ? 'member.reactivated' : 'member.deactivated', session.userId,
+           { email: profile.email, role: profile.workspaceRole }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
       return this.getPerson(session, userId);
     },
 

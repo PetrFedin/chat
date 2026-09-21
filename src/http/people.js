@@ -4,6 +4,10 @@ import { cleanText, json, readJson } from './helpers.js';
 const ID = '([0-9a-f-]{36})';
 const PERSON = new RegExp(`^/api/v1/people/${ID}$`, 'i');
 const ACTIVITY = new RegExp(`^/api/v1/people/${ID}/activity$`, 'i');
+const EMPLOYMENT = new RegExp(`^/api/v1/people/${ID}/(deactivate|reactivate)$`, 'i');
+
+// Лестница ролей: увольняют только тех, кто ниже.
+const RANK = { guest: 0, member: 1, manager: 2, admin: 3, owner: 4 };
 
 const unavailable = () => Object.assign(
   new Error('Личные карточки доступны в режиме с базой данных'),
@@ -62,6 +66,21 @@ export function createPeopleHandler() {
       }
       const canManageMembers = (ctx.permissions(session.role) ?? []).includes(Permission.MEMBER_MANAGE);
       json(res, 200, { person: await people.updateProfile(session, m[1], patch, { canManageMembers }) });
+      return true;
+    }
+
+    // Увольнение и возвращение на работу. Механизм был в схеме с самого
+    // начала — вход и каждый запрос сверяются с `users.disabled_at`, — но
+    // выставить признак было нечем, и ушедший сохранял доступ навсегда.
+    m = path.match(EMPLOYMENT);
+    if (m && method === 'POST') {
+      if (!(ctx.permissions(session.role) ?? []).includes(Permission.MEMBER_MANAGE)) {
+        throw Object.assign(new Error('Провожать сотрудников может владелец или администратор'),
+          { code: 'FORBIDDEN', statusCode: 403 });
+      }
+      const person = await people.setActive(session, m[1], m[2].toLowerCase() === 'reactivate',
+        { rank: (role) => RANK[role] ?? 0 });
+      json(res, 200, { person });
       return true;
     }
 

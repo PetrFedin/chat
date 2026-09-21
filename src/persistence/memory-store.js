@@ -111,7 +111,7 @@ export class MemoryStore {
       .some((cm) => this.conversationMembers.has(this.conversationMemberKey(cm.conversationId, userId)));
     return [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId)
       .filter((m) => session.role !== 'guest' || m.userId === session.userId || sharesRoomWith(m.userId))
-      .map((m) => ({ ...clone(this.profiles.get(this.membershipKey(m.workspaceId, m.userId))), userId: m.userId, role: m.role, presence: clone(this.presence.get(this.membershipKey(m.workspaceId, m.userId)) ?? { state: 'offline' }) }));
+      .map((m) => ({ ...clone(this.profiles.get(this.membershipKey(m.workspaceId, m.userId))), userId: m.userId, role: m.role, active: true, presence: clone(this.presence.get(this.membershipKey(m.workspaceId, m.userId)) ?? { state: 'offline' }) }));
   }
 
   async getBootstrap(session) {

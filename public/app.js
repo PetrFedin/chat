@@ -2014,15 +2014,46 @@ async function personPage(userId){
     <h3 class="person-section">Подчиняется</h3><div class="person-chips">${reports}</div>
     <h3 class="person-section"><span>Задачи в работе</span> — ${person.workload.open}</h3><div class="person-chips">${load}</div>
     <h3 class="person-section">История действий</h3><div class="person-feed">${feed}</div>
+    ${person.disabledAt?`<p class="person-about">Сотрудник уволен ${esc(when(person.disabledAt))}. Доступ закрыт, история работы сохранена.</p>`:''}
     ${!person.isSelf&&can('member.invite')?'<div class="stack" style="margin-top:16px"><button data-reset class="button secondary">Выписать ссылку для смены пароля</button></div>':''}
+    ${!person.isSelf&&person.workspaceRole!=='owner'&&can('member.manage')?`<div class="stack" style="margin-top:10px">${person.disabledAt
+      ?'<button data-employ class="button secondary">Вернуть на работу</button>'
+      :'<button data-dismiss class="button danger">Уволить</button>'}</div>`:''}
     ${person.isSelf?'<div class="stack" style="margin-top:16px"><button data-edit class="button secondary">Редактировать карточку</button><button data-push class="button secondary">Включить push</button><button data-logout class="button danger">Выйти</button></div>':''}
   `,()=>{
     const reset=$('[data-reset]');
     if(reset)reset.onclick=()=>issueResetModal(person);
+    const dismiss=$('[data-dismiss]');
+    if(dismiss)dismiss.onclick=()=>dismissModal(person);
+    const employ=$('[data-employ]');
+    if(employ)employ.onclick=async()=>{
+      try{
+        await api(`/api/v1/people/${person.userId}/reactivate`,{method:'POST'});
+        toast('Сотрудник снова в строю');await bootstrap();replaceModal(()=>personPage(person.userId));
+      }catch(error){toast(error.message)}
+    };
     if(!person.isSelf)return;
     $('[data-edit]').onclick=()=>editProfile(person);
     $('[data-push]').onclick=enablePush;
     $('[data-logout]').onclick=logout;
+  });
+}
+
+/**
+ * Увольнение — шаг, который нельзя сделать вполсилы: доступ закрывается в
+ * тот же миг. Поэтому отдельное окно, прямым текстом о последствиях.
+ */
+function dismissModal(person){
+  modal('Уволить сотрудника',`
+    <p class="muted">${esc(person.displayName||person.email)} потеряет доступ немедленно: открытые сессии оборвутся, войти заново не выйдет.</p>
+    <p class="muted" style="margin-top:10px">Задачи, сообщения и доказательства останутся на месте — история работы компании не стирается. Вернуть человека можно тем же движением.</p>
+    <button id="confirm-dismiss" class="button danger" style="width:100%;margin-top:14px">Уволить</button>`,()=>{
+    $('#confirm-dismiss').onclick=async()=>{
+      try{
+        await api(`/api/v1/people/${person.userId}/deactivate`,{method:'POST'});
+        toast('Доступ закрыт');await bootstrap();replaceModal(()=>personPage(person.userId));
+      }catch(error){toast(error.message)}
+    };
   });
 }
 
