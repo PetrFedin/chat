@@ -14,7 +14,15 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
   const batchSize = Number(env.WEBHOOK_WORKER_BATCH ?? 10);
   const timeoutMs = Number(env.WEBHOOK_DELIVERY_TIMEOUT_MS ?? 10_000);
   const leaseMs = Number(env.WEBHOOK_DELIVERY_LEASE_MS ?? 30_000);
+  // Сколько доставок держим в полёте разом и сколько из них — на одного
+  // приёмника. Второе и есть защита от чужой медлительности: приёмник,
+  // который думает полминуты, занимает свои два слота, а не всю очередь.
+  const maxInFlight = Number(env.WEBHOOK_WORKER_CONCURRENCY ?? batchSize);
+  const perEndpoint = Number(env.WEBHOOK_WORKER_PER_ENDPOINT ?? Math.max(1, Math.ceil(maxInFlight / 4)));
   const send = options.send ?? globalThis.fetch;
+  // По умолчанию работник обслуживает всю базу; список пространств пригоден
+  // для того, чтобы развести нагрузку по нескольким работникам.
+  const workspaceIds = options.workspaceIds ?? null;
 
   const state = { running: false, stopping: false, published: 0, delivered: 0, failed: 0, dead: 0, lastError: null, lastRunAt: null };
   let timer = null;
@@ -63,25 +71,60 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
     }
   }
 
+  const inFlight = new Map();
+  const busyByEndpoint = new Map();
+
+  function begin(delivery) {
+    busyByEndpoint.set(delivery.endpointId, (busyByEndpoint.get(delivery.endpointId) ?? 0) + 1);
+    const done = deliver(delivery).finally(() => {
+      inFlight.delete(delivery.id);
+      const left = (busyByEndpoint.get(delivery.endpointId) ?? 1) - 1;
+      if (left > 0) busyByEndpoint.set(delivery.endpointId, left);
+      else busyByEndpoint.delete(delivery.endpointId);
+    });
+    inFlight.set(delivery.id, done);
+  }
+
+  const saturated = () => [...busyByEndpoint].filter(([, busy]) => busy >= perEndpoint).map(([id]) => id);
+
+  /** Забирает столько, сколько влезает в свободные слоты, и запускает — не дожидаясь. */
+  async function pump() {
+    const free = Math.min(batchSize, maxInFlight - inFlight.size);
+    if (free <= 0) return 0;
+    const due = await repository.claimDue({ limit: free, leaseMs, perEndpoint, excludeEndpointIds: saturated(), workspaceIds });
+    for (const delivery of due) begin(delivery);
+    return due.length;
+  }
+
+  const sleep = (ms) => new Promise((resolve) => { timer = setTimeout(resolve, ms); timer.unref?.(); });
+
+  /** Один полный проход с ожиданием — то, что нужно тестам и ручному прогону. */
   async function tick() {
     state.lastRunAt = new Date().toISOString();
-    const published = await repository.publishPending({ batchSize: batchSize * 5 });
+    const published = await repository.publishPending({ batchSize: batchSize * 5, workspaceIds });
     state.published += published.deliveries;
-    const due = await repository.claimDue({ limit: batchSize, leaseMs });
-    await Promise.allSettled(due.map(deliver));
-    return { published, claimed: due.length };
+    const claimed = await pump();
+    await Promise.allSettled([...inFlight.values()]);
+    return { published, claimed };
   }
 
   async function loop() {
     while (!state.stopping) {
       try {
-        const { claimed } = await tick();
-        if (!claimed) await new Promise((resolve) => { timer = setTimeout(resolve, pollMs); timer.unref?.(); });
+        state.lastRunAt = new Date().toISOString();
+        const published = await repository.publishPending({ batchSize: batchSize * 5, workspaceIds });
+        state.published += published.deliveries;
+        const claimed = await pump();
+        // Освободился слот — идём за следующей доставкой сразу, а не ждём,
+        // пока договорит самый медленный собеседник.
+        if (inFlight.size) await Promise.race([...inFlight.values(), sleep(claimed ? pollMs : Math.min(pollMs, 50))]);
+        else if (!claimed) await sleep(pollMs);
       } catch (error) {
         state.lastError = String(error.message ?? error);
-        await new Promise((resolve) => { timer = setTimeout(resolve, pollMs); timer.unref?.(); });
+        await sleep(pollMs);
       }
     }
+    await Promise.allSettled([...inFlight.values()]);
     state.running = false;
   }
 
@@ -97,7 +140,8 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
     async stop() {
       state.stopping = true;
       if (timer) clearTimeout(timer);
+      await Promise.allSettled([...inFlight.values()]);
     },
-    status: () => ({ configured: Boolean(repository) && enabled, ...state }),
+    status: () => ({ configured: Boolean(repository) && enabled, inFlight: inFlight.size, ...state }),
   };
 }

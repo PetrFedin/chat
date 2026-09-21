@@ -81,14 +81,19 @@ test('Postgres meeting intelligence preserves source evidence and human confirma
   await pool.query(`UPDATE meeting_intelligence_jobs
     SET status='processing',attempts=1,locked_at=now()-interval '10 minutes',lock_token=$2
     WHERE id=$1`, [first.job.id, staleToken]);
-  // Очередь общая на всё рабочее пространство, и в тестовой базе рядом лежат
-  // задачи прошлых прогонов. Настоящий работник разбирает их все подряд —
-  // здесь мы так же разбираем, пока не дойдём до своей.
+  // Здесь проверяется именно то, что работник подбирает задачу с протухшей
+  // арендой, — значит, берём её общим claimJob, а не по имени. Очередь общая
+  // на всю базу, поэтому чужие задачи, попавшиеся по дороге, возвращаем на
+  // место нетронутыми: соседний тест не должен пострадать.
   let transcriptionJob = null;
   for (let attempt = 0; attempt < 50 && !transcriptionJob; attempt += 1) {
     const claimed = await meeting.claimJob('transcribe', { leaseMs:1000 });
     if (!claimed) break;
     if (claimed.runId === first.run.id) transcriptionJob = claimed;
+    else {
+      await pool.query(`UPDATE meeting_intelligence_jobs
+        SET status='pending',attempts=attempts-1,locked_at=NULL,lock_token=NULL WHERE id=$1`, [claimed.id]);
+    }
   }
   assert.ok(transcriptionJob, 'своя задача на расшифровку должна найтись в очереди');
   assert.equal(transcriptionJob.runId, first.run.id);

@@ -47,7 +47,7 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
     await repository.createEndpoint(session, { label: 'Tasks only', url: 'https://example.test/tasks', topics: ['task.transitioned'] });
 
     await emit(pool, session, 'meeting.transcript.ready', { runId: 'r1' });
-    const published = await repository.publishPending();
+    const published = await repository.publishPending({ workspaceIds: [session.workspaceId] });
     assert.equal(published.events >= 1, true);
 
     const deliveries = await repository.listDeliveries(session);
@@ -71,8 +71,8 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
     const { session } = await fixture(pool);
     await repository.createEndpoint(session, { label: 'Everything', url: 'https://example.test/all', topics: [] });
     await emit(pool, session, 'task.transitioned', { taskId: 't1' });
-    await repository.publishPending();
-    await repository.publishPending();
+    await repository.publishPending({ workspaceIds: [session.workspaceId] });
+    await repository.publishPending({ workspaceIds: [session.workspaceId] });
     assert.equal((await repository.listDeliveries(session)).length, 1);
   });
 
@@ -81,10 +81,11 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
     const { session } = await fixture(pool);
     const endpoint = await repository.createEndpoint(session, { label: 'Receiver', url: 'https://example.test/ok', topics: [] });
     const eventId = await emit(pool, session, 'task.transitioned', { taskId: 't2', to: 'in_progress' });
-    await repository.publishPending();
+    await repository.publishPending({ workspaceIds: [session.workspaceId] });
 
     const seen = [];
     const worker = createDeliveryWorker(repository, { WEBHOOK_WORKER_POLL_MS: '10' }, {
+      workspaceIds: [session.workspaceId],
       send: async (url, init) => { seen.push({ url, init }); return new Response('', { status: 200 }); },
     });
     await worker.tick();
@@ -108,9 +109,10 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
     const flaky = await repository.createEndpoint(session, { label: 'Flaky', url: 'https://example.test/500', topics: ['a.b'] });
     const gone = await repository.createEndpoint(session, { label: 'Gone', url: 'https://example.test/404', topics: ['a.b'] });
     await emit(pool, session, 'a.b', {});
-    await repository.publishPending();
+    await repository.publishPending({ workspaceIds: [session.workspaceId] });
 
     const worker = createDeliveryWorker(repository, {}, {
+      workspaceIds: [session.workspaceId],
       send: async (url) => new Response('', { status: url.endsWith('/500') ? 500 : 404 }),
     });
     await worker.tick();
@@ -126,10 +128,10 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
     const { session } = await fixture(pool);
     await repository.createEndpoint(session, { label: 'Down', url: 'https://example.test/down', topics: [] });
     await emit(pool, session, 'c.d', {});
-    await repository.publishPending();
+    await repository.publishPending({ workspaceIds: [session.workspaceId] });
     await pool.query("UPDATE webhook_deliveries SET max_attempts=2 WHERE workspace_id=$1", [session.workspaceId]);
 
-    const worker = createDeliveryWorker(repository, {}, { send: async () => new Response('', { status: 503 }) });
+    const worker = createDeliveryWorker(repository, {}, { workspaceIds: [session.workspaceId], send: async () => new Response('', { status: 503 }) });
     await worker.tick();
     await pool.query("UPDATE webhook_deliveries SET next_attempt_at=now() WHERE workspace_id=$1", [session.workspaceId]);
     await worker.tick();
@@ -145,7 +147,7 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
     const endpoint = await repository.createEndpoint(session, { label: 'Paused', url: 'https://example.test/paused', topics: [] });
     await repository.setEndpointEnabled(session, endpoint.id, false);
     await emit(pool, session, 'e.f', {});
-    await repository.publishPending();
+    await repository.publishPending({ workspaceIds: [session.workspaceId] });
     assert.equal((await repository.listDeliveries(session)).length, 0);
   });
 
@@ -155,7 +157,7 @@ test('outbound webhook delivery', { skip: databaseUrl ? false : 'DATABASE_URL is
     const b = await fixture(pool);
     await repository.createEndpoint(a.session, { label: 'A', url: 'https://example.test/a', topics: [] });
     await emit(pool, b.session, 'g.h', { secret: 'belongs to B' });
-    await repository.publishPending();
+    await repository.publishPending({ workspaceIds: [a.session.workspaceId, b.session.workspaceId] });
     assert.equal((await repository.listDeliveries(a.session)).length, 0);
   });
 });

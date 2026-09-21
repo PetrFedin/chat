@@ -111,13 +111,14 @@ export function createWebhookRepository(pool) {
      * FOR UPDATE SKIP LOCKED matches the meeting worker: several application
      * instances can run the publisher against one database.
      */
-    async publishPending({ batchSize = 50 } = {}) {
+    async publishPending({ batchSize = 50, workspaceIds: only = null } = {}) {
       return tx(async (client) => {
         const { rows: events } = await client.query(
           `SELECT id,organization_id,workspace_id,topic,aggregate_id,payload,created_at
            FROM outbox_events WHERE published_at IS NULL
+             AND ($2::uuid[] IS NULL OR workspace_id = ANY($2::uuid[]))
            ORDER BY created_at LIMIT $1 FOR UPDATE SKIP LOCKED`,
-          [batchSize],
+          [batchSize, only],
         );
         if (!events.length) return { events: 0, deliveries: 0 };
 
@@ -157,22 +158,42 @@ export function createWebhookRepository(pool) {
       });
     },
 
-    /** Claims due deliveries under a bounded lease. */
-    async claimDue({ limit = 10, leaseMs = 30_000, now = new Date() } = {}) {
+    /**
+     * Claims due deliveries under a bounded lease, fairly.
+     *
+     * The ordering is round-robin across endpoints, not first-come: a customer
+     * with a thousand pending events must not fill every slot while another
+     * customer's single event waits behind them. `perEndpoint` caps one
+     * endpoint's share of a single claim; `excludeEndpointIds` lets the worker
+     * skip endpoints whose deliveries are still in flight.
+     */
+    async claimDue({ limit = 10, leaseMs = 30_000, now = new Date(), perEndpoint = limit, excludeEndpointIds = [], workspaceIds = null } = {}) {
       const { rows } = await pool.query(
         `UPDATE webhook_deliveries d
          SET status='delivering', lock_token=gen_random_uuid(), locked_until=$2::timestamptz + make_interval(secs => $3),
              attempts=d.attempts+1
          FROM (
            SELECT id FROM webhook_deliveries
-           WHERE status IN ('pending','failed') AND next_attempt_at <= $2::timestamptz
-              OR (status='delivering' AND locked_until < $2::timestamptz)
-           ORDER BY next_attempt_at LIMIT $1 FOR UPDATE SKIP LOCKED
+           WHERE id IN (
+             SELECT id FROM (
+               SELECT id, next_attempt_at,
+                      row_number() OVER (PARTITION BY endpoint_id ORDER BY next_attempt_at, id) AS place
+               FROM webhook_deliveries
+               WHERE ((status IN ('pending','failed') AND next_attempt_at <= $2::timestamptz)
+                      OR (status='delivering' AND locked_until < $2::timestamptz))
+                 AND NOT (endpoint_id = ANY($5::uuid[]))
+                 AND ($6::uuid[] IS NULL OR workspace_id = ANY($6::uuid[]))
+             ) ranked
+             WHERE place <= $4
+             ORDER BY place, next_attempt_at
+             LIMIT $1
+           )
+           FOR UPDATE SKIP LOCKED
          ) due
          WHERE d.id = due.id
          RETURNING d.*, (SELECT url FROM webhook_endpoints e WHERE e.id=d.endpoint_id) url,
                    (SELECT secret FROM webhook_endpoints e WHERE e.id=d.endpoint_id) secret`,
-        [limit, now.toISOString(), Math.ceil(leaseMs / 1000)],
+        [limit, now.toISOString(), Math.ceil(leaseMs / 1000), Math.max(1, perEndpoint), excludeEndpointIds, workspaceIds],
       );
       return rows.map((row) => ({ ...deliveryView(row), url: row.url, secret: row.secret, lockToken: row.lock_token, payload: row.payload }));
     },

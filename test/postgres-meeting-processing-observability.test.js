@@ -53,14 +53,14 @@ async function createRecordedCall({store,calls,owner,suffix}){
 }
 
 
-// Очередь общая, и в тестовой базе рядом лежат задачи прошлых прогонов.
-// Настоящий работник разбирает их подряд — так же поступаем и здесь,
-// пока не дойдём до своей.
-async function claimOwn(meeting,kind,runId){
+// Очередь общая на всю базу, и рядом лежат задачи соседних тестов и прошлых
+// прогонов. Берём свою задачу по имени, а не первую попавшуюся: очерёдность
+// проверяется не здесь, а в тесте на честность очереди.
+async function claimOwn(meeting,jobId){
   for(let attempt=0;attempt<50;attempt+=1){
-    const claimed=await meeting.claimJob(kind);
-    if(!claimed)return null;
-    if(claimed.runId===runId)return claimed;
+    const claimed=await meeting.claimJobById(jobId);
+    if(claimed)return claimed;
+    await new Promise((resolve)=>setTimeout(resolve,20));
   }
   return null;
 }
@@ -94,7 +94,7 @@ test('Postgres processing repository waits for sidecar, selects it as evidence s
     WHERE workspace_id=$1 AND topic='meeting.recording.ready' AND aggregate_id=$2`,[owner.workspaceId,sidecar.run.id])).rows[0].count);
   assert.equal(readyCount,1);
 
-  const job=await claimOwn(meeting,'transcribe',sidecar.run.id);
+  const job=await claimOwn(meeting,sidecar.job.id);
   assert.ok(job,'своя задача на расшифровку должна найтись в очереди');
   assert.equal(job.id,sidecar.job.id);
   const context=await meeting.jobContext(job);
@@ -148,7 +148,7 @@ test('Postgres processing repository falls back to archive if sidecar fails afte
   assert.equal(fallback.recording.transcriptionSourceStatus,'failed');
   assert.equal(fallback.recording.transcriptStatus,'queued');
 
-  const job=await claimOwn(meeting,'transcribe',fallback.run.id);
+  const job=await claimOwn(meeting,fallback.job.id);
   assert.ok(job,'своя задача на расшифровку должна найтись в очереди');
   const context=await meeting.jobContext(job);
   assert.equal(context.sourceKind,'archive');
