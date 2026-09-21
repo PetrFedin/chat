@@ -13,7 +13,7 @@ async function api(path,options={}){const response=await fetch(path,{credentials
 
 function appVisible(){const app=$('#app-view');return Boolean(app&&!app.hidden)}
 
-async function refreshPeople(){if(D.people.length)return;try{const boot=await api('/api/v1/bootstrap');D.people=boot.people||[]}catch{}}
+async function refreshPeople(){if(D.people.length)return;try{const boot=await (window.ChatBootstrap?.get()??api('/api/v1/bootstrap'));D.people=boot.people||[]}catch{}}
 
 async function refreshAttention(force=false){if(!appVisible()||D.refreshing)return;if(!force&&Date.now()-D.lastRefresh<1800)return;D.refreshing=true;try{const [attention,conversations]=await Promise.all([api('/api/v1/attention'),api('/api/v1/conversations')]);D.attention=attention.attention;D.conversations=conversations.items||[];D.lastRefresh=Date.now();decorate()}catch{}finally{D.refreshing=false}}
 

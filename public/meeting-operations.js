@@ -17,7 +17,7 @@ function appVisible(){const app=$('#app-view');return Boolean(app&&!app.hidden)}
 async function loadAccess(force=false){
   if(!force&&Date.now()-O.accessAt<5000&&O.session)return O;
   try{
-    const boot=await api('/api/v1/bootstrap');
+    const boot=await (window.ChatBootstrap?.get()??api('/api/v1/bootstrap'));
     O.permissions=new Set(boot.permissions||[]);
     O.people=boot.people||[];
     O.session=boot.session||null;

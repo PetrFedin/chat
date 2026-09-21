@@ -19,7 +19,7 @@ async function api(path,options={}){const response=await fetch(path,{credentials
 function appVisible(){const app=$('#app-view');return Boolean(app&&!app.hidden)}
 function toast(text){const root=$('#toast-root');if(!root)return;const node=document.createElement('div');node.className='toast';node.textContent=text;root.append(node);setTimeout(()=>node.remove(),2600)}
 
-async function loadPeople(){if(M.people.length)return M.people;try{const boot=await api('/api/v1/bootstrap');M.people=boot.people||[]}catch{}return M.people}
+async function loadPeople(){if(M.people.length)return M.people;try{const boot=await (window.ChatBootstrap?.get()??api('/api/v1/bootstrap'));M.people=boot.people||[]}catch{}return M.people}
 async function loadMeetings(force=false){if(M.loading)return M.items;if(!force&&Date.now()-M.loadedAt<4000)return M.items;M.loading=true;try{const payload=await api('/api/v1/meetings?limit=80');M.items=payload.items||[];M.loadedAt=Date.now();decorate();return M.items}catch{return M.items}finally{M.loading=false}}
 
 function statusMeta(item){const status=item.intelligenceStatus;if(status==='review_ready')return['ready',tr('Готово к разбору','Ready for review')];if(status==='transcribing')return['processing',tr('Стенограмма','Transcribing')];if(status==='summarizing')return['processing',tr('Формируем итоги','Summarizing')];if(status==='queued')return['processing',tr('В очереди','Queued')];if(status==='failed')return['failed',tr('Ошибка обработки','Processing failed')];if(item.recordingStatus==='recording')return['processing',tr('Идёт запись','Recording')];return['',tr('Без итогов','No intelligence yet')]}
@@ -53,10 +53,28 @@ function injectModuleCard(){const grid=$('#screen .module-grid');if(!grid||$('#m
 // and re-inserting the card on every pass is itself a childList mutation, which
 // re-enters the observer and pins the main thread.
 function injectTodayReview(){const stack=$('#screen .page-grid .stack');if(!stack)return;const existing=stack.querySelector('.mi-today-review');const ready=M.items.filter(item=>item.intelligenceStatus==='review_ready'&&item.needsReview);if(!ready.length){existing?.remove();return}const markup=`<span><strong>${ready.length===1?tr('Итоги встречи требуют решения','Meeting review needs your decision'):tr(`${ready.length} встречи требуют решения`,`${ready.length} meetings need review`)}</strong><span>${esc(ready[0].title)}${ready.length>1?` · +${ready.length-1}`:''}</span></span><b>›</b>`;if(existing){if(existing.innerHTML!==markup)existing.innerHTML=markup;return}const card=document.createElement('button');card.className='mi-today-review';card.type='button';card.innerHTML=markup;card.addEventListener('click',()=>openMeetingCenter('review'));stack.insertBefore(card,stack.children[1]||null)}
-async function syncNotificationLinks(){if(!appVisible())return;try{const payload=await api('/api/v1/notifications?limit=100');M.notifications=new Map((payload.items||[]).filter(n=>n.type==='meeting.review_ready'&&n.metadata?.callId).map(n=>[n.id,n]));for(const button of $$('[data-dwc-notification]')){const n=M.notifications.get(button.dataset.dwcNotification);if(n)button.dataset.miCall=n.metadata.callId}}catch{}}
+/**
+ * Связать уведомления об итогах встреч с самими встречами.
+ *
+ * Вызывается из оформления, а оформление — из наблюдателя за разметкой,
+ * то есть на каждую перерисовку экрана. Сетевой запрос на сто
+ * уведомлений уходил при каждом переключении вкладки: восемнадцать
+ * запросов за минуту спокойной работы. Ходим не чаще раза в пять секунд
+ * и только когда на экране есть что связывать.
+ */
+let notificationsSyncedAt=0;
+async function syncNotificationLinks({force=false}={}){
+  if(!appVisible())return;
+  if(!force){
+    if(Date.now()-notificationsSyncedAt<5000)return;
+    if(!document.querySelector('[data-dwc-notification]'))return;
+  }
+  notificationsSyncedAt=Date.now();
+  try{const payload=await api('/api/v1/notifications?limit=100');M.notifications=new Map((payload.items||[]).filter(n=>n.type==='meeting.review_ready'&&n.metadata?.callId).map(n=>[n.id,n]));for(const button of $$('[data-dwc-notification]')){const n=M.notifications.get(button.dataset.dwcNotification);if(n)button.dataset.miCall=n.metadata.callId}}catch{}
+}
 function decorate(){if(!appVisible())return;injectModuleCard();injectTodayReview();syncNotificationLinks()}
 
-async function handleMeetingNotification(button,event){let callId=button.dataset.miCall;if(!callId){try{await syncNotificationLinks();callId=button.dataset.miCall||M.notifications.get(button.dataset.dwcNotification)?.metadata?.callId}catch{}}if(!callId)return;event?.preventDefault();await api(`/api/v1/notifications/${button.dataset.dwcNotification}/read`,{method:'POST',body:'{}'}).catch(()=>{});openMeeting(callId)}
+async function handleMeetingNotification(button,event){let callId=button.dataset.miCall;if(!callId){try{await syncNotificationLinks({force:true});callId=button.dataset.miCall||M.notifications.get(button.dataset.dwcNotification)?.metadata?.callId}catch{}}if(!callId)return;event?.preventDefault();await api(`/api/v1/notifications/${button.dataset.dwcNotification}/read`,{method:'POST',body:'{}'}).catch(()=>{});openMeeting(callId)}
 
 document.addEventListener('click',event=>{const target=event.target;
   const notification=target.closest('[data-dwc-notification]');if(notification&&(notification.dataset.miCall||/Итоги встречи|Meeting review/i.test(notification.textContent))){event.preventDefault();event.stopImmediatePropagation();handleMeetingNotification(notification,event);return}
@@ -75,7 +93,22 @@ document.addEventListener('click',event=>{const target=event.target;
 
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&$('.mi-overlay:not(.mio-overlay)'))closeMeetingOverlay()},true);
 window.addEventListener('hashchange',()=>routeHash());window.addEventListener('focus',()=>loadMeetings(true));document.addEventListener('visibilitychange',()=>{if(!document.hidden)loadMeetings(true)});window.addEventListener('chat:localechange',()=>{if($('.mi-overlay'))routeHash(true);decorate()});
-const observer=new MutationObserver(()=>{if(appVisible()){decorate();if(Date.now()-M.loadedAt>5000)loadMeetings()}});observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden','class']});
+/**
+ * Наблюдатель за разметкой — без троттлинга он бил по серверу.
+ *
+ * Каждая перерисовка экрана переписывает разметку целиком, наблюдатель
+ * срабатывал на каждую и тянул сто уведомлений: переключение вкладки
+ * стоило лишнего запроса. Оформление (`decorate`) дёшево и должно
+ * оставаться мгновенным, а поход в сеть откладывается на кадр покоя.
+ */
+let observerTimer=null;
+const observer=new MutationObserver(()=>{
+  if(!appVisible())return;
+  decorate();
+  clearTimeout(observerTimer);
+  observerTimer=setTimeout(()=>{if(appVisible()&&Date.now()-M.loadedAt>5000)loadMeetings()},400);
+});
+observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden','class']});
 function routeHash(force=false){if(!appVisible()&&!force)return;const match=location.hash.match(/^#\/meetings\/([0-9a-f-]+)$/i);if(match){if(M.current?.call?.id!==match[1]||!$('.mi-overlay'))openMeeting(match[1],{updateHash:false});return}if(location.hash==='#/meetings'){if(!$('.mi-overlay')||M.current)openMeetingCenter(M.filter,{updateHash:false});return}}
 window.ChatMeetingIntelligence={openCenter:openMeetingCenter,openMeeting,refresh:()=>loadMeetings(true)};
 setInterval(()=>{if(!document.hidden&&appVisible())loadMeetings(true)},15000);
