@@ -17,7 +17,11 @@ export const openapi = Object.freeze({
     { name: 'Meeting Intelligence' },
     { name: 'Meeting Operations' },
     { name: 'Files' },
-    { name: 'Push' }
+    { name: 'Push' },
+    { name: 'People' },
+    { name: 'Personal' },
+    { name: 'Labels' },
+    { name: 'Games' }
   ],
   paths: {
     '/api/v1/auth/register-company': { post: { tags: ['Auth'], summary: 'Register a company and owner', responses: { '201': { description: 'Company created' } } } },
@@ -263,6 +267,79 @@ export const openapi = Object.freeze({
     },
     '/api/v1/org/units/{id}/members/{userId}': { delete: { tags: ['Organisation'], summary: 'Remove a person from the unit; removing the head clears the post', responses: { '204': { description: 'Removed' }, '404': { description: 'Not a member of this unit' } } } },
     '/api/v1/org/people/{userId}/chain': { get: { tags: ['Organisation'], summary: 'The units a person belongs to and their reporting line upwards', description: 'Derived from the tree rather than stored on the person, so moving a unit moves everyone\u2019s reporting line with it and the two can never disagree.', responses: { '200': { description: 'Units and chain' } } } },
-    '/api/v1/integrations/deliveries': { get: { tags: ['Integrations'], summary: 'Delivery log, newest first. Deliveries are at-least-once: de-duplicate on the event id.', responses: { '200': { description: 'Deliveries' }, '403': { description: 'Requires integration.manage' } } } }
+    '/api/v1/integrations/deliveries': { get: { tags: ['Integrations'], summary: 'Delivery log, newest first. Deliveries are at-least-once: de-duplicate on the event id.', responses: { '200': { description: 'Deliveries' }, '403': { description: 'Requires integration.manage' } } } },
+
+    // Половина работающих маршрутов не была описана вовсе: справочник людей,
+    // журнал, сейф паролей, напоминания, личные пометки, дела, игры и
+    // настройки компании. Спецификация, умалчивающая о половине API, хуже
+    // отсутствующей — по ней судят, что в продукте есть.
+    '/api/v1/me': { get: { tags: ['Auth'], summary: 'Current session with the permissions this role actually has', responses: { '200': { description: 'Session' }, '401': { description: 'Not signed in' } } } },
+    '/api/v1/demo': { get: { tags: ['Workspace'], summary: 'Demonstration workspace state, when the server runs with DEMO_MODE', responses: { '200': { description: 'Demo state' } } } },
+    '/api/v1/people': { get: { tags: ['People'], summary: 'Staff directory. A guest sees only the people they share a room with.', responses: { '200': { description: 'People' } } } },
+    '/api/v1/people/{userId}': {
+      get: { tags: ['People'], summary: 'One person: profile, units, reporting line, workload and recent activity', responses: { '200': { description: 'Person' }, '404': { description: 'Not visible' } } },
+      patch: { tags: ['People'], summary: 'Edit own card, or anybody\u2019s with member.manage', responses: { '200': { description: 'Updated' }, '403': { description: 'Somebody else\u2019s card' } } },
+    },
+    '/api/v1/people/{userId}/activity': { get: { tags: ['People'], summary: 'What this person has been doing, from the audit trail', responses: { '200': { description: 'Activity' } } } },
+    '/api/v1/people/{userId}/deactivate': { post: { tags: ['People'], summary: 'Dismiss an employee: access closes immediately, work history stays', description: 'Requires member.manage and a lower place on the role ladder. The owner and yourself cannot be dismissed.', responses: { '200': { description: 'Dismissed' }, '403': { description: 'Not allowed' } } } },
+    '/api/v1/people/{userId}/reactivate': { post: { tags: ['People'], summary: 'Bring a dismissed employee back', responses: { '200': { description: 'Reinstated' }, '403': { description: 'Not allowed' } } } },
+    '/api/v1/contacts': { get: { tags: ['People'], summary: 'The people this person actually deals with: shared rooms and own units', responses: { '200': { description: 'Contacts' } } } },
+    '/api/v1/password-resets': { post: { tags: ['People'], summary: 'Issue a one-time password reset link for an employee', responses: { '201': { description: 'Link issued' }, '403': { description: 'Requires member.invite' } } } },
+
+    '/api/v1/workspace': { patch: { tags: ['Workspace'], summary: 'Rename the company and the workspace', description: 'Requires organization.manage \u2014 the one right that separates the owner from an administrator.', responses: { '200': { description: 'Renamed' }, '403': { description: 'Owner only' } } } },
+    '/api/v1/workspace/owner': { post: { tags: ['Workspace'], summary: 'Transfer ownership; the previous owner stays on as an administrator', responses: { '200': { description: 'Transferred' }, '403': { description: 'Owner only' }, '409': { description: 'Somebody else got there first, or the person is a guest or dismissed' } } } },
+    '/api/v1/audit': { get: { tags: ['Workspace'], summary: 'Workspace journal: invitations, joins, password links, vault reveals, task movement', description: 'Requires audit.read. Paged by the cursor from nextCursor; filtered by type and actor.', responses: { '200': { description: 'Journal page' }, '403': { description: 'Requires audit.read' } } } },
+
+    '/api/v1/reminders': {
+      get: { tags: ['Personal'], summary: 'Own reminders, fired first', responses: { '200': { description: 'Reminders' } } },
+      post: { tags: ['Personal'], summary: 'Set a reminder; it arrives in the attention centre at the hour asked', responses: { '201': { description: 'Reminder set' } } },
+    },
+    '/api/v1/reminders/{id}': {
+      patch: { tags: ['Personal'], summary: 'Snooze, complete, cancel or reword a reminder', responses: { '200': { description: 'Updated' } } },
+      delete: { tags: ['Personal'], summary: 'Delete a reminder', responses: { '204': { description: 'Deleted' } } },
+    },
+    '/api/v1/vault': {
+      get: { tags: ['Personal'], summary: 'Own password vault. Secrets are never listed \u2014 only titles and logins.', responses: { '200': { description: 'Entries' }, '503': { description: 'VAULT_KEY is not configured' } } },
+      post: { tags: ['Personal'], summary: 'Store a password, sealed with AES-256-GCM', responses: { '201': { description: 'Stored' } } },
+    },
+    '/api/v1/vault/{id}': {
+      patch: { tags: ['Personal'], summary: 'Change a stored entry', responses: { '200': { description: 'Updated' } } },
+      delete: { tags: ['Personal'], summary: 'Delete an entry', responses: { '204': { description: 'Deleted' } } },
+    },
+    '/api/v1/vault/{id}/reveal': { post: { tags: ['Personal'], summary: 'Reveal one secret. Every reveal is written to the journal.', responses: { '200': { description: 'Secret' }, '404': { description: 'Not yours' } } } },
+    '/api/v1/favourites': { get: { tags: ['Personal'], summary: 'Own favourites across conversations, messages, tasks, events and files', responses: { '200': { description: 'Favourites' } } } },
+    '/api/v1/favourites/{type}/{id}': {
+      put: { tags: ['Personal'], summary: 'Add to favourites', responses: { '200': { description: 'Added' }, '404': { description: 'Not visible to you' } } },
+      delete: { tags: ['Personal'], summary: 'Remove from favourites', responses: { '204': { description: 'Removed' } } },
+    },
+    '/api/v1/highlights': {
+      get: { tags: ['Personal'], summary: 'Own highlighter marks over message text', responses: { '200': { description: 'Highlights' } } },
+      post: { tags: ['Personal'], summary: 'Paint a fragment of a message; the mark survives reloads and is private', responses: { '201': { description: 'Highlighted' } } },
+    },
+    '/api/v1/highlights/{id}': { delete: { tags: ['Personal'], summary: 'Remove a highlight', responses: { '204': { description: 'Removed' } } } },
+    '/api/v1/message-notes': {
+      get: { tags: ['Personal'], summary: 'Own notes on messages: important, remember, ask, plain', responses: { '200': { description: 'Notes' } } },
+      post: { tags: ['Personal'], summary: 'Write a note on a message', responses: { '201': { description: 'Noted' } } },
+    },
+    '/api/v1/message-notes/{id}': {
+      patch: { tags: ['Personal'], summary: 'Reword a note', responses: { '200': { description: 'Updated' } } },
+      delete: { tags: ['Personal'], summary: 'Delete a note', responses: { '204': { description: 'Deleted' } } },
+    },
+    '/api/v1/personal-items': {
+      get: { tags: ['Personal'], summary: 'Own list of personal work, outside commitments to anybody', responses: { '200': { description: 'Items' } } },
+      post: { tags: ['Personal'], summary: 'Add a personal item', responses: { '201': { description: 'Added' } } },
+    },
+    '/api/v1/personal-items/{id}': {
+      patch: { tags: ['Personal'], summary: 'Change a personal item', responses: { '200': { description: 'Updated' } } },
+      delete: { tags: ['Personal'], summary: 'Delete a personal item', responses: { '204': { description: 'Deleted' } } },
+    },
+    '/api/v1/labels': {
+      get: { tags: ['Labels'], summary: 'Shared company vocabulary plus own personal labels', responses: { '200': { description: 'Labels' } } },
+      post: { tags: ['Labels'], summary: 'Create a label. A guest may only create personal ones.', responses: { '201': { description: 'Created' }, '403': { description: 'Guests cannot touch the shared vocabulary' } } },
+    },
+    '/api/v1/games': {
+      get: { tags: ['Games'], summary: 'Own games with colleagues', responses: { '200': { description: 'Games' } } },
+      post: { tags: ['Games'], summary: 'Invite a colleague to chess, draughts or battleship', responses: { '201': { description: 'Invited' } } },
+    }
   }
 });
