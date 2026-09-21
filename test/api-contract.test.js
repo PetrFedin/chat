@@ -148,3 +148,17 @@ test('раздел живёт в адресе страницы', () => {
   // «Назад» без открытых окон возвращает на прошлый раздел.
   assert.match(app, /routeFromHash\(\)\.catch\(error=>toast\(error\.message\)\)/);
 });
+
+// Поиск существовал в двух почти одинаковых копиях: рабочей и мёртвой.
+// Улучшение, внесённое не в ту, не меняло ничего.
+test('поиск живёт в одном месте и опирается на индексы', () => {
+  const live = read('src/persistence/daily-work-search-store.js');
+  const base = read('src/persistence/daily-work-store.js');
+  assert.match(live, /body_tsv @@ plainto_tsquery/);
+  assert.match(live, /body ILIKE/);
+  assert.doesNotMatch(live, /to_tsvector\('simple',coalesce\(m\.body/,
+    'tsvector не должен вычисляться на лету для каждой строки');
+  // В базовом хранилище PostgreSQL копии поиска больше нет — только в
+  // памяти, где никаких индексов и нет.
+  assert.equal((base.match(/async searchWorkspace/g) || []).length, 1);
+});
