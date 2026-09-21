@@ -45,9 +45,16 @@ export const conversationListSql = (session, { withMentions = false } = {}) => `
     (SELECT jsonb_build_object('id',m.id,'body',m.body,'kind',m.kind,'authorId',m.author_id,'createdAt',m.created_at)
       FROM messages m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.deleted_at IS NULL
       ORDER BY m.created_at DESC,m.id DESC LIMIT 1) "lastMessage",
-    COALESCE((SELECT count(*) FROM messages um
-      WHERE um.workspace_id=c.workspace_id AND um.conversation_id=c.id AND um.deleted_at IS NULL AND um.author_id<>$2
-        AND um.created_at>COALESCE(cm.last_read_at,cm.joined_at,'epoch'::timestamptz)),0)::int "unreadCount"${withMentions ? `,
+    -- Счётчик считался полным пересчётом всех непрочитанных: у человека,
+    -- не заходившего неделю, первый экран собирался 180 мс и тем дольше,
+    -- чем больше он пропустил. Потолок в сотню снимает рост: интерфейс всё
+    -- равно показывает «99+», а разница между 500 и 5000 непрочитанных
+    -- никому ни о чём не говорит.
+    COALESCE((SELECT count(*) FROM (
+      SELECT 1 FROM messages um
+       WHERE um.workspace_id=c.workspace_id AND um.conversation_id=c.id AND um.deleted_at IS NULL
+         AND um.author_id<>$2 AND um.created_at>COALESCE(cm.last_read_at,cm.joined_at,'epoch'::timestamptz)
+       LIMIT 100) capped),0)::int "unreadCount"${withMentions ? `,
     COALESCE((SELECT count(*) FROM message_mentions mm JOIN messages xm ON xm.workspace_id=mm.workspace_id AND xm.id=mm.message_id
       WHERE mm.workspace_id=c.workspace_id AND mm.mentioned_user_id=$2 AND xm.conversation_id=c.id AND xm.deleted_at IS NULL
         AND xm.created_at>COALESCE(cm.last_read_at,cm.joined_at,'epoch'::timestamptz)),0)::int "mentionCount"` : ''}

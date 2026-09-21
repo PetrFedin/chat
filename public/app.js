@@ -399,10 +399,17 @@ function visibleConversations(){
   return filter==='all'?S.conversations:S.conversations.filter(c=>conversationGroup(c)===filter);
 }
 
-/** Unread waiting behind a tab, so a filter never hides something new. */
+/**
+ * Непрочитанное за вкладкой, чтобы фильтр не прятал новое.
+ *
+ * Сервер считает до сотни на беседу и дальше не идёт: разница между
+ * пятьюстами и пятью тысячами непрочитанных человеку ничего не говорит, а
+ * полный пересчёт при каждом входе стоил дорого. Показываем «99+».
+ */
 function countIn(key){
   const rooms=key==='all'?S.conversations:S.conversations.filter(c=>conversationGroup(c)===key);
-  return rooms.reduce((n,c)=>n+(Number(c.unreadCount)||0),0);
+  const total=rooms.reduce((n,c)=>n+(Number(c.unreadCount)||0),0);
+  return total>99?'99+':total;
 }
 
 function convRow(c){return `<button class="conversation-card pressable" data-open="${c.id}"><span class="avatar dark">${c.kind==='channel'?'#':esc(initials(c.title||'D'))}</span><span><strong>${esc(c.title||'Диалог')}</strong><div class="preview">${esc(c.lastMessage?.body||kindLabel(c.lastMessage?.kind)||c.purpose||'Открыть разговор')}</div></span><span class="time">${time(c.lastMessage?.createdAt)}</span></button>`}
