@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),unreadFrom:new Map(),readUpTo:new Map(),invitations:[],loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
+const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),unreadFrom:new Map(),readUpTo:new Map(),invitations:[],taskFilter:'active',taskScope:'mine',taskCounts:null,tasksPage:null,tasksCursor:null,loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -210,7 +210,7 @@ function forgotPasswordModal(){
   });
 }
 
-async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadInvitations(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
+async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadTaskPage(),loadCalendar(),loadInvitations(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
 /**
  * Адрес страницы и то, что на ней видно, — одно и то же.
  *
@@ -624,7 +624,59 @@ function message(m,grouped=false){
   </article>`;
 }
 
-function tasks(){return `<section class="surface"><div class="section-head"><div><p class="muted">Ответственность → выполнение → доказательство → проверка → закрытие</p></div>${can('task.create')?'<button data-action="task" class="button primary small pressable">＋ Задача</button>':''}</div><div class="task-list">${S.tasks.map(taskRow).join('')||'<div class="empty"><strong>Ничего не потеряется</strong>Создайте задачу вручную или из сообщения.</div>'}</div></section>`}
+/**
+ * Экран задач.
+ *
+ * Был плоским списком: закрытые, отменённые и предложенные вперемешку,
+ * без вкладок, счётчиков и порядка. Чтобы понять, сколько сделано за
+ * месяц, приходилось прокручивать всё, что накопилось за историю
+ * компании, и считать глазами. Отбор по состоянию всё это время делался
+ * в SQL — его просто никто не запрашивал.
+ */
+const TASK_TABS=[
+  ['active','В работе'],
+  ['overdue','Просрочено'],
+  ['proposed','Ждут ответа'],
+  ['done','Сделано'],
+  ['all','Все'],
+];
+function taskTabCount(key,counts){
+  if(!counts)return null;
+  if(key==='all')return counts.total;
+  if(key==='done')return counts.done;
+  return counts[key]??null;
+}
+function tasks(){
+  const filter=S.taskFilter||'active';
+  const counts=S.taskCounts;
+  const tabs=TASK_TABS.map(([key,caption])=>{
+    const n=taskTabCount(key,counts);
+    return `<button class="chipbtn pressable${filter===key?' on':''}" data-task-filter="${key}">${esc(caption)}${n?`<i>${n}</i>`:''}</button>`;
+  }).join('');
+  const team=can('task.manage.team')
+    ? `<button class="chipbtn pressable${S.taskScope==='all'?' on':''}" data-task-scope="${S.taskScope==='all'?'mine':'all'}">${S.taskScope==='all'?'Вся команда':'Только мои'}</button>`
+    : '';
+  const shown=S.tasksPage??[];
+  return `<section class="surface"><div class="section-head"><div><p class="muted">Ответственность → выполнение → доказательство → проверка → закрытие</p></div>${can('task.create')?'<button data-action="task" class="button primary small pressable">＋ Задача</button>':''}</div>
+    <div class="chip-row">${tabs}${team}</div>
+    <div class="task-list" style="margin-top:10px">${shown.map(taskRow).join('')||'<div class="empty"><strong>Здесь пусто</strong>В этой вкладке задач нет.</div>'}</div>
+    ${S.tasksCursor?'<button id="tasks-more" class="button secondary" style="width:100%;margin-top:10px">Показать ещё</button>':''}</section>`;
+}
+
+/** Страница задач под выбранной вкладкой. */
+async function loadTaskPage({append=false}={}){
+  const query=new URLSearchParams({limit:'50',counts:'1'});
+  const filter=S.taskFilter||'active';
+  if(filter!=='all')query.set('status',filter==='done'?'closed,accepted_result':filter);
+  if(S.taskScope==='all')query.set('scope','all');
+  if(append&&S.tasksCursor)query.set('cursor',S.tasksCursor);
+  try{
+    const page=await api(`/api/v1/tasks?${query}`);
+    S.tasksPage=append?[...(S.tasksPage??[]),...(page.items||[])]:(page.items||[]);
+    S.tasksCursor=page.nextCursor??null;
+    if(page.counts)S.taskCounts=page.counts;
+  }catch(error){toast(error.message)}
+}
 function calendar(){
   const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
   const base=new Date(c.cursor);
@@ -894,6 +946,16 @@ function bind(){
   // Строка встречи в расписании дня выглядела нажимаемой и не открывала
   // ничего: карточку встречи знал только календарь.
   $$('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
+  $$('[data-task-filter]').forEach(b=>b.onclick=async()=>{
+    S.taskFilter=b.dataset.taskFilter;S.tasksCursor=null;
+    await loadTaskPage();render();
+  });
+  $$('[data-task-scope]').forEach(b=>b.onclick=async()=>{
+    S.taskScope=b.dataset.taskScope;S.tasksCursor=null;
+    await loadTaskPage();render();
+  });
+  const moreTasks=$('#tasks-more');
+  if(moreTasks)moreTasks.onclick=async()=>{await loadTaskPage({append:true});render()};
   // Принять задачу или попросить уточнение можно прямо из строки: до сих
   // пор для этого нужно было открыть карточку и найти нужную кнопку.
   $$('[data-answer-task]').forEach(b=>b.onclick=async()=>{

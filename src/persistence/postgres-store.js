@@ -1,6 +1,6 @@
 import { openConversationSql, isGuest, GUEST_ROLE, conversationListSql } from './visibility.js';
 import { randomUUID } from 'node:crypto';
-import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskReassignAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask, managesTeamTasks } from '../task/task-authority.js';
+import { ACTIVE_TASK_STATUSES, allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskReassignAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask, managesTeamTasks } from '../task/task-authority.js';
 
 import { encodeTaskCursor, decodeTaskCursor, taskPageSize } from '../task/task-page.js';
 
@@ -372,10 +372,34 @@ export class PostgresStore {
   // not for an API. This page pushes the visibility rule into SQL so LIMIT
   // counts rows the caller can actually see, and walks a keyset over the same
   // (promised_at NULLS LAST, created_at DESC, id DESC) order.
-  async listTasksPage(s,{limit=50,cursor=null}={}){
+  /**
+   * Страница задач с отбором по состоянию.
+   *
+   * Экран задач был плоским списком: закрытые, отменённые и предложенные
+   * вперемешку, без вкладок и без счётчиков. Чтобы понять, сколько
+   * сделано за месяц, владелец должен был прокрутить всё, что накопилось
+   * за историю компании, и считать глазами. Отбор по состоянию просился
+   * сам: он всё равно делается в SQL, просто никто его не передавал.
+   *
+   * `scope` — чьи задачи: «мои» (я делаю, прошу или принимаю) или «все»,
+   * если человеку доверены чужие.
+   */
+  async listTasksPage(s,{limit=50,cursor=null,status=null,scope='mine'}={}){
     if(isGuest(s))return{items:[],nextCursor:null};
     const params=[s.workspaceId],where=['c.workspace_id=$1'];
-    if(!managesTeamTasks(s)){
+    if(status==='active'){
+      params.push([...ACTIVE_TASK_STATUSES]);
+      where.push(`c.status=ANY($${params.length}::text[])`);
+    }else if(status==='overdue'){
+      params.push([...ACTIVE_TASK_STATUSES]);
+      where.push(`c.status=ANY($${params.length}::text[]) AND c.promised_at<now()`);
+    }else if(status){
+      const wanted=String(status).split(',').map(value=>value.trim()).filter(Boolean);
+      if(wanted.length){params.push(wanted);where.push(`c.status=ANY($${params.length}::text[])`)}
+    }
+    // Тому, кому доверены чужие задачи, «все» показывает всё; остальным
+    // это слово ничего не меняет — они и так видят только своё.
+    if(!managesTeamTasks(s)||scope!=='all'){
       params.push(s.userId);
       where.push(`(c.owner_id=$${params.length} OR c.requester_id=$${params.length} OR c.acceptor_id=$${params.length})`);
     }
@@ -397,6 +421,27 @@ export class PostgresStore {
     const size=params[params.length-1]-1,page=rows.slice(0,size);
     return{items:page.map(row=>this.taskView(s,row)),nextCursor:rows.length>size?encodeTaskCursor(page[page.length-1]):null};
   }
+  /** Сколько задач в каждом состоянии — для вкладок и ответа «сколько сделано». */
+  async taskCounts(s,{scope='mine'}={}){
+    if(isGuest(s))return{};
+    const params=[s.workspaceId],where=['c.workspace_id=$1'];
+    if(!managesTeamTasks(s)||scope!=='all'){
+      params.push(s.userId);
+      where.push(`(c.owner_id=$${params.length} OR c.requester_id=$${params.length} OR c.acceptor_id=$${params.length})`);
+    }
+    params.push([...ACTIVE_TASK_STATUSES]);
+    const active=`$${params.length}::text[]`;
+    const{rows}=await this.pool.query(
+      `SELECT count(*)::int total,
+              count(*) FILTER(WHERE c.status=ANY(${active}))::int active,
+              count(*) FILTER(WHERE c.status=ANY(${active}) AND c.promised_at<now())::int overdue,
+              count(*) FILTER(WHERE c.status='proposed')::int proposed,
+              count(*) FILTER(WHERE c.status IN('closed','accepted_result'))::int done,
+              count(*) FILTER(WHERE c.status IN('cancelled','rejected'))::int dropped
+         FROM commitments c WHERE ${where.join(' AND ')}`,params);
+    return rows[0]??{};
+  }
+
   async getTask(s,id){const{rows}=await this.pool.query(`${this.taskSelect()} WHERE c.workspace_id=$1 AND c.id=$2`,[s.workspaceId,id]);return this.taskView(s,rows[0])}
   async createTask(s,v){if(v.sourceMessageId){const conversationId=await this.messageConversation(s,v.sourceMessageId);if(!conversationId||!await this.canAccessConversation(s,conversationId))throw Object.assign(new Error('Task source message not found'),{code:'TASK_SOURCE_NOT_FOUND',statusCode:404})}return this.tx(async c=>{const ownerId=v.ownerId||s.userId,acceptorId=v.acceptorId||s.userId;for(const userId of new Set([ownerId,acceptorId,s.userId])){const{rows:member}=await c.query('SELECT role FROM memberships WHERE workspace_id=$1 AND user_id=$2',[s.workspaceId,userId]);if(!member.length)throw Object.assign(new Error('Task participant must belong to the workspace'),{code:'INVALID_TASK_MEMBER',statusCode:400});if(member[0].role===GUEST_ROLE)throw Object.assign(new Error('A guest cannot carry a commitment'),{code:'GUEST_CANNOT_HOLD_TASK',statusCode:400});}const id=randomUUID(),{rows}=await c.query(`INSERT INTO commitments(id,organization_id,workspace_id,title,outcome,owner_id,requester_id,acceptor_id,source_message_id,status,priority,promised_at,forecast_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'proposed',$10,$11,$12) RETURNING id,organization_id "organizationId",workspace_id "workspaceId",title,outcome,owner_id "ownerId",requester_id "requesterId",acceptor_id "acceptorId",source_message_id "sourceMessageId",status,priority,promised_at "promisedAt",forecast_at "forecastAt",version,created_at "createdAt",updated_at "updatedAt"`,[id,s.organizationId,s.workspaceId,v.title,v.outcome||v.title,ownerId,s.userId,acceptorId,v.sourceMessageId,v.priority||'normal',v.promisedAt,v.forecastAt]);await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload) VALUES($1,$2,'commitment',$3,'commitment.created',$4,$5)`,[s.organizationId,s.workspaceId,id,s.userId,{ownerId,acceptorId,sourceMessageId:v.sourceMessageId??null}]);
     await c.query(`INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload) VALUES($1,$2,'task.created',$3,$4)`,[s.organizationId,s.workspaceId,id,{taskId:id,ownerId,acceptorId,requesterId:s.userId,status:rows[0].status,promisedAt:rows[0].promisedAt??null}]);return this.taskView(s,{...rows[0],evidenceCount:0})})}

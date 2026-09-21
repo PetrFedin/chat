@@ -5,7 +5,7 @@ import { PostgresStore as BasePostgresStore } from './postgres-store.js';
 
 const clone = (value) => value == null ? value : structuredClone(value);
 const nowIso = () => new Date().toISOString();
-const ACTIVE_TASK_STATUSES = new Set(['inbox','clarify','proposed','accepted','scheduled','in_progress','blocked','in_review','deferred']);
+import { ACTIVE_TASK_STATUSES } from '../task/task-authority.js';
 
 function messageLabel(kind) {
   return ({ voice:'Голосовое сообщение', file:'Файл', call:'Звонок', task:'Задача', calendar:'Событие' })[kind] || 'Новое сообщение';

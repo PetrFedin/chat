@@ -17,6 +17,15 @@ const TRANSITIONS = new Map([
 ]);
 
 const TERMINAL = new Set(['closed','rejected','cancelled']);
+
+/**
+ * Задачи, которые ещё в работе.
+ *
+ * Список жил копией в хранилище рабочего дня, хотя это свойство самого
+ * автомата состояний: добавили состояние — и копия молча отстала.
+ */
+export const ACTIVE_TASK_STATUSES = new Set(
+  [...TRANSITIONS.keys()].filter((status) => !TERMINAL.has(status) && status !== 'accepted_result'));
 /**
  * «Ведёт чужие задачи» — это право, а не список ролей.
  *

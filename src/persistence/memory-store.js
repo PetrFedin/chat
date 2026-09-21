@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskReassignAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
+import {ACTIVE_TASK_STATUSES, allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskReassignAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
 import { GUEST_ROLE } from './visibility.js';
 import { compareTasks, encodeTaskCursor, decodeTaskCursor, taskPageSize } from '../task/task-page.js';
 
@@ -521,11 +521,18 @@ export class MemoryStore {
 
   // Same page as the Postgres store, over the same ordering, so the two
   // backends answer /api/v1/tasks identically.
-  async listTasksPage(session,{limit=50,cursor=null}={}){
+  /** См. PostgreSQL-хранилище: отбор по состоянию и счётчики для вкладок. */
+  async listTasksPage(session,{limit=50,cursor=null,status=null,scope='mine'}={}){
     const size=taskPageSize(limit);
     const key=decodeTaskCursor(cursor);
+    const wanted=status==='active'||status==='overdue'
+      ? ACTIVE_TASK_STATUSES
+      : status?new Set(String(status).split(',').map(v=>v.trim()).filter(Boolean)):null;
     const ordered=[...this.tasks.values()]
       .filter((row)=>canViewTask(row,session))
+      .filter((row)=>!wanted||wanted.has(row.status))
+      .filter((row)=>status!=='overdue'||(row.promisedAt&&Date.parse(row.promisedAt)<Date.now()))
+      .filter((row)=>scope==='all'||[row.ownerId,row.requesterId,row.acceptorId].includes(session.userId))
       .sort(compareTasks);
     const start=key?ordered.findIndex((row)=>row.id===key.id)+1:0;
     const slice=ordered.slice(start||0,(start||0)+size+1);
@@ -533,6 +540,21 @@ export class MemoryStore {
     return{
       items:page.map((row)=>this.taskView(session,row)),
       nextCursor:slice.length>size&&page.length?encodeTaskCursor(page[page.length-1]):null,
+    };
+  }
+
+  async taskCounts(session,{scope='mine'}={}){
+    const mine=[...this.tasks.values()]
+      .filter((row)=>canViewTask(row,session))
+      .filter((row)=>scope==='all'||[row.ownerId,row.requesterId,row.acceptorId].includes(session.userId));
+    const active=mine.filter((row)=>ACTIVE_TASK_STATUSES.has(row.status));
+    return{
+      total:mine.length,
+      active:active.length,
+      overdue:active.filter((row)=>row.promisedAt&&Date.parse(row.promisedAt)<Date.now()).length,
+      proposed:mine.filter((row)=>row.status==='proposed').length,
+      done:mine.filter((row)=>['closed','accepted_result'].includes(row.status)).length,
+      dropped:mine.filter((row)=>['cancelled','rejected'].includes(row.status)).length,
     };
   }
 

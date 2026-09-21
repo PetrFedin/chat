@@ -92,8 +92,18 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
   if(path==='/api/v1/tasks'&&method==='GET'){
     const s=await requireSession(req);
     // The list used to return a workspace's whole backlog in one answer.
-    const page=await store.listTasksPage(s,{limit:url.searchParams.get('limit')??50,cursor:url.searchParams.get('cursor')});
-    json(res,200,{items:page.items,nextCursor:page.nextCursor});return true
+    // Отбор по состоянию делается в SQL с самого начала — его просто
+    // некому было передать: экран задач оставался плоским списком.
+    const page=await store.listTasksPage(s,{
+      limit:url.searchParams.get('limit')??50,
+      cursor:url.searchParams.get('cursor'),
+      status:url.searchParams.get('status'),
+      scope:url.searchParams.get('scope')==='all'?'all':'mine',
+    });
+    if(url.searchParams.get('counts')==='1'&&store.taskCounts){
+      page.counts=await store.taskCounts(s,{scope:url.searchParams.get('scope')==='all'?'all':'mine'});
+    }
+    json(res,200,{items:page.items,nextCursor:page.nextCursor,...(page.counts?{counts:page.counts}:{})});return true
   }
   if(path==='/api/v1/tasks'&&method==='POST'){
     const s=await requireSession(req);requirePermission(s.role,Permission.TASK_CREATE);const b=await readJson(req),task=await store.createTask(s,{title:cleanText(b.title,240),outcome:b.outcome?cleanText(b.outcome,1000):undefined,ownerId:b.ownerId??s.userId,acceptorId:b.acceptorId??s.userId,sourceMessageId:b.sourceMessageId??null,priority:b.priority??'normal',promisedAt:toDateOrNull(b.promisedAt)??null,forecastAt:toDateOrNull(b.forecastAt)??null});
