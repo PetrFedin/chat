@@ -142,16 +142,26 @@ export function createPeopleRepository(pool, org = null) {
      */
     async setActive(session, userId, active, { rank = () => 0 } = {}) {
       if (userId === session.userId) throw fail('Себя уволить нельзя', 'CANNOT_DEACTIVATE_SELF', 400);
-      const profile = await profileRow(session, userId);
-      if (!profile) throw fail('Person not found', 'PERSON_NOT_FOUND', 404);
-      if (profile.workspaceRole === 'owner') throw fail('Владельца компании уволить нельзя', 'CANNOT_DEACTIVATE_OWNER', 403);
-      if (rank(profile.workspaceRole) >= rank(session.role)) {
-        throw fail('Увольнять можно только тех, кто ниже вас по лестнице', 'ROLE_TOO_HIGH', 403);
-      }
 
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
+        // Роль читается под блокировкой и уже внутри транзакции. Раньше она
+        // читалась до неё — и человек, которому в этот же миг передавали
+        // компанию, успевал стать владельцем и уволенным разом: войти он не
+        // мог, а вернуть компанию было уже некому.
+        const { rows: member } = await client.query(
+          `SELECT m.role FROM memberships m JOIN users u ON u.id=m.user_id
+            WHERE m.workspace_id=$1 AND m.user_id=$2 FOR UPDATE OF m,u`,
+          [session.workspaceId, userId],
+        );
+        if (!member[0]) throw fail('Person not found', 'PERSON_NOT_FOUND', 404);
+        if (member[0].role === 'owner') throw fail('Владельца компании уволить нельзя', 'CANNOT_DEACTIVATE_OWNER', 403);
+        if (rank(member[0].role) >= rank(session.role)) {
+          throw fail('Увольнять можно только тех, кто ниже вас по лестнице', 'ROLE_TOO_HIGH', 403);
+        }
+        const { rows: who } = await client.query('SELECT email FROM users WHERE id=$1', [userId]);
+        const profile = { email: who[0]?.email ?? null, workspaceRole: member[0].role };
         const { rows } = await client.query(
           `UPDATE users SET disabled_at=$2 WHERE id=$1 RETURNING id, disabled_at "disabledAt"`,
           [userId, active ? null : new Date().toISOString()],

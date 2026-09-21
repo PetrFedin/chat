@@ -176,7 +176,13 @@ export function createWebhookRepository(pool, { env = process.env } = {}) {
              attempts=d.attempts+1
          FROM (
            SELECT id FROM webhook_deliveries
-           WHERE id IN (
+           -- Условие обязано стоять и здесь, в блокирующем скане: если его
+           -- оставить только во вложенном подзапросе, вторая транзакция
+           -- перепроверять будет нечего и одну и ту же доставку заберут
+           -- двое — заказчик получит событие дважды.
+           WHERE ((status IN ('pending','failed') AND next_attempt_at <= $2::timestamptz)
+                  OR (status='delivering' AND locked_until < $2::timestamptz))
+             AND id IN (
              SELECT id FROM (
                SELECT id, next_attempt_at,
                       row_number() OVER (PARTITION BY endpoint_id ORDER BY next_attempt_at, id) AS place

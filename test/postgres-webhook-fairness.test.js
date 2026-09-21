@@ -167,3 +167,31 @@ test('успех под чужой арендой не записывается 
   const row = (await pool.query('SELECT status FROM webhook_deliveries WHERE id=$1', [claimed.id])).rows[0];
   assert.notEqual(row.status, 'delivered', 'и статус остаётся за тем, кто держит аренду');
 });
+
+// Одну доставку нельзя выдать двум работникам: заказчик получит событие
+// дважды. `FOR UPDATE SKIP LOCKED` спасает только тогда, когда условие
+// стоит в самом блокирующем скане, а не во вложенном подзапросе.
+test('одна доставка не достаётся двум работникам сразу',
+  { skip: databaseUrl ? false : 'DATABASE_URL is not set' }, async (t) => {
+  const pool = new pg.Pool({ connectionString: databaseUrl, max: 12 });
+  t.after(() => pool.end());
+  const repository = createWebhookRepository(pool);
+  const session = await fixture(pool);
+  await repository.createEndpoint(session, { label: 'Первый', url: 'https://one.example.test/hook', topics: [] });
+  await repository.createEndpoint(session, { label: 'Второй', url: 'https://two.example.test/hook', topics: [] });
+
+  for (let i = 0; i < 20; i += 1) await emit(pool, session, 'task.transitioned');
+  await repository.publishPending({ workspaceIds: [session.workspaceId], batchSize: 200 });
+
+  // Восемь работников одновременно тянутся к одной очереди.
+  const batches = await Promise.all(Array.from({ length: 8 }, () =>
+    repository.claimDue({ limit: 10, leaseMs: 60_000, perEndpoint: 10, workspaceIds: [session.workspaceId] })));
+  const claimed = batches.flat().map((delivery) => delivery.id);
+  assert.equal(claimed.length, new Set(claimed).size,
+    `одна и та же доставка выдана дважды: всего ${claimed.length}, уникальных ${new Set(claimed).size}`);
+
+  const attempts = (await pool.query(
+    'SELECT max(attempts) m FROM webhook_deliveries WHERE endpoint_id IN (SELECT id FROM webhook_endpoints WHERE workspace_id=$1)',
+    [session.workspaceId])).rows[0].m;
+  assert.equal(Number(attempts), 1, 'счётчик попыток не должен вырасти дважды за один заход');
+});

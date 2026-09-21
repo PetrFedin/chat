@@ -56,3 +56,22 @@ export const conversationListSql = (session, { withMentions = false } = {}) => `
   WHERE c.workspace_id=$1 AND c.archived_at IS NULL AND(${openConversationSql(session, 'c')} OR cm.user_id IS NOT NULL)
     AND(($3::boolean AND cm.archived_at IS NOT NULL) OR (NOT $3::boolean AND cm.archived_at IS NULL))
   ORDER BY COALESCE((SELECT max(created_at) FROM messages m2 WHERE m2.workspace_id=c.workspace_id AND m2.conversation_id=c.id),c.created_at) DESC`;
+
+/**
+ * Как называется беседа для конкретного человека.
+ *
+ * У личной переписки своего названия нет и быть не может: для каждого из
+ * двоих она зовётся именем второго. Везде, где список показывает беседу —
+ * выделения, заметки, избранное, поиск, — нужно одно и то же правило.
+ *
+ * `idExpr` — выражение с идентификатором беседы, `workspaceExpr` — с
+ * пространством, `viewerParam` — номер параметра с тем, кто смотрит.
+ */
+export const conversationTitleSql = (idExpr, workspaceExpr, viewerParam) => `(
+  SELECT COALESCE(ct.title, CASE WHEN ct.kind='direct' THEN (
+    SELECT COALESCE(p3.display_name,p3.email)
+      FROM conversation_members cm3
+      LEFT JOIN workspace_profiles p3 ON p3.workspace_id=cm3.workspace_id AND p3.user_id=cm3.user_id
+     WHERE cm3.workspace_id=ct.workspace_id AND cm3.conversation_id=ct.id AND cm3.user_id<>${viewerParam}
+     LIMIT 1) END)
+    FROM conversations ct WHERE ct.workspace_id=${workspaceExpr} AND ct.id=${idExpr})`;

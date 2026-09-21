@@ -503,7 +503,7 @@ function message(m,grouped=false){
   const notes=(S.notes?.get(m.id)||[]);
   const noteBlock=notes.length?`<div class="msg-notes">${notes.map(n=>
     `<button class="msg-note kind-${esc(n.kind)}" data-note="${esc(n.id)}" title="Личная заметка — нажмите, чтобы изменить"><b>${esc(NOTE_KIND_LABEL[n.kind]||'заметка')}</b> ${esc(n.body.slice(0,120))}</button>`).join('')}</div>`:'';
-  const stamp=`<span class="msg-stamp">${m.pinned?'<i title="Закреплено" aria-label="Закреплено">✦</i>':''}${m.saved?'<i title="В избранном" aria-label="В избранном">★</i>':''}${m.editedAt?`<i class="msg-edited" title="Изменено: ${esc(dateTime(m.editedAt))}">изменено</i>`:''}<time datetime="${esc(m.createdAt)}" title="${esc(dateTime(m.createdAt))}">${esc(time(m.createdAt))}</time></span>`;
+  const stamp=`<span class="msg-stamp">${m.pinned?'<i title="Закреплено" aria-label="Закреплено">✦</i>':''}${m.saved?'<i title="В избранном" aria-label="В избранном">★</i>':''}${m.editedAt?`<i class="msg-edited" title="Изменено: ${esc(dateTime(m.editedAt))}">изменено в ${esc(time(m.editedAt))}</i>`:''}<time datetime="${esc(m.createdAt)}" title="${esc(dateTime(m.createdAt))}">${esc(time(m.createdAt))}</time></span>`;
 
   return `<article class="message-item${mine?' mine':''}${grouped?' grouped':''}" data-message-row="${m.id}">
     ${mine||grouped?'':`<span class="avatar dark">${esc(initials(name(m.authorId)))}</span>`}

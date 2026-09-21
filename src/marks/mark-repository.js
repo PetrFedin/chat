@@ -7,7 +7,7 @@
  * бесполезна без объекта, а объект отдаётся по своим правилам.
  */
 
-import { openConversationSql } from '../persistence/visibility.js';
+import { openConversationSql, conversationTitleSql } from '../persistence/visibility.js';
 
 const fail = (message, code, statusCode = 400) =>
   Object.assign(new Error(message), { code, statusCode });
@@ -188,7 +188,7 @@ export function createMarkRepository(pool) {
       const { rows } = await pool.query(
         `SELECT h.id,h.conversation_id "conversationId",h.message_id "messageId",h.quote,
                 h.start_offset "startOffset",h.end_offset "endOffset",h.colour,h.created_at "createdAt",
-                (SELECT c.title FROM conversations c WHERE c.workspace_id=h.workspace_id AND c.id=h.conversation_id) "conversationTitle"
+                ${conversationTitleSql('h.conversation_id','h.workspace_id','$2')} "conversationTitle"
            FROM message_highlights h
           WHERE h.workspace_id=$1 AND h.user_id=$2
             AND ($3::uuid IS NULL OR h.conversation_id=$3)
@@ -240,7 +240,7 @@ export function createMarkRepository(pool) {
       const { rows } = await pool.query(
         `SELECT n.id,n.conversation_id "conversationId",n.message_id "messageId",n.kind,n.body,
                 n.created_at "createdAt",n.updated_at "updatedAt",
-                (SELECT c.title FROM conversations c WHERE c.workspace_id=n.workspace_id AND c.id=n.conversation_id) "conversationTitle",
+                ${conversationTitleSql('n.conversation_id','n.workspace_id','$2')} "conversationTitle",
                 (SELECT left(m.body,140) FROM messages m WHERE m.workspace_id=n.workspace_id AND m.id=n.message_id) "messagePreview"
            FROM message_notes n
           WHERE n.workspace_id=$1 AND n.user_id=$2
