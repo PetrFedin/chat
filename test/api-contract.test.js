@@ -136,3 +136,15 @@ test('встречу можно изменить, дополнить и отме
   // И строка встречи в расписании дня открывает её карточку.
   assert.match(app, /class="agenda-row pressable" data-cal-event=/);
 });
+
+// Раздел не отражался в адресе: перезагрузка неизменно возвращала на
+// «Сегодня», «назад» уводила из приложения, ссылку на календарь коллеге
+// было не дать.
+test('раздел живёт в адресе страницы', () => {
+  const app = read('public/app.js');
+  assert.match(app, /const VIEWS=new Set\(nav\.map/);
+  assert.match(app, /history\.pushState\(null,'',want\)/);
+  assert.match(app, /if\(parts\[0\]&&VIEWS\.has\(parts\[0\]\)\)/);
+  // «Назад» без открытых окон возвращает на прошлый раздел.
+  assert.match(app, /routeFromHash\(\)\.catch\(error=>toast\(error\.message\)\)/);
+});

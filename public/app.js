@@ -211,7 +211,24 @@ function forgotPasswordModal(){
 }
 
 async function bootstrap(){try{const b=await api('/api/v1/bootstrap');S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadTasks(),loadCalendar(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
-async function routeFromHash(){if(!S.boot)return;const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?'),parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}}
+/**
+ * Адрес страницы и то, что на ней видно, — одно и то же.
+ *
+ * Раньше в адресе жили только задача и беседа по прямой ссылке, а сам
+ * раздел нигде не отражался: перезагрузка неизменно возвращала на
+ * «Сегодня», кнопка «назад» уводила из приложения, а ссылку на календарь
+ * коллеге было не дать.
+ */
+const VIEWS=new Set(nav.map(([id])=>id));
+async function routeFromHash(){
+  if(!S.boot)return;
+  const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?');
+  const parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);
+  if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}
+  if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}
+  if(parts[0]&&VIEWS.has(parts[0])){if(S.view!==parts[0])go(parts[0],{silent:true});return}
+  if(!parts.length&&S.view!=='today')go('today',{silent:true});
+}
 window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
 // The task list is paged now. The screen still shows one backlog, so it walks
 // the cursor to the end — bounded, so a runaway cursor cannot spin forever.
@@ -835,8 +852,15 @@ function bind(){
     if(older)older.onclick=()=>loadOlderMessages(S.selected);
     stream.onscroll=()=>{if(stream.scrollTop<80)loadOlderMessages(S.selected)};
   }}}
-function go(v){
+function go(v,{silent=false}={}){
   S.view=v;
+  // Раздел записывается в адрес: перезагрузка возвращает туда, где человек
+  // был, а ссылкой можно поделиться. `silent` — когда мы сюда и пришли по
+  // адресу, второй записи в истории не нужно.
+  if(!silent){
+    const want=`#/${v}`;
+    if(location.hash!==want){try{history.pushState(null,'',want)}catch{location.hash=want}}
+  }
   if(v!=='chats')S.mobileChat=false;
   // A screen opened after scrolling another one started halfway down it: the
   // conversation header, the calendar toolbar and the day's greeting were all
@@ -2743,7 +2767,13 @@ async function resumeTop(){
     renderOverlay();
   }catch(error){toast(error.message)}
 }
-window.addEventListener('popstate',()=>{if(unwinding>0){unwinding-=1;return}if(overlayStack.length){overlayStack.pop();renderOverlay();resumeTop()}});
+window.addEventListener('popstate',()=>{
+  if(unwinding>0){unwinding-=1;return}
+  if(overlayStack.length){overlayStack.pop();renderOverlay();resumeTop();return}
+  // Окон не осталось — «назад» возвращает на прошлый раздел, а не выкидывает
+  // из приложения.
+  routeFromHash().catch(error=>toast(error.message));
+});
 let unwinding=0;
 function closeModal(){
   const depth=overlayStack.length;
