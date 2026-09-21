@@ -170,7 +170,11 @@ export class MemoryStore {
       .map((conversation)=>{
         const list=this.messages.get(conversation.id)??[],lastMessage=[...list].reverse().find(message=>!message.deletedAt)??null;
         const member=this.conversationMembers.get(this.conversationMemberKey(conversation.id,session.userId));
-        return {...clone(conversation),lastMessage:clone(lastMessage),unreadCount:0,archivedAt:member?.archivedAt??null,mutedUntil:member?.mutedUntil??null,memberRole:member?.role??null};
+        // См. PostgreSQL-хранилище: счётчик был константой «ноль».
+        const since=Date.parse(member?.lastReadAt??member?.joinedAt??0)||0;
+        const unreadCount=list.filter(message=>!message.deletedAt&&message.authorId!==session.userId
+          &&Date.parse(message.createdAt)>since).length;
+        return {...clone(conversation),lastMessage:clone(lastMessage),unreadCount,archivedAt:member?.archivedAt??null,mutedUntil:member?.mutedUntil??null,memberRole:member?.role??null};
       });
   }
 

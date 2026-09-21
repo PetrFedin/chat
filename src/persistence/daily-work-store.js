@@ -480,8 +480,14 @@ export class PostgresStore extends BasePostgresStore {
 
   async listNotifications(session, { status = null, type = null, limit = 50 } = {}) {
     const typeValue=type==='mentions'?'message.mentioned':type;
-    const {rows}=await this.pool.query(`SELECT n.id,n.type,n.title,n.body,n.status,n.priority,n.url,n.actor_user_id "actorUserId",n.conversation_id "conversationId",n.message_id "messageId",n.commitment_id "commitmentId",n.calendar_event_id "calendarEventId",n.metadata,n.created_at "createdAt",n.read_at "readAt",p.display_name "actorName",c.title "conversationTitle"
+    // Тело уведомления — снимок сообщения на момент отправки. Если само
+    // сообщение с тех пор удалили, показывать снимок нельзя: удаление у всех
+    // должно значить у всех. Старые записи гасим на чтении — они были
+    // созданы до того, как удаление стало их затирать.
+    const {rows}=await this.pool.query(`SELECT n.id,n.type,n.title,
+      CASE WHEN dm.id IS NOT NULL THEN 'Сообщение удалено' ELSE n.body END AS body,n.status,n.priority,n.url,n.actor_user_id "actorUserId",n.conversation_id "conversationId",n.message_id "messageId",n.commitment_id "commitmentId",n.calendar_event_id "calendarEventId",n.metadata,n.created_at "createdAt",n.read_at "readAt",p.display_name "actorName",c.title "conversationTitle"
       FROM notifications n LEFT JOIN workspace_profiles p ON p.workspace_id=n.workspace_id AND p.user_id=n.actor_user_id LEFT JOIN conversations c ON c.workspace_id=n.workspace_id AND c.id=n.conversation_id
+      LEFT JOIN messages dm ON dm.workspace_id=n.workspace_id AND dm.id=n.message_id AND dm.deleted_at IS NOT NULL
       WHERE n.workspace_id=$1 AND n.recipient_user_id=$2 AND n.archived_at IS NULL AND($3::text IS NULL OR n.status=$3) AND($4::text IS NULL OR n.type=$4)
       ORDER BY n.created_at DESC,n.id DESC LIMIT $5`,[session.workspaceId,session.userId,status,typeValue,Math.min(Math.max(Number(limit)||50,1),100)]);
     return rows;
