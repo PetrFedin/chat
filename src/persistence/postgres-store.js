@@ -128,6 +128,25 @@ export class PostgresStore {
     });
   }
 
+  /**
+   * Событие входа в журнале рабочего пространства.
+   *
+   * В журнале велось двадцать четыре вида событий — и ни одного об
+   * аутентификации: ни удачного входа, ни провального, ни выхода. Служба
+   * безопасности после ночного подбора паролей не видела там ничего.
+   *
+   * Для неизвестной почты пространство неизвестно, поэтому такие попытки
+   * остаются только в журнале эксплуатации: писать их некуда.
+   */
+  async recordAuthEvent({workspaceId,userId,eventType,payload={}}){
+    const{rows}=await this.pool.query(
+      'SELECT organization_id FROM memberships WHERE workspace_id=$1 AND user_id=$2',[workspaceId,userId]);
+    if(!rows[0])return null;
+    await this.pool.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+      VALUES($1,$2,'membership',$3,$4,$3,$5)`,[rows[0].organization_id,workspaceId,userId,eventType,payload]);
+    return true;
+  }
+
   async getBootstrap(s){const conversations=await this.listConversations(s);return{session:s,conversations,people:await this.listPeople(s)}}
   /**
    * Password recovery without a mail server.

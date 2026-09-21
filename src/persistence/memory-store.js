@@ -114,6 +114,9 @@ export class MemoryStore {
     return { ownerId: userId, previousOwnerId: session.userId };
   }
 
+  /** См. PostgreSQL-хранилище: в памяти журнала нет, писать некуда. */
+  async recordAuthEvent() { return null; }
+
   /**
    * В памяти журнал не ведётся: он нужен затем, чтобы пережить перезапуск,
    * а память его не переживает. Отвечаем пустой страницей, а не ошибкой —

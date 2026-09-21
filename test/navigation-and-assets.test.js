@@ -193,15 +193,27 @@ test('the answer-needed marker survives a phone screen, in the right column', as
 // пишется в журнал, должно браться из запроса: переменные разбора живут
 // внутри try, и обращение к ним из catch роняет сам обработчик — ответ
 // тогда не уходит вовсе, а клиент висит до таймаута.
-test('a refusal is logged as a line, and logging cannot break the handler', async () => {
+test('каждый запрос оставляет строку, а отказ — понятный уровень', async () => {
   const source = await read('src/server.js');
-  const handler = source.match(/\}catch\(error\)\{([\s\S]*?)errorJson\(res,error\);/);
+
+  // Строка на каждый запрос: раньше двадцать успешных обращений подряд
+  // давали ноль строк, и в аварии не с чем было работать.
+  assert.match(source, /res\.on\('finish'/, 'запросы не записываются вовсе');
+  assert.match(source, /log\(level,'http'/, 'нет строки о запросе');
+  assert.match(source, /reqId:req\.reqId/, 'в строке нет признака запроса');
+  assert.match(source, /wsId:req\.session\?\.workspaceId/, 'в строке нет пространства — шумного арендатора не назвать');
+  assert.match(source, /ms:Math\.round\(ms\)/, 'в строке нет времени ответа');
+
+  const handler = source.match(/\}catch\(rawError\)\{([\s\S]*?)errorJson\(res,rawError\);/);
   assert.ok(handler, 'обработчик ошибок не найден');
   const body = handler[1];
-  assert.match(body, /status>=500\)console\.error\(error\)/, 'поломки сервера больше не печатаются со стеком');
-  assert.match(body, /console\.warn/, 'отказы не пишутся в журнал вовсе');
+  // Уровень считается по коду, который уйдёт клиенту: иначе слабый пароль
+  // ложится в журнал полным стеком как пятисотка.
+  assert.match(body, /normalizeError\(rawError\)/, 'уровень считается до разбора ошибки');
+  assert.match(body, /status>=500\?'error':'warn'/, 'у отказа и у поломки один уровень');
+  assert.match(body, /stack:status>=500/, 'стек печатается и для обычных отказов');
   assert.match(body, /req\.method/, 'журнал берёт метод не из запроса');
-  assert.match(body, /req\.url/, 'журнал берёт путь не из запроса');
   assert.doesNotMatch(body, /\$\{method\}|\$\{path\}/,
     'журнал снова обращается к переменным, которых в catch нет');
 });
+

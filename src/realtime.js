@@ -12,6 +12,23 @@ export class RealtimeHub {
     };
   }
 
+  /**
+   * Сколько людей сейчас на связи.
+   *
+   * В /healthz стояло `realtime:true` литералом: сколько вкладок открыто и
+   * есть ли вообще хоть одна — узнать было негде.
+   */
+  size() {
+    let sockets = 0;
+    for (const bucket of this.clients.values()) sockets += bucket.size;
+    return sockets;
+  }
+
+  /** Сколько пространств сейчас на связи — грубая мера активности. */
+  workspaces() {
+    return new Set([...this.clients.keys()].map((key) => key.split(':')[0])).size;
+  }
+
   send(socket, event, data) {
     if (socket.readyState !== 1) return;
     socket.send(JSON.stringify({ event, data, at: new Date().toISOString() }));

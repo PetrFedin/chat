@@ -161,6 +161,26 @@ export function createWebhookRepository(pool, { env = process.env } = {}) {
     },
 
     /**
+     * Глубина очереди: сколько ждёт и насколько стар самый старый.
+     *
+     * В состоянии работника были только накопленные с запуска счётчики —
+     * по ним нельзя отличить «вчера было двенадцать отказов» от «прямо
+     * сейчас копится тысяча», то есть авария это или уже прошедшая
+     * неприятность.
+     */
+    async backlog() {
+      const { rows } = await pool.query(`SELECT status, count(*)::int n,
+               EXTRACT(EPOCH FROM (now() - min(created_at)))::int age
+          FROM webhook_deliveries WHERE status IN ('pending','failed') GROUP BY status`);
+      const depth = { pending: 0, failed: 0, oldestAgeSec: 0 };
+      for (const row of rows) {
+        depth[row.status] = row.n;
+        depth.oldestAgeSec = Math.max(depth.oldestAgeSec, row.age ?? 0);
+      }
+      return depth;
+    },
+
+    /**
      * Claims due deliveries under a bounded lease, fairly.
      *
      * The ordering is round-robin across endpoints, not first-come: a customer
@@ -263,6 +283,13 @@ export function createWebhookRepository(pool, { env = process.env } = {}) {
         );
         disabled = rows[0] ? rows[0].enabled === false : false;
         if (disabled) {
+          // «Мы перестали слать заказчику всё» — событие, о котором до сих
+          // пор узнавали от самого заказчика по телефону.
+          await client.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+            SELECT e.organization_id,e.workspace_id,'integration',e.id,'integration.endpoint.disabled',e.created_by,
+                   jsonb_build_object('label',e.label,'consecutiveFailures',e.consecutive_failures,'reason',$2::text)
+              FROM webhook_endpoints e WHERE e.id=$1`,
+            [delivery.endpointId, String(error).slice(0, 500)]);
           // Ждущие доставки отключённого приёмника больше не занимают очередь.
           await client.query(
             `UPDATE webhook_deliveries SET status='dead', lock_token=NULL, locked_until=NULL,

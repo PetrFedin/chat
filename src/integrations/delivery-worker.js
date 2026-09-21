@@ -1,5 +1,6 @@
 import { backoffMs, signPayload } from './webhook-signature.js';
 import { checkOutboundTarget } from '../net/outbound-url.js';
+import { log } from '../obs/log.js';
 
 const RETRYABLE_STATUS = (status) => status === 408 || status === 429 || status >= 500;
 
@@ -29,6 +30,19 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
   const state = { running: false, stopping: false, published: 0, delivered: 0, failed: 0, dead: 0, lostLease: 0, lastError: null, lastRunAt: null };
   let timer = null;
 
+  /**
+   * О двух событиях эксплуатация обязана узнать из журнала, а не от
+   * заказчика: доставка окончательно умерла и приёмник отключён совсем.
+   * Отдельные неудачные попытки не пишем — это шум.
+   */
+  function announce(delivery, result, reason) {
+    if (result?.endpointDisabled) {
+      log('error', 'webhook.endpoint.disabled', { endpointId: delivery.endpointId, deliveryId: delivery.id, reason });
+    } else if (result?.dead) {
+      log('warn', 'webhook.delivery.dead', { endpointId: delivery.endpointId, deliveryId: delivery.id, topic: delivery.topic, reason });
+    }
+  }
+
   async function deliver(delivery) {
     // Адрес принимали когда-то, а идём по нему сейчас: за это время имя
     // могло начать указывать внутрь нашей же сети.
@@ -39,6 +53,7 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
         terminal: true,
       });
       state[result.dead ? 'dead' : 'failed'] += 1;
+      announce(delivery, result, `адрес отклонён: ${target.reason}`);
       return;
     }
     const rawBody = JSON.stringify(delivery.payload);
@@ -81,12 +96,14 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
         terminal: !retryable,
       });
       state[result.dead ? 'dead' : 'failed'] += 1;
+      announce(delivery, result, `receiver responded ${response.status}`);
     } catch (error) {
       const result = await repository.recordFailure(delivery, {
         error: error.name === 'AbortError' ? `timed out after ${timeoutMs}ms` : String(error.message ?? error),
         retryInMs: backoffMs(delivery.attempts),
       });
       state[result.dead ? 'dead' : 'failed'] += 1;
+      announce(delivery, result, error.name === 'AbortError' ? `timed out after ${timeoutMs}ms` : String(error.message ?? error));
     } finally {
       clearTimeout(abort);
     }
@@ -136,6 +153,9 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
         const published = await repository.publishPending({ batchSize: batchSize * 5, workspaceIds });
         state.published += published.deliveries;
         const claimed = await pump();
+        // Заодно раз в проход снимаем глубину очереди: по накопленным с
+        // запуска счётчикам не понять, копится ли прямо сейчас.
+        state.queue = await repository.backlog?.().catch(() => null) ?? state.queue ?? null;
         // Освободился слот — идём за следующей доставкой сразу, а не ждём,
         // пока договорит самый медленный собеседник.
         if (inFlight.size) await Promise.race([...inFlight.values(), sleep(claimed ? pollMs : Math.min(pollMs, 50))]);
@@ -163,6 +183,6 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
       if (timer) clearTimeout(timer);
       await Promise.allSettled([...inFlight.values()]);
     },
-    status: () => ({ configured: Boolean(repository) && enabled, inFlight: inFlight.size, ...state }),
+    status: () => ({ configured: Boolean(repository) && enabled, inFlight: inFlight.size, queue: state.queue, ...state }),
   };
 }

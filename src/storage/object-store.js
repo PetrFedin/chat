@@ -1,6 +1,6 @@
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join, normalize } from 'node:path';
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 function boolEnv(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').toLowerCase());
@@ -24,6 +24,26 @@ export class LocalObjectStore {
 
   status() {
     return { provider: 'local', enabled: true, durable: false };
+  }
+
+  /**
+   * Пишется ли хранилище прямо сейчас.
+   *
+   * `enabled:true` в состоянии — это константа, а не проверка: при
+   * переполненном или недоступном на запись каталоге она оставалась
+   * правдивой, и монитор ничего не замечал, пока люди не переставали
+   * прикреплять файлы.
+   */
+  async probe() {
+    const key = `.probe/${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const started = Date.now();
+    try {
+      await this.put(key, Buffer.from('ok'), 'text/plain');
+      await this.delete(key);
+      return { ok: true, provider: 'local', latencyMs: Date.now() - started };
+    } catch (error) {
+      return { ok: false, provider: 'local', latencyMs: Date.now() - started, error: String(error.code ?? error.message) };
+    }
   }
 
   path(key) {
@@ -80,6 +100,17 @@ export class S3ObjectStore {
 
   status() {
     return { provider: 's3', enabled: true, durable: true, bucketConfigured: Boolean(this.bucket) };
+  }
+
+  /** См. локальное хранилище: состояние — это настройка, а не проверка. */
+  async probe() {
+    const started = Date.now();
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      return { ok: true, provider: 's3', latencyMs: Date.now() - started };
+    } catch (error) {
+      return { ok: false, provider: 's3', latencyMs: Date.now() - started, error: String(error.name ?? error.code ?? error.message) };
+    }
   }
 
   async put(key, body, contentType = 'application/octet-stream') {

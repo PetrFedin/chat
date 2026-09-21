@@ -1,4 +1,6 @@
 import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
+import { log, errorFields, routeOf } from './obs/log.js';
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +12,7 @@ import { visiblePermissions } from './rbac.js';
 import { openapi } from './openapi.js';
 import { MemoryStore, PostgresStore } from './persistence/store.js';
 import { RealtimeHub } from './realtime.js';
-import { clientAddress, cookies, errorJson, json, allowedPresence, securityHeaders, readBuffer, MAX_JSON } from './http/helpers.js';
+import { clientAddress, cookies, errorJson, json, allowedPresence, securityHeaders, readBuffer, MAX_JSON, normalizeError } from './http/helpers.js';
 import { createAuthThrottle } from './rate-limit.js';
 import { createIdempotencyGuard, IDEMPOTENCY_HEADER } from './http/idempotency.js';
 import { handleAuth } from './http/auth.js';
@@ -87,7 +89,11 @@ const cookieToken=(req)=>cookies(req)[cookieName]||null;
 function defaultStore(databaseUrl=process.env.DATABASE_URL){if(!databaseUrl){
   if(process.env.NODE_ENV==='production')throw new Error('DATABASE_URL не задан. В production память как хранилище не годится: данные исчезнут при первом же перезапуске.');
   return{store:new MemoryStore(),pool:null,mode:'memory'};
-}const pool=new Pool({connectionString:databaseUrl,max:Number(process.env.PG_POOL_MAX??10),ssl:process.env.PGSSL==='require'?{rejectUnauthorized:false}:undefined});
+}const pool=new Pool({connectionString:databaseUrl,max:Number(process.env.PG_POOL_MAX??10),
+  // Без этих сроков зависший запрос молча держал соединение из десяти:
+  // десять таких — и приложение стоит, а /healthz по-прежнему зелёный.
+  connectionTimeoutMillis:Number(process.env.PG_CONNECT_TIMEOUT_MS??3000),
+  options:`-c statement_timeout=${Number(process.env.PG_STATEMENT_TIMEOUT_MS??15000)} -c lock_timeout=${Number(process.env.PG_LOCK_TIMEOUT_MS??5000)}`,ssl:process.env.PGSSL==='require'?{rejectUnauthorized:false}:undefined});
 // Простаивающее соединение может оборваться само: перезапуск базы, таймаут
 // на стороне сети. Без этого слушателя такой обрыв всплывает как
 // необработанное исключение и уносит весь процесс, хотя пул сам поднимет
@@ -138,7 +144,9 @@ export async function createChatServer(options={}){
   const configuredMeetingProviders=createConfiguredMeetingProviders(process.env);
   const transcriptionProvider=options.transcriptionProvider??configuredMeetingProviders.transcriptionProvider;
   const summaryProvider=options.summaryProvider??configuredMeetingProviders.summaryProvider;
-  const authenticate=async(req)=>{const token=cookieToken(req);return token?store.getSession(hashToken(token)):null};
+  // Сессия запоминается на запросе: строке журнала нужны пространство и
+  // человек, иначе шумного арендатора в аварии не назвать.
+  const authenticate=async(req)=>{const token=cookieToken(req);const session=token?await store.getSession(hashToken(token)):null;if(session)req.session=session;return session};
   const requireSession=async(req)=>{const s=await authenticate(req);if(!s)throw Object.assign(new Error('Authentication required'),{code:'UNAUTHENTICATED',statusCode:401});return s};
   const openSession=async(res,req,userId,workspaceId,status=200)=>{const token=createOpaqueToken(),tokenHash=hashToken(token),expiresAt=createSessionExpiry();await store.createSession({userId,workspaceId,tokenHash,expiresAt,userAgent:req.headers['user-agent']??null,ipAddress:clientAddress(req)});const s=await store.getSession(tokenHash);if(!s)throw Object.assign(new Error('Session could not be established'),{code:'SESSION_NOT_ESTABLISHED',statusCode:401});json(res,status,{session:{...s,permissions:visiblePermissions(s.role)},storageMode:mode,push,media:mediaProvider.status(),objectStorage:objectStore.status()},{'set-cookie':sessionCookie(token)})};
   const notifyUsers=async(workspaceId,userIds,payload)=>{if(!push.enabled||!userIds.length)return;const subs=await store.listPushSubscriptions(workspaceId,userIds);await Promise.allSettled(subs.map(s=>webpush.sendNotification({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},JSON.stringify(payload),{TTL:60})))};
@@ -169,7 +177,25 @@ export async function createChatServer(options={}){
   const ctx={store,mode,hub,authThrottle,webhooks,deliveryWorker,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
   const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
-  const server=createServer(async(req,res)=>{try{
+  const server=createServer(async(req,res)=>{
+    // Запись о запросе — то, чего в журнале не было вовсе: двадцать
+    // успешных обращений подряд давали ноль строк. Без неё в аварии
+    // нельзя ответить ни «когда началось», ни «какие маршруты», ни
+    // «кто шумит»: признака пространства не было ни в одной строке.
+    const startedAt=process.hrtime.bigint();
+    req.reqId=randomUUID().slice(0,12);
+    res.setHeader('x-request-id',req.reqId);
+    res.on('finish',()=>{
+      const ms=Number(process.hrtime.bigint()-startedAt)/1e6;
+      const status=res.statusCode;
+      const level=status>=500?'error':status>=400||ms>2000?'warn':'info';
+      log(level,'http',{
+        reqId:req.reqId,method:req.method,route:routeOf(req.url),status,
+        ms:Math.round(ms),wsId:req.session?.workspaceId,userId:req.session?.userId,
+        ip:req.socket?.remoteAddress,
+      });
+    });
+    try{
     for(const [name,value] of Object.entries(baseHeaders))res.setHeader(name,value);
     const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`),path=url.pathname,method=req.method??'GET';
         // Idempotency-Key: a retried command must not do the work twice. Applied
@@ -197,7 +223,47 @@ export async function createChatServer(options={}){
         };
       }
     }
+    /**
+     * Жив и готов — разные вопросы.
+     *
+     * `/healthz` отвечает «процесс жив и обслуживает» и к базе не ходит —
+     * этого довольно, чтобы понять, что узел не завис. Но при мёртвой базе
+     * он честно отвечал `ok:true`, и монитор держал в строю узел, который
+     * не мог обслужить ни одного запроса. Поэтому проверка живости
+     * отделена от готовности: `/readyz` спрашивает базу и хранилище на
+     * деле и отвечает 503, когда спрашивать бесполезно.
+     */
     if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,persistence:persistenceStatus(),realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},integrations:{outbound:deliveryWorker.status?.()??{configured:false}},retention:retention.status?.()??{configured:false},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,persistent:Boolean(demo.persistent),meeting:Boolean(demo.meeting)}});
+    if(path==='/readyz'){
+      const started=Date.now();
+      const checks={};
+      if(pool){
+        try{
+          await pool.query('SELECT 1');
+          checks.database={ok:true,latencyMs:Date.now()-started};
+        }catch(error){
+          checks.database={ok:false,latencyMs:Date.now()-started,error:String(error.code??error.message)};
+        }
+      }else checks.database={ok:true,latencyMs:0,provider:'memory'};
+      try{
+        const probe=await objectStore.probe?.();
+        checks.objects=probe??{ok:true,provider:objectStore.status?.()?.provider??'unknown'};
+      }catch(error){checks.objects={ok:false,error:String(error.code??error.message)}}
+      const ready=Object.values(checks).every((check)=>check.ok!==false);
+      return json(res,ready?200:503,{
+        ready,
+        checks,
+        // Исчерпанный пул — вторая по частоте причина «всё висит», и
+        // числа для неё уже есть, их просто никто не спрашивал.
+        pool:pool?{total:pool.totalCount,idle:pool.idleCount,waiting:pool.waitingCount}:null,
+        process:{
+          uptimeSec:Math.round(process.uptime()),
+          rssMb:Math.round(process.memoryUsage().rss/1048576),
+          heapUsedMb:Math.round(process.memoryUsage().heapUsed/1048576),
+        },
+        realtime:{sockets:hub.size?.()??null},
+      });
+    }
     if(path==='/openapi.json'||path==='/api/v1/openapi')return json(res,200,openapi);
     if(path==='/vendor/livekit-client.js'&&method==='GET'){const body=await readFile(livekitClientPath);res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=86400'});res.end(body);return}
     if(await handleMeetingOperations(req,res,ctx,url,path,method))return;
@@ -234,11 +300,19 @@ export async function createChatServer(options={}){
       res.writeHead(200,{'content-type':mime.get(extname(file))??'application/octet-stream','cache-control':file.endsWith('index.html')?'no-store':'no-cache',etag});
       res.end(body);
     }catch{const body=await readFile(join(publicRoot,'index.html'));res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(body)}
-  }catch(error){
-    const status=Number(error?.statusCode)||500;
-    if(status>=500)console.error(error);
-    else console.warn(`${req.method??'?'} ${(req.url??'?').split('?')[0]} → ${status} ${error?.code??''}`.trim());
-    errorJson(res,error);
+  }catch(rawError){
+    // Уровень записи считается по коду, который реально уйдёт клиенту.
+    // Раньше он брался из error.statusCode, которого у половины отказов
+    // нет — и слабый пароль при регистрации ложился в журнал полным
+    // стеком как пятисотка, а настоящая авария в этом шуме терялась.
+    const error=normalizeError(rawError);
+    const status=Number(error?.statusCode)||(error?.code==='FORBIDDEN'?403:400);
+    log(status>=500?'error':'warn',status>=500?'request.failed':'request.refused',{
+      reqId:req.reqId,method:req.method,route:routeOf(req.url),status,
+      wsId:req.session?.workspaceId,userId:req.session?.userId,
+      ...errorFields(rawError,{stack:status>=500}),
+    });
+    errorJson(res,rawError);
   }});
   server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
   wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});

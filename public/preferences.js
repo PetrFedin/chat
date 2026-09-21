@@ -418,6 +418,7 @@
     'Название пространства': ['Название пространства', 'Workspace name'],
     'Переименовать': ['Переименовать', 'Rename'],
     'Показать более ранние': ['Показать более ранние', 'Show earlier messages'],
+    'К содержимому': ['К содержимому', 'Skip to content'],
     'Ждут вашего ответа': ['Ждут вашего ответа', 'Waiting for your answer'],
     'Приду': ['Приду', 'Coming'],
     'Под вопросом': ['Под вопросом', 'Maybe'],
@@ -870,7 +871,9 @@
     '.task-title',
     '.row-title',
     '.conversation-card strong',
-    '.conversation-card .preview',
+    // Пустое состояние («Нет сообщений») — наш текст, а не чужая реплика:
+    // оно рисуется отдельным .preview-empty и переводится как все.
+    '.conversation-card .preview:not(.preview-empty)',
     '.sidebar-row .label',
     '.profile-card strong',
     '.message-author',

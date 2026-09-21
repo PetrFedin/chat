@@ -1,5 +1,6 @@
 import { hashPassword, verifyPassword, equalizePasswordTiming, normalizeEmail, createOpaqueToken, hashToken } from '../security.js';
 import { Permission, requirePermission } from '../rbac.js';
+import { log } from '../obs/log.js';
 import { cleanText, clientAddress, trustsProxy, json, noContent, readJson } from './helpers.js';
 
 const invalidCredentials=()=>Object.assign(new Error('Invalid email or password'),{code:'INVALID_CREDENTIALS',statusCode:401});
@@ -20,16 +21,38 @@ export async function handleAuth(req,res,ctx,path,method){
   }
   if(method==='POST'&&path==='/api/v1/auth/login'){
     const b=await readJson(req),email=normalizeEmail(b.email);
+    /**
+     * Ночной подбор паролей не оставлял следа.
+     *
+     * В журнале было девять одинаковых строк «POST /login → 401» без
+     * адреса, без почты и без времени: один хост, долбящий один аккаунт,
+     * и ботнет по всей организации выглядели одинаково. В журнале аудита
+     * при этом не было вообще ни одного события входа — ни удачного, ни
+     * провального, — хотя именно за этим к нему и приходят.
+     */
+    const refuse=async(reason,userId=null,workspaceId=null)=>{
+      log('warn','auth.login.failed',{reqId:req.reqId,email,reason,ip:address});
+      if(userId&&workspaceId&&store.recordAuthEvent){
+        await store.recordAuthEvent({workspaceId,userId,eventType:'auth.login.failed',payload:{reason,ip:address}}).catch(()=>{});
+      }
+      return invalidCredentials();
+    };
     authThrottle?.guard('login',{address,identity:email});
     const a=await store.findAuthByEmail(email);
     // An unknown email must cost the same as a known one, or response time enumerates accounts.
-    if(!a){equalizePasswordTiming(String(b.password??''));throw invalidCredentials()}
-    if(!verifyPassword(String(b.password??''),a.passwordSalt,a.passwordHash))throw invalidCredentials();
+    if(!a){equalizePasswordTiming(String(b.password??''));throw await refuse('unknown_email')}
+    if(!verifyPassword(String(b.password??''),a.passwordSalt,a.passwordHash)){
+      throw await refuse('bad_password',a.id,a.workspaceId);
+    }
     // workspaceId arrives from the client, so membership is verified here rather
     // than being discovered as a null session on the next request.
     const workspaceId=b.workspaceId??a.workspaceId;
-    if(!await store.hasMembership(a.id,workspaceId))throw invalidCredentials();
+    if(!await store.hasMembership(a.id,workspaceId))throw await refuse('not_a_member',a.id,a.workspaceId);
     authThrottle?.succeeded('login',{address,identity:email});
+    log('info','auth.login.ok',{reqId:req.reqId,userId:a.id,wsId:workspaceId,ip:address});
+    if(store.recordAuthEvent){
+      await store.recordAuthEvent({workspaceId,userId:a.id,eventType:'auth.login.succeeded',payload:{ip:address}}).catch(()=>{});
+    }
     await openSession(res,req,a.id,workspaceId,200);return true;
   }
   if(method==='POST'&&path==='/api/v1/auth/logout'){const t=cookieToken(req);if(t)await store.revokeSession(hashToken(t));noContent(res,{'set-cookie':clearSession()});return true}

@@ -111,6 +111,20 @@ test('приёмник, не отвечающий раз за разом, отк
     "SELECT count(*) n FROM webhook_deliveries WHERE endpoint_id=$1 AND status IN ('pending','failed')", [endpoint.id])).rows[0].n);
   assert.equal(waiting, 0, 'и её доставки перестают занимать очередь');
 
+  // Отключение приёмника — событие, о котором до сих пор узнавали от
+  // самого заказчика: теперь оно в журнале рабочего пространства.
+  const audit = (await pool.query(
+    `SELECT event_type, payload FROM audit_events
+      WHERE workspace_id=$1 AND event_type='integration.endpoint.disabled'`, [session.workspaceId])).rows;
+  assert.equal(audit.length, 1, 'отключение приёмника не записано в журнал');
+  assert.equal(audit[0].payload.label, 'Мёртвый');
+  assert.ok(audit[0].payload.consecutiveFailures >= 3);
+
+  // И глубина очереди видна снаружи, а не только в базе.
+  const depth = await repository.backlog();
+  assert.ok(Number.isInteger(depth.pending) && Number.isInteger(depth.failed));
+  assert.ok(Number.isInteger(depth.oldestAgeSec));
+
   // Владелец включает обратно — счётчик начинается заново.
   const back = await repository.setEndpointEnabled(session, endpoint.id, true);
   assert.equal(back.enabled, true);

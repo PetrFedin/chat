@@ -40,7 +40,23 @@ export const noContent=(res,headers={})=>{res.writeHead(204,{'cache-control':'no
 // it names our tables to anyone who can POST. Map the ones a client can
 // legitimately provoke, hide the rest behind a generic 400.
 const PG_CODES={'23505':{code:'ALREADY_EXISTS',statusCode:409,message:'A record with these values already exists'},'23503':{code:'REFERENCE_NOT_FOUND',statusCode:400,message:'A referenced record does not exist'},'23514':{code:'INVALID_VALUE',statusCode:400,message:'A value failed a validation rule'},'22P02':{code:'INVALID_VALUE',statusCode:400,message:'A value has the wrong format'},'22021':{code:'INVALID_TEXT',statusCode:400,message:'The text contains characters the database cannot store'},'22008':{code:'INVALID_DATE',statusCode:400,message:'The date is out of range'},'22003':{code:'INVALID_VALUE',statusCode:400,message:'The number is out of range'}};
-export const normalizeError=(error)=>{if(!/^[0-9A-Z]{5}$/.test(String(error?.code??''))||error.statusCode)return error;const mapped=PG_CODES[error.code]??{code:'STORAGE_ERROR',statusCode:500,message:'Internal server error'};return Object.assign(new Error(mapped.message),mapped)};
+/**
+ * Отказ инфраструктуры — не ошибка клиента.
+ *
+ * База не отвечает, диск переполнен, каталог недоступен — всё это уходило
+ * наружу как HTTP 400 с текстом вроде «connect ECONNREFUSED
+ * 127.0.0.1:55432» или полным путём файла на сервере. В сводке по кодам
+ * такая авария выглядит как «пользователи шлют кривые запросы», а
+ * внутренний адрес и структура каталогов достаются любому желающему.
+ */
+const INFRA_CODES=new Set(['ECONNREFUSED','ECONNRESET','ETIMEDOUT','ENOTFOUND','EPIPE','EHOSTUNREACH','ENETUNREACH','EACCES','ENOSPC','EROFS','EMFILE','ENFILE']);
+export const normalizeError=(error)=>{
+  const code=String(error?.code??'');
+  if(INFRA_CODES.has(code)||error?.message==='Connection terminated unexpectedly'){
+    return Object.assign(new Error('Хранилище временно недоступно'),
+      {code:'STORAGE_UNAVAILABLE',statusCode:503,expose:true,cause:error});
+  }
+  if(!/^[0-9A-Z]{5}$/.test(code)||error.statusCode)return error;const mapped=PG_CODES[error.code]??{code:'STORAGE_ERROR',statusCode:500,message:'Internal server error'};return Object.assign(new Error(mapped.message),mapped)};
 export const errorJson=(res,rawError)=>{const error=normalizeError(rawError);
   // A handler that already answered and then threw must not take the process
   // down: writing headers twice throws ERR_HTTP_HEADERS_SENT out of the catch
