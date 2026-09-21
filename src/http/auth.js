@@ -57,7 +57,12 @@ export async function handleAuth(req,res,ctx,path,method){
   }
 
   if(method==='POST'&&path==='/api/v1/invitations'){
-    const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);const b=await readJson(req),token=createOpaqueToken(),i=await store.createInvitation(s,{email:normalizeEmail(b.email),role:b.role??'member',tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*86400000).toISOString()});
+    const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);const b=await readJson(req);
+    const RANK={guest:0,member:1,manager:2,admin:3,owner:4};
+    const wanted=b.role??'member';
+    if(!(wanted in RANK)||wanted==='owner')throw Object.assign(new Error('Такой роли для приглашения нет'),{code:'INVALID_INVITE_ROLE',statusCode:400,expose:true});
+    if(RANK[wanted]>RANK[s.role??'member'])throw Object.assign(new Error('Нельзя пригласить человека с правами выше своих'),{code:'INVITE_ROLE_TOO_HIGH',statusCode:403,expose:true});
+    const token=createOpaqueToken(),i=await store.createInvitation(s,{email:normalizeEmail(b.email),role:wanted,tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*86400000).toISOString()});
     const proto=String((trustsProxy()&&req.headers['x-forwarded-proto'])||(req.socket.encrypted?'https':'http')).split(',')[0],host=req.headers.host??'localhost';json(res,201,{invitation:{...i,inviteUrl:`${proto}://${host}/?invite=${encodeURIComponent(token)}`}});return true;
   }
   return false;

@@ -61,7 +61,7 @@ export function createGameRepository(pool, store = null) {
 
   const assertPlayer = (row, session) => {
     if (![row.challengerId, row.opponentId].includes(session.userId)) {
-      throw fail('You are not playing this game', 'NOT_A_PLAYER', 403);
+      throw fail('Game not found', 'GAME_NOT_FOUND', 404);
     }
   };
 
@@ -183,7 +183,7 @@ export function createGameRepository(pool, store = null) {
     async respond(session, id, accept) {
       return this.tx(async (client) => {
         const row = await loadRow(client, session, id);
-        if (row.opponentId !== session.userId) throw fail('Only the invited player answers', 'NOT_INVITED', 403);
+        if (row.opponentId !== session.userId) throw fail(row.challengerId === session.userId ? 'Only the invited player answers' : 'Game not found', row.challengerId === session.userId ? 'NOT_INVITED' : 'GAME_NOT_FOUND', row.challengerId === session.userId ? 403 : 404);
         if (row.status !== 'invited') throw fail('This invitation has already been answered', 'WRONG_STATUS', 409);
         if (!accept) {
           await client.query(`UPDATE games SET status='declined',turn_user_id=NULL,updated_at=now(),version=version+1 WHERE workspace_id=$1 AND id=$2`,

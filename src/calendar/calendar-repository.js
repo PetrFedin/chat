@@ -41,7 +41,17 @@ export function createCalendarRepository(pool, store = null) {
   };
 
   const loadEvent = async (client, session, id) => {
-    const { rows } = await client.query('SELECT * FROM calendar_events WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [session.workspaceId, id]);
+    const { rows } = await client.query(
+      `SELECT * FROM calendar_events e WHERE e.workspace_id=$1 AND e.id=$2 AND (
+         e.owner_id=$3
+         OR (e.visibility='workspace' AND $4<>'guest')
+         OR EXISTS(SELECT 1 FROM calendar_event_participants p
+                    WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.user_id=$3)
+         OR EXISTS(SELECT 1 FROM conversation_members cm
+                    WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))
+       FOR UPDATE`,
+      [session.workspaceId, id, session.userId, session.role],
+    );
     if (!rows[0]) throw fail('Event not found', 'CALENDAR_EVENT_NOT_FOUND', 404);
     return rows[0];
   };

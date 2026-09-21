@@ -434,8 +434,12 @@ test('чужой идентификатор не открывает ни оди�
         if (leaked.length) failures.push(`УТЕЧКА ${JSON.stringify(leaked)}: ${where}`);
 
         // 2. Отказ, а не работа: чужой идентификатор ничего не делает.
+        // 403 FORBIDDEN — это отказ по роли: маршрут закрылся раньше, чем
+        // вообще посмотрел на идентификатор, и про объект не сказал ничего.
+        const code = (() => { try { return JSON.parse(r.text)?.error?.code; } catch { return null; } })();
+        const roleRefusal = r.status === 403 && code === 'FORBIDDEN';
         const allow = spec.allow ?? [404];
-        if (!allow.includes(r.status)) failures.push(`ОЖИДАЛОСЬ ${allow.join('/')}: ${where}`);
+        if (!allow.includes(r.status) && !roleRefusal) failures.push(`ОЖИДАЛОСЬ ${allow.join('/')}: ${where}`);
       }
     }
   }
@@ -453,28 +457,29 @@ test('избранное не печатает название объекта, 
   const A = await company(base, 'f');
   const B = await company(base, 'g');
 
+  const problems = [];
   for (const actor of ['member', 'guest']) {
     const cookie = A.users[actor].cookie;
-    for (const [type, id] of [
-      ['file', A.otherFileId], ['event', A.otherCalendarEventId],
-      ['message', A.privateMessageId], ['conversation', A.privateConversationId], ['task', A.otherTaskId],
-    ]) {
-      const r = await call(base, `/api/v1/favourites/${type}/${id}`, { cookie, method: 'PUT' });
-      assert.equal(r.status, 404, `${actor} пометил чужой ${type}: ${r.status} ${r.text}`);
-    }
-    for (const [type, id] of [
-      ['file', B.fileId], ['event', B.calendarEventId],
-      ['message', B.messageId], ['conversation', B.conversationId], ['task', B.taskId],
-    ]) {
-      const r = await call(base, `/api/v1/favourites/${type}/${id}`, { cookie, method: 'PUT' });
-      assert.equal(r.status, 404, `${actor} пометил объект другой компании (${type}): ${r.status} ${r.text}`);
+    const stars = [
+      ['своей компании', [['file', A.otherFileId], ['event', A.otherCalendarEventId],
+        ['message', A.privateMessageId], ['conversation', A.privateConversationId], ['task', A.otherTaskId]]],
+      ['другой компании', [['file', B.fileId], ['event', B.calendarEventId],
+        ['message', B.messageId], ['conversation', B.conversationId], ['task', B.taskId]]],
+    ];
+    for (const [origin, pairs] of stars) {
+      for (const [type, id] of pairs) {
+        const r = await call(base, `/api/v1/favourites/${type}/${id}`, { cookie, method: 'PUT' });
+        if (r.status !== 404) problems.push(`${actor} пометил чужой ${type} ${origin}: ${r.status} ${r.text}`);
+      }
     }
     const list = await call(base, '/api/v1/favourites', { cookie });
     for (const marker of [...PRIVATE_MARKERS(A), B.suffix]) {
-      assert.ok(!list.text.includes(marker),
-        `в избранном ${actor} видно «${marker}»: ${list.text.slice(0, 400)}`);
+      if (list.text.includes(marker)) {
+        problems.push(`в избранном ${actor} видно «${marker}»: ${list.text.slice(0, 500)}`);
+      }
     }
   }
+  assert.deepEqual(problems, [], `\n${problems.join('\n')}\n`);
 });
 
 /**

@@ -71,6 +71,36 @@ export function createMarkRepository(pool) {
     return rows[0].conversationId;
   };
 
+  /** Встреча: своя, общая для сотрудников, своя по приглашению или по комнате. */
+  const mayTouchEvent = async (session, eventId) => {
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM calendar_events e WHERE e.workspace_id=$1 AND e.id=$3 AND (
+         e.owner_id=$2
+         OR (e.visibility='workspace' AND $4<>'guest')
+         OR EXISTS(SELECT 1 FROM calendar_event_participants p
+                    WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.user_id=$2)
+         OR EXISTS(SELECT 1 FROM conversation_members cm
+                    WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$2))`,
+      [session.workspaceId, session.userId, eventId, session.role],
+    );
+    if (!rowCount) throw fail('Not found', 'NOT_FOUND', 404);
+  };
+
+  /** Файл: свой либо опубликованный в беседе, которую человек видит. */
+  const mayTouchFile = async (session, fileId) => {
+    const { rowCount } = await pool.query(
+      `SELECT 1 FROM files f WHERE f.workspace_id=$1 AND f.id=$3 AND f.deleted_at IS NULL AND (
+         f.uploaded_by=$2
+         OR EXISTS(SELECT 1 FROM file_links fl
+                     JOIN messages m ON m.workspace_id=fl.workspace_id AND fl.entity_type='message' AND fl.entity_id=m.id
+                     JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id
+                    WHERE fl.workspace_id=f.workspace_id AND fl.file_id=f.id
+                      AND m.deleted_at IS NULL AND c.archived_at IS NULL AND ${seesConversation(session)}))`,
+      [session.workspaceId, session.userId, fileId],
+    );
+    if (!rowCount) throw fail('Not found', 'NOT_FOUND', 404);
+  };
+
   return {
     enabled: true,
 
@@ -95,6 +125,18 @@ export function createMarkRepository(pool) {
                 END "conversationId"
            FROM favourites f
           WHERE f.workspace_id=$1 AND f.user_id=$2 AND ($3::text IS NULL OR f.target_type=$3)
+            AND (f.target_type NOT IN ('event') OR EXISTS(
+                  SELECT 1 FROM calendar_events e WHERE e.workspace_id=f.workspace_id AND e.id=f.target_id AND (
+                    e.owner_id=$2 OR (e.visibility='workspace' AND $5<>'guest')
+                    OR EXISTS(SELECT 1 FROM calendar_event_participants p WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.user_id=$2)
+                    OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$2))))
+            AND (f.target_type NOT IN ('file') OR EXISTS(
+                  SELECT 1 FROM files x WHERE x.workspace_id=f.workspace_id AND x.id=f.target_id AND x.deleted_at IS NULL AND (
+                    x.uploaded_by=$2
+                    OR EXISTS(SELECT 1 FROM file_links fl
+                                JOIN messages m ON m.workspace_id=fl.workspace_id AND fl.entity_type='message' AND fl.entity_id=m.id
+                                JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id
+                               WHERE fl.workspace_id=x.workspace_id AND fl.file_id=x.id AND m.deleted_at IS NULL AND c.archived_at IS NULL AND ${seesConversation(session)}))))
             AND (f.target_type NOT IN ('message','conversation') OR EXISTS(
                   SELECT 1 FROM conversations c
                    WHERE c.workspace_id=f.workspace_id
@@ -103,7 +145,7 @@ export function createMarkRepository(pool) {
                            ELSE (SELECT m.conversation_id FROM messages m WHERE m.workspace_id=f.workspace_id AND m.id=f.target_id) END
                      AND ${seesConversation(session)}))
           ORDER BY f.created_at DESC LIMIT $4`,
-        [session.workspaceId, session.userId, type, Math.min(Math.max(Number(limit) || 200, 1), 500)],
+        [session.workspaceId, session.userId, type, Math.min(Math.max(Number(limit) || 200, 1), 500), session.role],
       );
       return rows;
     },
@@ -114,6 +156,8 @@ export function createMarkRepository(pool) {
       // показывает название беседы и начало сообщения.
       if (targetType === 'message') await mayTouchMessage(session, targetId, null);
       if (targetType === 'conversation') await mayTouchConversation(session, targetId);
+      if (targetType === 'event') await mayTouchEvent(session, targetId);
+      if (targetType === 'file') await mayTouchFile(session, targetId);
       if (targetType === 'task') {
         const { rowCount } = await pool.query(
           `SELECT 1 FROM commitments t WHERE t.workspace_id=$1 AND t.id=$2
