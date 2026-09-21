@@ -313,7 +313,7 @@ function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','ca
       Date.parse(e.startAt)>=dayEnd.getTime()?new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'long'}):'',
       e.participantCount?`${e.participantCount} ${pluralIn(e.participantCount,['участник','участника','участников'],['participant','participants'])}`:'',
       e.needsMyAnswer?'нужен ответ':'',
-    ].filter(Boolean).join(' · '))}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></button>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или фокус-время.</div>'}</section><section class="surface"><div class="section-head"><h2>Мои задачи</h2>${can('task.create')?'<button data-action="task" class="button secondary small pressable">＋ Задача</button>':''}</div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section>${planSection()}</div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>${plural(active.length,'активная задача','активные задачи','активных задач')}</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>${plural(S.people.length,'сотрудник','сотрудника','сотрудников')}</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>${plural(S.conversations.length,'диалог','диалога','диалогов')}</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
+    ].filter(Boolean).join(' · '))}</div></span><span class="chip warm">${e.kind==='meeting'?'Встреча':'В плане'}</span></button>`).join(''):'<div class="empty"><strong>Свободный день</strong>Добавьте встречу или фокус-время.</div>'}</section>${answerNeededSection()}<section class="surface"><div class="section-head"><h2>Мои задачи</h2>${can('task.create')?'<button data-action="task" class="button secondary small pressable">＋ Задача</button>':''}</div>${active.slice(0,5).map(taskRow).join('')||'<div class="empty"><strong>Задач пока нет</strong>Создайте задачу вручную или из сообщения.</div>'}</section>${planSection()}</div><div class="stack"><div class="metric-grid"><div class="metric-card"><strong>${active.length}</strong><span>${plural(active.length,'активная задача','активные задачи','активных задач')}</span></div><div class="metric-card"><strong>${S.people.length}</strong><span>${plural(S.people.length,'сотрудник','сотрудника','сотрудников')}</span></div><div class="metric-card"><strong>${S.conversations.length}</strong><span>${plural(S.conversations.length,'диалог','диалога','диалогов')}</span></div></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
 /**
  * The personal list, on the screen where the day is planned. A commitment
  * belongs to «Мои задачи» above; this is the work nobody promised to anybody.
@@ -359,6 +359,29 @@ function plural(n,one,few,many){
   if(last===1)return one;
   if(last>=2&&last<=4)return few;
   return many;
+}
+
+/**
+ * Задачи, которые ждут решения именно этого человека.
+ *
+ * Задача рождается «предложенной»: пока ответственный её не принял,
+ * работать по ней нельзя. Но нигде не было сказано, что от него требуется
+ * действие — строка в общем списке выглядела как любая другая, и
+ * обязательство подвисало на неопределённый срок. Новый сотрудник в
+ * первый день тем более не догадывался, что «предложена» значит «ответь».
+ */
+function answerNeededSection(){
+  const waiting=S.tasks.filter(t=>t.status==='proposed'&&t.ownerId===me()?.userId);
+  const invitations=S.invitations?.length??0;
+  if(!waiting.length)return '';
+  return `<section class="surface"><div class="section-head"><div><h2>Требуется ваш ответ</h2>
+      <p class="muted">${waiting.length} ${plural(waiting.length,'задача ждёт','задачи ждут','задач ждут')} вашего решения${invitations?' · и приглашения на встречи выше':''}</p></div></div>
+    ${waiting.map(t=>`<div class="row"><span><div class="row-title">${esc(t.title)}</div>
+      <div class="row-sub">${esc(name(t.requesterId))}${t.promisedAt?` · до ${esc(dateTime(t.promisedAt))}`:''}</div></span>
+      <span class="inline-actions">
+        <button class="button small primary pressable" data-answer-task="${esc(t.id)}" data-answer-to="accepted">Принять</button>
+        <button class="button small secondary pressable" data-answer-task="${esc(t.id)}" data-answer-to="clarify">Уточнить</button>
+      </span></div>`).join('')}</section>`;
 }
 
 function planSection(){
@@ -466,7 +489,23 @@ const TASK_EVENT={
   'acceptance.recorded':'решение о приёмке',
 };
 const TASK_ACTION={accepted:'Принять ответственность',rejected:'Отказаться',clarify:'Запросить уточнение',scheduled:'Запланировать',in_progress:'Начать работу',blocked:'Есть блокировка',in_review:'Отправить на проверку',accepted_result:'Принять результат',closed:'Закрыть',deferred:'Отложить',cancelled:'Отменить'};
-function taskRow(t){return `<button class="task-card pressable" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span>${esc(dateTime(t.promisedAt))}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div></span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`}
+/**
+ * Строка задачи.
+ *
+ * Слова «просрочено» не было во всём интерфейсе: просроченная задача
+ * выглядела ровно как будущая — дата и чип важности, — и ответа на
+ * вопрос «что сегодня горит» продукт не давал ни на одном экране.
+ */
+const taskOverdue=(t)=>Boolean(t.promisedAt)&&Date.parse(t.promisedAt)<Date.now()
+  &&!['closed','accepted_result','cancelled','rejected'].includes(t.status);
+const taskDueSoon=(t)=>Boolean(t.promisedAt)&&!taskOverdue(t)
+  &&Date.parse(t.promisedAt)-Date.now()<24*3600*1000
+  &&!['closed','accepted_result','cancelled','rejected'].includes(t.status);
+function taskRow(t){
+  const late=taskOverdue(t),soon=taskDueSoon(t);
+  const when=t.promisedAt?esc(dateTime(t.promisedAt)):'без срока';
+  return `<button class="task-card pressable${late?' overdue':''}" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span class="${late?'task-late':soon?'task-soon':''}">${late?'просрочено — ':soon?'сегодня — ':''}${when}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div></span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`;
+}
 function kindLabel(k){return({voice:'Голосовое сообщение',file:'Файл',call:'Звонок',task:'Задача',calendar:'Событие'})[k]||''}
 function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}"><span class="avatar dark">${x.kind==='channel'?'#':esc(initials(x.title||'D'))}</span><span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${x.lastMessage?esc(x.lastMessage.body||kindLabel(x.lastMessage.kind)):''}</div>${x.lastMessage?'':'<div class="preview preview-empty">Нет сообщений</div>'}</span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?' · уведомления выключены':''}</p></div></div><div class="inline-actions"><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button><button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button><button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}<button data-action="audio" class="round-button pressable" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button></div></header><div id="message-stream" class="message-stream">${S.messageCursor.get(c.id)?'<button id="load-older" class="button secondary pressable" style="margin:0 auto 10px;display:block">Показать более ранние</button>':''}${messageStream(messages)}</div><div id="typing" class="typing"></div><div class="composer-wrap">${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
 /**
@@ -844,6 +883,20 @@ function bind(){
   // Строка встречи в расписании дня выглядела нажимаемой и не открывала
   // ничего: карточку встречи знал только календарь.
   $$('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
+  // Принять задачу или попросить уточнение можно прямо из строки: до сих
+  // пор для этого нужно было открыть карточку и найти нужную кнопку.
+  $$('[data-answer-task]').forEach(b=>b.onclick=async()=>{
+    const task=S.tasks.find(t=>t.id===b.dataset.answerTask);
+    if(!task)return;
+    try{
+      await api(`/api/v1/tasks/${task.id}/transitions`,{method:'POST',body:JSON.stringify({
+        to:b.dataset.answerTo,expectedVersion:task.version,
+        ...(b.dataset.answerTo==='clarify'?{reason:'Нужно уточнение'}:{}),
+      })});
+      toast(b.dataset.answerTo==='accepted'?'Задача принята':'Запрошено уточнение');
+      await loadTasks();render();
+    }catch(error){toast(error.message)}
+  });
   // Ответить на приглашение можно прямо из «Сегодня», не открывая встречу.
   $$('[data-invite-answer]').forEach(b=>b.onclick=async()=>{
     try{

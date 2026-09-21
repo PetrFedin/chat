@@ -261,15 +261,18 @@ export class MemoryStore extends BaseMemoryStore {
   async attentionSummary(session) {
     const conversations = await this.listConversations(session);
     const notifications = await this.listNotifications(session, { status:'unread', limit:100 });
-    const tasks = [...this.tasks.values()].filter((t) => t.workspaceId === session.workspaceId && t.ownerId === session.userId && ACTIVE_TASK_STATUSES.has(t.status));
+    const mine = [...this.tasks.values()].filter((t) => t.workspaceId === session.workspaceId
+      && [t.ownerId, t.requesterId, t.acceptorId].includes(session.userId)
+      && ACTIVE_TASK_STATUSES.has(t.status));
     const now = Date.now(), soon = now + 24*60*60*1000;
     return {
       unreadMessages:conversations.reduce((sum,c) => sum + Number(c.unreadCount || 0), 0),
       unreadConversations:conversations.filter((c) => c.unreadCount > 0).length,
       unreadNotifications:notifications.length,
       mentions:notifications.filter((n) => n.type === 'message.mentioned').length,
-      overdueTasks:tasks.filter((t) => t.promisedAt && Date.parse(t.promisedAt) < now).length,
-      dueSoonTasks:tasks.filter((t) => t.promisedAt && Date.parse(t.promisedAt) >= now && Date.parse(t.promisedAt) <= soon).length,
+      // См. PostgreSQL-хранилище: обязательство касается троих.
+      overdueTasks:mine.filter((t) => t.promisedAt && Date.parse(t.promisedAt) < now).length,
+      dueSoonTasks:mine.filter((t) => t.promisedAt && Date.parse(t.promisedAt) >= now && Date.parse(t.promisedAt) <= soon).length,
     };
   }
 
@@ -513,7 +516,15 @@ export class PostgresStore extends BasePostgresStore {
     const [conversationRows,notificationCounts,taskCounts]=await Promise.all([
       this.listConversations(session),
       this.pool.query(`SELECT count(*) FILTER(WHERE status='unread')::int unread,count(*) FILTER(WHERE status='unread' AND type='message.mentioned')::int mentions FROM notifications WHERE workspace_id=$1 AND recipient_user_id=$2 AND archived_at IS NULL`,[session.workspaceId,session.userId]),
-      this.pool.query(`SELECT count(*) FILTER(WHERE promised_at<now())::int overdue,count(*) FILTER(WHERE promised_at>=now() AND promised_at<=now()+interval '24 hours')::int due_soon FROM commitments WHERE workspace_id=$1 AND owner_id=$2 AND status=ANY($3::text[])`,[session.workspaceId,session.userId,[...ACTIVE_TASK_STATUSES]])
+      // Считались только задачи, которыми человек владеет. Руководитель
+      // задачи раздаёт, а не исполняет, — и видел вечные нули, пока в
+      // компании горели шесть просроченных. Обязательство касается троих:
+      // кто делает, кто просил и кто принимает результат.
+      this.pool.query(`SELECT count(*) FILTER(WHERE promised_at<now())::int overdue,
+               count(*) FILTER(WHERE promised_at>=now() AND promised_at<=now()+interval '24 hours')::int due_soon
+          FROM commitments
+         WHERE workspace_id=$1 AND (owner_id=$2 OR requester_id=$2 OR acceptor_id=$2)
+           AND status=ANY($3::text[])`,[session.workspaceId,session.userId,[...ACTIVE_TASK_STATUSES]])
     ]);
     const n=notificationCounts.rows[0]??{},t=taskCounts.rows[0]??{};
     return{unreadMessages:conversationRows.reduce((sum,c)=>sum+Number(c.unreadCount||0),0),unreadConversations:conversationRows.filter(c=>c.unreadCount>0).length,unreadNotifications:Number(n.unread||0),mentions:Number(n.mentions||0),overdueTasks:Number(t.overdue||0),dueSoonTasks:Number(t.due_soon||0)};
