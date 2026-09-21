@@ -112,7 +112,42 @@ const ERROR_MESSAGE={
   TARGET_NOT_FOUND:'Объект недоступен.',
 };
 
-async function api(path,o={}){const r=await fetch(path,{credentials:'same-origin',...o,headers:{...(typeof o.body==='string'?{'content-type':'application/json'}:{}),...(o.headers||{})}});if(r.status===204)return null;const p=(r.headers.get('content-type')||'').includes('json')?await r.json():await r.text();if(!r.ok){const code=p?.error?.code;const e=new Error(ERROR_MESSAGE[code]||p?.error?.message||`HTTP ${r.status}`);e.status=r.status;e.code=code;e.serverMessage=p?.error?.message;throw e}return p}
+/**
+ * Один вызов к серверу.
+ *
+ * Изменяющие запросы уходят с Idempotency-Key: сервер умеет отличать
+ * повтор от нового действия с самого начала, а клиент ключа не посылал —
+ * и оборванная сеть превращала одно нажатие в две задачи или два перевода
+ * владения. Ключ живёт на попытку и переживает единственный автоповтор:
+ * когда запрос не доехал, мы не знаем, выполнился он или нет, и повторяем
+ * тем же ключом — второй раз сервер ничего не создаст, а вернёт первый
+ * ответ.
+ */
+const WRITE_METHODS=new Set(['POST','PATCH','PUT','DELETE']);
+async function api(path,o={}){
+  const method=(o.method||'GET').toUpperCase();
+  const headers={...(typeof o.body==='string'?{'content-type':'application/json'}:{}),...(o.headers||{})};
+  if(WRITE_METHODS.has(method)&&!headers['idempotency-key']&&!headers['Idempotency-Key']){
+    headers['Idempotency-Key']=o.idempotencyKey??(crypto.randomUUID?.()??`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  }
+  const send=()=>fetch(path,{credentials:'same-origin',...o,headers});
+  let r;
+  try{r=await send()}
+  catch(networkError){
+    if(!WRITE_METHODS.has(method))throw networkError;
+    // Сеть моргнула: тем же ключом повтор безопасен.
+    try{r=await send()}catch{throw networkError}
+  }
+  if(r.status===204)return null;
+  const p=(r.headers.get('content-type')||'').includes('json')?await r.json():await r.text();
+  if(!r.ok){
+    const code=p?.error?.code;
+    const e=new Error(ERROR_MESSAGE[code]||p?.error?.message||`HTTP ${r.status}`);
+    e.status=r.status;e.code=code;e.serverMessage=p?.error?.message;throw e;
+  }
+  return p;
+}
+
 function toast(t){const n=document.createElement('div');n.className='toast';n.textContent=t;$('#toast-root').append(n);setTimeout(()=>n.remove(),2400)}
 function auth(mode='login'){
   $('#app-view').hidden=true;$('#auth-view').hidden=false;
