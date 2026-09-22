@@ -1482,7 +1482,7 @@ async function orgModal(){
     $$('[data-unit]').forEach(button=>button.onclick=()=>unitSheet(units.find(u=>u.id===button.dataset.unit),{wide,units}));
     // Вход в комнату подразделения: закрываем лист и открываем беседу —
     // это обычная комната, и дальше всё работает как везде.
-    $$('[data-unit-room]').forEach(button=>button.onclick=()=>{closeModal();openChat(button.dataset.unitRoom)});
+    $$('[data-unit-room]').forEach(button=>button.onclick=()=>openChatFromSheet(button.dataset.unitRoom));
   });
 }
 
@@ -2823,7 +2823,7 @@ async function catalogueModal(){
             catalogueModal.timer=setTimeout(async()=>{S.catalogueQuery=search.value.trim();await refresh()},220);
           };
         }
-        $$('[data-catalogue-open]').forEach(b=>b.onclick=()=>{closeModal();openChat(b.dataset.catalogueOpen)});
+        $$('[data-catalogue-open]').forEach(b=>b.onclick=()=>openChatFromSheet(b.dataset.catalogueOpen));
         $$('[data-catalogue-join]').forEach(b=>b.onclick=async()=>{
           b.disabled=true;
           try{
@@ -3481,7 +3481,7 @@ async function favouritesModal(tab='conversation'){
         $$('[data-go-conversation]').forEach(b=>b.onclick=(event)=>{
           if(event.target.closest('[data-drop-favourite],[data-drop-highlight],[data-drop-note]'))return;
           const messageId=b.dataset.goMessage;
-          closeModal();openChat(b.dataset.goConversation);
+          openChatFromSheet(b.dataset.goConversation);
           if(messageId)setTimeout(()=>{
             const row=document.querySelector(`[data-message-row="${CSS.escape(messageId)}"]`);
             if(row){row.scrollIntoView({block:'center',behavior:'smooth'});row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash')}
@@ -3820,7 +3820,7 @@ async function decisionsModal(query=''){
   `,()=>{
     const form=$('#decisions-search');
     form.onsubmit=(event)=>{event.preventDefault();closeModal();decisionsModal(new FormData(form).get('q')||'')};
-    $$('[data-decision-room]').forEach(button=>button.onclick=()=>{closeModal();openChat(button.dataset.decisionRoom)});
+    $$('[data-decision-room]').forEach(button=>button.onclick=()=>openChatFromSheet(button.dataset.decisionRoom));
   });
 }
 
@@ -4177,6 +4177,26 @@ function closeModal(){
  * когда-то не работала ни одна плитка в листе «Создать». Лишняя запись
  * в истории — плата за то, чтобы плитки открывались.
  */
+/**
+ * Закрыть лист и уйти в беседу.
+ *
+ * `closeModal` откручивает историю, а откручивание асинхронно: переход,
+ * сделанный сразу после него, отменяет отложенный popstate — человек
+ * жмёт «Комиссия по сделке» и оказывается на «Сегодня». Так открывались
+ * беседы из каталога каналов, из решения, по ссылке «перейти к беседе» и
+ * из своих подразделений — все четыре места.
+ *
+ * Историю здесь не откручиваем вовсе, а сразу правим адрес: лишняя
+ * запись в истории — привычная для этого места плата за то, чтобы
+ * переход случился. Ровно так же поступает `replaceModal` ниже.
+ */
+function openChatFromSheet(id){
+  overlayStack.length=0;
+  renderOverlay();
+  go('chats');
+  openChat(id);
+}
+
 function replaceModal(open){if(overlayStack.length)overlayStack.pop();open()}
 function quick(){modal('Создать',`<div class="module-grid"><button class="module-card" data-q="dm"><span class="module-icon">${navIcon.chats}</span><strong>Сообщение</strong></button><button class="module-card" data-q="group"><span class="module-icon">${tileIcon.team}</span><strong>Группа</strong></button><button class="module-card" data-q="task"><span class="module-icon">${msgIcon.task}</span><strong>Задача</strong></button><button class="module-card" data-q="event"><span class="module-icon">${navIcon.calendar}</span><strong>Событие</strong></button><button class="module-card" data-q="channel"><span class="module-icon">${roomIcon.channel}</span><strong>Канал</strong></button></div>`);$$('[data-q]').forEach(b=>b.onclick=()=>{const x=b.dataset.q;replaceModal(({dm:directModal,group:groupModal,task:()=>taskModal(),event:eventModal,channel:channelModal})[x])})}
 const TASK_PRIORITY={normal:'обычный',high:'высокий',urgent:'срочный',low:'низкий'};
@@ -4531,9 +4551,9 @@ function eventModal(prefill=''){
  */
 function participantChecks(selected=[],name='participant',{openRoom=false}={}){const chosen=new Set(selected);return S.people.filter(p=>p.userId!==me().userId&&p.active!==false&&(!openRoom||p.role!=='guest')).map(p=>`<label class="row candidate-row" style="cursor:pointer"><input type="checkbox" name="${name}" value="${p.userId}" ${chosen.has(p.userId)?'checked':''}>${personAvatar(p)}<span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||roleWord(p.role))}</div></span></label>`).join('')||'<div class="empty">Сначала пригласите сотрудников.</div>'}
 
-function groupModal(){modal('Новая группа',`<form id="group-form" class="form-stack"><label>Название группы<input name="title" required maxlength="120"></label><div><div class="row-title">Участники</div><div class="row-sub">Выберите минимум одного коллегу</div><div style="margin-top:8px">${participantChecks()}</div></div><button class="button primary">Создать группу</button></form>`);$('#group-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,ids=[...form.querySelectorAll('input[name="participant"]:checked')].map(x=>x.value);if(ids.length<1)return toast('Для группового чата выберите минимум одного коллегу.');try{const f=new FormData(form),{conversation}=await api('/api/v1/conversations',{method:'POST',body:JSON.stringify({kind:'group',title:f.get('title'),participantIds:ids})});rememberConversation(conversation);closeModal();openChat(conversation.id)}catch(error){toast(error.message)}}}
+function groupModal(){modal('Новая группа',`<form id="group-form" class="form-stack"><label>Название группы<input name="title" required maxlength="120"></label><div><div class="row-title">Участники</div><div class="row-sub">Выберите минимум одного коллегу</div><div style="margin-top:8px">${participantChecks()}</div></div><button class="button primary">Создать группу</button></form>`);$('#group-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,ids=[...form.querySelectorAll('input[name="participant"]:checked')].map(x=>x.value);if(ids.length<1)return toast('Для группового чата выберите минимум одного коллегу.');try{const f=new FormData(form),{conversation}=await api('/api/v1/conversations',{method:'POST',body:JSON.stringify({kind:'group',title:f.get('title'),participantIds:ids})});rememberConversation(conversation);openChatFromSheet(conversation.id)}catch(error){toast(error.message)}}}
 
-function channelModal(){modal('Новый канал',`<form id="channel-form" class="form-stack"><label>Название<input name="title" required></label><label>Описание<input name="purpose"></label><label>Доступ<select name="visibility" class="field"><option value="workspace">Вся компания</option><option value="private">Только участники</option></select></label><label class="row" style="cursor:pointer"><input type="checkbox" name="announcementOnly"><span><div class="row-title">Только объявления</div><div class="row-sub">Публиковать смогут владелец, модераторы и управляющие каналами</div></span></label><div><div class="row-title">Участники закрытого канала</div><div class="row-sub">Для общего канала список не ограничивает доступ</div><div style="margin-top:8px">${participantChecks()}</div></div><button class="button primary">Создать</button></form>`);$('#channel-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,f=new FormData(form),ids=[...form.querySelectorAll('input[name="participant"]:checked')].map(x=>x.value);try{const{conversation}=await api('/api/v1/conversations',{method:'POST',body:JSON.stringify({kind:'channel',title:f.get('title'),purpose:f.get('purpose'),visibility:f.get('visibility'),participantIds:ids,announcementOnly:f.get('announcementOnly')==='on'})});rememberConversation(conversation);closeModal();openChat(conversation.id)}catch(error){toast(error.message)}}}
+function channelModal(){modal('Новый канал',`<form id="channel-form" class="form-stack"><label>Название<input name="title" required></label><label>Описание<input name="purpose"></label><label>Доступ<select name="visibility" class="field"><option value="workspace">Вся компания</option><option value="private">Только участники</option></select></label><label class="row" style="cursor:pointer"><input type="checkbox" name="announcementOnly"><span><div class="row-title">Только объявления</div><div class="row-sub">Публиковать смогут владелец, модераторы и управляющие каналами</div></span></label><div><div class="row-title">Участники закрытого канала</div><div class="row-sub">Для общего канала список не ограничивает доступ</div><div style="margin-top:8px">${participantChecks()}</div></div><button class="button primary">Создать</button></form>`);$('#channel-form').onsubmit=async e=>{e.preventDefault();const form=e.currentTarget,f=new FormData(form),ids=[...form.querySelectorAll('input[name="participant"]:checked')].map(x=>x.value);try{const{conversation}=await api('/api/v1/conversations',{method:'POST',body:JSON.stringify({kind:'channel',title:f.get('title'),purpose:f.get('purpose'),visibility:f.get('visibility'),participantIds:ids,announcementOnly:f.get('announcementOnly')==='on'})});rememberConversation(conversation);openChatFromSheet(conversation.id)}catch(error){toast(error.message)}}}
 
 /**
  * What a room is and how to get out of it.
@@ -4797,7 +4817,7 @@ function conversationEditModal(c){
 
 async function membersModal(){const conversation=S.conversations.find(x=>x.id===S.selected);if(!conversation)return toast('Сначала откройте группу или канал.');try{const payload=await api(`/api/v1/conversations/${conversation.id}/members`),members=payload.items||[],orphaned=conversation.kind!=='direct'&&!members.some(x=>x.role==='owner')&&['owner','admin','manager'].includes(me().role),memberIds=new Set(members.map(x=>x.userId)),available=S.people.filter(p=>p.userId!==me().userId&&p.active!==false&&!memberIds.has(p.userId));modal('Участники',`<div class="stack"><div>${members.map(m=>`<div class="row" data-member-row="${m.userId}">${personAvatar(m)}<span><div class="row-title">${esc(m.displayName||m.email)}</div><div class="row-sub">${esc(m.title||roleWord(m.workspaceRole))}</div></span>${payload.canManage?`<span class="inline-actions"><select class="field" data-member-role="${m.userId}" style="min-width:120px">${m.workspaceRole==='guest'?'':`<option value="owner" ${m.role==='owner'?'selected':''}>Владелец</option><option value="moderator" ${m.role==='moderator'?'selected':''}>Модератор</option>`}<option value="member" ${m.role==='member'?'selected':''}>Участник</option><option value="guest" ${m.role==='guest'?'selected':''}>Гость</option></select><button type="button" class="close-button" data-member-remove="${m.userId}" title="Удалить">×</button></span>`:`<span class="chip">${esc(m.role)}</span>`}</div>`).join('')}</div>${orphaned?`<div class="stack" style="margin:12px 0"><p class="muted">У беседы не осталось владельца: настраивать её и вести список участников некому.</p><button type="button" data-conv-claim class="button secondary">Стать владельцем</button></div>`:''}${payload.canManage&&available.length?`<form id="add-members-form" class="form-stack"><div><div class="row-title">Добавить участников</div><div style="margin-top:8px">${available.filter(p=>!['workspace','organization'].includes(conversation.visibility)||p.role!=='guest').map(p=>`<label class="row candidate-row" style="cursor:pointer"><input type="checkbox" name="candidate" value="${p.userId}">${personAvatar(p)}<span><div class="row-title">${esc(p.displayName||p.email)}</div><div class="row-sub">${esc(p.title||roleWord(p.role))}</div></span></label>`).join('')}</div></div><button class="button secondary">Добавить выбранных</button></form>`:''}</div>`);const claimButton=$('[data-conv-claim]');if(claimButton)claimButton.onclick=async()=>{try{await api(`/api/v1/conversations/${conversation.id}/claim`,{method:'POST'});const i=S.conversations.findIndex(x=>x.id===conversation.id);if(i>=0)S.conversations[i]={...S.conversations[i],memberRole:'owner'};toast('Вы стали владельцем беседы');await membersModal();render()}catch(error){toast(error.message)}};if(payload.canManage){$$('[data-member-role]').forEach(select=>select.onchange=async()=>{try{await api(`/api/v1/conversations/${conversation.id}/members/${select.dataset.memberRole}`,{method:'PATCH',body:JSON.stringify({role:select.value})});toast('Роль обновлена');await membersModal()}catch(error){toast(error.message);await membersModal()}});$$('[data-member-remove]').forEach(button=>button.onclick=async()=>{try{await api(`/api/v1/conversations/${conversation.id}/members/${button.dataset.memberRemove}`,{method:'DELETE'});toast('Участник удалён');await membersModal()}catch(error){toast(error.message)}});const form=$('#add-members-form');if(form)form.onsubmit=async e=>{e.preventDefault();const ids=[...form.querySelectorAll('input[name="candidate"]:checked')].map(x=>x.value);if(!ids.length)return toast('Выберите участников.');try{await api(`/api/v1/conversations/${conversation.id}/members`,{method:'POST',body:JSON.stringify({userIds:ids})});toast('Участники добавлены');await membersModal()}catch(error){toast(error.message)}}}}catch(error){toast(error.message)}}
 
-function directModal(){const others=S.people.filter(p=>p.userId!==me().userId);modal('Новое сообщение',others.map(p=>`<button class="conversation-card" data-person="${p.userId}">${personAvatar(p)}<span><strong>${esc(p.displayName||p.email)}</strong><div class="preview">${esc(p.title||roleWord(p.role))}</div></span></button>`).join('')||'<div class="empty">Сначала пригласите сотрудников.</div>');$$('[data-person]').forEach(b=>b.onclick=async()=>{const p=person(b.dataset.person),{conversation}=await api('/api/v1/conversations',{method:'POST',body:JSON.stringify({kind:'direct',title:p?.displayName||null,participantIds:[b.dataset.person]})});rememberConversation(conversation);closeModal();openChat(conversation.id)})}
+function directModal(){const others=S.people.filter(p=>p.userId!==me().userId);modal('Новое сообщение',others.map(p=>`<button class="conversation-card" data-person="${p.userId}">${personAvatar(p)}<span><strong>${esc(p.displayName||p.email)}</strong><div class="preview">${esc(p.title||roleWord(p.role))}</div></span></button>`).join('')||'<div class="empty">Сначала пригласите сотрудников.</div>');$$('[data-person]').forEach(b=>b.onclick=async()=>{const p=person(b.dataset.person),{conversation}=await api('/api/v1/conversations',{method:'POST',body:JSON.stringify({kind:'direct',title:p?.displayName||null,participantIds:[b.dataset.person]})});rememberConversation(conversation);openChatFromSheet(conversation.id)})}
 /**
  * Приглашение списком.
  *

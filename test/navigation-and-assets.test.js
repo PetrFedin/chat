@@ -164,6 +164,23 @@ test('знак в шапке встроен, а значки отдаются к
   assert.match(server, /\['\.svg','image\/svg\+xml'\]/);
 });
 
+/**
+ * Уйти в беседу из листа.
+ *
+ * `closeModal` откручивает историю, а откручивание асинхронно: переход,
+ * сделанный сразу после него, отменял отложенный popstate — человек жал
+ * «Комиссия по сделке» и оказывался на «Сегодня». Так открывались
+ * беседы в четырёх местах: каталог каналов, решение, ссылка «перейти к
+ * беседе» и свои подразделения.
+ */
+test('переход в беседу из листа не отменяется откруткой истории', async () => {
+  const app = await read('public/app.js');
+  assert.match(app, /function openChatFromSheet\(id\)\{/);
+  // Ни одного места, где лист закрывают и тут же уходят в беседу.
+  assert.doesNotMatch(app, /closeModal\(\);openChat\(/,
+    'переход в беседу снова делается сразу после открутки истории');
+});
+
 test('a modal is a dialog: focused, trapped, and closed by Escape', async () => {
   const source = await read('public/app.js');
   assert.match(source, /role="dialog" aria-modal="true" aria-labelledby="modal-heading"/);
