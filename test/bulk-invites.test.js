@@ -286,3 +286,92 @@ test('чужое приглашение руководитель отозват�
   assert.equal(allowed.status, 204, 'своё приглашение отозвать не дали');
   void byOwner; void byManager;
 });
+
+/**
+ * Место занимает и неотвеченное приглашение.
+ *
+ * Иначе в компанию на десять мест зовут пятьдесят человек, все получают
+ * ссылку — и сорок упираются в стену на входе, когда отказываться уже
+ * поздно и неловко.
+ */
+test('приглашения считаются занятыми местами, а гости мест не занимают',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const suffix = Math.random().toString(36).slice(2, 7);
+  const { base, owner } = await company(t, suffix);
+  // Владелец уже занимает место: ставим предел в три — два свободных.
+  await request(base, '/api/v1/workspace', { cookie: owner.cookie, method: 'PATCH', body: { seatLimit: 3 } });
+
+  const sent = await request(base, '/api/v1/invitations/bulk', {
+    cookie: owner.cookie, method: 'POST',
+    body: { items: [
+      { email: `s1-${suffix}@granit.test`, role: 'member' },
+      { email: `s2-${suffix}@granit.test`, role: 'member' },
+      { email: `s3-${suffix}@granit.test`, role: 'member' },
+      { email: `s4-${suffix}@granit.test`, role: 'guest' },
+    ] },
+  });
+  assert.deepEqual(sent.payload.results.map((r) => r.status),
+    ['invited', 'invited', 'no_seats', 'invited'],
+    'список должен упереться в предел и не остановиться на этом');
+
+  // Поштучно — тот же предел и внятный отказ.
+  const single = await request(base, '/api/v1/invitations', {
+    cookie: owner.cookie, method: 'POST', body: { email: `s5-${suffix}@granit.test`, role: 'member' },
+  });
+  assert.equal(single.status, 409);
+  assert.equal(single.code, 'NO_FREE_SEATS');
+  assert.match(single.payload.error.message, /неотвеченных приглашени/,
+    'отказ должен объяснять, куда делись места');
+
+  // Отозвали приглашение сотрудника — место вернулось. Именно
+  // сотрудника: гостевое места и не занимало, и отзывать его бесполезно.
+  const pending = (await request(base, '/api/v1/invitations', { cookie: owner.cookie })).payload.items;
+  const seatTaker = pending.find((i) => i.role === 'member');
+  await request(base, `/api/v1/invitations/${seatTaker.id}`, { cookie: owner.cookie, method: 'DELETE' });
+  const again = await request(base, '/api/v1/invitations', {
+    cookie: owner.cookie, method: 'POST', body: { email: `s6-${suffix}@granit.test`, role: 'member' },
+  });
+  assert.equal(again.status, 201, 'отозванное приглашение не освободило место');
+});
+
+/**
+ * Позвать заново: письмо не дошло, попало в спам или вышла неделя.
+ * Старая ссылка при этом закрывается — две живые ссылки на один адрес
+ * это два входа, и закрывать потом придётся обе.
+ */
+test('повторный зов даёт новую ссылку и закрывает старую',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const suffix = Math.random().toString(36).slice(2, 7);
+  const { base, owner } = await company(t, suffix);
+
+  const first = await request(base, '/api/v1/invitations', {
+    cookie: owner.cookie, method: 'POST', body: { email: `rs-${suffix}@granit.test`, role: 'member' },
+  });
+  const oldLink = first.payload.invitation.inviteUrl;
+  const pending = (await request(base, '/api/v1/invitations', { cookie: owner.cookie })).payload.items;
+  assert.equal(pending.length, 1);
+
+  const again = await request(base, `/api/v1/invitations/${pending[0].id}/resend`, {
+    cookie: owner.cookie, method: 'POST', body: {},
+  });
+  assert.equal(again.status, 201);
+  const newLink = again.payload.invitation.inviteUrl;
+  assert.notEqual(newLink, oldLink, 'ссылка должна смениться');
+
+  // Ожидающее по-прежнему одно: повторный зов не плодит приглашений и
+  // не расходует второе место.
+  const after = (await request(base, '/api/v1/invitations', { cookie: owner.cookie })).payload.items;
+  assert.equal(after.length, 1);
+
+  // Старая ссылка закрыта, новая работает.
+  const stale = await request(base, '/api/v1/invitations/accept', {
+    method: 'POST',
+    body: { token: new URL(oldLink).searchParams.get('invite'), displayName: 'Старый', password: 'MemberPassword42' },
+  });
+  assert.equal(stale.status, 404, 'прежняя ссылка всё ещё пускает');
+  const fresh = await request(base, '/api/v1/invitations/accept', {
+    method: 'POST',
+    body: { token: new URL(newLink).searchParams.get('invite'), displayName: 'Новый', password: 'MemberPassword42' },
+  });
+  assert.equal(fresh.status, 201);
+});

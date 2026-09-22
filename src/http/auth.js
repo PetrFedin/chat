@@ -384,6 +384,10 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
    */
   if(method==='GET'&&path==='/api/v1/invitations'){
     const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);
+    // Список приглашений держится на базе. В режиме на памяти его нет —
+    // и честный отказ лучше, чем пятисотая с внутренностями наружу.
+    if(!store.listPendingInvitations)throw Object.assign(new Error('Список приглашений доступен в режиме с базой данных'),
+      {code:'INVITATIONS_UNAVAILABLE',statusCode:503,expose:true});
     json(res,200,{items:await store.listPendingInvitations(s)});return true;
   }
 
@@ -395,6 +399,10 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
    */
   if(method==='DELETE'&&/^\/api\/v1\/invitations\/[0-9a-f-]{36}$/i.test(path)){
     const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);
+    // Отзыв и повторный зов держатся на базе: в режиме на памяти
+    // приглашениями не управляют.
+    if(!store.revokeInvitation||!store.pool)throw Object.assign(new Error('Управление приглашениями доступно в режиме с базой данных'),
+      {code:'INVITATIONS_UNAVAILABLE',statusCode:503,expose:true});
     const id=path.split('/').pop();
     const mayManage=(ctx.permissions(s.role)??[]).includes(Permission.MEMBER_MANAGE);
     const{rows}=await store.pool.query("SELECT invited_by FROM workspace_invitations WHERE workspace_id=$1 AND id=$2 AND status='pending'",[s.workspaceId,id]);
@@ -404,6 +412,46 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     }
     await store.revokeInvitation(s,id);
     noContent(res);return true;
+  }
+
+  /**
+   * Позвать заново.
+   *
+   * Письмо не дошло, попало в спам или неделя вышла — а человек нужен
+   * по-прежнему. Раньше на это приходилось отзывать и звать заново
+   * руками, помня и роль, и подразделение.
+   *
+   * Старая ссылка при этом закрывается: две живые ссылки на один адрес —
+   * это два входа, и закрыть потом придётся обе.
+   */
+  if(method==='POST'&&/^\/api\/v1\/invitations\/[0-9a-f-]{36}\/resend$/i.test(path)){
+    const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);
+    // Отзыв и повторный зов держатся на базе: в режиме на памяти
+    // приглашениями не управляют.
+    if(!store.revokeInvitation||!store.pool)throw Object.assign(new Error('Управление приглашениями доступно в режиме с базой данных'),
+      {code:'INVITATIONS_UNAVAILABLE',statusCode:503,expose:true});
+    const id=path.split('/')[4];
+    const mayManage=(ctx.permissions(s.role)??[]).includes(Permission.MEMBER_MANAGE);
+    const{rows}=await store.pool.query(
+      "SELECT email,role,unit_id,invited_by,access_until FROM workspace_invitations WHERE workspace_id=$1 AND id=$2 AND status='pending'",
+      [s.workspaceId,id]);
+    if(!rows.length)throw Object.assign(new Error('Приглашение не найдено'),{code:'INVITATION_NOT_FOUND',statusCode:404,expose:true});
+    const old=rows[0];
+    if(!mayManage&&old.invited_by!==s.userId){
+      throw Object.assign(new Error('Позвать заново может тот, кто позвал'),{code:'NOT_YOUR_INVITATION',statusCode:403,expose:true});
+    }
+    // Место уже занято этим же приглашением, поэтому мест не считаем:
+    // повторный зов того же человека их не расходует.
+    await store.revokeInvitation(s,id);
+    const token=createOpaqueToken();
+    const invitation=await store.createInvitation(s,{email:old.email,role:old.role,tokenHash:hashToken(token),
+      expiresAt:new Date(Date.now()+7*86400000).toISOString(),accessUntil:old.access_until??null,unitId:old.unit_id??null});
+    const inviteUrl=`${originOf(req)}/?invite=${encodeURIComponent(token)}`;
+    const letter=invitationMail({workspaceName:s.workspaceName??'рабочее пространство',
+      inviterName:s.displayName??s.email,role:old.role,url:inviteUrl,expiresAt:invitation.expiresAt});
+    const delivery=await post(ctx,{organizationId:s.organizationId,workspaceId:s.workspaceId,kind:'invitation',actorId:s.userId,
+      to:invitation.email,subject:letter.subject,text:letter.text,html:letter.html,sourceId:invitation.id});
+    json(res,201,{invitation:{...invitation,inviteUrl},mail:delivery});return true;
   }
 
   if(method==='POST'&&path==='/api/v1/invitations/bulk'){
@@ -426,6 +474,10 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     const unitAllowed=new Map();
     // Домен компании: адрес не на нём — повод присмотреться, а не отказ.
     const domain=String((await store.findCompanyDomain?.(s.organizationId))??'').toLowerCase()||null;
+    // Места считаем один раз и дальше ведём сами: иначе на каждую строку
+    // пришлось бы ходить в базу, а список бывает в двести строк.
+    const seats=store.seatState?await store.seatState(s):{free:null};
+    let free=seats.free;
     for(const row of rows){
       const raw=String(row?.email??'').trim();
       const role=row?.role??'member';
@@ -439,6 +491,9 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
       if(already.has(email)){results.push({email,status:'already',role});continue}
       if(!(role in RANK)||role==='owner'){results.push({email,status:'invalid_role',role});continue}
       if(RANK[role]>mine){results.push({email,status:'role_too_high',role});continue}
+      // Места кончились — строка отмечается, а список идёт дальше: за
+      // ней могут стоять гости, которым место и не нужно.
+      if(role!=='guest'&&free!==null&&free<=0){results.push({email,status:'no_seats',role});continue}
       const foreignDomain=Boolean(domain&&role!=='guest'&&!email.endsWith('@'+domain));
       let unitId=null;
       const unitName=String(row?.unit??'').trim();
@@ -460,6 +515,7 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
           inviterName:s.displayName??s.email,role,url:inviteUrl,expiresAt:invitation.expiresAt});
         await post(ctx,{organizationId:s.organizationId,workspaceId:s.workspaceId,kind:'invitation',actorId:s.userId,
           to:invitation.email,subject:letter.subject,text:letter.text,html:letter.html,sourceId:invitation.id});
+        if(role!=='guest'&&free!==null)free-=1;
         results.push({email,status:'invited',role,inviteUrl,unit:unitName||undefined,foreignDomain:foreignDomain||undefined});
       }catch(error){
         // Уже в компании или уже приглашён — не беда и не повод рушить
@@ -487,6 +543,19 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
       if(Number.isNaN(at.getTime()))throw Object.assign(new Error('Invalid date'),{code:'INVALID_DATE',statusCode:400,expose:true});
       if(at.getTime()<=Date.now())throw Object.assign(new Error('Срок доступа должен быть в будущем'),{code:'ACCESS_UNTIL_IN_PAST',statusCode:400,expose:true});
       accessUntil=at.toISOString();
+    }
+    // Места. Неотвеченное приглашение занимает место: иначе в компанию
+    // на десять мест зовут пятьдесят, и сорок упираются в стену уже на
+    // входе, когда отказываться поздно и неловко.
+    // Предел мест живёт в реквизитах компании, а они есть только у
+    // хранилища с базой. В режиме на памяти пределов нет вовсе — и
+    // притворяться, что есть, незачем.
+    if(wanted!=='guest'&&store.seatState){
+      const seats=await store.seatState(s);
+      if(seats.full){
+        throw Object.assign(new Error(`Свободных мест нет: занято ${seats.used} из ${seats.limit}, включая ${seats.invited} неотвеченных приглашений. Добавьте мест в «Ещё → Компания» или отзовите лишние приглашения.`),
+          {code:'NO_FREE_SEATS',statusCode:409,expose:true});
+      }
     }
     // Гостя в оргструктуру не ставят: он чужой сотрудник, и схема
     // компании врала бы про то, кто здесь работает.

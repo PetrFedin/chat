@@ -419,6 +419,30 @@ export class PostgresStore {
     return rows[0]??null;
   }
 
+  /**
+   * Сколько мест в компании занято.
+   *
+   * Неотвеченное приглашение считается занятым местом. Иначе в компанию
+   * на десять мест зовут пятьдесят человек, все получают ссылку — и
+   * сорок из них упираются в стену на входе, когда отказываться уже
+   * поздно и неловко.
+   *
+   * Гости мест не занимают: подрядчик приходит на одну работу и уходит,
+   * и штат компании от этого не растёт.
+   */
+  async seatState(s){
+    const{rows}=await this.pool.query(
+      `SELECT o.seat_limit "limit",
+        (SELECT count(*)::int FROM memberships m WHERE m.organization_id=o.id AND m.role<>'guest') members,
+        (SELECT count(*)::int FROM workspace_invitations i
+          WHERE i.organization_id=o.id AND i.status='pending' AND i.expires_at>now() AND i.role<>'guest') invited
+       FROM organizations o WHERE o.id=$1`,[s.organizationId]);
+    const row=rows[0]??{limit:null,members:0,invited:0};
+    const used=Number(row.members)+Number(row.invited);
+    return{limit:row.limit,members:Number(row.members),invited:Number(row.invited),used,
+      free:row.limit===null?null:row.limit-used,full:row.limit!==null&&used>=row.limit};
+  }
+
   /** Почтовый домен компании — по нему видно чужой адрес в списке. */
   async findCompanyDomain(organizationId){
     const{rows}=await this.pool.query('SELECT email_domain FROM organizations WHERE id=$1',[organizationId]);

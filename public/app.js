@@ -4812,7 +4812,7 @@ function parseStaffList(text){
   });
 }
 
-const BULK_STATUS={invited:'приглашён',already:'уже здесь',duplicate:'повтор в списке',
+const BULK_STATUS={invited:'приглашён',already:'уже здесь',duplicate:'повтор в списке',no_seats:'мест не осталось',
   invalid_email:'не адрес',invalid_role:'неизвестная роль',role_too_high:'права выше ваших',
   unknown_unit:'нет такого подразделения',unit_forbidden:'не ваше подразделение',failed:'не вышло'};
 
@@ -4857,14 +4857,27 @@ async function renderPendingInvites(){
   if(!box)return;
   try{
     const{items}=await api('/api/v1/invitations');
-    if(!items.length){box.innerHTML='';return}
+    const seats=S.boot?.company?.seatLimit
+      ?`<p class="muted" style="margin:10px 0 0;font-size:12px">Мест ${S.boot.company.seatLimit}, занято ${S.boot.company.seatsUsed} людьми и ${items.length} неотвеченными приглашениями. Гости мест не занимают.</p>`
+      :'';
+    if(!items.length){box.innerHTML=seats;return}
     box.innerHTML=`<h3 class="person-section">Ждут ответа — ${items.length}</h3>
       <div class="person-feed">${items.map(i=>`<div class="person-event">
         <span><div class="row-title">${esc(i.email)}</div>
           <div class="row-sub">${esc(ROLE_LABEL[i.role]||i.role)}${i.unitName?` · ${esc(i.unitName)}`:i.unitClosed?' · закрытое подразделение':''}${i.invitedByName?` · позвал ${esc(i.invitedByName)}`:''}</div></span>
         <span class="inline-actions">${i.expired?'<span class="chip warm">срок вышел</span>':''}
+          <button type="button" class="text-button" data-resend="${esc(i.id)}">позвать заново</button>
           <button type="button" class="text-button" data-revoke="${esc(i.id)}">отозвать</button></span>
-      </div>`).join('')}</div>`;
+      </div>`).join('')}</div>${seats}`;
+    $$('[data-resend]').forEach(b=>b.onclick=async()=>{
+      // Старая ссылка при этом закрывается: две живые ссылки на один
+      // адрес — это два входа, и закрывать потом придётся обе.
+      try{
+        const{mail}=await api(`/api/v1/invitations/${b.dataset.resend}/resend`,{method:'POST',body:'{}'});
+        toast(mail?.queued?'Письмо отправлено заново':'Почта не настроена — передайте ссылку сами');
+        await renderPendingInvites();
+      }catch(error){toast(error.message)}
+    });
     $$('[data-revoke]').forEach(b=>b.onclick=async()=>{
       try{await api(`/api/v1/invitations/${b.dataset.revoke}`,{method:'DELETE'});toast('Приглашение отозвано');await renderPendingInvites()}
       catch(error){toast(error.message)}
