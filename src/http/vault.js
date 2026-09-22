@@ -1,4 +1,5 @@
 import { json, noContent, readJson } from './helpers.js';
+import { Permission, requirePermission } from '../rbac.js';
 
 const ID = '([0-9a-f-]{36})';
 const ENTRY = new RegExp(`^/api/v1/vault/${ID}$`, 'i');
@@ -8,6 +9,10 @@ export function createVaultHandler() {
   return async function handleVault(req, res, ctx, url, path, method) {
     if (!path.startsWith('/api/v1/vault')) return false;
     const session = await ctx.requireSession(req);
+    // Сейф — личное хранилище сотрудника компании. Гость — представитель
+    // заказчика: складывать свои пароли в чужую базу, под чужим ключом и с
+    // раскрытием в чужом журнале, ему предлагать нечего.
+    requirePermission(session.role, Permission.VAULT_USE);
     const vault = ctx.vault;
     if (!vault?.enabled) {
       // Причина важна: без базы это одно, без ключа — другое, и второе

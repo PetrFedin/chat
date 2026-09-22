@@ -21,13 +21,30 @@ const NONCE = 12;
 const TAG = 16;
 const MAX_SECRET = 4000;
 
-export function readVaultKey(env = process.env) {
-  const raw = env.VAULT_KEY;
+const readKey = (raw) => {
   if (!raw) return null;
   let key;
   try { key = Buffer.from(raw, 'base64'); } catch { return null; }
   // 32 байта — длина ключа AES-256. Короче нельзя, длиннее — не ключ.
   return key.length === 32 ? key : null;
+};
+
+export function readVaultKey(env = process.env) {
+  return readKey(env.VAULT_KEY);
+}
+
+/**
+ * Ключи для чтения: нынешний и прежний.
+ *
+ * Смена ключа не бывает мгновенной: пока переписываются строки, часть
+ * их запечатана старым ключом, а часть новым. Без второго ключа на
+ * чтение такая смена означает остановку сейфа — и её просто не делают,
+ * а ключ, который нельзя сменить, живёт вечно.
+ *
+ * Запечатываем всегда нынешним; прежний только открывает.
+ */
+export function readVaultKeys(env = process.env) {
+  return { key: readKey(env.VAULT_KEY), previous: readKey(env.VAULT_KEY_PREVIOUS) };
 }
 
 export function seal(key, plaintext) {
@@ -37,12 +54,30 @@ export function seal(key, plaintext) {
   return Buffer.concat([nonce, cipher.getAuthTag(), body]);
 }
 
+/**
+ * Открывает запечатанное.
+ *
+ * Принимает и один ключ, и список: во время смены ключа часть строк
+ * запечатана прежним, и перебрать два ключа дешевле, чем остановить
+ * сейф на время переписывания.
+ */
 export function open(key, sealed) {
+  const keys = (Array.isArray(key) ? key : [key]).filter(Boolean);
+  if (!keys.length) throw fail('Stored secret is damaged', 'VAULT_ENTRY_DAMAGED', 500);
   const buffer = Buffer.from(sealed);
   if (buffer.length <= NONCE + TAG) throw fail('Stored secret is damaged', 'VAULT_ENTRY_DAMAGED', 500);
-  const decipher = createDecipheriv(ALGORITHM, key, buffer.subarray(0, NONCE));
-  decipher.setAuthTag(buffer.subarray(NONCE, NONCE + TAG));
-  return Buffer.concat([decipher.update(buffer.subarray(NONCE + TAG)), decipher.final()]).toString('utf8');
+  let last = null;
+  for (const candidate of keys) {
+    try {
+      const decipher = createDecipheriv(ALGORITHM, candidate, buffer.subarray(0, NONCE));
+      decipher.setAuthTag(buffer.subarray(NONCE, NONCE + TAG));
+      return Buffer.concat([decipher.update(buffer.subarray(NONCE + TAG)), decipher.final()]).toString('utf8');
+    } catch (error) { last = error; }
+  }
+  // Ни один ключ не подошёл — это либо порча, либо потерянный ключ.
+  // Различить снаружи нельзя, и обещать, что это просто «повреждено»,
+  // было бы неправдой.
+  throw Object.assign(fail('Stored secret cannot be opened with the configured key', 'VAULT_KEY_MISMATCH', 500), { cause: last });
 }
 
 const COLUMNS = `id,title,login,url,note,created_at "createdAt",updated_at "updatedAt",last_viewed_at "lastViewedAt"`;
@@ -63,7 +98,9 @@ const readSecret = (value) => {
 const trimmed = (value, limit) =>
   value == null || value === '' ? null : String(value).slice(0, limit);
 
-export function createVaultRepository(pool, { key = readVaultKey() } = {}) {
+export function createVaultRepository(pool, { key = readVaultKey(), previous = readVaultKeys().previous } = {}) {
+  // Запечатываем нынешним, открываем любым из двух: см. readVaultKeys.
+  const readers = [key, previous].filter(Boolean);
   const unavailable = (message, code) => () => { throw fail(message, code, 503); };
   if (!pool) {
     const stop = unavailable('The vault needs the PostgreSQL store', 'VAULT_UNAVAILABLE');
@@ -178,7 +215,7 @@ export function createVaultRepository(pool, { key = readVaultKey() } = {}) {
           [session.workspaceId, session.userId, id],
         );
         if (!rows[0]) throw fail('Vault entry not found', 'VAULT_ENTRY_NOT_FOUND', 404);
-        const secret = open(key, rows[0].secret);
+        const secret = open(readers, rows[0].secret);
         await client.query('UPDATE vault_entries SET last_viewed_at=now() WHERE id=$1', [id]);
         await audit(client, session, id, 'vault.revealed', { title: rows[0].title });
         await client.query('COMMIT');

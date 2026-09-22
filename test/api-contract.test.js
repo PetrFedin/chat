@@ -133,8 +133,12 @@ test('встречу можно изменить, дополнить и отме
   assert.match(app, /data-uninvite/);
   assert.match(app, /calendar-events\/\$\{event\.id\}`,\{method:'PATCH'/);
   assert.match(app, /calendar-events\/\$\{event\.id\}`,\{method:'DELETE'/);
-  // И строка встречи в расписании дня открывает её карточку.
-  assert.match(app, /class="agenda-row pressable" data-cal-event=/);
+  // И строка встречи в расписании дня открывает её карточку. Праздник и
+  // день рождения — не встречи: открывать у них нечего, и кнопкой они не
+  // становятся, иначе нажатие ведёт в пустоту.
+  assert.match(app, /data-cal-event="\$\{esc\(e\.id\)\}"/);
+  assert.match(app, /e\.readOnly\?'div':'button'/,
+    'праздник и день рождения в расписании остались кнопками');
 });
 
 // Раздел не отражался в адресе: перезагрузка неизменно возвращала на

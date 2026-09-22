@@ -43,7 +43,7 @@ export function createGamesHandler() {
       });
       ctx.hub.broadcastUsers(session.workspaceId, [game.challengerId, game.opponentId], 'game.updated', { gameId: game.id });
       await ctx.notifyUsers(session.workspaceId, [game.opponentId], {
-        title: 'Приглашение в игру', body: GAME_NAME[game.kind] ?? game.kind, url: '/#/games',
+        title: 'Приглашение в игру', body: GAME_NAME[game.kind] ?? game.kind, url: '/#/games', kind: 'game.move',
       });
       json(res, 201, { game });
       return true;

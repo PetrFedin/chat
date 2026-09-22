@@ -1,10 +1,12 @@
-import { Permission } from '../rbac.js';
+import { resolveAvatar } from '../media/avatar.js';
+import { Permission, requirePermission } from '../rbac.js';
 import { cleanText, json, readJson } from './helpers.js';
 
 const ID = '([0-9a-f-]{36})';
 const PERSON = new RegExp(`^/api/v1/people/${ID}$`, 'i');
 const ACTIVITY = new RegExp(`^/api/v1/people/${ID}/activity$`, 'i');
 const EMPLOYMENT = new RegExp(`^/api/v1/people/${ID}/(deactivate|reactivate)$`, 'i');
+const ACCESS = new RegExp(`^/api/v1/people/${ID}/access$`, 'i');
 
 // Лестница ролей: увольняют только тех, кто ниже.
 const RANK = { guest: 0, member: 1, manager: 2, admin: 3, owner: 4 };
@@ -68,6 +70,32 @@ export function createPeopleHandler() {
           patch.startedOn = startedOn.toISOString().slice(0, 10);
         }
       }
+      // День рождения — день и месяц, без года: поздравить нужно в
+      // правильный день, а возраст человек работодателю сообщать не
+      // обязан. «31 февраля» отвергается здесь, а не пятисоткой из базы.
+      if (body.birthday !== undefined) {
+        if (body.birthday === '' || body.birthday === null) { patch.birthDay = null; patch.birthMonth = null; }
+        else {
+          const parts = String(body.birthday).match(/^(\d{1,2})[-./](\d{1,2})$/);
+          const day = Number(parts?.[1]);
+          const month = Number(parts?.[2]);
+          const real = parts && month >= 1 && month <= 12 && day >= 1
+            // Високосный год для проверки: 29 февраля — настоящая дата.
+            && day <= new Date(Date.UTC(2028, month, 0)).getUTCDate();
+          if (!real) {
+            throw Object.assign(new Error('День рождения указывается как ДД.ММ'),
+              { code: 'INVALID_BIRTHDAY', statusCode: 400, expose: true });
+          }
+          patch.birthDay = day;
+          patch.birthMonth = month;
+        }
+      }
+      // Фотография приходит ссылкой на уже загруженный файл: снимок
+      // проходит тот же путь, что и любое вложение, — с проверкой
+      // размера, типа и принадлежности пространству.
+      if (Object.prototype.hasOwnProperty.call(body, 'avatarFileId')) {
+        patch.avatarFileId = await resolveAvatar(ctx.store, session, body.avatarFileId);
+      }
       const canManageMembers = (ctx.permissions(session.role) ?? []).includes(Permission.MEMBER_MANAGE);
       json(res, 200, { person: await people.updateProfile(session, m[1], patch, { canManageMembers }) });
       return true;
@@ -76,6 +104,31 @@ export function createPeopleHandler() {
     // Увольнение и возвращение на работу. Механизм был в схеме с самого
     // начала — вход и каждый запрос сверяются с `users.disabled_at`, — но
     // выставить признак было нечем, и ушедший сохранял доступ навсегда.
+    /**
+     * Срок доступа человека.
+     *
+     * Ставится в первую очередь гостю: проект закончился, а доступ к
+     * переписке и файлам остался, и руками его никто не вспомнит
+     * закрыть. Пустое значение снимает срок — так возвращают доступ
+     * тому, кто остался работать.
+     */
+    m = path.match(ACCESS);
+    if (m && method === 'PUT') {
+      const body = await readJson(req);
+      requirePermission(session.role, Permission.MEMBER_MANAGE);
+      if (!people.setAccessUntil) throw unavailable();
+      let accessUntil = null;
+      if (body.accessUntil) {
+        const at = new Date(body.accessUntil);
+        if (Number.isNaN(at.getTime())) {
+          throw Object.assign(new Error('Invalid date'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
+        }
+        accessUntil = at.toISOString();
+      }
+      json(res, 200, await people.setAccessUntil(session, m[1], accessUntil));
+      return true;
+    }
+
     m = path.match(EMPLOYMENT);
     if (m && method === 'POST') {
       if (!(ctx.permissions(session.role) ?? []).includes(Permission.MEMBER_MANAGE)) {

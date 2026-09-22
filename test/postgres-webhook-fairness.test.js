@@ -5,7 +5,7 @@ import pg from 'pg';
 import { createWebhookRepository } from '../src/integrations/webhook-repository.js';
 import { createDeliveryWorker } from '../src/integrations/delivery-worker.js';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 
 async function fixture(pool) {
   const organizationId = randomUUID();

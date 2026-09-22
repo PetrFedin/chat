@@ -23,6 +23,59 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     return true;
   }
 
+  /**
+   * «Что я пропустил» за период.
+   *
+   * Без `from` граница — прошлый сеанс этого человека: это и есть «пока
+   * меня не было», и спрашивать об этом незачем.
+   */
+  if (path === '/api/v1/digest' && method === 'GET') {
+    const session = await requireSession(req);
+    if (!ctx.digest) {
+      throw Object.assign(new Error('Сводка доступна в режиме с базой данных'),
+        { code: 'DIGEST_UNAVAILABLE', statusCode: 503, expose: true });
+    }
+    json(res, 200, await ctx.digest.build(session, { from: url.searchParams.get('from') }));
+    return true;
+  }
+
+  /**
+   * Первые шаги нового человека. `null` — показывать нечего.
+   */
+  if (path === '/api/v1/onboarding' && method === 'GET') {
+    const session = await requireSession(req);
+    json(res, 200, { onboarding: ctx.onboarding ? await ctx.onboarding.state(session) : null });
+    return true;
+  }
+  if (path === '/api/v1/onboarding/dismiss' && method === 'POST') {
+    const session = await requireSession(req);
+    if (!ctx.onboarding) {
+      throw Object.assign(new Error('Подсказка доступна в режиме с базой данных'),
+        { code: 'ONBOARDING_UNAVAILABLE', statusCode: 503, expose: true });
+    }
+    json(res, 200, await ctx.onboarding.dismiss(session));
+    return true;
+  }
+
+  /**
+   * Настройки уведомлений.
+   *
+   * Касаются только push — того, что прерывает человека. Список внутри
+   * приложения остаётся полным: это журнал, а не окрик.
+   */
+  if (path === '/api/v1/notification-preferences' && (method === 'GET' || method === 'PUT')) {
+    const session = await requireSession(req);
+    if (!ctx.notificationPreferences) {
+      throw Object.assign(new Error('Настройки уведомлений доступны в режиме с базой данных'),
+        { code: 'PREFERENCES_UNAVAILABLE', statusCode: 503, expose: true });
+    }
+    const preferences = method === 'GET'
+      ? await ctx.notificationPreferences.get(session)
+      : await ctx.notificationPreferences.save(session, await readJson(req));
+    json(res, 200, { preferences });
+    return true;
+  }
+
   if (path === '/api/v1/notifications' && method === 'GET') {
     const session = await requireSession(req);
     const status = url.searchParams.get('status');
@@ -57,7 +110,16 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     if (query.length < 2) return json(res,200,{query,items:[]});
     const types = parseTypes(url.searchParams.get('types'));
     const limit = pageSize(url.searchParams.get('limit'), 30, 60);
-    json(res,200,{query,items:await store.searchWorkspace(session,query,{types,limit})});
+    // Диапазон дат: договор трёхмесячной давности иначе тонет среди
+    // шестидесяти свежих совпадений, а второй страницы у поиска нет.
+    const range=(value)=>{
+      if(!value)return null;
+      const at=new Date(value);
+      if(Number.isNaN(at.getTime()))throw Object.assign(new Error('Invalid date'),{code:'INVALID_DATE',statusCode:400,expose:true});
+      return at.toISOString();
+    };
+    const from=range(url.searchParams.get('from')),to=range(url.searchParams.get('to'));
+    json(res,200,{query,from,to,items:await store.searchWorkspace(session,query,{types,limit,from,to})});
     return true;
   }
 

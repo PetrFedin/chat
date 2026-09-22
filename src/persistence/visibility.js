@@ -41,6 +41,17 @@ export const conversationListSql = (session, { withMentions = false } = {}) => `
        WHERE cm2.workspace_id=c.workspace_id AND cm2.conversation_id=c.id AND cm2.user_id<>$2
        LIMIT 1) END) "title",
     c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_at "createdAt",
+    -- У группы и канала фотография своя, у личной переписки — лицо
+    -- собеседника: своей обложки у разговора вдвоём не бывает.
+    COALESCE(
+      CASE WHEN c.avatar_file_id IS NOT NULL THEN '/api/v1/files/'||c.avatar_file_id||'/content' END,
+      CASE WHEN c.kind='direct' THEN (
+        SELECT '/api/v1/files/'||p3.avatar_file_id||'/content'
+          FROM conversation_members cm3
+          JOIN workspace_profiles p3 ON p3.workspace_id=cm3.workspace_id AND p3.user_id=cm3.user_id
+         WHERE cm3.workspace_id=c.workspace_id AND cm3.conversation_id=c.id AND cm3.user_id<>$2
+           AND p3.avatar_file_id IS NOT NULL
+         LIMIT 1) END) "avatarUrl",
     cm.archived_at "archivedAt",cm.muted_until "mutedUntil",cm.role "memberRole",
     (SELECT jsonb_build_object('id',m.id,'body',m.body,'kind',m.kind,'authorId',m.author_id,'createdAt',m.created_at)
       FROM messages m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.deleted_at IS NULL

@@ -6,7 +6,7 @@ import { PostgresStore } from '../src/persistence/store.js';
 import { createCalendarRepository } from '../src/calendar/calendar-repository.js';
 import { hashPassword, hashToken } from '../src/security.js';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 const soon = (hours) => new Date(Date.now() + hours * 36e5).toISOString();
 
 test('calendar participation', { skip: databaseUrl ? false : 'DATABASE_URL is not set' }, async (t) => {

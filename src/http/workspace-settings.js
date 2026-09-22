@@ -19,10 +19,34 @@ export function createWorkspaceSettingsHandler() {
       const body = await readJson(req);
       const companyName = body.companyName === undefined ? null : cleanText(body.companyName, 120);
       const workspaceName = body.workspaceName === undefined ? null : cleanText(body.workspaceName, 120);
-      if (!companyName && !workspaceName) {
+      // Слои календаря — решение пространства, а не каждого человека:
+      // нерабочий день одинаков для всех, кто в нём работает.
+      const layers = {};
+      if (body.showBirthdays !== undefined) layers.showBirthdays = Boolean(body.showBirthdays);
+      if (body.showHolidays !== undefined) layers.showHolidays = Boolean(body.showHolidays);
+      // Реквизиты компании: юридическое лицо, ИНН, адрес, сайт, телефон
+      // и почтовый домен. Все необязательные — заполнить можно и потом.
+      const details = {};
+      for (const [field, limit] of [['legalName', 200], ['taxId', 40], ['address', 300], ['website', 200], ['phone', 40], ['emailDomain', 120]]) {
+        if (body[field] !== undefined) details[field] = body[field] ? cleanText(body[field], limit) : null;
+      }
+      // Число мест и самостоятельный вход по домену.
+      if (body.seatLimit !== undefined) {
+        const seats = body.seatLimit === null || body.seatLimit === '' ? null : Number(body.seatLimit);
+        if (seats !== null && (!Number.isInteger(seats) || seats < 1)) {
+          throw Object.assign(new Error('Мест должно быть целое число больше нуля'), { code: 'INVALID_SEAT_LIMIT', statusCode: 400, expose: true });
+        }
+        details.seatLimit = seats;
+      }
+      if (body.domainJoin !== undefined) details.domainJoin = Boolean(body.domainJoin);
+      // Пускать по домену, не объявив домена, нельзя: пускать будет некуда.
+      if (details.domainJoin && details.emailDomain === null) {
+        throw Object.assign(new Error('Сначала укажите почтовый домен компании'), { code: 'DOMAIN_REQUIRED', statusCode: 400, expose: true });
+      }
+      if (!companyName && !workspaceName && !Object.keys(layers).length && !Object.keys(details).length) {
         throw Object.assign(new Error('Нечего менять'), { code: 'EMPTY_WORKSPACE_PATCH', statusCode: 400, expose: true });
       }
-      json(res, 200, { workspace: await ctx.store.renameWorkspace(session, { companyName, workspaceName }) });
+      json(res, 200, { workspace: await ctx.store.renameWorkspace(session, { companyName, workspaceName, ...layers, details }) });
       return true;
     }
 

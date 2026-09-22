@@ -6,7 +6,7 @@ import { PostgresStore } from '../src/persistence/store.js';
 import { hashPassword, hashToken } from '../src/security.js';
 import { createLabelRepository } from '../src/labels/label-repository.js';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 
 /**
  * A guest is an outside participant: a client, a contractor, an auditor.

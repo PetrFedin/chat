@@ -96,6 +96,31 @@ export function createMeetingIntelligenceHandler() {
       return true;
     }
 
+    /**
+     * Решения компании сквозным списком.
+     *
+     * Принятое решение оставалось внутри карточки своей встречи: чтобы
+     * вспомнить, что решили по объекту, надо было помнить, на какой
+     * встрече это было. Через полгода этого не помнит никто.
+     */
+    if (path === '/api/v1/meetings/decisions' && method === 'GET') {
+      const session = await requireSession(req);
+      if (!meeting.decisions) {
+        throw Object.assign(new Error('Решения доступны в режиме с базой данных'),
+          { code: 'DECISIONS_UNAVAILABLE', statusCode: 503, expose: true });
+      }
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+      json(res, 200, {
+        items: await meeting.decisions(session, {
+          query: url.searchParams.get('q'),
+          from: url.searchParams.get('from'),
+          to: url.searchParams.get('to'),
+          limit: url.searchParams.get('limit'),
+        }),
+      });
+      return true;
+    }
+
     let match = path.match(new RegExp(`^/api/v1/calls/${UUID}/meeting$`, 'i'));
     if (match && method === 'GET') {
       const session = await requireSession(req);

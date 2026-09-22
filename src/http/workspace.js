@@ -1,6 +1,9 @@
 import { Permission, requirePermission } from '../rbac.js';
 import { cleanText, json, readJson, allowedPresence } from './helpers.js';
 
+/** Объявленная доступность — короткий набор понятных слов. */
+const AVAILABILITY=new Set(['available','meeting','lunch','focus','away','sick','vacation','trip']);
+
 const TASK_ID='([0-9a-f-]+)';
 const TASK_EVIDENCE_TYPES=new Set(['url','file','message','metric','note']);
 
@@ -105,6 +108,22 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     }
     json(res,200,{items:page.items,nextCursor:page.nextCursor,...(page.counts?{counts:page.counts}:{})});return true
   }
+  /**
+   * Отчёт по обязательствам и людям.
+   *
+   * Стоит до маршрута задачи по идентификатору намеренно: иначе
+   * `/api/v1/tasks/report` разобралось бы как задача с именем «report».
+   */
+  if(path==='/api/v1/tasks/report'&&method==='GET'){
+    const s=await requireSession(req);
+    if(!ctx.taskReport)throw Object.assign(new Error('Отчётность доступна в режиме с базой данных'),{code:'REPORT_UNAVAILABLE',statusCode:503,expose:true});
+    json(res,200,await ctx.taskReport.build(s,{
+      from:url.searchParams.get('from'),
+      to:url.searchParams.get('to'),
+      scope:url.searchParams.get('scope')==='mine'?'mine':'team',
+    }));
+    return true;
+  }
   if(path==='/api/v1/tasks'&&method==='POST'){
     const s=await requireSession(req);requirePermission(s.role,Permission.TASK_CREATE);const b=await readJson(req),task=await store.createTask(s,{title:cleanText(b.title,240),outcome:b.outcome?cleanText(b.outcome,1000):undefined,ownerId:b.ownerId??s.userId,acceptorId:b.acceptorId??s.userId,sourceMessageId:b.sourceMessageId??null,priority:b.priority??'normal',promisedAt:toDateOrNull(b.promisedAt)??null,forecastAt:toDateOrNull(b.forecastAt)??null});
     const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.created',taskRealtime(task));json(res,201,{task});return true
@@ -117,7 +136,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     const audience=taskAudience(task),title=taskLabel(task.status);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(task));
     await store.projectTaskLifecycleNotification?.(s,task,{type:task.status==='in_review'?'review.requested':'task.updated',title});
     const recipients=audience.filter(id=>id!==s.userId);
-    await notifyUsers(s.workspaceId,recipients,{title,body:task.title,url:`/#/tasks/${task.id}`});
+    await notifyUsers(s.workspaceId,recipients,{title,body:task.title,url:`/#/tasks/${task.id}`,kind:'task.updated'});
     json(res,200,{task});return true
   }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/evidence$`,'i'));
@@ -125,6 +144,54 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     const s=await requireSession(req),b=await readJson(req),type=String(b.type??'note');if(!TASK_EVIDENCE_TYPES.has(type))throw Object.assign(new Error('Unsupported evidence type'),{code:'INVALID_EVIDENCE_TYPE',statusCode:400});const value=cleanText(b.value,4000);await assertEvidenceValue(store,s,type,value);const result=await store.addTaskEvidence(s,m[1],{type,value,expectedVersion:b.expectedVersion});
     const audience=taskAudience(result.task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(result.task));json(res,201,result);return true
   }
+  /**
+   * Внутренности обязательства: шаги, соисполнители, связи.
+   *
+   * Три таблицы под это лежали в схеме с самого начала, и кода за ними
+   * не было ни строки — схема обещала то, чего в продукте нет.
+   */
+  m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/checklist$`,'i'));
+  if(m&&method==='POST'){
+    const s=await requireSession(req),b=await readJson(req);
+    if(!store.addChecklistItem)throw Object.assign(new Error('Шаги задачи доступны в режиме с базой данных'),{code:'CHECKLIST_UNAVAILABLE',statusCode:503,expose:true});
+    const title=cleanText(b.title,240);
+    if(!title)throw Object.assign(new Error('У шага должно быть название'),{code:'INVALID_CHECKLIST_ITEM',statusCode:400,expose:true});
+    json(res,201,{item:await store.addChecklistItem(s,m[1],title)});return true;
+  }
+  m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/checklist/${TASK_ID}$`,'i'));
+  if(m&&method==='PATCH'){
+    const s=await requireSession(req),b=await readJson(req);
+    json(res,200,{item:await store.setChecklistItem(s,m[1],m[2],Boolean(b.done))});return true;
+  }
+  if(m&&method==='DELETE'){
+    const s=await requireSession(req);
+    json(res,200,await store.removeChecklistItem(s,m[1],m[2]));return true;
+  }
+
+  m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/collaborators$`,'i'));
+  if(m&&method==='POST'){
+    const s=await requireSession(req),b=await readJson(req);
+    if(!store.addCollaborator)throw Object.assign(new Error('Соисполнители доступны в режиме с базой данных'),{code:'COLLABORATORS_UNAVAILABLE',statusCode:503,expose:true});
+    json(res,201,await store.addCollaborator(s,m[1],String(b.userId??'')));return true;
+  }
+  m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/collaborators/${TASK_ID}$`,'i'));
+  if(m&&method==='DELETE'){
+    const s=await requireSession(req);
+    json(res,200,await store.removeCollaborator(s,m[1],m[2]));return true;
+  }
+
+  m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/dependencies$`,'i'));
+  if(m&&method==='POST'){
+    const s=await requireSession(req),b=await readJson(req);
+    if(!store.addDependency)throw Object.assign(new Error('Связи задач доступны в режиме с базой данных'),{code:'DEPENDENCIES_UNAVAILABLE',statusCode:503,expose:true});
+    json(res,201,await store.addDependency(s,m[1],String(b.dependsOn??''),String(b.kind??'blocks')));return true;
+  }
+  m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/dependencies/${TASK_ID}$`,'i'));
+  if(m&&method==='DELETE'){
+    const s=await requireSession(req);
+    json(res,200,await store.removeDependency(s,m[1],m[2]));return true;
+  }
+
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/assignment$`,'i'));
   if(m&&method==='PATCH'){
     const s=await requireSession(req),b=await readJson(req);
@@ -135,13 +202,13 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     });
     const audience=taskAudience(task);
     hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(task));
-    await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Задача передана',body:task.title,url:`/#/tasks/${task.id}`});
+    await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Задача передана',body:task.title,url:`/#/tasks/${task.id}`,kind:'task.assigned'});
     json(res,200,{task});return true
   }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule$`,'i'));
   if(m&&method==='PATCH'){
     const s=await requireSession(req),b=await readJson(req),task=await store.rescheduleTask(s,m[1],{promisedAt:toDateOrNull(b.promisedAt),forecastAt:toDateOrNull(b.forecastAt),reason:b.reason,expectedVersion:b.expectedVersion});
-    const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',task);await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Срок задачи изменён',body:task.title,url:`/#/tasks/${task.id}`});json(res,200,{task});return true
+    const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',task);await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{kind:'task.rescheduled',title:'Срок задачи изменён',body:task.title,url:`/#/tasks/${task.id}`});json(res,200,{task});return true
   }
   if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=toDateOrNull(url.searchParams.get('from')),to=toDateOrNull(url.searchParams.get('to'));json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to}):await store.listCalendar(s,from,to)});return true}
   if(path==='/api/v1/calendar-events'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.CALENDAR_CREATE);const b=await readJson(req);
@@ -153,7 +220,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     // раньше человек узнавал о нём фразой «A value failed a validation
     // rule» из базы, хотя в форме поле не помечено обязательным.
     const needsEnd=['meeting','focus','task_block'].includes(b.kind??'meeting');
-    if(needsEnd&&!endAt)throw Object.assign(new Error('У встречи должно быть время окончания'),{code:'CALENDAR_END_REQUIRED',statusCode:400,expose:true});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Calendar end must be after start'),{code:'INVALID_CALENDAR_RANGE'});const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:b.timezone??'UTC',allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null};
+    if(needsEnd&&!endAt)throw Object.assign(new Error('У встречи должно быть время окончания'),{code:'CALENDAR_END_REQUIRED',statusCode:400,expose:true});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Calendar end must be after start'),{code:'INVALID_CALENDAR_RANGE'});const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:b.timezone??'UTC',allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null,recurrenceRule:b.recurrenceRule??null};
     const wanted=Array.isArray(b.participantIds)?b.participantIds.filter(Boolean):[];
     // Встреча и приглашения — одно решение, поэтому и одна транзакция: иначе
     // в календаре оставалась встреча, на которую никого не позвали.
@@ -163,8 +230,39 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
       hub.broadcastWorkspace(s.workspaceId,'calendar.created',created.event);
       json(res,201,created);return true;
     }
+    // Повторение живёт в репозитории календаря: базовое хранилище про
+    // правило не знает и молча потеряло бы его — встреча завелась бы
+    // одиночной, и человек узнал бы об этом через неделю.
+    if(draft.recurrenceRule){
+      if(!ctx.calendar?.createWithParticipants)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
+      const created=await ctx.calendar.createWithParticipants(s,draft,[]);
+      hub.broadcastWorkspace(s.workspaceId,'calendar.created',created.event);
+      json(res,201,created);return true;
+    }
     const event=await store.createCalendarEvent(s,draft);hub.broadcastWorkspace(s.workspaceId,'calendar.created',event);
     json(res,201,{event,invited:0});return true}
-  if(path==='/api/v1/presence'&&method==='POST'){const s=await requireSession(req),b=await readJson(req);if(!allowedPresence.has(b.state))throw Object.assign(new Error('Invalid presence state'),{code:'INVALID_PRESENCE'});const presence=await store.setPresence(s,b);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence});json(res,200,{presence});return true}
+  /**
+   * Присутствие и объявленная доступность одним маршрутом.
+   *
+   * «Буду завтра в десять» и «вернусь пятого с двух» — это одно и то же
+   * поле `backAt`, просто разный момент; выдумывать под них отдельные
+   * виды статуса незачем.
+   */
+  if(path==='/api/v1/presence'&&method==='POST'){
+    const s=await requireSession(req),b=await readJson(req);
+    if(!allowedPresence.has(b.state))throw Object.assign(new Error('Invalid presence state'),{code:'INVALID_PRESENCE'});
+    if(b.availability!==undefined&&!AVAILABILITY.has(String(b.availability)))
+      throw Object.assign(new Error('Такой доступности нет'),{code:'INVALID_AVAILABILITY',statusCode:400,expose:true});
+    if(b.backAt!==undefined&&b.backAt!==null){
+      const at=toDateOrNull(b.backAt);
+      if(!at)throw Object.assign(new Error('Invalid date'),{code:'INVALID_DATE',statusCode:400,expose:true});
+      // Возвращение в прошлом — не возвращение: такой статус погас бы в
+      // ту же секунду, и человек не понял бы, почему его не видно.
+      if(Date.parse(at)<=Date.now())
+        throw Object.assign(new Error('Момент возвращения должен быть в будущем'),{code:'BACK_AT_IN_PAST',statusCode:400,expose:true});
+      b.backAt=at;
+    }
+    if(b.statusText!==undefined&&b.statusText)b.statusText=cleanText(b.statusText,140);
+    const presence=await store.setPresence(s,b);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence});json(res,200,{presence});return true}
   return false;
 }

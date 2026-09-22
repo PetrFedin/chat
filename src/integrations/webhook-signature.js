@@ -26,7 +26,7 @@ export function parseSignature(header) {
 }
 
 /**
- * Reference verifier. Chat never calls it — receivers do — but shipping it
+ * Reference verifier. ChatX never calls it — receivers do — but shipping it
  * beside the signer keeps the documented contract and the implementation from
  * drifting, and the tests exercise the same code an integrator will write.
  */

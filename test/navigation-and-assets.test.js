@@ -165,7 +165,16 @@ test('controls that look pressable have handlers, and icons have names', async (
   assert.doesNotMatch(app, /workspace-switcher/, 'карточка компании вернулась в боковую панель');
   assert.doesNotMatch(html, /workspace-card/, 'разметка карточки компании осталась');
   assert.match(app, /\$\('#profile-card'\)\.onclick/);
-  assert.match(app, /data-quick-form/, 'the quick capture bar must do something with what is typed');
+  // Строка быстрого захвата убрана: на телефоне правило `.quick-bar
+  // .button{display:none}` прятало её кнопку, и человек печатал, не
+  // понимая, чем отправить. Создание — «＋» в шапке, на всех экранах.
+  assert.doesNotMatch(app, /data-quick-form/, 'строка быстрого захвата вернулась');
+  assert.match(html, /data-action="quick"/, '«＋» в шапке — единственный вход в создание, и он обязан быть');
+  // И у оставшихся строк ввода кнопка должна быть видимой на телефоне:
+  // это та же ловушка, только в «Личных делах».
+  const css = await read('public/styles.css');
+  assert.doesNotMatch(css, /\.quick-bar \.button\{display:none\}/,
+    'кнопка в строке ввода снова спрятана на узком экране');
   for (const action of ['attach', 'voice', 'send']) {
     assert.match(app, new RegExp(`data-action="${action}"[^>]*aria-label=`), `${action} is icon-only and needs a name`);
   }

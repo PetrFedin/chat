@@ -365,6 +365,8 @@ export class MemoryStore {
       pinned:this.messagePins.has(this.messagePinKey(session.workspaceId,message.id)),
       forwarded:Boolean(forward),
       forwardedFrom,
+      replyCount:(this.messages.get(message.conversationId)??[])
+        .filter(item=>item.threadRootId===message.id&&!item.deletedAt).length,
     });
   }
 
@@ -372,9 +374,29 @@ export class MemoryStore {
   // endpoint answered the same newest page forever and the history behind it
   // was unreachable. Mirrors the Postgres keyset: the newest `limit` messages
   // strictly older than (createdAt, id), returned oldest-first.
-  async listMessages(session, conversationId, limit = 100, before = null) {
+  /** См. PostgreSQL-хранилище: `around` — окно вокруг сообщения. */
+  async listMessages(session, conversationId, limit = 100, before = null, around = null, { threadRootId = null } = {}) {
     if (!(await this.canAccessConversation(session, conversationId))) throw Object.assign(new Error('Conversation not found'), { statusCode: 404, code: 'NOT_FOUND' });
-    let rows = this.messages.get(conversationId) ?? [];
+    const all = this.messages.get(conversationId) ?? [];
+    if (threadRootId) {
+      // Ветка ветки — не разговор, а лабиринт: корнем бывает только
+      // сообщение из самой ленты.
+      const root = all.find((message) => message.id === threadRootId && !message.threadRootId);
+      if (!root) throw Object.assign(new Error('Message not found'), { statusCode: 404, code: 'MESSAGE_NOT_FOUND' });
+      return all.filter((message) => message.id === threadRootId || message.threadRootId === threadRootId)
+        .slice(0, Math.min(limit, 200)).map((message) => this.messageView(session, message));
+    }
+    // В ленте только корни: иначе ответ в ветке падает в общий поток
+    // вперемешку с остальным, и заводить ветку незачем.
+    let rows = all.filter((message) => !message.threadRootId);
+    if (around) {
+      const index = rows.findIndex((message) => message.id === around);
+      if (index < 0) throw Object.assign(new Error('Message not found'), { statusCode: 404, code: 'MESSAGE_NOT_FOUND' });
+      const size = Math.min(limit, 200);
+      const half = Math.max(1, Math.floor(size / 2));
+      return rows.slice(Math.max(0, index - half + 1), index + (size - half) + 1)
+        .map((message) => this.messageView(session, message));
+    }
     if (before?.at && before?.id) {
       const at = new Date(before.at).toISOString();
       rows = rows.filter((message) => {
@@ -391,6 +413,8 @@ export class MemoryStore {
       if(!messageId)continue;
       const target=(this.messages.get(conversationId)??[]).find(item=>item.id===messageId);
       if(!target||target.deletedAt)throw Object.assign(new Error(`${label} target is not available in this conversation`),{code:'INVALID_MESSAGE_REFERENCE',statusCode:400});
+      // См. PostgreSQL-хранилище: ветка ветки — не разговор, а лабиринт.
+      if(label==='thread'&&target.threadRootId)throw Object.assign(new Error('A thread cannot start inside another thread'),{code:'NESTED_THREAD',statusCode:409,expose:true});
     }
     const message = { id: randomUUID(), organizationId: session.organizationId, workspaceId: session.workspaceId, conversationId, kind, authorId: session.userId, body, replyToId, threadRootId, metadata, mentionedUserIds: [...new Set(mentionedUserIds)], clientRequestId, createdAt: nowIso(), editedAt: null, deletedAt: null };
     this.messages.get(conversationId).push(message); return this.messageView(session,message);

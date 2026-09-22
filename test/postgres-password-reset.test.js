@@ -5,7 +5,7 @@ import pg from 'pg';
 import { PostgresStore } from '../src/persistence/store.js';
 import { hashPassword, hashToken } from '../src/security.js';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 
 // Recovery normally means «we email you a link», and this product has no
 // channel to send one — which is why the feature did not exist and a person

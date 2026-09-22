@@ -1,4 +1,5 @@
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { join, normalize } from 'node:path';
 import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
@@ -67,6 +68,17 @@ export class LocalObjectStore {
     return readFile(this.path(key));
   }
 
+  /**
+   * Тот же файл, но кусками.
+   *
+   * Выгрузка пространства складывает в архив все вложения подряд, и
+   * читать двухгигабайтное целиком в память — ровно то, от чего
+   * потоковый ZIP и уходит.
+   */
+  readStream(key) {
+    return createReadStream(this.path(key));
+  }
+
   async head(key) {
     try {
       const info = await stat(this.path(key));
@@ -127,6 +139,13 @@ export class S3ObjectStore {
     const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: safeKey(key) }));
     if (!result.Body) return Buffer.alloc(0);
     return Buffer.from(await result.Body.transformToByteArray());
+  }
+
+  /** См. локальное хранилище: тело ответа S3 и так приходит потоком. */
+  async readStream(key) {
+    const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: safeKey(key) }));
+    if (!result.Body) return (async function* empty() {})();
+    return result.Body;
   }
 
   async head(key) {

@@ -7,7 +7,7 @@ import { createLabelRepository } from '../src/labels/label-repository.js';
 import { createPersonalRepository } from '../src/personal/personal-repository.js';
 import { hashPassword, hashToken } from '../src/security.js';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 const soon = (h) => new Date(Date.now() + h * 36e5).toISOString();
 
 test('personal planning', { skip: databaseUrl ? false : 'DATABASE_URL is not set' }, async (t) => {

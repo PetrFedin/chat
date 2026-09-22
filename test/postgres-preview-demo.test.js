@@ -9,7 +9,7 @@ import { LocalObjectStore } from '../src/storage/object-store.js';
 import { PostgresStore } from '../src/persistence/store.js';
 import { hashPassword } from '../src/security.js';
 
-const databaseUrl=process.env.DATABASE_URL;
+const databaseUrl=process.env.POSTGRES_TEST_URL||process.env.DATABASE_URL;
 
 async function request(base,path,{cookie,method='GET'}={}){
   const response=await fetch(`${base}${path}`,{method,headers:cookie?{cookie}:{}});
@@ -19,6 +19,7 @@ async function request(base,path,{cookie,method='GET'}={}){
 
 async function startDemo(objectStore){
   const app=await createChatServer({
+    databaseUrl,
     demoEnabled:true,
     objectStore,
     meetingWorkerEnabled:false,

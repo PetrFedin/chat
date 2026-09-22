@@ -4,7 +4,7 @@ import pg from 'pg';
 import { PostgresStore } from '../src/persistence/store.js';
 import { hashPassword, hashToken } from '../src/security.js';
 
-const url = process.env.DATABASE_URL;
+const url = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 const password = hashPassword('WorkspacePass42');
 
 const run = (name, fn) => test(name, { skip: url ? false : 'DATABASE_URL is not set' }, fn);

@@ -6,7 +6,7 @@ import { PostgresStore } from '../src/persistence/store.js';
 import { createOrgRepository } from '../src/org/org-repository.js';
 import { hashPassword, hashToken } from '../src/security.js';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 
 test('organisational structure', { skip: databaseUrl ? false : 'DATABASE_URL is not set' }, async (t) => {
   const pool = new pg.Pool({ connectionString: databaseUrl });

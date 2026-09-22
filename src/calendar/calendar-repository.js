@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
+import { parseRecurrence, formatRecurrence, expandOccurrences, describeRecurrence } from './recurrence.js';
+import { holidaysBetween, upcomingBirthdays } from './holidays.js';
+
 const ANSWERS = new Set(['accepted', 'tentative', 'declined']);
 import { Permission, hasPermission } from '../rbac.js';
 
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
+
+/** Правило из базы может быть старым или испорченным — карточка не должна из-за этого падать. */
+const safeRule = (value) => { try { return parseRecurrence(value); } catch { return null; } };
 
 const participantView = (row) => ({
   userId: row.user_id,
@@ -107,6 +113,7 @@ export function createCalendarRepository(pool, store = null) {
         pool.query(
           `SELECT e.id,e.kind,e.title,e.description,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",
                   e.timezone,e.all_day "allDay",e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
+                  e.recurrence_rule "recurrenceRule",
                   e.version,e.created_at "createdAt",e.updated_at "updatedAt",
                   p.display_name "ownerName", c.title "conversationTitle", cm.title "commitmentTitle"
            FROM calendar_events e
@@ -142,6 +149,8 @@ export function createCalendarRepository(pool, store = null) {
         canEdit: event.rows[0].ownerId === session.userId
           || hasPermission(session.role, Permission.CALENDAR_MANAGE_TEAM),
         needsMyAnswer: mine?.response_status === 'invited',
+        // Человеку правило читать незачем: карточка говорит словами.
+        recurrenceText: describeRecurrence(safeRule(event.rows[0].recurrenceRule)),
       };
     },
 
@@ -171,6 +180,10 @@ export function createCalendarRepository(pool, store = null) {
          FROM calendar_events e
          LEFT JOIN calendar_event_participants pa ON pa.workspace_id=e.workspace_id AND pa.calendar_event_id=e.id AND pa.user_id=$4
          WHERE e.workspace_id=$1
+           -- Серия сюда не попадает: её первая встреча — такое же
+           -- вхождение, как остальные, и приходит раскрытой. Иначе
+           -- первая планёрка показывалась в календаре дважды.
+           AND e.recurrence_rule IS NULL
            AND ($2::timestamptz IS NULL OR e.start_at >= $2)
            AND ($3::timestamptz IS NULL OR e.start_at <= $3)
            AND (e.owner_id=$4
@@ -181,7 +194,142 @@ export function createCalendarRepository(pool, store = null) {
          LIMIT $6`,
         [session.workspaceId, since, until, session.userId, session.role, size],
       );
-      return rows.map((row) => ({ ...row, needsMyAnswer: row.myResponse === 'invited' }));
+      const single = rows.map((row) => ({ ...row, needsMyAnswer: row.myResponse === 'invited' }));
+      const series = await repository.expandSeries(session, { since, until, size });
+      const layers = await repository.calendarLayers(session, { since, until });
+      // Одиночные и вхождения серий — один список, отсортированный по
+      // времени: сетке календаря всё равно, чем встреча была в базе.
+      return [...single, ...series, ...layers].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)).slice(0, size);
+    },
+
+    /**
+     * Вхождения повторяющихся встреч внутри окна.
+     *
+     * Серии отбираются не по окну: планёрка, заведённая год назад, лежит
+     * строкой с прошлогодним `start_at`, а идёт по-прежнему каждую
+     * неделю. Поэтому берём все серии, которые могли начаться до конца
+     * окна, и раскрываем каждую.
+     *
+     * Вхождение получает составной признак `id@время`: по нему клиент
+     * отличает одну планёрку от другой, а сервер понимает, о каком
+     * вхождении речь, когда его просят отменить.
+     */
+    async expandSeries(session, { since, until, size }) {
+      const { rows } = await pool.query(
+        `SELECT e.id,e.kind,e.title,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",e.all_day "allDay",
+                e.timezone,e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
+                e.recurrence_rule "recurrenceRule",
+                pa.response_status "myResponse",
+                (SELECT count(*)::int FROM calendar_event_participants x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id) "participantCount",
+                (SELECT count(*)::int FROM calendar_event_files ef WHERE ef.workspace_id=e.workspace_id AND ef.calendar_event_id=e.id) "fileCount",
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('at',x.occurrence_at,'cancelled',x.cancelled,'startAt',x.start_at,'endAt',x.end_at,'title',x.title))
+                   FROM calendar_event_exceptions x
+                  WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id),'[]') "exceptions"
+         FROM calendar_events e
+         LEFT JOIN calendar_event_participants pa ON pa.workspace_id=e.workspace_id AND pa.calendar_event_id=e.id AND pa.user_id=$3
+         WHERE e.workspace_id=$1 AND e.recurrence_rule IS NOT NULL
+           AND e.start_at <= $2
+           AND (e.owner_id=$3
+                OR (e.visibility='workspace' AND $4<>'guest')
+                OR (e.visibility='participants' AND (pa.user_id IS NOT NULL
+                    OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))))`,
+        [session.workspaceId, until, session.userId, session.role],
+      );
+
+      const out = [];
+      for (const row of rows) {
+        let rule;
+        try { rule = parseRecurrence(row.recurrenceRule); }
+        catch { continue; } // Испорченное правило не должно ронять весь календарь.
+        const duration = row.endAt ? Date.parse(row.endAt) - Date.parse(row.startAt) : 0;
+        const changes = new Map((row.exceptions ?? []).map((x) => [new Date(x.at).getTime(), x]));
+        const occurrences = expandOccurrences({
+          startAt: row.startAt, durationMs: duration, rule, timeZone: row.timezone || 'UTC',
+          from: since, to: until, limit: Math.min(size, 200),
+        });
+        for (const at of occurrences) {
+          const change = changes.get(at.getTime());
+          if (change?.cancelled) continue;
+          const startAt = change?.startAt ? new Date(change.startAt) : at;
+          const endAt = change?.endAt ? new Date(change.endAt) : (duration ? new Date(startAt.getTime() + duration) : null);
+          out.push({
+            ...row,
+            // Идентификатор вхождения: строка события и момент по правилу.
+            id: `${row.id}@${at.toISOString()}`,
+            seriesId: row.id,
+            occurrenceAt: at.toISOString(),
+            title: change?.title ?? row.title,
+            startAt: startAt.toISOString(),
+            endAt: endAt ? endAt.toISOString() : null,
+            moved: Boolean(change && !change.cancelled),
+            recurrenceText: describeRecurrence(rule),
+            needsMyAnswer: row.myResponse === 'invited',
+            exceptions: undefined,
+          });
+        }
+      }
+      return out;
+    },
+
+    /**
+     * Слои календаря: нерабочие дни и дни рождения.
+     *
+     * Это не события, которые кто-то заводит: производственный календарь
+     * один на страну, а день рождения — свойство человека. Поэтому они
+     * не лежат в `calendar_events`, не редактируются поштучно и не
+     * попадают в отчёты о встречах — но в сетке календаря быть обязаны,
+     * иначе планёрку назначают на 9 мая.
+     */
+    async calendarLayers(session, { since, until }) {
+      const { rows: settings } = await pool.query(
+        'SELECT show_birthdays "showBirthdays", show_holidays "showHolidays" FROM workspaces WHERE id=$1',
+        [session.workspaceId]);
+      const show = settings[0] ?? { showBirthdays: true, showHolidays: true };
+      const out = [];
+
+      if (show.showHolidays) {
+        const { rows: custom } = await pool.query(
+          `SELECT to_char(on_date,'YYYY-MM-DD') date, title, day_off "dayOff"
+             FROM workspace_holidays WHERE workspace_id=$1 AND on_date BETWEEN $2::date AND $3::date`,
+          [session.workspaceId, since.slice(0, 10), until.slice(0, 10)]);
+        // Своя запись перекрывает встроенную: компания может работать в
+        // праздник или объявить свой нерабочий день.
+        const own = new Map(custom.map((row) => [row.date, row]));
+        for (const day of holidaysBetween(since, until)) if (!own.has(day.date)) own.set(day.date, day);
+        for (const [date, day] of own) {
+          out.push({
+            id: `holiday@${date}`, kind: 'holiday', title: day.title,
+            startAt: `${date}T00:00:00.000Z`, endAt: null, allDay: true,
+            dayOff: day.dayOff !== false, timezone: 'UTC', visibility: 'workspace',
+            ownerId: null, participantCount: 0, fileCount: 0, needsMyAnswer: false, readOnly: true,
+          });
+        }
+      }
+
+      if (show.showBirthdays) {
+        // Гостю дни рождения чужой компании не показываем: это личные
+        // сведения её сотрудников, а он здесь на один проект.
+        if (session.role === 'guest') return out;
+        const { rows: people } = await pool.query(
+          `SELECT p.user_id "userId", COALESCE(p.display_name,u.email) "displayName",
+                  p.birth_day "birthDay", p.birth_month "birthMonth"
+             FROM workspace_profiles p
+             JOIN memberships m ON m.workspace_id=p.workspace_id AND m.user_id=p.user_id
+             JOIN users u ON u.id=p.user_id
+            WHERE p.workspace_id=$1 AND p.birth_day IS NOT NULL AND m.role<>'guest' AND u.disabled_at IS NULL`,
+          [session.workspaceId]);
+        const span = Math.ceil((Date.parse(until) - Date.parse(since)) / 86400000);
+        for (const birthday of upcomingBirthdays(people, { from: new Date(since), days: Math.max(span, 0) })) {
+          out.push({
+            id: `birthday@${birthday.userId}@${birthday.date}`, kind: 'birthday',
+            title: `День рождения — ${birthday.displayName}`,
+            startAt: `${birthday.date}T00:00:00.000Z`, endAt: null, allDay: true,
+            timezone: 'UTC', visibility: 'workspace', ownerId: birthday.userId,
+            participantCount: 0, fileCount: 0, needsMyAnswer: false, readOnly: true,
+          });
+        }
+      }
+      return out;
     },
 
     /** Everything still awaiting this person's answer, for the attention strip. */
@@ -211,14 +359,17 @@ export function createCalendarRepository(pool, store = null) {
       return tx(async (client) => {
         const id = randomUUID();
         const { rows } = await client.query(
-          `INSERT INTO calendar_events(id,organization_id,workspace_id,kind,title,description,owner_id,start_at,end_at,timezone,all_day,visibility,commitment_id,conversation_id)
-           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+          `INSERT INTO calendar_events(id,organization_id,workspace_id,kind,title,description,owner_id,start_at,end_at,timezone,all_day,visibility,commitment_id,conversation_id,recurrence_rule)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
            RETURNING id,kind,title,description,owner_id "ownerId",start_at "startAt",end_at "endAt",timezone,
                      all_day "allDay",visibility,commitment_id "commitmentId",conversation_id "conversationId",
-                     created_at "createdAt",updated_at "updatedAt"`,
+                     recurrence_rule "recurrenceRule",created_at "createdAt",updated_at "updatedAt"`,
           [id, session.organizationId, session.workspaceId, body.kind || 'meeting', body.title, body.description,
            session.userId, body.startAt, body.endAt, body.timezone || 'UTC', Boolean(body.allDay),
-           body.visibility || 'participants', body.commitmentId ?? null, body.conversationId ?? null],
+           body.visibility || 'participants', body.commitmentId ?? null, body.conversationId ?? null,
+           // Разбор здесь, а не в маршруте: негодное правило не должно
+           // доехать до базы ни одним путём.
+           formatRecurrence(parseRecurrence(body.recurrenceRule))],
         );
         const event = rows[0];
         if (!ids.length) return { event, invited: 0 };
@@ -311,9 +462,12 @@ export function createCalendarRepository(pool, store = null) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
         assertMayRun(session, event, 'Править встречу может организатор или тот, кто ведёт чужие встречи');
-        const columns = { title: 'title', description: 'description', startAt: 'start_at', endAt: 'end_at', visibility: 'visibility', kind: 'kind', allDay: 'all_day' };
+        const columns = { title: 'title', description: 'description', startAt: 'start_at', endAt: 'end_at', visibility: 'visibility', kind: 'kind', recurrenceRule: 'recurrence_rule', allDay: 'all_day' };
         const fields = Object.keys(columns).filter((f) => patch[f] !== undefined);
         if (!fields.length) throw fail('Nothing to update', 'EMPTY_PATCH');
+        // Правило приводится к одному виду и проверяется здесь же: иначе
+        // в базе оседает строка, которую раскрыть не удастся.
+        if (patch.recurrenceRule !== undefined) patch.recurrenceRule = formatRecurrence(parseRecurrence(patch.recurrenceRule));
         const start = patch.startAt ?? event.start_at;
         const end = patch.endAt === undefined ? event.end_at : patch.endAt;
         if (end && new Date(end) <= new Date(start)) throw fail('The event must end after it starts', 'INVALID_CALENDAR_RANGE');
@@ -337,6 +491,69 @@ export function createCalendarRepository(pool, store = null) {
         }
         return rows[0].id;
       }).then((id) => repository.getEvent(session, id));
+    },
+
+    /**
+     * Отменить или перенести одно вхождение серии.
+     *
+     * Правило при этом не трогается: остальная планёрка остаётся на
+     * месте. Иначе единственным способом пропустить одну встречу на
+     * праздниках было бы разорвать серию надвое.
+     */
+    async amendOccurrence(session, eventId, occurrenceAt, { cancelled = false, startAt = null, endAt = null, title = null } = {}) {
+      return tx(async (client) => {
+        const event = await loadEvent(client, session, eventId);
+        assertMayRun(session, event, 'Менять встречу может организатор или тот, кто ведёт чужие встречи');
+        if (!event.recurrence_rule) throw fail('Это не повторяющаяся встреча', 'NOT_RECURRING', 409);
+        const at = new Date(occurrenceAt);
+        if (Number.isNaN(at.getTime())) throw fail('Не разбирается момент вхождения', 'INVALID_DATE');
+
+        // Вхождение должно существовать по правилу: иначе в таблице
+        // исключений копятся записи про встречи, которых не было.
+        const rule = parseRecurrence(event.recurrence_rule);
+        const exists = expandOccurrences({
+          startAt: event.start_at, rule, timeZone: event.timezone || 'UTC',
+          from: new Date(at.getTime() - 1000).toISOString(), to: new Date(at.getTime() + 1000).toISOString(), limit: 2,
+        }).some((x) => x.getTime() === at.getTime());
+        if (!exists) throw fail('В серии нет встречи на этот момент', 'OCCURRENCE_NOT_FOUND', 404);
+
+        if (!cancelled && !startAt) throw fail('Перенос без нового времени — не перенос', 'INVALID_OCCURRENCE_PATCH');
+        if (!cancelled && endAt && new Date(endAt) <= new Date(startAt)) {
+          throw fail('The event must end after it starts', 'INVALID_CALENDAR_RANGE');
+        }
+
+        await client.query(
+          `INSERT INTO calendar_event_exceptions(organization_id,workspace_id,calendar_event_id,occurrence_at,cancelled,start_at,end_at,title,created_by)
+           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT (workspace_id,calendar_event_id,occurrence_at)
+           DO UPDATE SET cancelled=EXCLUDED.cancelled,start_at=EXCLUDED.start_at,end_at=EXCLUDED.end_at,title=EXCLUDED.title,created_by=EXCLUDED.created_by`,
+          [session.organizationId, session.workspaceId, eventId, at.toISOString(),
+           Boolean(cancelled), cancelled ? null : startAt, cancelled ? null : endAt, cancelled ? null : title, session.userId],
+        );
+
+        const { rows: attendees } = await client.query(
+          'SELECT user_id FROM calendar_event_participants WHERE workspace_id=$1 AND calendar_event_id=$2',
+          [session.workspaceId, eventId]);
+        await notify(client, session, {
+          recipients: attendees.map((a) => a.user_id), type: cancelled ? 'calendar.cancelled' : 'calendar.updated', eventId,
+          title: event.title,
+          body: cancelled ? 'Одна встреча серии отменена' : 'Одна встреча серии перенесена',
+        });
+        return { amended: true, occurrenceAt: at.toISOString(), cancelled: Boolean(cancelled) };
+      });
+    },
+
+    /** Вернуть отменённое или перенесённое вхождение в общий строй. */
+    async restoreOccurrence(session, eventId, occurrenceAt) {
+      return tx(async (client) => {
+        const event = await loadEvent(client, session, eventId);
+        assertMayRun(session, event, 'Менять встречу может организатор или тот, кто ведёт чужие встречи');
+        const { rowCount } = await client.query(
+          'DELETE FROM calendar_event_exceptions WHERE workspace_id=$1 AND calendar_event_id=$2 AND occurrence_at=$3',
+          [session.workspaceId, eventId, new Date(occurrenceAt).toISOString()]);
+        if (!rowCount) throw fail('Это вхождение ничем не отличается от серии', 'OCCURRENCE_NOT_AMENDED', 404);
+        return { restored: true };
+      });
     },
 
     async cancelEvent(session, eventId) {

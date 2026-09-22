@@ -153,6 +153,24 @@ test('the Russian interface does not print English at the user', async () => {
 
 // Every activity sentence the server composes is shown verbatim on a person's
 // page, so the client dictionary has to carry all of them.
+/**
+ * Подписи журнала — тоже текст для человека.
+ *
+ * Их сорок пять, они живут в коде оболочки списком, и переводились
+ * раньше только четыре: в английском режиме журнал наполовину
+ * оставался русским. Мимо общей проверки они проходят потому, что
+ * лежат в массиве, а не между тегами.
+ */
+test('подписи журнала все переведены', async () => {
+  const [app, prefs] = await Promise.all([read('public/app.js'), read('public/preferences.js')]);
+  const block = app.slice(app.indexOf('const JOURNAL_EVENT={'));
+  const labels = [...block.slice(0, block.indexOf('\n};')).matchAll(/^\s*'[a-z0-9_.]+':\['([^']+)'/gm)].map((m) => m[1]);
+  assert.ok(labels.length >= 40, `подписей журнала найдено всего ${labels.length}`);
+  for (const label of labels) {
+    assert.ok(prefs.includes(`    '${label}':`), `нет перевода для «${label}»`);
+  }
+});
+
 test('server-sent activity labels all have translations', async () => {
   const [repository, prefs] = await Promise.all([
     read('src/people/people-repository.js'),

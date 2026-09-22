@@ -1,3 +1,6 @@
+import { SOURCES, prepareForward } from '../messaging/external-forward.js';
+const MAX_FORWARD_TEXT=8000;
+import { resolveAvatar } from '../media/avatar.js';
 import { randomUUID } from 'node:crypto';
 import { Permission, hasPermission, requirePermission } from '../rbac.js';
 import { allowedConversationKinds, allowedMessageKinds, serverOnlyMessageKinds, cleanText, json, noContent, readJson, messageKindLabel, stripControl, pageSize } from './helpers.js';
@@ -23,10 +26,30 @@ function requireConversationManager(session,policy){
   if(!canManageConversation(session,policy))throw httpError('Conversation management permission required','FORBIDDEN',403);
 }
 
+/**
+ * Личная переписка и канал — разные вещи для того, кто настраивает
+ * уведомления: «пишут лично» хотят почти все, «новое в канале» — не
+ * всегда. Беседу может не удаться прочитать; тогда считаем её каналом —
+ * это более шумный класс, и человек сам его выключит, если мешает.
+ */
+const S_KIND=(conversation)=>conversation?.kind==='direct'?'message.direct':'message.created';
+
 export async function handleMessaging(req,res,ctx,url,path,method){
   const {store,requireSession,hub,notifyUsers}=ctx;
   if(path==='/api/v1/conversations'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listConversations(s)});return true}
   if(path==='/api/v1/conversations/archived'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listConversations(s,{archived:true})});return true}
+  /**
+   * Каталог каналов.
+   *
+   * Стоит до маршрута беседы по идентификатору: иначе «catalogue»
+   * разберётся как имя беседы.
+   */
+  if(path==='/api/v1/conversations/catalogue'&&method==='GET'){
+    const s=await requireSession(req);
+    if(!store.listChannelCatalogue)throw httpError('Каталог каналов доступен в режиме с базой данных','CATALOGUE_UNAVAILABLE',503);
+    json(res,200,{items:await store.listChannelCatalogue(s,{query:url?.searchParams.get('q')??null})});
+    return true;
+  }
   if(path==='/api/v1/saved-messages'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listSavedMessages(s)});return true}
   if(path==='/api/v1/conversations'&&method==='POST'){
     const s=await requireSession(req),b=await readJson(req),kind=String(b.kind??'group');
@@ -71,6 +94,13 @@ export async function handleMessaging(req,res,ctx,url,path,method){
   }
   // Leaving a room was impossible: removing yourself needed management
   // rights, so a person invited into a channel stayed in it for good.
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/join$`,'i'));
+  if(m&&method==='POST'){
+    const s=await requireSession(req);
+    if(!store.joinChannel)throw httpError('Каталог каналов доступен в режиме с базой данных','CATALOGUE_UNAVAILABLE',503);
+    json(res,200,await store.joinChannel(s,m[1]));
+    return true;
+  }
   m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/leave$`,'i'));
   if(m&&method==='POST'){
     const s=await requireSession(req),policy=await policyOr404(store,s,m[1]);
@@ -92,6 +122,9 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     if(b.title!==undefined)patch.title=cleanText(b.title,120);
     if(b.purpose!==undefined)patch.purpose=b.purpose?cleanText(b.purpose,500):null;
     if(b.announcementOnly!==undefined)patch.announcementOnly=Boolean(b.announcementOnly);
+    // Обложка группы — ссылка на уже загруженный файл: снимок проходит
+    // тот же путь, что и любое вложение, с проверкой типа и размера.
+    if(Object.prototype.hasOwnProperty.call(b,'avatarFileId'))patch.avatarFileId=await resolveAvatar(store,s,b.avatarFileId);
     if(!Object.keys(patch).length)throw httpError('Nothing to change','EMPTY_PATCH',400);
     const conversation=await store.updateConversation(s,m[1],patch);
     const audience=await store.conversationAudience(s,m[1]);
@@ -144,6 +177,52 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     json(res,200,{items});return true;
   }
 
+  /**
+   * Перенос из WhatsApp или Telegram — с отметкой, откуда это.
+   *
+   * Половина работы приходит оттуда, и до сих пор её копировали руками:
+   * в беседе оставалось «прислали смету», а через месяц не сказать ни
+   * кто прислал, ни когда.
+   */
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/external-forwards$`,'i'));
+  if(m&&method==='POST'){
+    const s=await requireSession(req);await policyOr404(store,s,m[1]);
+    if(!store.createExternalForward)throw httpError('Перенос из мессенджеров доступен в режиме с базой данных','EXTERNAL_FORWARD_UNAVAILABLE',503);
+    const b=await readJson(req);
+    const prepared=prepareForward({
+      text:String(b.text??''),
+      source:String(b.source??'other'),
+      authorName:b.authorName??null,
+      sentAt:b.sentAt??null,
+      // Пояс того, кто переносит: в выгрузке мессенджера его нет, и
+      // это единственный, который мы действительно знаем.
+      offsetMinutes:Number.isFinite(Number(b.offsetMinutes))?Number(b.offsetMinutes):0,
+    });
+    if(prepared.body.length>MAX_FORWARD_TEXT)throw httpError('Слишком длинный кусок переписки','FORWARD_TOO_LONG',413);
+    const message=await store.createExternalForward(s,m[1],prepared);
+    const audience=await store.conversationAudience(s,m[1]);
+    hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:m[1],message});
+    json(res,201,{message});return true;
+  }
+
+  /**
+   * Архив беседы по видам материалов.
+   *
+   * «Где та фотография акта» на полугодовой переписке — это десять
+   * минут прокрутки. Разбор по виду, потому что приходят именно за
+   * видом.
+   */
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/archive$`,'i'));
+  if(m&&method==='GET'){
+    const s=await requireSession(req);await policyOr404(store,s,m[1]);
+    if(!store.conversationArchive)throw httpError('Архив беседы доступен в режиме с базой данных','ARCHIVE_UNAVAILABLE',503);
+    const kind=url.searchParams.get('kind')||'all';
+    const source=url.searchParams.get('source');
+    if(source&&!SOURCES.has(source))throw httpError('Неизвестный источник','INVALID_SOURCE',400);
+    json(res,200,{items:await store.conversationArchive(s,m[1],{kind,source:source||null,limit:url.searchParams.get('limit')})});
+    return true;
+  }
+
   m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/messages$`,'i'));
   if(m&&method==='GET'){
     const s=await requireSession(req);
@@ -155,7 +234,15 @@ export async function handleMessaging(req,res,ctx,url,path,method){
       if(!at||!id||Number.isNaN(Date.parse(at)))throw httpError('Malformed cursor','INVALID_CURSOR',400);
       before={at:new Date(at).toISOString(),id};
     }
-    const items=await store.listMessages(s,m[1],limit,before);
+    // Окно вокруг сообщения: переход из поиска к старой реплике грузил
+    // последние сто и молча не находил её среди них.
+    const around=url.searchParams.get('around');
+    if(around&&!/^[0-9a-f-]{36}$/i.test(around))throw httpError('Malformed message id','INVALID_MESSAGE_ID',400);
+    // Ветка под сообщением: корень плюс ответы, по порядку. В самой
+    // ленте ответов нет — там стоит корень со счётчиком.
+    const thread=url.searchParams.get('thread');
+    if(thread&&!/^[0-9a-f-]{36}$/i.test(thread))throw httpError('Malformed message id','INVALID_MESSAGE_ID',400);
+    const items=await store.listMessages(s,m[1],limit,before,around||null,{threadRootId:thread||null});
     // A full page means there may be more; the cursor points at the oldest
     // row returned, which is where the next page starts.
     const oldest=items[0];
@@ -186,7 +273,18 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     const message=await store.createMessage(s,m[1],{kind,body:b.body??null,replyToId:b.replyToId??null,threadRootId:b.threadRootId??null,metadata:b.metadata??{},mentionedUserIds:Array.isArray(b.mentionedUserIds)?b.mentionedUserIds:[],clientRequestId:b.clientRequestId??randomUUID()});
     const audience=await store.conversationAudience(s,m[1]),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,m[1]):audience;
     hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:m[1],message});
-    await notifyUsers(s.workspaceId,notificationAudience.filter(id=>id!==s.userId),{title:`Новое сообщение от ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}`});
+    // Уведомление расходится двумя пачками, потому что для человека это
+    // два разных события: его назвали по имени — или в канале, за
+    // которым он следит, появилось сообщение. У них и переключатели
+    // разные, и в тихий час первое проходит, а второе нет.
+    const mentioned=new Set((message.mentionedUserIds??[]).map(String));
+    const others=notificationAudience.filter(id=>id!==s.userId&&!mentioned.has(String(id)));
+    const called=notificationAudience.filter(id=>id!==s.userId&&mentioned.has(String(id)));
+    const conversation=S_KIND(store.getConversation?await store.getConversation(s,m[1]).catch(()=>null):null);
+    await Promise.all([
+      notifyUsers(s.workspaceId,called,{title:`${s.displayName} упомянул вас`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}`,kind:'message.mentioned'}),
+      notifyUsers(s.workspaceId,others,{title:`Новое сообщение от ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}`,kind:conversation}),
+    ]);
     json(res,201,{message});return true;
   }
 
@@ -210,10 +308,27 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     if(policy.conversation.announcementOnly&&!canManageConversation(s,policy))throw httpError('Only channel managers may publish in this announcement channel','ANNOUNCEMENT_ONLY',403);
     const message=await store.forwardMessage(s,m[1],targetConversationId),audience=await store.conversationAudience(s,targetConversationId),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,targetConversationId):audience;
     hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:targetConversationId,message});
-    await notifyUsers(s.workspaceId,notificationAudience.filter(id=>id!==s.userId),{title:`Переслано от ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${targetConversationId}`});
+    await notifyUsers(s.workspaceId,notificationAudience.filter(id=>id!==s.userId),{title:`Переслано от ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${targetConversationId}`,kind:'message.created'});
     json(res,201,{message});return true;
   }
 
+  /**
+   * Прежние редакции сообщения.
+   *
+   * Правка теперь оставляет след, и след этот должен быть виден не
+   * только в журнале аудита, куда ходят двое: пометку «изменено» читают
+   * все, и вопрос «что там было» возникает у того же, кто её видит.
+   *
+   * Образец стоит до маршрута сообщения по идентификатору: иначе
+   * «versions» разберётся как часть пути к самому сообщению.
+   */
+  m=path.match(new RegExp(`^/api/v1/messages/${MESSAGE_ID}/versions$`,'i'));
+  if(m&&method==='GET'){
+    const s=await requireSession(req);
+    if(!store.listMessageVersions)throw httpError('История правок доступна в режиме с базой данных','VERSIONS_UNAVAILABLE',503);
+    json(res,200,{items:await store.listMessageVersions(s,m[1])});
+    return true;
+  }
   m=path.match(new RegExp(`^/api/v1/messages/${MESSAGE_ID}$`,'i'));
   if(m&&method==='PATCH'){
     const s=await requireSession(req);requirePermission(s.role,Permission.MESSAGE_SEND);const message=await store.getMessage(s,m[1]);if(!message||message.deletedAt)throw httpError('Message not found','NOT_FOUND',404);

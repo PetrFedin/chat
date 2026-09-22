@@ -7,7 +7,7 @@ import { PostgresCallRepository } from '../src/media/call-repository.js';
 import { PostgresMeetingRepository } from '../src/meeting/meeting-repository.js';
 import { hashPassword, hashToken } from '../src/security.js';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 
 async function sessionFor(store, userId, workspaceId, label) {
   const tokenHash = hashToken(`mi-session-${label}-${randomUUID()}`);

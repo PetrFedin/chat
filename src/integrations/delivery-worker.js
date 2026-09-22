@@ -65,7 +65,7 @@ export function createDeliveryWorker(repository, env = process.env, options = {}
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'user-agent': 'Chat-Webhooks/1',
+          'user-agent': 'ChatX-Webhooks/1',
           'x-chat-delivery-id': delivery.id,
           'x-chat-event-id': delivery.eventId,
           'x-chat-topic': delivery.topic,

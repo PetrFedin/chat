@@ -74,14 +74,24 @@ test('a screen opens at its top', async () => {
 // On a phone the whole page scrolls, so the title, the back arrow and the call
 // buttons scrolled away. And two groups totalling 492px sat side by side in a
 // 402px header, so the buttons wrapped above the title.
+//
+// Кнопки тогда увели в отдельную строку и разрешили ей ехать вбок —
+// выше заголовка они больше не поднимались, но за краем экрана
+// оказывались звонки, и о том, что строку можно тянуть, никто не знал.
+// Отдельная строка осталась; боковая прокрутка заменена переносом.
 test('the conversation header stays put and fits', async () => {
   const css = await read('public/styles.css');
   const mobile = css.slice(css.indexOf('@media(max-width:980px)'));
   assert.match(mobile, /\.message-header\{[^}]*position:sticky/);
   assert.match(mobile, /\.message-header\{[^}]*display:grid/);
   assert.match(mobile, /\.message-header>\.inline-actions:first-child\{display:contents\}/);
-  assert.match(mobile, /\.message-header>\.inline-actions:last-child\{grid-column:1\/-1;flex-wrap:nowrap;overflow-x:auto/);
   assert.match(mobile, /\.message-header h2\{[^}]*text-overflow:ellipsis/);
+
+  // Ради чего всё это было: действия занимают собственную строку и
+  // потому не могут подняться над заголовком.
+  assert.match(css, /\.message-header>\.inline-actions:last-child\{grid-column:1\/-1/);
+  // И больше не уезжают вбок, унося звонки за край экрана.
+  assert.doesNotMatch(css, /\.message-header>\.inline-actions:last-child\{[^}]*overflow-x:auto/);
 });
 
 // Browsing a week and then asking for a day landed on the last day of that

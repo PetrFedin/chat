@@ -54,6 +54,10 @@ export function canViewTask(task,session){
     task.ownerId===session.userId ||
     task.requesterId===session.userId ||
     task.acceptorId===session.userId ||
+    // Соисполнитель — четвёртый участник обязательства. Без него помощь
+    // была бы формальной: человека вписали в задачу, а открыть её он не
+    // может.
+    (Array.isArray(task.collaboratorIds)&&task.collaboratorIds.includes(session.userId)) ||
     managesTeamTasks(session)
   ));
 }
@@ -148,6 +152,42 @@ export function assertTaskEvidenceAuthority(task,session,{expectedVersion}){
   assertExpectedVersion(task,expectedVersion);
   if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','Evidence cannot be added to a terminal task',409);
   if(![task.ownerId,task.requesterId,task.acceptorId].includes(session.userId)&&!managesTeamTasks(session)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot add evidence to this task',403);
+}
+
+/**
+ * Кто может трогать внутренности обязательства.
+ *
+ * Шаги, соисполнители и связи — это как обязательство устроено внутри, и
+ * распоряжается этим тот, кто его несёт, тот, кто просил, и тот, кто
+ * принимает результат. Посторонний сотрудник задачу видит, но
+ * перекраивать её не должен: чужое обещание — не его дело.
+ *
+ * У закрытого обязательства внутренности не правятся: запись о
+ * сделанном перестаёт быть правдой, если её можно дописать задним
+ * числом.
+ */
+export function assertTaskStructureAuthority(task,session){
+  assertTaskVisible(task,session);
+  if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','Закрытое обязательство не перекраивают',409);
+  if(![task.ownerId,task.requesterId,task.acceptorId].includes(session.userId)&&!managesTeamTasks(session)){
+    throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','Это чужое обязательство',403);
+  }
+}
+
+/**
+ * Отметить шаг сделанным может и соисполнитель.
+ *
+ * Иначе помощь превращается в переписку: «я сделал, отметь за меня».
+ * Список соисполнителей передаётся сюда, потому что он живёт в базе, а
+ * не в строке обязательства.
+ */
+export function assertChecklistAuthority(task,session,collaboratorIds=[]){
+  assertTaskVisible(task,session);
+  if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','Закрытое обязательство не перекраивают',409);
+  const allowed=[task.ownerId,task.requesterId,task.acceptorId,...collaboratorIds];
+  if(!allowed.includes(session.userId)&&!managesTeamTasks(session)){
+    throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','Это чужое обязательство',403);
+  }
 }
 
 /**

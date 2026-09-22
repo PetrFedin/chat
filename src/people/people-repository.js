@@ -1,8 +1,10 @@
-const PROFILE_FIELDS = ['displayName', 'title', 'department', 'phone', 'about', 'location', 'startedOn', 'timezone', 'statusText'];
+import { avatarUrlSql } from '../media/avatar.js';
+const PROFILE_FIELDS = ['displayName', 'title', 'department', 'phone', 'about', 'location', 'startedOn', 'timezone', 'statusText', 'birthDay', 'birthMonth', 'avatarFileId'];
 
 const COLUMN = {
   displayName: 'display_name', title: 'title', department: 'department', phone: 'phone',
   about: 'about', location: 'location', startedOn: 'started_on', timezone: 'timezone', statusText: 'status_text',
+  birthDay: 'birth_day', birthMonth: 'birth_month', avatarFileId: 'avatar_file_id',
 };
 
 // Audit rows are machine names; a person's page needs a sentence.
@@ -37,8 +39,15 @@ export function createPeopleRepository(pool, org = null) {
     const { rows } = await pool.query(
       `SELECT m.user_id "userId", m.role "workspaceRole", m.created_at "joinedAt", u.email, u.disabled_at "disabledAt",
               p.display_name "displayName", p.title, p.department, p.phone, p.about, p.location,
-              p.started_on "startedOn", p.timezone, p.locale, p.status_text "statusText", p.avatar_url "avatarUrl",
-              pr.state "presenceState", pr.last_seen_at "lastSeenAt"
+              p.started_on "startedOn", p.timezone, p.locale, p.status_text "statusText",
+              ${avatarUrlSql('p.avatar_file_id')} "avatarUrl",
+              p.birth_day "birthDay", p.birth_month "birthMonth", m.access_until "accessUntil",
+              pr.state "presenceState", pr.last_seen_at "lastSeenAt",
+              -- Объявленная доступность гаснет сама: «на обеде до 14:00»
+              -- не должно висеть в карточке до вечера.
+              CASE WHEN pr.back_at IS NOT NULL AND pr.back_at<=now() THEN 'available'
+                   ELSE COALESCE(pr.availability,'available') END "availability",
+              CASE WHEN pr.back_at IS NOT NULL AND pr.back_at<=now() THEN NULL ELSE pr.back_at END "backAt"
        FROM memberships m
        JOIN users u ON u.id=m.user_id
        LEFT JOIN workspace_profiles p ON p.workspace_id=m.workspace_id AND p.user_id=m.user_id
@@ -101,6 +110,32 @@ export function createPeopleRepository(pool, org = null) {
      * ones — but nobody silently edits somebody else without it being an
      * audited act.
      */
+    /**
+     * Срок доступа человека.
+     *
+     * Проверяется не сборщиком, а на каждом обращении к серверу: сборщик
+     * может не запуститься, а этот запрос выполняется всегда. Поэтому
+     * здесь только запись, и она действует немедленно.
+     */
+    async setAccessUntil(session, userId, accessUntil) {
+      if (userId === session.userId) {
+        throw fail('Себе срок доступа не ставят', 'ACCESS_SELF_FORBIDDEN', 409);
+      }
+      const { rows } = await pool.query(
+        `UPDATE memberships SET access_until=$3
+          WHERE workspace_id=$1 AND user_id=$2 AND role<>'owner'
+          RETURNING user_id, role, access_until "accessUntil"`,
+        [session.workspaceId, userId, accessUntil]);
+      // Владельцу срок не ставится: компания не должна однажды остаться
+      // без того, кто ею распоряжается.
+      if (!rows[0]) throw fail('Person not found', 'PERSON_NOT_FOUND', 404);
+      await pool.query(
+        `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+         VALUES($1,$2,'membership',$3,'access.limited',$4,$5)`,
+        [session.organizationId, session.workspaceId, userId, session.userId, { accessUntil }]);
+      return { userId: rows[0].user_id, accessUntil: rows[0].accessUntil };
+    },
+
     async updateProfile(session, userId, patch, { canManageMembers = false } = {}) {
       if (userId !== session.userId && !canManageMembers) throw fail('You may only edit your own profile', 'PROFILE_FORBIDDEN', 403);
       const fields = PROFILE_FIELDS.filter((f) => patch[f] !== undefined);

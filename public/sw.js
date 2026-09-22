@@ -1,5 +1,5 @@
-const CACHE='chat-shell-v23';
-const SHELL=['/','/styles.css','/calls.css','/preferences.css','/daily-work.css','/meeting-intelligence.css','/preferences.js','/preferences-context.js','/app.js','/meeting-intelligence.js','/meeting-operations.js','/daily-work.js','/calls-ui.js','/demo.js','/manifest.webmanifest','/icon.svg'];
+const CACHE='chat-shell-v25';
+const SHELL=['/','/styles.css','/calls.css','/preferences.css','/daily-work.css','/meeting-intelligence.css','/preferences.js','/preferences-context.js','/app.js','/meeting-intelligence.js','/meeting-operations.js','/daily-work.js','/calls-ui.js','/demo.js','/manifest.webmanifest','/icon.svg','/icon-192.png','/icon-512.png','/apple-touch-icon.png'];
 
 self.addEventListener('install',(event)=>event.waitUntil(
   caches.open(CACHE).then((cache)=>cache.addAll(SHELL)).then(()=>self.skipWaiting())
@@ -25,7 +25,7 @@ self.addEventListener('fetch',(event)=>{
 });
 
 self.addEventListener('push',(event)=>{
-  let data={title:'Chat',body:'Новое уведомление',url:'/'};
+  let data={title:'ChatX',body:'Новое уведомление',url:'/'};
   try{data={...data,...event.data.json()}}catch{}
   event.waitUntil(Promise.all([
     self.registration.showNotification(data.title,{

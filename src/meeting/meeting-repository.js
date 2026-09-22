@@ -675,6 +675,64 @@ export class PostgresMeetingRepository {
     [session.workspaceId, proposalId, session.userId]);
     return rows[0] ?? null;
   }
+
+  /**
+   * Решения компании — сквозным списком.
+   *
+   * Принятое решение оставалось внутри карточки своей встречи: чтобы
+   * вспомнить, что решили по объекту, надо было помнить, на какой
+   * именно встрече это было. Через полгода этого не помнит никто, и
+   * спор начинается заново.
+   *
+   * Только принятые и только решения: предложенное — это ещё не
+   * решение, а отклонённое им и не стало.
+   */
+  async decisions(session, { query = null, from = null, to = null, limit = 60 } = {}) {
+    const like = query ? `%${String(query).replace(/[\\%_]/g, (ch) => `\\${ch}`)}%` : null;
+    const { rows } = await this.pool.query(`SELECT
+        p.id, p.title, p.body, p.accepted_at "acceptedAt",
+        p.accepted_by "acceptedBy", COALESCE(ap.display_name, au.email) "acceptedByName",
+        r.call_id "callId", s.title "callTitle", s.started_at "callStartedAt", s.conversation_id "conversationId"
+      FROM meeting_proposals p
+      JOIN meeting_intelligence_runs r ON r.workspace_id=p.workspace_id AND r.id=p.run_id
+      JOIN call_sessions s ON s.workspace_id=r.workspace_id AND s.id=r.call_id
+      LEFT JOIN users au ON au.id=p.accepted_by
+      LEFT JOIN workspace_profiles ap ON ap.workspace_id=p.workspace_id AND ap.user_id=p.accepted_by
+      WHERE p.workspace_id=$1 AND p.proposal_type='decision' AND p.status='accepted'
+        AND EXISTS (SELECT 1 FROM call_participants cp
+                     WHERE cp.workspace_id=s.workspace_id AND cp.call_id=s.id AND cp.user_id=$2)
+        AND ($3::text IS NULL OR p.title ILIKE $3 OR p.body ILIKE $3)
+        AND ($4::timestamptz IS NULL OR p.accepted_at >= $4)
+        AND ($5::timestamptz IS NULL OR p.accepted_at <= $5)
+      ORDER BY p.accepted_at DESC
+      LIMIT $6`,
+    [session.workspaceId, session.userId, like, from, to, Math.min(Number(limit) || 60, 200)]);
+
+    // Решения из протоколов встреч, у которых не было записи. Человеку
+    // всё равно, записывали встречу или нет: он ищет «что мы решили».
+    const { rows: written } = await this.pool.query(`SELECT
+        n.id, d.value title, NULL::text body, n.updated_at "acceptedAt",
+        n.created_by "acceptedBy", COALESCE(np.display_name, nu.email) "acceptedByName",
+        NULL::uuid "callId", n.title "callTitle", e.start_at "callStartedAt", e.conversation_id "conversationId"
+      FROM meeting_notes n
+      CROSS JOIN LATERAL jsonb_array_elements_text(n.decisions) d(value)
+      JOIN calendar_events e ON e.workspace_id=n.workspace_id AND e.id=n.calendar_event_id
+      LEFT JOIN users nu ON nu.id=n.created_by
+      LEFT JOIN workspace_profiles np ON np.workspace_id=n.workspace_id AND np.user_id=n.created_by
+      WHERE n.workspace_id=$1
+        AND (e.owner_id=$2 OR EXISTS (SELECT 1 FROM calendar_event_participants cp
+                                       WHERE cp.workspace_id=e.workspace_id AND cp.calendar_event_id=e.id AND cp.user_id=$2))
+        AND ($3::text IS NULL OR d.value ILIKE $3)
+        AND ($4::timestamptz IS NULL OR n.updated_at >= $4)
+        AND ($5::timestamptz IS NULL OR n.updated_at <= $5)
+      ORDER BY n.updated_at DESC
+      LIMIT $6`,
+    [session.workspaceId, session.userId, like, from, to, Math.min(Number(limit) || 60, 200)]);
+
+    return [...rows, ...written]
+      .sort((a, b) => String(b.acceptedAt ?? '').localeCompare(String(a.acceptedAt ?? '')))
+      .slice(0, Math.min(Number(limit) || 60, 200));
+  }
 }
 
 export function createMeetingRepository(pool = null) {

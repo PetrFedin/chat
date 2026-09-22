@@ -1,6 +1,6 @@
 {
-  "name": "Chat — рабочее пространство компании",
-  "short_name": "Chat",
+  "name": "ChatX — рабочее пространство компании",
+  "short_name": "ChatX",
   "description": "Корпоративные сообщения, задачи, календарь, встречи и файлы.",
   "start_url": "/",
   "scope": "/",
@@ -9,6 +9,43 @@
   "theme_color": "#050505",
   "orientation": "any",
   "icons": [
-    {"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Сообщения",
+      "url": "/#/chats"
+    },
+    {
+      "name": "Задачи",
+      "url": "/#/tasks"
+    },
+    {
+      "name": "Календарь",
+      "url": "/#/calendar"
+    }
   ]
 }

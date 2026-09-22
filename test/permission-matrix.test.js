@@ -20,7 +20,7 @@ import { Permission, ROLE_PERMISSIONS } from '../src/rbac.js';
  * расхождение исчезает из виду, как только тест позеленел.
  */
 
-const DATABASE_URL = process.env.DATABASE_URL;
+const DATABASE_URL = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 const skip = DATABASE_URL ? false : 'DATABASE_URL не задан: матрица проверяется только на PostgreSQL';
 const PASS = 'MatrixPassword42';
 const ROLES = ['owner', 'admin', 'manager', 'member', 'guest'];
@@ -51,7 +51,11 @@ async function call(base, path, { cookie, method = 'GET', body, raw } = {}) {
 }
 
 async function startServer(t) {
-  const app = await createChatServer({ startMeetingWorker: false });
+  const app = await // Ограничение частоты здесь выключено намеренно: проверка обходит
+  // сотни маршрутов от имени одного человека — это законный прогон, и
+  // упираться в предел значит проверять ограничитель вместо того, что
+  // проверяется.
+  createChatServer({ databaseUrl: DATABASE_URL,  apiThrottle: false,  startMeetingWorker: false });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   t.after(() => app.close());
   return `http://127.0.0.1:${app.server.address().port}`;
@@ -155,7 +159,9 @@ async function buildWorld(base, actors, stranger, actor) {
   // Роль должна иметь, на что отвечать: приглашение делает организатор.
   await S(`/api/v1/calendar-events/${foreignEvent.id}/participants`, { method: 'POST', body: { userIds: [actor.userId] } });
 
-  const unit = (await O('/api/v1/org/units', { method: 'POST', body: { name: `Отдел ${rnd()}`, kind: 'department' } })).payload.unit;
+  const unitResponse = await O('/api/v1/org/units', { method: 'POST', body: { name: `Отдел ${rnd()}`, kind: 'department' } });
+  if (!unitResponse.payload?.unit) throw new Error(`подразделение не создалось: ${unitResponse.status} ${JSON.stringify(unitResponse.payload)}`);
+  const unit = unitResponse.payload.unit;
   const unitToDelete = (await O('/api/v1/org/units', { method: 'POST', body: { name: `Отдел удаляемый ${rnd()}`, kind: 'department' } })).payload.unit;
   await O(`/api/v1/org/units/${unit.id}/members`, { method: 'POST', body: { userId: stranger.userId, role: 'member' } });
 
@@ -582,8 +588,10 @@ const ROUTES = [
   { route: 'DELETE /api/v1/reminders/{своё}', method: 'DELETE', path: (w) => `/api/v1/reminders/${id(w.reminderToDelete)}`, expect: 204 },
 
   // --- сейф -----------------------------------------------------------------
-  { route: 'GET /api/v1/vault', path: () => '/api/v1/vault', expect: VAULT, note: 'без VAULT_KEY сейф отвечает 503 всем' },
-  { route: 'POST /api/v1/vault', method: 'POST', path: () => '/api/v1/vault', body: () => ({ title: 'Пароль', secret: 's3cret' }), expect: VAULT_CREATED },
+  // Гостю сейф закрыт раньше проверки ключа: личные пароли представителя
+  // заказчика не место в базе подрядчика, под его ключом и в его журнале.
+  { route: 'GET /api/v1/vault', path: () => '/api/v1/vault', expect: { owner: VAULT, admin: VAULT, manager: VAULT, member: VAULT, guest: 403 }, note: 'без VAULT_KEY сейф отвечает 503 всем, кроме гостя' },
+  { route: 'POST /api/v1/vault', method: 'POST', path: () => '/api/v1/vault', body: () => ({ title: 'Пароль', secret: 's3cret' }), expect: { owner: VAULT_CREATED, admin: VAULT_CREATED, manager: VAULT_CREATED, member: VAULT_CREATED, guest: 403 } },
 
   // --- личные пометки -------------------------------------------------------
   { route: 'GET /api/v1/favourites', path: () => '/api/v1/favourites', expect: 200 },

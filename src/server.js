@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { log, errorFields, routeOf } from './obs/log.js';
+import { createMetrics } from './obs/metrics.js';
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +14,7 @@ import { openapi } from './openapi.js';
 import { MemoryStore, PostgresStore } from './persistence/store.js';
 import { RealtimeHub } from './realtime.js';
 import { clientAddress, cookies, errorJson, json, allowedPresence, securityHeaders, readBuffer, MAX_JSON, normalizeError } from './http/helpers.js';
-import { createAuthThrottle } from './rate-limit.js';
+import { createAuthThrottle, createApiThrottle } from './rate-limit.js';
 import { createIdempotencyGuard, IDEMPOTENCY_HEADER } from './http/idempotency.js';
 import { handleAuth } from './http/auth.js';
 import { handleWorkspace } from './http/workspace.js';
@@ -25,6 +26,10 @@ import { createMediaHandler } from './http/media.js';
 import { createCallHandler } from './http/calls.js';
 import { createIntegrationsHandler } from './http/integrations.js';
 import { createOrgHandler } from './http/org.js';
+import { createExportHandler } from './http/export.js';
+import { createStoryHandler } from './http/stories.js';
+import { createStories } from './stories/story-repository.js';
+import { createMeetingNotes } from './meeting/meeting-notes.js';
 import { createAuditHandler } from './http/audit.js';
 import { createRetentionSweeper } from './maintenance/retention.js';
 import { createWorkspaceSettingsHandler } from './http/workspace-settings.js';
@@ -45,8 +50,17 @@ import { createLabelRepository } from './labels/label-repository.js';
 import { createCalendarRepository } from './calendar/calendar-repository.js';
 import { createPeopleRepository } from './people/people-repository.js';
 import { createOrgRepository } from './org/org-repository.js';
+import { createWorkspaceExport } from './export/workspace-export.js';
+import { createTwoFactor } from './security/two-factor.js';
+import { createDigestMailer } from './digest/digest-mailer.js';
 import { createWebhookRepository } from './integrations/webhook-repository.js';
 import { createDeliveryWorker } from './integrations/delivery-worker.js';
+import { createMailRepository } from './mail/mail-repository.js';
+import { createMailWorker } from './mail/mail-worker.js';
+import { createTaskReport } from './task/task-report.js';
+import { createMissedDigest } from './digest/missed-digest.js';
+import { createOnboarding } from './onboarding/onboarding.js';
+import { createNotificationPreferences } from './notifications/preferences.js';
 import { createCallRepository } from './media/call-repository.js';
 import { createMediaProvider } from './media/livekit-provider.js';
 import { createLiveKitWebhookReceiver } from './media/livekit-webhook.js';
@@ -116,8 +130,22 @@ export async function createChatServer(options={}){
     };
   };
   const demo=await preparePreviewDemo({store,objectStore,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
-  const hub=new RealtimeHub(),push=pushConfig(),wss=new WebSocketServer({noServer:true});
+  // maxPayload: без предела `ws` принимает кадр до ста мегабайт, и любой
+  // вошедший может заставить сервер выделить их на каждое соединение.
+  // Служебные пакеты — «печатает» и присутствие — весят десятки байт.
+  const metrics=options.metrics??createMetrics();
+  const WS_PACKETS_PER_SECOND=Number(process.env.WS_PACKETS_PER_SECOND??20);
+  // Отправку push можно подменить — как у работника доставок и почты.
+  // Без этого шва проверить, что выключенный переключатель действительно
+  // останавливает уведомление, нельзя ничем, кроме веры.
+  const hub=new RealtimeHub(),push=options.push??pushConfig(),wss=new WebSocketServer({noServer:true,maxPayload:16*1024});
+  const sendPush=options.sendPush??((subscription,payload)=>webpush.sendNotification(subscription,JSON.stringify(payload),{TTL:60}));
   const authThrottle=options.authThrottle??createAuthThrottle(process.env);
+  // `apiThrottle:false` выключает ограничение целиком. Нужно проверкам,
+  // которые намеренно обходят сотни маршрутов от имени одного человека:
+  // это законный прогон, а не злоупотребление, и упираться в предел там
+  // значит проверять ограничитель вместо того, что проверяют.
+  const apiThrottle=options.apiThrottle===false?null:(options.apiThrottle??createApiThrottle(process.env));
   const idempotency=options.idempotency??createIdempotencyGuard(pool);
   const webhooks=options.webhooks??createWebhookRepository(pool);
   const org=options.org??createOrgRepository(pool);
@@ -128,6 +156,9 @@ export async function createChatServer(options={}){
   const marks=options.marks??createMarkRepository(pool);
   const reminderWorker=options.reminderWorker??createReminderWorker(reminders);
   const calendar=options.calendar??createCalendarRepository(pool,store);
+  // Протокол наследует видимость встречи, а не заводит свою: иначе
+  // появляется второй ответ на вопрос «кому это видно».
+  const meetingNotes=options.meetingNotes??createMeetingNotes(pool,{calendar,store});
   const labels=options.labels??createLabelRepository(pool,store);
   const personal=options.personal??createPersonalRepository(pool,store,labels);
   // Без базы работникам нечего делать, поэтому 'custom' глушит их жёстко.
@@ -136,6 +167,20 @@ export async function createChatServer(options={}){
   // выключали — сервер перебивал их своим «включено».
   const forceWorkersOff=mode==='custom'?false:undefined;
   const deliveryWorker=options.deliveryWorker??createDeliveryWorker(webhooks,process.env,{enabled:options.deliveryWorkerEnabled??forceWorkersOff});
+  // Почта — отдельный канал и отдельный работник: медленный почтовый
+  // сервер не должен задерживать интеграции заказчика, и наоборот.
+  const mail=options.mail??createMailRepository(pool);
+  const taskReport=options.taskReport??createTaskReport(pool);
+  const workspaceExport=options.workspaceExport??createWorkspaceExport(pool,objectStore);
+  const twoFactor=options.twoFactor??createTwoFactor(pool);
+  const stories=options.stories??createStories(pool,store);
+  const digest=options.digest??createMissedDigest(pool);
+  const onboarding=options.onboarding??createOnboarding(pool);
+  const notificationPreferences=options.notificationPreferences??createNotificationPreferences(pool);
+  const mailWorker=options.mailWorker??createMailWorker(mail,process.env,{enabled:options.mailWorkerEnabled??forceWorkersOff});
+  // Рассылка сводок идёт рядом с почтовым рабочим: без настроенной
+  // почты слать некуда, и заводить для неё таймер незачем.
+  const digestMailer=options.digestMailer??(mail&&digest?createDigestMailer({pool,digest,mail}):null);
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
   const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
@@ -146,10 +191,43 @@ export async function createChatServer(options={}){
   const summaryProvider=options.summaryProvider??configuredMeetingProviders.summaryProvider;
   // Сессия запоминается на запросе: строке журнала нужны пространство и
   // человек, иначе шумного арендатора в аварии не назвать.
-  const authenticate=async(req)=>{const token=cookieToken(req);const session=token?await store.getSession(hashToken(token)):null;if(session)req.session=session;return session};
+  /**
+   * Опознание один раз за запрос.
+   *
+   * Сессию спрашивают дважды: ограничитель частоты в начале и сам
+   * обработчик потом. Без памяти на запросе это второй поход в базу на
+   * каждое обращение — то есть удвоение самой частой операции ради
+   * проверки, которая должна быть дешёвой.
+   */
+  const authenticate=async(req)=>{
+    if(req.sessionResolved)return req.session??null;
+    const token=cookieToken(req);
+    const session=token?await store.getSession(hashToken(token)):null;
+    req.sessionResolved=true;
+    if(session)req.session=session;
+    return session;
+  };
   const requireSession=async(req)=>{const s=await authenticate(req);if(!s)throw Object.assign(new Error('Authentication required'),{code:'UNAUTHENTICATED',statusCode:401});return s};
   const openSession=async(res,req,userId,workspaceId,status=200)=>{const token=createOpaqueToken(),tokenHash=hashToken(token),expiresAt=createSessionExpiry();await store.createSession({userId,workspaceId,tokenHash,expiresAt,userAgent:req.headers['user-agent']??null,ipAddress:clientAddress(req)});const s=await store.getSession(tokenHash);if(!s)throw Object.assign(new Error('Session could not be established'),{code:'SESSION_NOT_ESTABLISHED',statusCode:401});json(res,status,{session:{...s,permissions:visiblePermissions(s.role)},storageMode:mode,push,media:mediaProvider.status(),objectStorage:objectStore.status()},{'set-cookie':sessionCookie(token)})};
-  const notifyUsers=async(workspaceId,userIds,payload)=>{if(!push.enabled||!userIds.length)return;const subs=await store.listPushSubscriptions(workspaceId,userIds);await Promise.allSettled(subs.map(s=>webpush.sendNotification({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},JSON.stringify(payload),{TTL:60})))};
+  /**
+   * Единственная воронка push-уведомлений.
+   *
+   * Здесь же применяются настройки человека: что присылать и в какие
+   * часы молчать. Фильтровать в каждом вызывающем — значит однажды
+   * забыть, и тогда выключенный переключатель окажется враньём.
+   *
+   * `payload.kind` — тип события. Без него уведомление проходит: новый
+   * вызов, забывший про тип, лучше пусть шумит, чем молчит.
+   */
+  const notifyUsers=async(workspaceId,userIds,payload)=>{
+    if(!push.enabled||!userIds.length)return;
+    let recipients=userIds;
+    if(payload?.kind&&notificationPreferences){
+      try{recipients=await notificationPreferences.recipients(workspaceId,userIds,payload.kind)}
+      catch(error){log('warn','notify.preferences.failed',{err:String(error?.message??error)})}
+    }
+    if(!recipients.length)return;
+    const subs=await store.listPushSubscriptions(workspaceId,recipients);await Promise.allSettled(subs.map(s=>sendPush({endpoint:s.endpoint,keys:{p256dh:s.p256dh,auth:s.auth}},payload)))};
   const projectMeetingReviewReady=createMeetingReviewProjector({store,calls,hub,notifyUsers});
 
   const meetingProcessor=options.meetingProcessor??createMeetingProcessor({
@@ -172,10 +250,22 @@ export async function createChatServer(options={}){
   });
   const retention=options.retention??createRetentionSweeper(pool,process.env);
   const startMeetingWorker=options.startMeetingWorker??mode!=='custom';
-  if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.();reminderWorker.start?.();retention.start?.()}
+  // Датчики задаются функцией, а не числом: иначе кто-то обязан не
+  // забывать их обновлять, и однажды забудет.
+  metrics.gauge('chat_websocket_connections',()=>hub.size?.()??0);
+  metrics.gauge('chat_db_pool_total',()=>pool?.totalCount??0);
+  metrics.gauge('chat_db_pool_idle',()=>pool?.idleCount??0);
+  metrics.gauge('chat_db_pool_waiting',()=>pool?.waitingCount??0);
+  for(const [name,worker] of [['webhooks',deliveryWorker],['mail',mailWorker]]){
+    metrics.gauge('chat_queue_pending',()=>worker.status?.().queue?.pending??0,{queue:name});
+    metrics.gauge('chat_queue_failed',()=>worker.status?.().queue?.failed??0,{queue:name});
+    metrics.gauge('chat_queue_oldest_seconds',()=>worker.status?.().queue?.oldestAgeSec??0,{queue:name});
+  }
 
-  const ctx={store,mode,hub,authThrottle,webhooks,deliveryWorker,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.();mailWorker.start?.();digestMailer?.start?.();reminderWorker.start?.();retention.start?.()}
+
+  const ctx={store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{
     // Запись о запросе — то, чего в журнале не было вовсе: двадцать
@@ -189,11 +279,16 @@ export async function createChatServer(options={}){
       const ms=Number(process.hrtime.bigint()-startedAt)/1e6;
       const status=res.statusCode;
       const level=status>=500?'error':status>=400||ms>2000?'warn':'info';
+      const route=routeOf(req.url);
       log(level,'http',{
-        reqId:req.reqId,method:req.method,route:routeOf(req.url),status,
+        reqId:req.reqId,method:req.method,route,status,
         ms:Math.round(ms),wsId:req.session?.workspaceId,userId:req.session?.userId,
         ip:req.socket?.remoteAddress,
       });
+      // Метрики намеренно без человека и пространства: то, что уходит в
+      // мониторинг, живёт там годами и видно всей эксплуатации.
+      metrics.count('chat_http_requests_total',{method:req.method,route,status});
+      metrics.observe('chat_http_request_seconds',{method:req.method,route},ms/1000);
     });
     try{
     for(const [name,value] of Object.entries(baseHeaders))res.setHeader(name,value);
@@ -233,7 +328,26 @@ export async function createChatServer(options={}){
      * отделена от готовности: `/readyz` спрашивает базу и хранилище на
      * деле и отвечает 503, когда спрашивать бесполезно.
      */
-    if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,persistence:persistenceStatus(),realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},integrations:{outbound:deliveryWorker.status?.()??{configured:false}},retention:retention.status?.()??{configured:false},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,persistent:Boolean(demo.persistent),meeting:Boolean(demo.meeting)}});
+    /**
+     * Метрики для системы мониторинга.
+     *
+     * Закрывается токеном, если он задан: маршрут рассказывает о
+     * нагрузке и глубине очередей, и выставлять это наружу без нужды
+     * незачем. Без токена — открыт, потому что в закрытом контуре
+     * требовать секрет ради секрета только мешает.
+     */
+    if(path==='/metrics'&&method==='GET'){
+      const expected=process.env.METRICS_TOKEN;
+      if(expected&&req.headers.authorization!==`Bearer ${expected}`){
+        res.writeHead(401,{'content-type':'text/plain; charset=utf-8'});
+        res.end('нужен токен\n');
+        return;
+      }
+      res.writeHead(200,{'content-type':'text/plain; version=0.0.4; charset=utf-8','cache-control':'no-store'});
+      res.end(metrics.render());
+      return;
+    }
+    if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,persistence:persistenceStatus(),realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},integrations:{outbound:deliveryWorker.status?.()??{configured:false}},mail:mailWorker.status?.()??{configured:false},retention:retention.status?.()??{configured:false},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,persistent:Boolean(demo.persistent),meeting:Boolean(demo.meeting)}});
     if(path==='/readyz'){
       const started=Date.now();
       const checks={};
@@ -264,18 +378,43 @@ export async function createChatServer(options={}){
         realtime:{sockets:hub.size?.()??null},
       });
     }
+    /**
+     * Ограничение частоты для вошедшего человека.
+     *
+     * Стоит после проверок готовности и до всех маршрутов: считать
+     * нужно всё, что стоит работы, и не считать healthz, который
+     * опрашивает мониторинг.
+     *
+     * Считаем по человеку, а не по адресу: за одним адресом сидит целый
+     * офис. Неопознанный запрос сюда не попадает — им занимается
+     * ограничитель входа, у которого свои, куда более строгие правила.
+     */
+    if(path.startsWith('/api/')){
+      const who=apiThrottle?(await authenticate(req).catch(()=>null))?.userId??null:null;
+      if(who){
+        const verdict=apiThrottle.check(who,method,path);
+        if(!verdict.allowed){
+          metrics.count('chat_rate_limited_total',{bucket:verdict.bucket});
+          res.writeHead(429,{'content-type':'application/json; charset=utf-8','retry-after':String(verdict.retryAfterSeconds)});
+          res.end(JSON.stringify({error:{code:'RATE_LIMITED',message:'Слишком много запросов. Подождите немного.'}}));
+          return;
+        }
+      }
+    }
     if(path==='/openapi.json'||path==='/api/v1/openapi')return json(res,200,openapi);
     if(path==='/vendor/livekit-client.js'&&method==='GET'){const body=await readFile(livekitClientPath);res.writeHead(200,{'content-type':'text/javascript; charset=utf-8','cache-control':'public, max-age=86400'});res.end(body);return}
     if(await handleMeetingOperations(req,res,ctx,url,path,method))return;
     if(await handleMeetingIntelligence(req,res,ctx,path,method))return;
     if(await handlePreviewDemo(req,res,ctx,path,method))return;
-    if(await handleAuth(req,res,ctx,path,method))return;
+    if(await handleAuth(req,res,ctx,path,method,url))return;
     if(await handleDailyWork(req,res,ctx,url,path,method))return;
     if(await handleWorkspace(req,res,ctx,url,path,method))return;
     if(await handleMessaging(req,res,ctx,url,path,method))return;
     if(await handleCalls(req,res,ctx,path,method))return;
     if(await handleIntegrations(req,res,ctx,url,path,method))return;
     if(await handleOrg(req,res,ctx,url,path,method))return;
+    if(await handleExport(req,res,ctx,url,path,method))return;
+    if(await handleStories(req,res,ctx,url,path,method))return;
     if(await handleAudit(req,res,ctx,url,path,method))return;
     if(await handleWorkspaceSettings(req,res,ctx,url,path,method))return;
     if(await handleGames(req,res,ctx,url,path,method))return;
@@ -316,16 +455,43 @@ export async function createChatServer(options={}){
   }});
   server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
   wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});
+  // Ошибка самого протокола — слишком длинный кадр, битый UTF-8, чужой
+  // опкод — приходит событием `error`. Без слушателя она становится
+  // необработанным исключением всего процесса: один клиент с испорченным
+  // кадром ронял сервер для всей компании.
+  ws.on('error',(error)=>{
+    log('warn','ws.error',{wsId:s.workspaceId,userId:s.userId,err:String(error?.message??error),code:error?.code??null});
+    // terminate, а не close: разговаривать уже не с кем. Кадр, который
+    // не разобрался, оставляет поток в неизвестном состоянии, и вежливое
+    // прощание в нём не имеет смысла — сторона всё равно не разберёт и
+    // его тоже.
+    try{ws.terminate()}catch{}
+  });
   // Слушатель вешается до любых ожиданий: обработчик асинхронный, и пока он
   // ходил в базу за присутствием, пакеты, отправленные сразу после
   // подключения, падали в пустоту — «печатает…» в первые полсекунды после
   // открытия вкладки не доходило ни до кого.
-  ws.on('message',async raw=>{try{const packet=JSON.parse(String(raw));if(packet.event==='typing.start'||packet.event==='typing.stop'){const id=packet.data?.conversationId;if(id&&await store.canAccessConversation(s,id)){const audience=await store.conversationAudience(s,id);hub.broadcastUsers(s.workspaceId,audience.filter(x=>x!==s.userId),packet.event,{conversationId:id,userId:s.userId})}}else if(packet.event==='presence.set'&&allowedPresence.has(packet.data?.state)){const p=await store.setPresence(s,packet.data);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}}catch(error){hub.send(ws,'error',{code:error.code??'INVALID_EVENT',message:error.message})}});ws.on('close',async()=>{remove();try{const p=await store.setPresence(s,{state:'away'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p})}catch{}});
+  // Каждое «печатает» стоит двух запросов к базе и рассылки. Без счётчика
+  // клиент — свой же, забуксовавший на повторной отправке, — кладёт базу
+  // на десятках пакетов в секунду. Считаем в памяти сокета: ограничение
+  // касается одного соединения, и переживать перезапуск ему незачем.
+  let packets=0,windowAt=Date.now();
+  ws.on('message',async raw=>{
+    const now=Date.now();
+    if(now-windowAt>1000){packets=0;windowAt=now}
+    if(++packets>WS_PACKETS_PER_SECOND){
+      // Молча отбрасываем: отвечать на каждый лишний пакет ошибкой значит
+      // удваивать трафик ровно тогда, когда его и так слишком много.
+      if(packets===WS_PACKETS_PER_SECOND+1)log('warn','ws.flood',{wsId:s.workspaceId,userId:s.userId});
+      return;
+    }
+    try{const packet=JSON.parse(String(raw));if(packet.event==='typing.start'||packet.event==='typing.stop'){const id=packet.data?.conversationId;if(id&&await store.canAccessConversation(s,id)){const audience=await store.conversationAudience(s,id);hub.broadcastUsers(s.workspaceId,audience.filter(x=>x!==s.userId),packet.event,{conversationId:id,userId:s.userId})}}else if(packet.event==='presence.set'&&allowedPresence.has(packet.data?.state)){const p=await store.setPresence(s,packet.data);hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}}catch(error){hub.send(ws,'error',{code:error.code??'INVALID_EVENT',message:error.message})}
+  });
   // Присутствие ставится последним: это поход в базу, и он не должен
   // задерживать готовность сокета принимать пакеты.
   try{const p=await store.setPresence(s,{state:'online'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}
 });
-  return{server,store,calls,webhooks,deliveryWorker,reminders,reminderWorker,vault,marks,org,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{reminderWorker.stop?.();retention.stop?.();await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));await deliveryWorker.stop?.().catch((error)=>console.error('delivery worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
+  return{server,store,calls,webhooks,deliveryWorker,mail,mailWorker,digestMailer,reminders,reminderWorker,vault,marks,org,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{reminderWorker.stop?.();digestMailer?.stop?.();retention.stop?.();await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));await deliveryWorker.stop?.().catch((error)=>console.error('delivery worker shutdown failed',error));await mailWorker.stop?.().catch((error)=>console.error('mail worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
 }
 
 // An unhandled rejection or a stray exception must not silently kill a server
@@ -337,15 +503,15 @@ process.on('uncaughtException',(error)=>console.error('uncaught exception',error
 const isMain=process.argv[1]&&fileURLToPath(import.meta.url)===normalize(process.argv[1]);
 if(isMain){
   const app=await createChatServer(),port=Number(process.env.PORT??3000);
-  app.server.listen(port,'0.0.0.0',()=>console.log(`Chat workspace: http://localhost:${port} [${app.mode}]${app.demo.enabled?' [demo]':''}`));
+  app.server.listen(port,'0.0.0.0',()=>console.log(`ChatX workspace: http://localhost:${port} [${app.mode}]${app.demo.enabled?' [demo]':''}`));
   let closing=false;
   const shutdown=async(signal)=>{
     if(closing)return;
     closing=true;
-    console.log(`Chat shutdown requested by ${signal}`);
-    const hardStop=setTimeout(()=>{console.error('Chat graceful shutdown timed out');process.exit(1)},15000);
+    console.log(`ChatX shutdown requested by ${signal}`);
+    const hardStop=setTimeout(()=>{console.error('ChatX graceful shutdown timed out');process.exit(1)},15000);
     hardStop.unref?.();
-    try{await app.close();clearTimeout(hardStop);process.exit(0)}catch(error){clearTimeout(hardStop);console.error('Chat shutdown failed',error);process.exit(1)}
+    try{await app.close();clearTimeout(hardStop);process.exit(0)}catch(error){clearTimeout(hardStop);console.error('ChatX shutdown failed',error);process.exit(1)}
   };
   process.once('SIGTERM',()=>void shutdown('SIGTERM'));
   process.once('SIGINT',()=>void shutdown('SIGINT'));

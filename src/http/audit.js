@@ -25,6 +25,9 @@ export function createAuditHandler() {
       cursor: url.searchParams.get('cursor'),
       aggregateType: url.searchParams.get('type'),
       actorId: url.searchParams.get('actor'),
+      // Записи о сейфе, входах и паролях — только тому, кто отвечает за
+      // безопасность компании целиком, и самому человеку про себя.
+      personal: (ctx.permissions(session.role) ?? []).includes(Permission.ORGANIZATION_MANAGE),
     });
     json(res, 200, page);
     return true;

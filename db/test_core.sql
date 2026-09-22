@@ -36,8 +36,11 @@ VALUES ('40000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000
 DO $$
 BEGIN
   BEGIN
-    INSERT INTO calendar_blocks(organization_id, workspace_id, commitment_id, owner_id, start_at, end_at)
-    VALUES ('00000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000002','90000000-0000-0000-0000-000000000002','2026-09-18T11:00:00Z','2026-09-18T10:00:00Z');
+    -- Раньше это проверялось на calendar_blocks — таблице, за которой не
+    -- было ни строки кода. Правило же принадлежит календарю, и проверять
+    -- его надо там, где события действительно заводят.
+    INSERT INTO calendar_events(organization_id, workspace_id, kind, title, owner_id, start_at, end_at)
+    VALUES ('00000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','focus','Backwards block','90000000-0000-0000-0000-000000000002','2026-09-18T11:00:00Z','2026-09-18T10:00:00Z');
     RAISE EXCEPTION 'invalid calendar range unexpectedly succeeded';
   EXCEPTION WHEN check_violation THEN NULL;
   END;

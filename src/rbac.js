@@ -18,11 +18,21 @@ export const Permission = Object.freeze({
   PUSH_SUBSCRIBE: 'push.subscribe',
   AUDIT_READ: 'audit.read',
   AI_USE: 'ai.use',
+  VAULT_USE: 'vault.use',
   MEETING_OPS_MANAGE: 'meeting.ops.manage',
   MEETING_COST_READ: 'meeting.cost.read',
   MEETING_COST_MANAGE: 'meeting.cost.manage',
   INTEGRATION_MANAGE: 'integration.manage',
-  ORG_STRUCTURE_MANAGE: 'org.structure.manage'
+  ORG_STRUCTURE_MANAGE: 'org.structure.manage',
+  /**
+   * Завести закрытое подразделение.
+   *
+   * Открытые отделы задают форму компании — это дело владельца и
+   * администратора. Закрытая же группа заводится ровно против них: если
+   * бы её мог создать только владелец, закрывать было бы не от кого.
+   * Поэтому право идёт и руководителю — тому, кто и так ведёт людей.
+   */
+  ORG_UNIT_PRIVATE_CREATE: 'org.unit.private.create'
 });
 
 const all = new Set(Object.values(Permission));
@@ -33,6 +43,7 @@ export const ROLE_PERMISSIONS = Object.freeze({
   admin: without(Permission.ORGANIZATION_MANAGE),
   manager: new Set([
     Permission.MEMBER_INVITE,
+    Permission.ORG_UNIT_PRIVATE_CREATE,
     Permission.CHANNEL_CREATE,
     Permission.CHANNEL_MANAGE,
     Permission.MESSAGE_SEND,
@@ -47,7 +58,8 @@ export const ROLE_PERMISSIONS = Object.freeze({
     Permission.FILE_UPLOAD,
     Permission.PUSH_SUBSCRIBE,
     Permission.AUDIT_READ,
-    Permission.AI_USE
+    Permission.AI_USE,
+    Permission.VAULT_USE
   ]),
   member: new Set([
     Permission.MESSAGE_SEND,
@@ -57,7 +69,8 @@ export const ROLE_PERMISSIONS = Object.freeze({
     Permission.CALL_START,
     Permission.FILE_UPLOAD,
     Permission.PUSH_SUBSCRIBE,
-    Permission.AI_USE
+    Permission.AI_USE,
+    Permission.VAULT_USE
   ]),
   guest: new Set([
     Permission.MESSAGE_SEND,

@@ -37,7 +37,11 @@ const openThrottle = createAuthThrottle({
 
 async function boot(t) {
   process.env.DATABASE_URL = DATABASE_URL;
-  const app = await createChatServer({
+  const app = await // Ограничение частоты здесь выключено намеренно: проверка обходит
+  // сотни маршрутов от имени одного человека — это законный прогон, и
+  // упираться в предел значит проверять ограничитель вместо того, что
+  // проверяется.
+  createChatServer({ apiThrottle: false, 
     databaseUrl: DATABASE_URL,
     startMeetingWorker: false,
     deliveryWorkerEnabled: false,

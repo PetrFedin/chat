@@ -4,14 +4,30 @@ const MAX_DEPTH = 6;
 
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
 
-const unitView = (row) => ({
+/**
+ * Подразделение снаружи.
+ *
+ * У закрытого видно ровно три вещи: имя, замок и сколько человек внутри.
+ * За места платит компания, поэтому прятать сам факт существования
+ * нельзя. Всё остальное — состав, назначение, руководитель — тайна тех,
+ * кто в нём состоит.
+ */
+const unitView = (row, { inside = true } = {}) => ({
   id: row.id,
   parentId: row.parent_id ?? null,
   kind: row.kind,
   name: row.name,
-  purpose: row.purpose ?? null,
+  closed: row.visibility === 'closed',
+  inside: row.visibility === 'closed' ? Boolean(inside) : true,
+  purpose: row.visibility === 'closed' && !inside ? null : (row.purpose ?? null),
   depth: row.depth,
-  headUserId: row.head_user_id ?? null,
+  headUserId: row.visibility === 'closed' && !inside ? null : (row.head_user_id ?? null),
+  // Комната подразделения закрыта по составу, и её адрес посторонним ни
+  // к чему: по нему всё равно не войти, а знать о ней нечего.
+  conversationId: inside ? (row.conversation_id ?? null) : null,
+  // «Я здесь состою» — по этому признаку строится список своих
+  // подразделений с непрочитанным.
+  mine: Boolean(inside),
   seats: {
     limit: row.seat_limit ?? null,
     used: Number(row.member_count ?? 0),
@@ -72,12 +88,36 @@ export function createOrgRepository(pool) {
     /** The whole tree in one read, with headcount against planned seats. */
     async listUnits(session) {
       const { rows } = await pool.query(
-        `SELECT u.*, (SELECT count(*) FROM org_unit_members m WHERE m.workspace_id=u.workspace_id AND m.unit_id=u.id) member_count
+        `SELECT u.*, (SELECT count(*) FROM org_unit_members m WHERE m.workspace_id=u.workspace_id AND m.unit_id=u.id) member_count,
+           EXISTS(SELECT 1 FROM org_unit_members me WHERE me.workspace_id=u.workspace_id AND me.unit_id=u.id AND me.user_id=$2) inside
          FROM org_units u WHERE u.workspace_id=$1
          ORDER BY u.depth, u.position, u.name`,
-        [session.workspaceId],
+        [session.workspaceId, session.userId],
       );
-      return rows.map(unitView);
+      return rows.map((row) => unitView(row, { inside: row.inside }));
+    },
+
+    /** Состоит ли человек в этом подразделении — вопрос доступа к закрытому. */
+    async isInsideUnit(session, unitId) {
+      const { rowCount } = await pool.query(
+        'SELECT 1 FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id=$3',
+        [session.workspaceId, unitId, session.userId],
+      );
+      return rowCount > 0;
+    },
+
+    /**
+     * Можно ли заглянуть внутрь.
+     *
+     * Права на управление пространством сюда не годятся: если бы владелец
+     * читал закрытый отдел просто потому, что он владелец, закрытости бы
+     * не существовало. Внутрь пускает только членство.
+     */
+    async mayReadUnit(session, unitId) {
+      const { rows } = await pool.query('SELECT visibility FROM org_units WHERE workspace_id=$1 AND id=$2', [session.workspaceId, unitId]);
+      if (!rows.length) throw fail('Unit not found', 'ORG_UNIT_NOT_FOUND', 404);
+      if (rows[0].visibility !== 'closed') return true;
+      return repository.isInsideUnit(session, unitId);
     },
 
     /** Which units this person runs, directly or by inheritance from above. */
@@ -94,13 +134,48 @@ export function createOrgRepository(pool) {
       return rows.map((r) => r.id);
     },
 
+    /**
+     * След в журнале.
+     *
+     * Кто завёл отдел, кого туда поставил и кто назначил начальника —
+     * ровно то, ради чего журнал и держат. Раньше оргструктура менялась
+     * бесследно: тридцать восемь видов событий, и ни одного про неё.
+     */
+    async note(client, session, unitId, eventType, payload) {
+      await client.query(
+        `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+         VALUES($1,$2,'org_unit',$3,$4,$5,$6)`,
+        [session.organizationId, session.workspaceId, unitId, eventType, session.userId, payload],
+      );
+    },
+
     async canManageUnit(session, unitId, { workspaceWide = false } = {}) {
       if (workspaceWide) return true;
       return (await repository.adminUnitIds(session)).includes(unitId);
     },
 
-    async createUnit(session, { parentId = null, kind = 'department', name, purpose = null, seatLimit = null }) {
+    /**
+     * Кто вправе менять состав.
+     *
+     * Права на всё пространство сюда не годятся: возможность вписать в
+     * закрытый отдел кого угодно — в том числе себя — это и есть доступ к
+     * нему. Состав закрытого меняют только изнутри: его руководитель и
+     * назначенные им администраторы.
+     */
+    async canManageMembers(session, unitId, { workspaceWide = false } = {}) {
+      const { rows } = await pool.query('SELECT visibility FROM org_units WHERE workspace_id=$1 AND id=$2', [session.workspaceId, unitId]);
+      if (!rows.length) throw fail('Unit not found', 'ORG_UNIT_NOT_FOUND', 404);
+      if (rows[0].visibility !== 'closed') return repository.canManageUnit(session, unitId, { workspaceWide });
+      const { rowCount } = await pool.query(
+        "SELECT 1 FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id=$3 AND role IN ('head','admin')",
+        [session.workspaceId, unitId, session.userId],
+      );
+      return rowCount > 0;
+    },
+
+    async createUnit(session, { parentId = null, kind = 'department', name, purpose = null, seatLimit = null, visibility = 'open' }) {
       if (!String(name ?? '').trim()) throw fail('Unit name is required', 'INVALID_UNIT_NAME');
+      if (!['open', 'closed'].includes(visibility)) throw fail('Unknown unit visibility', 'INVALID_UNIT_VISIBILITY');
       if (seatLimit !== null && seatLimit !== undefined && (!Number.isInteger(seatLimit) || seatLimit < 1)) {
         throw fail('Seat limit must be a positive whole number', 'INVALID_SEAT_LIMIT');
       }
@@ -113,13 +188,42 @@ export function createOrgRepository(pool) {
         }
         const id = randomUUID();
         const { rows } = await client.query(
-          `INSERT INTO org_units(id,organization_id,workspace_id,parent_id,kind,name,purpose,seat_limit,depth,position,created_by)
+          `INSERT INTO org_units(id,organization_id,workspace_id,parent_id,kind,name,purpose,seat_limit,depth,position,created_by,visibility)
            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,
-             (SELECT coalesce(max(position),0)+1 FROM org_units WHERE workspace_id=$3 AND parent_id IS NOT DISTINCT FROM $4),$10)
+             (SELECT coalesce(max(position),0)+1 FROM org_units WHERE workspace_id=$3 AND parent_id IS NOT DISTINCT FROM $4),$10,$11)
            RETURNING *`,
-          [id, session.organizationId, session.workspaceId, parentId, kind, String(name).trim(), purpose, seatLimit ?? null, depth, session.userId],
+          [id, session.organizationId, session.workspaceId, parentId, kind, String(name).trim(), purpose, seatLimit ?? null, depth, session.userId, visibility],
         );
-        return unitView({ ...rows[0], member_count: 0 });
+        // Комната подразделения. Её состав ведёт оргструктура, поэтому
+        // беседа закрытая: попасть в неё можно только через отдел.
+        const roomId = randomUUID();
+        await client.query(
+          `INSERT INTO conversations(id,organization_id,workspace_id,kind,title,purpose,visibility,created_by)
+           VALUES($1,$2,$3,'team',$4,$5,'private',$6)`,
+          [roomId, session.organizationId, session.workspaceId, String(name).trim(), purpose, session.userId],
+        );
+        await client.query('UPDATE org_units SET conversation_id=$3 WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id, roomId]);
+        rows[0].conversation_id = roomId;
+        // Закрытым подразделением надо кому-то управлять, а снаружи в него
+        // не войти. Поэтому заводящий сразу становится его руководителем:
+        // выйти он сможет, передав место другому.
+        if (visibility === 'closed') {
+          await client.query(
+            `INSERT INTO org_unit_members(organization_id,workspace_id,unit_id,user_id,role,assigned_by)
+             VALUES($1,$2,$3,$4,'head',$4)`,
+            [session.organizationId, session.workspaceId, id, session.userId],
+          );
+          await client.query('UPDATE org_units SET head_user_id=$3 WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id, session.userId]);
+          await client.query(
+            `INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role)
+             VALUES($1,$2,$3,$4,'owner') ON CONFLICT DO NOTHING`,
+            [session.organizationId, session.workspaceId, roomId, session.userId],
+          );
+        }
+        await repository.note(client, session, id, 'org.unit.created',
+          { name: String(name).trim(), kind, parentId, seatLimit: seatLimit ?? null, visibility });
+        return unitView({ ...rows[0], head_user_id: visibility === 'closed' ? session.userId : rows[0].head_user_id,
+          member_count: visibility === 'closed' ? 1 : 0 });
       });
     },
 
@@ -181,23 +285,51 @@ export function createOrgRepository(pool) {
            FROM org_units u WHERE u.workspace_id=$1 AND u.id=$2`,
           [session.workspaceId, id],
         );
-        return unitView(rows[0]);
+        // Что именно поменяли, а не «что-то поменяли»: переезд отдела и
+        // смена штатного плана — разные новости для того, кто потом
+        // будет разбираться.
+        const changed = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+        if (Object.keys(changed).length) {
+          await repository.note(client, session, id, 'org.unit.updated', { changed, name: rows[0].name });
+        }
+        // Ответ на правку — такой же вид подразделения, как в схеме:
+        // переименовать закрытый отдел владелец вправе, а узнать из
+        // ответа его руководителя — нет.
+        const { rowCount: inside } = await client.query(
+          'SELECT 1 FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id=$3',
+          [session.workspaceId, id, session.userId],
+        );
+        return unitView(rows[0], { inside: inside > 0 });
       });
     },
 
     async deleteUnit(session, id) {
       return tx(async (client) => {
-        await loadUnit(client, session, id);
+        const unit = await loadUnit(client, session, id);
         const { rows: children } = await client.query('SELECT count(*)::int c FROM org_units WHERE workspace_id=$1 AND parent_id=$2', [session.workspaceId, id]);
         if (children[0].c) throw fail('Move or remove the sub-units first', 'ORG_UNIT_HAS_CHILDREN', 409);
         const { rows: members } = await client.query('SELECT count(*)::int c FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2', [session.workspaceId, id]);
-        if (members[0].c) throw fail('Move the people out of the unit first', 'ORG_UNIT_HAS_MEMBERS', 409);
+        // У открытого требуем сначала вывести людей: иначе подразделение
+        // исчезает вместе с тем, кто где работал, и это легко сделать по
+        // ошибке. У закрытого так нельзя: распускающий не видит его
+        // состава и вывести оттуда никого не может — правило превратило
+        // бы закрытый отдел в неразрушимый, а места в нём — в навсегда
+        // занятые. Поэтому роспуск закрытого уносит и состав, а в журнале
+        // остаётся число — не имена.
+        if (members[0].c && unit.visibility !== 'closed') throw fail('Move the people out of the unit first', 'ORG_UNIT_HAS_MEMBERS', 409);
+        if (members[0].c) await client.query('DELETE FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2', [session.workspaceId, id]);
         await client.query('DELETE FROM org_units WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id]);
+        await repository.note(client, session, id, 'org.unit.deleted',
+          { name: unit.name, ...(unit.visibility === 'closed' ? { closed: true, peopleReleased: members[0].c } : {}) });
         return { deleted: true };
       });
     },
 
     async listMembers(session, unitId) {
+      // Не 403, а 404: «доступ запрещён» — это уже ответ на вопрос, кто
+      // там состоит. Закрытое подразделение для постороннего просто не
+      // имеет состава.
+      if (!(await repository.mayReadUnit(session, unitId))) throw fail('Unit not found', 'ORG_UNIT_NOT_FOUND', 404);
       const { rows } = await pool.query(
         `SELECT m.user_id "userId", m.role, m.created_at "createdAt", p.display_name "displayName", p.title, ms.role "workspaceRole"
          FROM org_unit_members m
@@ -233,16 +365,33 @@ export function createOrgRepository(pool) {
           [session.organizationId, session.workspaceId, unitId, userId, role, session.userId],
         );
         if (role === 'head') await client.query('UPDATE org_units SET head_user_id=$3, updated_at=now() WHERE workspace_id=$1 AND id=$2', [session.workspaceId, unitId, userId]);
+        // Комната подразделения ведётся его составом: попасть в неё можно
+        // только через отдел, и выйти — тоже.
+        if (unit.conversation_id) {
+          await client.query(
+            `INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role)
+             VALUES($1,$2,$3,$4,$5)
+             ON CONFLICT (workspace_id,conversation_id,user_id) DO UPDATE SET role=EXCLUDED.role`,
+            [session.organizationId, session.workspaceId, unit.conversation_id, userId, role === 'head' ? 'owner' : 'member'],
+          );
+        }
+        await repository.note(client, session, unitId,
+          role === 'head' ? 'org.unit.head_appointed' : 'org.unit.member_added', { userId, role });
         return { unitId, userId, role };
       });
     },
 
     async removeMember(session, unitId, userId) {
       return tx(async (client) => {
-        await loadUnit(client, session, unitId);
+        const unit = await loadUnit(client, session, unitId);
         const { rowCount } = await client.query('DELETE FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id=$3', [session.workspaceId, unitId, userId]);
         if (!rowCount) throw fail('That person is not in this unit', 'NOT_A_UNIT_MEMBER', 404);
+        if (unit.conversation_id) {
+          await client.query('DELETE FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3',
+            [session.workspaceId, unit.conversation_id, userId]);
+        }
         await client.query('UPDATE org_units SET head_user_id=NULL, updated_at=now() WHERE workspace_id=$1 AND id=$2 AND head_user_id=$3', [session.workspaceId, unitId, userId]);
+        await repository.note(client, session, unitId, 'org.unit.member_removed', { userId });
         return { removed: true };
       });
     },
@@ -272,14 +421,24 @@ export function createOrgRepository(pool) {
     },
 
     /** Every unit a person belongs to, for their profile card. */
+    /**
+     * В каких подразделениях человек.
+     *
+     * Закрытое показываем, только если смотрящий сам в нём состоит:
+     * иначе карточка сотрудника выдавала бы состав закрытого отдела по
+     * одному человеку за раз.
+     */
     async unitsOf(session, userId) {
       const { rows } = await pool.query(
-        `SELECT u.id "unitId", u.name, u.kind, m.role FROM org_unit_members m
+        `SELECT u.id "unitId", u.name, u.kind, m.role, u.visibility FROM org_unit_members m
          JOIN org_units u ON u.id=m.unit_id AND u.workspace_id=m.workspace_id
-         WHERE m.workspace_id=$1 AND m.user_id=$2 ORDER BY u.depth, u.name`,
-        [session.workspaceId, userId],
+         WHERE m.workspace_id=$1 AND m.user_id=$2
+           AND (u.visibility<>'closed' OR $3::uuid=$2::uuid
+             OR EXISTS(SELECT 1 FROM org_unit_members me WHERE me.workspace_id=u.workspace_id AND me.unit_id=u.id AND me.user_id=$3))
+         ORDER BY u.depth, u.name`,
+        [session.workspaceId, userId, session.userId],
       );
-      return rows;
+      return rows.map(({ visibility, ...rest }) => ({ ...rest, closed: visibility === 'closed' }));
     },
   };
 

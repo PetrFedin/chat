@@ -58,6 +58,64 @@ test('переписку можно дочитать до самого нача�
   assert.match(client, /loadOlderMessages/);
 });
 
+/**
+ * Окно вокруг найденного сообщения.
+ *
+ * Переход из поиска к реплике трёхмесячной давности подгружал последние
+ * сто сообщений, не находил её среди них и молча оставлял человека внизу
+ * ленты. Первая версия окна к тому же уехала в продукт с лишним SELECT в
+ * запросе — потому что этот путь не выполнялся ни в одном тесте.
+ */
+test('ленту можно открыть окном вокруг старого сообщения',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const app = await createChatServer({ databaseUrl: DATABASE_URL, startMeetingWorker: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const suffix = Math.random().toString(36).slice(2, 7);
+
+  const owner = await request(base, '/api/v1/auth/register-company', {
+    method: 'POST',
+    body: { companyName: `Окно ${suffix}`, ownerName: 'Владелец', email: `own-${suffix}@t.test`, password: 'OwnerPassword42' },
+  });
+  const conversation = (await request(base, '/api/v1/bootstrap', { cookie: owner.cookie })).payload.conversations[0];
+
+  const send = async (body) => (await request(base, `/api/v1/conversations/${conversation.id}/messages`, {
+    cookie: owner.cookie, method: 'POST', body: { body } })).payload.message;
+
+  const old = await send('Договор подряда СГ-114 подписан');
+  for (let i = 1; i <= 150; i += 1) await send(`Потом ${i}`);
+
+  const page = await request(base, `/api/v1/conversations/${conversation.id}/messages`, { cookie: owner.cookie });
+  assert.equal(page.payload.items.some((m) => m.id === old.id), false,
+    'сообщение должно уйти за пределы первой страницы, иначе проверка ничего не проверяет');
+
+  const window = await request(base,
+    `/api/v1/conversations/${conversation.id}/messages?around=${old.id}`, { cookie: owner.cookie });
+  assert.equal(window.status, 200);
+  const index = window.payload.items.findIndex((m) => m.id === old.id);
+  assert.ok(index >= 0, 'искомого сообщения нет в окне вокруг него самого');
+  assert.ok(window.payload.items.length > index + 1, 'после найденного сообщения должен быть виден разговор');
+  const times = window.payload.items.map((m) => Date.parse(m.createdAt));
+  assert.deepEqual(times, [...times].sort((a, b) => a - b), 'окно пришло не по порядку');
+  assert.equal(new Set(window.payload.items.map((m) => m.id)).size, window.payload.items.length,
+    'половинки окна перекрылись');
+
+  // Тело и вложенные поля должны быть теми же, что на обычной странице.
+  const sample = window.payload.items[index];
+  assert.equal(sample.body, 'Договор подряда СГ-114 подписан');
+  assert.deepEqual(sample.reactions, []);
+  assert.equal(sample.pinned, false);
+
+  const missing = await request(base,
+    `/api/v1/conversations/${conversation.id}/messages?around=${'0'.repeat(8)}-0000-4000-8000-${'0'.repeat(12)}`,
+    { cookie: owner.cookie });
+  assert.equal(missing.code, 'MESSAGE_NOT_FOUND', 'исчезнувшее сообщение должно называться своим отказом');
+  const broken = await request(base,
+    `/api/v1/conversations/${conversation.id}/messages?around=не-идентификатор`, { cookie: owner.cookie });
+  assert.equal(broken.status, 400);
+});
+
 // Личная переписка называлась «Диалог» — все сразу. С двумя собеседниками
 // список превращался в загадку.
 test('личная переписка зовётся именем собеседника',

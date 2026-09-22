@@ -7,7 +7,11 @@ import { MemoryStore } from '../src/persistence/store.js';
 const OWNER = { companyName: 'Northstar', ownerName: 'Vera', email: 'vera@northstar.test', password: 'Workspace2026pass' };
 
 async function startServer(options = {}) {
-  const app = await createChatServer({ store: new MemoryStore(), startMeetingWorker: false, ...options });
+  const app = await // Ограничение частоты здесь выключено намеренно: проверка обходит
+  // сотни маршрутов от имени одного человека — это законный прогон, и
+  // упираться в предел значит проверять ограничитель вместо того, что
+  // проверяется.
+  createChatServer({ apiThrottle: false,  store: new MemoryStore(), startMeetingWorker: false, ...options });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   const { port } = app.server.address();
   const call = (path, init = {}) => fetch(`http://127.0.0.1:${port}${path}`, {

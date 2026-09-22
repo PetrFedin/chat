@@ -35,6 +35,9 @@ export function createOrgHandler() {
     // Two authorities: workspace-wide structure rights, and running one unit.
     const workspaceWide = (ctx.permissions(session.role) ?? []).includes(Permission.ORG_STRUCTURE_MANAGE);
     const mayManage = (unitId) => org.canManageUnit(session, unitId, { workspaceWide });
+    // Состав закрытого подразделения меняют только изнутри: вписать туда
+    // кого угодно — это и есть доступ к нему.
+    const mayManageMembers = (unitId) => org.canManageMembers(session, unitId, { workspaceWide });
 
     // Everyone on the staff may read the chart: knowing who runs what is the
     // point of having one.
@@ -45,15 +48,22 @@ export function createOrgHandler() {
 
     if (method === 'POST' && path === '/api/v1/org/units') {
       const body = await readJson(req);
-      // A sub-unit may be created by whoever runs the parent; a top-level one
-      // is a workspace-wide act.
-      if (body.parentId ? !(await mayManage(body.parentId)) : !workspaceWide) throw forbidden();
+      const closed = body.visibility === 'closed';
+      // Открытый отдел задаёт форму компании: подчинённый заводит тот, кто
+      // ведёт родительский, верхний — тот, у кого права на всю структуру.
+      // Закрытая группа — другое дело: её заводит руководитель, и она
+      // появляется в схеме замком, не раскрывая состава.
+      const mayCreate = closed
+        ? (ctx.permissions(session.role) ?? []).includes(Permission.ORG_UNIT_PRIVATE_CREATE)
+        : (body.parentId ? await mayManage(body.parentId) : workspaceWide);
+      if (!mayCreate) throw forbidden();
       const unit = await org.createUnit(session, {
         parentId: body.parentId ?? null,
         kind: body.kind ?? 'department',
         name: cleanText(body.name, 120),
         purpose: body.purpose ? cleanText(body.purpose, 500) : null,
         seatLimit: body.seatLimit ?? null,
+        visibility: body.visibility === 'closed' ? 'closed' : 'open',
       });
       json(res, 201, { unit });
       return true;
@@ -82,7 +92,7 @@ export function createOrgHandler() {
       return true;
     }
     if (m && method === 'POST') {
-      if (!(await mayManage(m[1]))) throw forbidden();
+      if (!(await mayManageMembers(m[1]))) throw forbidden();
       const body = await readJson(req);
       json(res, 201, { member: await org.addMember(session, m[1], { userId: body.userId, role: body.role ?? 'member' }) });
       return true;
@@ -90,7 +100,7 @@ export function createOrgHandler() {
 
     m = path.match(UNIT_MEMBER);
     if (m && method === 'PATCH') {
-      if (!(await mayManage(m[1]))) throw forbidden();
+      if (!(await mayManageMembers(m[1]))) throw forbidden();
       const body = await readJson(req);
       if (body.role === undefined) throw Object.assign(new Error('A unit member patch changes the role'),
         { code: 'EMPTY_UNIT_MEMBER_PATCH', statusCode: 400, expose: true });
@@ -98,7 +108,7 @@ export function createOrgHandler() {
       return true;
     }
     if (m && method === 'DELETE') {
-      if (!(await mayManage(m[1]))) throw forbidden();
+      if (!(await mayManageMembers(m[1]))) throw forbidden();
       await org.removeMember(session, m[1], m[2]);
       noContent(res);
       return true;

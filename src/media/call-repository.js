@@ -332,6 +332,66 @@ export class PostgresCallRepository {
     });
     return this.get(session, callId);
   }
+
+  /**
+   * Назначенные звонки — мои.
+   *
+   * Столбец `scheduled_for` лежал в схеме с самого начала, и ни одна
+   * строка кода его не читала: назначить звонок было нельзя, а если бы
+   * и было — увидеть назначенное негде. Договориться о разговоре на
+   * четверг приходилось словами в переписке, и там же это терялось.
+   *
+   * Отдаём только те, где человек — участник: назначенный звонок это
+   * приглашение, а не объявление.
+   */
+  async listScheduled(session, { from = null, to = null, limit = 100 } = {}) {
+    const { rows } = await this.pool.query(`SELECT
+        s.id, s.conversation_id "conversationId", s.calendar_event_id "calendarEventId", s.created_by "createdBy",
+        s.title, s.mode, s.state, s.scheduled_for "scheduledFor", s.created_at "createdAt",
+        e.description, e.end_at "endsAt",
+        (SELECT json_agg(json_build_object('userId', p.user_id, 'connectionState', p.connection_state) ORDER BY p.user_id)
+           FROM call_participants p WHERE p.workspace_id = s.workspace_id AND p.call_id = s.id) participants,
+        (SELECT json_agg(json_build_object('id', f.id, 'name', f.name, 'mimeType', f.mime_type, 'sizeBytes', f.size_bytes) ORDER BY f.name)
+           FROM calendar_event_files ef
+           JOIN files f ON f.workspace_id = ef.workspace_id AND f.id = ef.file_id AND f.deleted_at IS NULL
+          WHERE ef.workspace_id = s.workspace_id AND ef.calendar_event_id = s.calendar_event_id) files
+      FROM call_sessions s
+      LEFT JOIN calendar_events e ON e.workspace_id = s.workspace_id AND e.id = s.calendar_event_id
+      WHERE s.workspace_id = $1
+        AND s.state = 'scheduled'
+        AND EXISTS (SELECT 1 FROM call_participants p
+                     WHERE p.workspace_id = s.workspace_id AND p.call_id = s.id AND p.user_id = $2)
+        AND ($3::timestamptz IS NULL OR s.scheduled_for >= $3::timestamptz)
+        AND ($4::timestamptz IS NULL OR s.scheduled_for <= $4::timestamptz)
+      ORDER BY s.scheduled_for
+      LIMIT $5`, [session.workspaceId, session.userId, from, to, Math.min(Number(limit) || 100, 500)]);
+    return rows.map((row) => ({
+      ...row,
+      participants: row.participants ?? [],
+      files: row.files ?? [],
+    }));
+  }
+
+  /**
+   * Отменить назначенный звонок.
+   *
+   * Только тот, кто назначил: отменять чужие договорённости в общем
+   * календаре — это не «удобно», это способ сорвать разговор чужими
+   * руками.
+   */
+  async cancelScheduled(session, callId) {
+    const { rows } = await this.pool.query(
+      // `ended_at` намеренно не трогаем: у назначенного звонка нет
+      // начала, а в таблице стоит проверка «есть окончание — должно
+      // быть и начало». Отменённый разговор не «закончился» — он не
+      // состоялся.
+      `UPDATE call_sessions SET state='cancelled', last_activity_at=now()
+        WHERE workspace_id=$1 AND id=$2 AND state='scheduled' AND created_by=$3
+        RETURNING id, calendar_event_id "calendarEventId"`,
+      [session.workspaceId, callId, session.userId],
+    );
+    return rows[0] ?? null;
+  }
 }
 
 export function createCallRepository(pool = null) {
