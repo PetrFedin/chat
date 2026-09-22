@@ -3264,7 +3264,16 @@ async function personPage(userId){
     <h3 class="person-section">Подразделения</h3><div class="person-chips">${units}</div>
     <h3 class="person-section">Подчиняется</h3><div class="person-chips">${reports}</div>
     <h3 class="person-section"><span>Задачи в работе</span> — ${person.workload.open}</h3><div class="person-chips">${load}</div>
-    <h3 class="person-section">История действий</h3><div class="person-feed">${feed}</div>
+    <!--
+      История действий свёрнута по умолчанию. Это самый длинный блок
+      карточки, и открывают её обычно не ради него: нужны должность,
+      телефон, подразделение и чем человек занят сейчас. Развёрнутая
+      история отодвигала всё это за край экрана.
+    -->
+    <details class="person-history"${activity.length?'':' open'}>
+      <summary>История действий${activity.length?` — ${activity.length}`:''}</summary>
+      <div class="person-feed">${feed}</div>
+    </details>
     ${person.disabledAt?`<p class="person-about">Сотрудник уволен ${esc(when(person.disabledAt))}. Доступ закрыт, история работы сохранена.</p>`:''}
     ${!person.isSelf&&can('member.invite')?'<div class="stack" style="margin-top:16px"><button data-reset class="button secondary">Выписать ссылку для смены пароля</button></div>':''}
     ${!person.isSelf&&person.workspaceRole!=='owner'&&can('member.manage')?`<div class="stack" style="margin-top:10px">${person.disabledAt

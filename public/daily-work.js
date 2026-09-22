@@ -45,7 +45,10 @@ const setHtml=(el,value)=>{if(el&&el.innerHTML!==value)el.innerHTML=value};
 const setHidden=(el,value)=>{if(el&&el.hidden!==value)el.hidden=value};
 function setCountBadge(root,count){if(!root)return;let badge=root.querySelector('.dwc-inline-badge');if(!count){badge?.remove();return}if(!badge){badge=document.createElement('span');badge.className='dwc-inline-badge';root.append(badge)}setText(badge,count>99?'99+':String(count))}
 
-function applyUnreadBadges(){const total=D.conversations.reduce((sum,c)=>sum+Number(c.unreadCount||0),0);for(const row of $$('[data-conversation]')){const c=D.conversations.find(x=>x.id===row.dataset.conversation);if(!c)continue;setCountBadge(row,Number(c.unreadCount||0));let dot=row.querySelector('.dwc-mention-dot');if(c.mentionCount>0&&!dot){dot=document.createElement('span');dot.className='dwc-mention-dot';row.append(dot)}else if(!c.mentionCount)dot?.remove()}for(const nav of $$('[data-nav="chats"]'))setCountBadge(nav,total);const bell=$('#dwc-bell .dwc-badge'),count=Number(D.attention?.unreadNotifications||0);if(bell){setHidden(bell,!count);setText(bell,count>99?'99+':String(count))}}
+function applyUnreadBadges(){const total=D.conversations.reduce((sum,c)=>sum+Number(c.unreadCount||0),0);for(const row of $$('[data-conversation]')){const c=D.conversations.find(x=>x.id===row.dataset.conversation);if(!c)continue;setCountBadge(row,Number(c.unreadCount||0));let dot=row.querySelector('.dwc-mention-dot');if(c.mentionCount>0&&!dot){dot=document.createElement('span');dot.className='dwc-mention-dot';row.append(dot)}else if(!c.mentionCount)dot?.remove()}// Значок непрочитанного — для пунктов меню, а не для всего, что ведёт в
+// беседы. Карточка-счётчик на главной тоже помечена `data-nav="chats"`, и
+// значок в ней растягивался во всю ширину поверх собственного числа.
+for(const nav of $$('[data-nav="chats"]:not(.metric-card)'))setCountBadge(nav,total);const bell=$('#dwc-bell .dwc-badge'),count=Number(D.attention?.unreadNotifications||0);if(bell){setHidden(bell,!count);setText(bell,count>99?'99+':String(count))}}
 
 // Два счётчика задач у гостя показывают вечные нули: задач компании он
 // не видит и завести не может. Строка внимания при этом сжимается до

@@ -566,3 +566,14 @@ h4{font-size:15px;font-weight:700}
 /* Тот же уголок под формой говорит и об отказе, и об успехе: «письмо
    придёт» красным читается как поломка. */
 #auth-error.notice{color:var(--muted)}
+
+/* Свёрнутая история действий в карточке человека. Заголовок выглядит и
+   ведёт себя как соседние `.person-section`, чтобы карточка не
+   расслаивалась на «обычные разделы» и «вот этот, особенный». */
+.person-history{margin-top:18px}
+.person-history>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;
+  font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-2);font-weight:600;padding:8px 0}
+.person-history>summary::-webkit-details-marker{display:none}
+.person-history>summary::after{content:'▾';font-size:13px;color:var(--muted);transition:transform .15s ease}
+.person-history[open]>summary::after{transform:rotate(180deg)}
+.person-history>summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:var(--r-1)}

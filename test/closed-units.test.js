@@ -172,3 +172,40 @@ test('закрытый отдел остаётся частью компании
   const chart = (await request(base, '/api/v1/org/units', { cookie: owner.cookie })).payload.items;
   assert.equal(chart.some((item) => item.id === unit.id), false);
 });
+
+/**
+ * Список приглашений не должен обходить закрытость.
+ *
+ * Приглашение помнит подразделение, а список ожидающих видит всякий,
+ * кто вправе звать. Если бы он называл закрытый отдел, состав такого
+ * отдела собирался бы по приглашениям — по одному человеку за раз.
+ */
+test('в списке ожидающих закрытый отдел не называется тому, кто в нём не состоит',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const suffix = Math.random().toString(36).slice(2, 7);
+  const { base, owner, invite } = await company(t, suffix);
+  const lawyer = await invite('manager', `il-${suffix}@t.test`, 'Ирина Юрист');
+
+  const unit = (await request(base, '/api/v1/org/units', {
+    cookie: lawyer.cookie, method: 'POST', body: { kind: 'division', name: 'Юридический отдел', visibility: 'closed' },
+  })).payload.unit;
+
+  const sent = await request(base, '/api/v1/invitations', {
+    cookie: lawyer.cookie, method: 'POST',
+    body: { email: `tajna-${suffix}@granit.test`, role: 'member', unitId: unit.id },
+  });
+  assert.equal(sent.status, 201);
+
+  const find = (items) => items.find((i) => i.email === `tajna-${suffix}@granit.test`);
+
+  const inside = find((await request(base, '/api/v1/invitations', { cookie: lawyer.cookie })).payload.items);
+  assert.equal(inside.unitName, 'Юридический отдел');
+  assert.equal(inside.unitId, unit.id);
+
+  const outside = find((await request(base, '/api/v1/invitations', { cookie: owner.cookie })).payload.items);
+  assert.ok(outside, 'приглашение вовсе пропало из списка — владелец не увидит занятых мест');
+  assert.equal(outside.unitName, null, 'название закрытого отдела видно снаружи');
+  assert.equal(outside.unitId, null, 'опознаватель закрытого отдела видно снаружи');
+  // Но что отдел закрытый — сказать можно: это объясняет, почему пусто.
+  assert.equal(outside.unitClosed, true);
+});
