@@ -252,3 +252,31 @@ test('слово находится в любой своей форме — и �
   // Латиница не ломается: английские слова тоже приводятся к основе.
   assert.ok((await find(suffix)).length > 0, 'случайное слово перестало находиться');
 });
+
+/**
+ * Имя файла из заголовка.
+ *
+ * В заголовке HTTP нельзя ничего, кроме латиницы, поэтому клиент
+ * кодирует имя процентами. Голый `decodeURIComponent` спотыкался на
+ * двух обычных случаях, и оба стоили загрузки файла целиком.
+ */
+test('имя файла переживает и процент в себе, и клиента, который не кодирует', async () => {
+  const { fileNameFromHeader } = await import('../src/http/media.js');
+
+  // Обычная работа: клиент закодировал.
+  assert.equal(fileNameFromHeader(encodeURIComponent('смета №12.txt')), 'смета №12.txt');
+  assert.equal(fileNameFromHeader('akt.txt'), 'akt.txt');
+
+  // «Скидка -50%.pdf» — не ошибка клиента, а нормальное имя отчёта.
+  // Раньше на нём падало «URI malformed», и файл не загружался вовсе.
+  assert.equal(fileNameFromHeader('skidka -50%.txt'), 'skidka -50%.txt');
+  assert.equal(fileNameFromHeader('100%.pdf'), '100%.pdf');
+
+  // Чужой скрипт или curl не кодируют ничего: байты UTF-8, прочитанные
+  // как latin-1. «акт.txt» приезжал как «Ð°ÐºÑ.txt».
+  const raw = Buffer.from('акт-приёмки.txt', 'utf8').toString('latin1');
+  assert.equal(fileNameFromHeader(raw), 'акт-приёмки.txt');
+
+  // Заголовка нет вовсе — имя по умолчанию, а не пустота.
+  assert.equal(fileNameFromHeader(undefined), 'file');
+});

@@ -1,3 +1,33 @@
+/**
+ * Имя файла из заголовка.
+ *
+ * Клиент кодирует его процентами, потому что в заголовке HTTP нельзя
+ * ничего, кроме латиницы. Раньше здесь стоял голый `decodeURIComponent`,
+ * и на нём спотыкались два обычных случая.
+ *
+ * Первый: процент в самом имени. «Скидка -50%.pdf» — не ошибка
+ * клиента, а нормальное имя отчёта, и раскодировать его нечем:
+ * `decodeURIComponent` бросает «URI malformed», и файл не загружался
+ * вовсе. Не раскодировалось — значит, имя и было таким.
+ *
+ * Второй: клиент, который ничего не кодирует, — чужой скрипт, curl.
+ * Тогда в заголовке лежат байты UTF-8, а прочитаны они как latin-1, и
+ * «акт.txt» превращается в «Ð°ÐºÑ.txt». Если строка целиком помещается
+ * в байты и складывается в осмысленный UTF-8 — складываем.
+ */
+export function fileNameFromHeader(raw){
+  const header=String(raw??'file');
+  let name=header;
+  try{name=decodeURIComponent(header)}catch{name=header}
+  if(/^[\u0000-\u00ff]*$/.test(name)&&/[\u0080-\u00ff]/.test(name)){
+    try{
+      const repaired=Buffer.from(name,'latin1').toString('utf8');
+      if(!repaired.includes('\ufffd'))name=repaired;
+    }catch{/* оставляем как есть */}
+  }
+  return name;
+}
+
 import { extractText, indexable } from '../search/file-text.js';
 import { randomUUID } from 'node:crypto';
 import { extname } from 'node:path';
@@ -11,7 +41,7 @@ export function createMediaHandler(objectStore){
     const {store,requireSession,hub,notifyUsers}=ctx;
     if(path==='/api/v1/files'&&method==='POST'){
       const s=await requireSession(req);requirePermission(s.role,Permission.FILE_UPLOAD);const buffer=await readBuffer(req,MAX_FILE);if(!buffer.length)throw Object.assign(new Error('File is empty'),{code:'EMPTY_FILE'});
-      const id=randomUUID(),name=cleanText(decodeURIComponent(String(req.headers['x-file-name']??'file')),255),mimeType=String(req.headers['content-type']??'application/octet-stream').split(';')[0],storageKey=`${s.workspaceId}/${id}${extname(name).slice(0,12)}`;
+      const id=randomUUID(),name=cleanText(fileNameFromHeader(req.headers['x-file-name']),255),mimeType=String(req.headers['content-type']??'application/octet-stream').split(';')[0],storageKey=`${s.workspaceId}/${id}${extname(name).slice(0,12)}`;
       await objectStore.put(storageKey,buffer,mimeType);
       try{const file=await store.saveFile(s,{id,name,mimeType,sizeBytes:buffer.length,storageKey,sha256:sha256(buffer)});
       // Текст вложения — чтобы его можно было найти. Разбираем здесь, пока

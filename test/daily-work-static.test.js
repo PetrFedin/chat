@@ -48,3 +48,36 @@ test('история действий в карточке человека св�
     'история действий снова развёрнута сразу');
   assert.match(app, /<summary>История действий/);
 });
+
+/**
+ * Находка должна открывать саму вещь.
+ *
+ * Найденная задача вела на список всех задач, найденное событие — просто
+ * в календарь, найденный человек — на экран «Ещё». Искомое приходилось
+ * искать заново уже глазами.
+ */
+test('поиск открывает найденное, а не раздел, где оно лежит', async () => {
+  const [app, daily] = await Promise.all([
+    readFile(new URL('../public/app.js', import.meta.url), 'utf8'),
+    readFile(new URL('../public/daily-work.js', import.meta.url), 'utf8'),
+  ]);
+
+  // Поиск живёт в отдельном файле и ходит в приложение через одну дверь.
+  assert.match(app, /window\.ChatApp=\{[^}]*openTask[^}]*openEvent/,
+    'дверь для поиска снова не пускает к задаче и событию');
+
+  assert.match(daily, /window\.ChatApp\?\.openTask/);
+  assert.match(daily, /window\.ChatApp\?\.openEvent/);
+  assert.match(daily, /window\.ChatApp\?\.openPerson/);
+});
+
+/**
+ * Адрес обязан догонять экран: беседу открывают из поиска, из центра
+ * внимания и из карточки задачи, а в адресе оставался прежний раздел —
+ * перезагрузка уводила на «Сегодня», ссылкой нельзя было поделиться.
+ */
+test('открытая беседа отражается в адресе', async () => {
+  const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
+  assert.match(app, /if\(location\.hash!=='#\/chats'\)\{try\{history\.replaceState\(null,'','#\/chats'\)/,
+    'адрес снова не догоняет открытую беседу');
+});

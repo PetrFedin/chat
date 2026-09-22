@@ -1336,6 +1336,12 @@ function rememberConversation(conversation){
 
 async function openChat(id){
   S.selected=id;S.view='chats';S.mobileChat=true;
+  // Адрес обязан догонять экран. Беседу открывают из поиска, из центра
+  // внимания, из карточки задачи — и раньше после этого в адресе
+  // оставался прежний раздел: перезагрузка уводила на «Сегодня», а
+  // ссылкой нельзя было поделиться. Заменяем запись, а не добавляем:
+  // лишний шаг «назад» здесь никому не нужен.
+  if(location.hash!=='#/chats'){try{history.replaceState(null,'','#/chats')}catch{}}
   await loadMessages(id);
   const conversation=S.conversations.find(c=>c.id===id);
   const unread=Number(conversation?.unreadCount||0);
@@ -5441,7 +5447,9 @@ $('#register-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e
 window.CHAT_ERRORS=ERROR_MESSAGE;
 // Соседним модулям нужен переход к сообщению: раньше они искали строку в
 // разметке двенадцать раз подряд и молча сдавались.
-window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,openPerson:personPage};
+// Поиск живёт в отдельном файле и не видит внутренностей приложения:
+// всё, чем он открывает найденное, проходит через эту дверь.
+window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,openPerson:personPage,openTask,openEvent:eventPage};
 // Предложение установки приходит один раз и до того, как человек
 // откроет настройки: держим его, пока оно не понадобится.
 window.addEventListener('beforeinstallprompt',(event)=>{event.preventDefault();S.installPrompt=event});
