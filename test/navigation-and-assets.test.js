@@ -143,6 +143,27 @@ test('closing a sheet cannot swallow the one that opens next', async () => {
   assert.doesNotMatch(source, /const x=b\.dataset\.q;closeModal\(\)/, 'the quick sheet must swap, not close and reopen');
 });
 
+/**
+ * Знак в шапке и значки приложения.
+ *
+ * Знак был картинкой по ссылке — и однажды пришёл пустым квадратом с
+ * надорванным уголком. Причин у такого может быть три (не отдался файл,
+ * застрял в кэше служебного работника, пришёл не с тем типом), и ни одну
+ * из них не видно из кода. Разметка внутри страницы ломаться не умеет.
+ */
+test('знак в шапке встроен, а значки отдаются картинками', async () => {
+  const [app, server] = await Promise.all([read('public/app.js'), read('src/server.js')]);
+
+  assert.match(app, /const BRAND_MARK='<svg/, 'знак в шапке перестал быть разметкой');
+  assert.doesNotMatch(app, /<img src="\/icon\.svg"/, 'знак снова висит на отдельном запросе');
+
+  // Растровые значки отдавались как application/octet-stream: браузер
+  // такой ответ картинкой не считает, и установка на телефон получала
+  // иконку, которую нечем нарисовать.
+  assert.match(server, /\['\.png','image\/png'\]/, 'png снова отдаётся не как картинка');
+  assert.match(server, /\['\.svg','image\/svg\+xml'\]/);
+});
+
 test('a modal is a dialog: focused, trapped, and closed by Escape', async () => {
   const source = await read('public/app.js');
   assert.match(source, /role="dialog" aria-modal="true" aria-labelledby="modal-heading"/);

@@ -208,3 +208,81 @@ test('чужой домен в списке отмечается, но приг�
   assert.equal(rows[1].foreignDomain, true, 'чужой адрес не отмечен');
   assert.equal(rows[2].foreignDomain, undefined, 'у гостя адрес чужой по определению — отмечать нечего');
 });
+
+/**
+ * Кого позвали и кто ещё не пришёл.
+ *
+ * Позвав сорок человек списком, узнать, кто дошёл, было неоткуда:
+ * приглашения жили только в письмах. Через неделю пригласивший не
+ * помнит, кому слать повторно, и зовёт заново всех — а человек получает
+ * второе письмо и думает, что первое было подделкой.
+ */
+test('список ожидающих виден, приглашение отзывается, и ссылка перестаёт работать',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const suffix = Math.random().toString(36).slice(2, 7);
+  const { base, owner } = await company(t, suffix);
+
+  const sent = await request(base, '/api/v1/invitations/bulk', {
+    cookie: owner.cookie, method: 'POST',
+    body: { items: [
+      { email: `p1-${suffix}@granit.test`, role: 'member' },
+      { email: `p2-${suffix}@granit.test`, role: 'manager' },
+    ] },
+  });
+  const link = sent.payload.results[0].inviteUrl;
+
+  const pending = await request(base, '/api/v1/invitations', { cookie: owner.cookie });
+  assert.equal(pending.status, 200);
+  assert.equal(pending.payload.items.length, 2);
+  const row = pending.payload.items.find((i) => i.email === `p1-${suffix}@granit.test`);
+  assert.equal(row.role, 'member');
+  assert.equal(row.expired, false);
+  assert.equal(row.invitedByName, 'Владелец', 'не видно, кто позвал');
+
+  // Отзыв закрывает именно эту ссылку.
+  const revoked = await request(base, `/api/v1/invitations/${row.id}`, { cookie: owner.cookie, method: 'DELETE' });
+  assert.equal(revoked.status, 204);
+  const left = await request(base, '/api/v1/invitations', { cookie: owner.cookie });
+  assert.equal(left.payload.items.length, 1);
+
+  const tried = await request(base, '/api/v1/invitations/accept', {
+    method: 'POST',
+    body: { token: new URL(link).searchParams.get('invite'), displayName: 'Поздний', password: 'MemberPassword42' },
+  });
+  assert.equal(tried.status, 404, 'отозванная ссылка всё ещё пускает');
+});
+
+/** Отзывает тот, кто позвал, или тот, кто распоряжается составом. */
+test('чужое приглашение руководитель отозвать не может',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const suffix = Math.random().toString(36).slice(2, 7);
+  const { base, owner } = await company(t, suffix);
+
+  const invitation = await request(base, '/api/v1/invitations', {
+    cookie: owner.cookie, method: 'POST', body: { email: `mm-${suffix}@t.test`, role: 'manager' },
+  });
+  const manager = await request(base, '/api/v1/invitations/accept', {
+    method: 'POST',
+    body: { token: new URL(invitation.payload.invitation.inviteUrl).searchParams.get('invite'),
+      displayName: 'Руководитель', password: 'MemberPassword42' },
+  });
+
+  const byOwner = await request(base, '/api/v1/invitations', {
+    cookie: owner.cookie, method: 'POST', body: { email: `own-${suffix}@granit.test`, role: 'member' },
+  });
+  const byManager = await request(base, '/api/v1/invitations', {
+    cookie: manager.cookie, method: 'POST', body: { email: `mgr-${suffix}@granit.test`, role: 'member' },
+  });
+
+  const list = (await request(base, '/api/v1/invitations', { cookie: manager.cookie })).payload.items;
+  const foreign = list.find((i) => i.email === `own-${suffix}@granit.test`);
+  const own = list.find((i) => i.email === `mgr-${suffix}@granit.test`);
+
+  const denied = await request(base, `/api/v1/invitations/${foreign.id}`, { cookie: manager.cookie, method: 'DELETE' });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.code, 'NOT_YOUR_INVITATION');
+
+  const allowed = await request(base, `/api/v1/invitations/${own.id}`, { cookie: manager.cookie, method: 'DELETE' });
+  assert.equal(allowed.status, 204, 'своё приглашение отозвать не дали');
+  void byOwner; void byManager;
+});

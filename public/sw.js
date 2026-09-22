@@ -1,4 +1,4 @@
-const CACHE='chat-shell-v25';
+const CACHE='chat-shell-v26';
 const SHELL=['/','/styles.css','/calls.css','/preferences.css','/daily-work.css','/meeting-intelligence.css','/preferences.js','/preferences-context.js','/app.js','/meeting-intelligence.js','/meeting-operations.js','/daily-work.js','/calls-ui.js','/demo.js','/manifest.webmanifest','/icon.svg','/icon-192.png','/icon-512.png','/apple-touch-icon.png'];
 
 self.addEventListener('install',(event)=>event.waitUntil(
@@ -11,16 +11,36 @@ self.addEventListener('activate',(event)=>event.waitUntil(
     .then(()=>self.clients.claim())
 ));
 
+/**
+ * Сначала сеть, кэш — на случай её отсутствия.
+ *
+ * Две вещи, на которых это ломалось.
+ *
+ * Первая: в кэш клался любой ответ, включая 404 и 500. Один неудачный
+ * запрос к значку — скажем, в секунду перезапуска сервера — и в кэше
+ * навсегда оставалась «не найдено». Дальше, стоило сети моргнуть, знак
+ * приходил пустым квадратом с надорванным уголком, и понять, почему,
+ * из кода было нельзя. Кладём только удачное.
+ *
+ * Вторая: когда в кэше ничего не нашлось, отдавалась страница целиком —
+ * на любой запрос. Картинка, получившая в ответ HTML, — это та же
+ * поломка, только с другой стороны. Страницу подставляем лишь переходу
+ * по адресу: ради него всё и затевалось, чтобы приложение открывалось
+ * без сети.
+ */
 self.addEventListener('fetch',(event)=>{
   const request=event.request;
   const url=new URL(request.url);
   if(request.method!=='GET'||url.origin!==location.origin||url.pathname.startsWith('/api/')) return;
   event.respondWith(
     fetch(request).then((response)=>{
-      const copy=response.clone();
-      caches.open(CACHE).then((cache)=>cache.put(request,copy));
+      if(response.ok&&response.type==='basic'){
+        const copy=response.clone();
+        caches.open(CACHE).then((cache)=>cache.put(request,copy)).catch(()=>{});
+      }
       return response;
-    }).catch(()=>caches.match(request).then((cached)=>cached||caches.match('/')))
+    }).catch(()=>caches.match(request).then((cached)=>
+      cached??(request.mode==='navigate'?caches.match('/'):Response.error())))
   );
 });
 
@@ -30,8 +50,10 @@ self.addEventListener('push',(event)=>{
   event.waitUntil(Promise.all([
     self.registration.showNotification(data.title,{
       body:data.body,
-      icon:'/icon.svg',
-      badge:'/icon.svg',
+      // Растровый значок, а не SVG: Chrome на Android второй в
+      // уведомлении не рисует вовсе, и приходит уведомление без знака.
+      icon:'/icon-192.png',
+      badge:'/icon-192.png',
       data:{url:data.url||'/'}
     }),
     clients.matchAll({type:'window',includeUncontrolled:true}).then((windows)=>

@@ -443,6 +443,46 @@ export class PostgresStore {
       VALUES($1,$2,'membership',$3,'invitation.issued',$4,$5)`,[s.organizationId,s.workspaceId,id,s.userId,{email:v.email,role:v.role,expiresAt:v.expiresAt}]);
     return rows[0];
   })}
+  /**
+   * Кого позвали и кто ещё не пришёл.
+   *
+   * Позвав сорок человек списком, узнать, кто из них дошёл, было
+   * неоткуда: приглашения жили только в письмах. Через неделю
+   * пригласивший не помнит, кому слать повторно, и зовёт заново всех.
+   */
+  async listPendingInvitations(s){
+    const{rows}=await this.pool.query(
+      `SELECT i.id,i.email,i.role,i.status,i.created_at "createdAt",i.expires_at "expiresAt",
+              i.invited_by "invitedById",p.display_name "invitedByName",
+              i.unit_id "unitId",u.name "unitName",u.visibility "unitVisibility",
+              i.expires_at<=now() AS expired
+         FROM workspace_invitations i
+         LEFT JOIN workspace_profiles p ON p.workspace_id=i.workspace_id AND p.user_id=i.invited_by
+         LEFT JOIN org_units u ON u.workspace_id=i.workspace_id AND u.id=i.unit_id
+        WHERE i.workspace_id=$1 AND i.status='pending'
+        ORDER BY i.created_at DESC LIMIT 300`,[s.workspaceId]);
+    // Закрытое подразделение не называем тому, кто в нём не состоит:
+    // список приглашений не должен обходить его закрытость.
+    const inside=new Set((await this.pool.query(
+      "SELECT unit_id FROM org_unit_members WHERE workspace_id=$1 AND user_id=$2",[s.workspaceId,s.userId])).rows.map(r=>r.unit_id));
+    return rows.map(({unitVisibility,unitName,unitId,...rest})=>{
+      const hidden=unitVisibility==='closed'&&!inside.has(unitId);
+      return{...rest,unitId:hidden?null:unitId,unitName:hidden?null:unitName,unitClosed:unitVisibility==='closed'};
+    });
+  }
+
+  /** Отозвать приглашение: ссылка перестаёт работать. */
+  async revokeInvitation(s,id){return this.tx(async c=>{
+    const{rows}=await c.query("SELECT invited_by,email,role FROM workspace_invitations WHERE workspace_id=$1 AND id=$2 AND status='pending' FOR UPDATE",[s.workspaceId,id]);
+    const invitation=rows[0];
+    if(!invitation)throw Object.assign(new Error('Приглашение не найдено'),{code:'INVITATION_NOT_FOUND',statusCode:404,expose:true});
+    await c.query("UPDATE workspace_invitations SET status='revoked' WHERE workspace_id=$1 AND id=$2",[s.workspaceId,id]);
+    await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+      VALUES($1,$2,'membership',$3,'invitation.revoked',$4,$5)`,
+      [s.organizationId,s.workspaceId,id,s.userId,{email:invitation.email,role:invitation.role}]);
+    return{revoked:true,invitedBy:invitation.invited_by};
+  })}
+
   async acceptInvitation(v){return this.tx(async c=>{const{rows}=await c.query("SELECT * FROM workspace_invitations WHERE token_hash=$1 AND status='pending' FOR UPDATE",[v.tokenHash]);const i=rows[0];if(!i)throw Object.assign(new Error('Invitation is not available'),{code:'INVITATION_NOT_FOUND',statusCode:404});if(Date.parse(i.expires_at)<=Date.now()){await c.query("UPDATE workspace_invitations SET status='expired' WHERE id=$1",[i.id]);throw Object.assign(new Error('Invitation has expired'),{code:'INVITATION_EXPIRED',statusCode:410})}if((await c.query('SELECT 1 FROM users WHERE lower(email)=lower($1)',[i.email])).rowCount)throw Object.assign(new Error('This email already has an account; sign in before joining another workspace'),{code:'EXISTING_ACCOUNT_LOGIN_REQUIRED',statusCode:409});const userId=randomUUID();
     // Два приглашения на одну почту, принятые в один миг: проверка выше
     // смотрит на снимок до вставки, поэтому второму отвечает уникальный

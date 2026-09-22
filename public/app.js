@@ -414,6 +414,23 @@ function shell(){const s=me();$('#profile-card').innerHTML=`${personAvatar(s.use
 function navs(){const html=visibleNav().map(([id,i,l])=>`<button class="nav-item pressable ${S.view===id?'active':''}" data-nav="${id}"${S.view===id?' aria-current="page"':''}><span class="nav-icon">${i}</span><span>${l}</span></button>`).join('');$('#desktop-nav').innerHTML=$('#mobile-nav').innerHTML=html}
 function lists(){const channels=S.conversations.filter(c=>['channel','team','project'].includes(c.kind)),dm=S.conversations.filter(c=>['direct','group'].includes(c.kind));$('#channel-list').innerHTML=channels.map(c=>side(c,'#')).join('');$('#direct-list').innerHTML=dm.map(c=>side(c,'')).join('')}
 function side(c,prefix){return `<button class="sidebar-row pressable ${S.selected===c.id?'active':''}" data-conversation="${c.id}"><span>${prefix||'<span class="presence-dot online"></span>'}</span><span class="label">${esc(c.title||'Диалог')}</span></button>`}
+/**
+ * Знак ChatX в шапке — разметкой, а не картинкой по ссылке.
+ *
+ * Был отдельной картинкой по ссылке, и это лишняя точка отказа: не
+ * отдался файл, застрял в кэше служебного работника, пришёл не с тем
+ * типом — и вместо знака пустой квадрат с надорванным уголком. Внутри
+ * страницы ломаться нечему, и запрос на один меньше.
+ *
+ * Те же две фигуры, что в `public/icon.svg`: пузырь разговора и галочка
+ * внутри. Файл остаётся — он нужен манифесту и домашнему экрану.
+ */
+const BRAND_MARK='<svg class="brand-mark" viewBox="0 0 512 512" width="28" height="28" aria-hidden="true" focusable="false">'
+  +'<rect width="512" height="512" rx="132" fill="#f1eee9"/>'
+  +'<path d="M146 104h220a62 62 0 0 1 62 62v140a62 62 0 0 1-62 62H240l-78 64v-64h-16a62 62 0 0 1-62-62V166a62 62 0 0 1 62-62Z" fill="#0b0b0b"/>'
+  +'<path d="M176 232l56 56 106-112" fill="none" stroke="#f1eee9" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>'
+  +'</svg>';
+
 function render(){
   navs();lists();
   // Заголовок главной — это имя продукта, а не название раздела: человек,
@@ -421,7 +438,7 @@ function render(){
   // экранах имя раздела нужнее: по нему понимают, где находятся.
   const heading=$('#screen-title');
   if(S.view==='today'){
-    heading.innerHTML='<span class="brand"><img src="/icon.svg" alt="" width="28" height="28"><span>ChatX</span></span>';
+    heading.innerHTML=`<span class="brand">${BRAND_MARK}<span>ChatX</span></span>`;
   }else{
     heading.textContent=nav.find(x=>x[0]===S.view)?.[2]||'ChatX';
   }
@@ -4827,14 +4844,45 @@ function bulkInviteModal(){
   });
 }
 
+/**
+ * Кого уже позвали.
+ *
+ * Позвав сорок человек списком, узнать, кто дошёл, было неоткуда:
+ * приглашения жили только в письмах. Через неделю пригласивший не
+ * помнит, кому слать повторно, и зовёт заново всех — а человек получает
+ * второе письмо и думает, что первое было подделкой.
+ */
+async function renderPendingInvites(){
+  const box=$('#invite-pending');
+  if(!box)return;
+  try{
+    const{items}=await api('/api/v1/invitations');
+    if(!items.length){box.innerHTML='';return}
+    box.innerHTML=`<h3 class="person-section">Ждут ответа — ${items.length}</h3>
+      <div class="person-feed">${items.map(i=>`<div class="person-event">
+        <span><div class="row-title">${esc(i.email)}</div>
+          <div class="row-sub">${esc(ROLE_LABEL[i.role]||i.role)}${i.unitName?` · ${esc(i.unitName)}`:i.unitClosed?' · закрытое подразделение':''}${i.invitedByName?` · позвал ${esc(i.invitedByName)}`:''}</div></span>
+        <span class="inline-actions">${i.expired?'<span class="chip warm">срок вышел</span>':''}
+          <button type="button" class="text-button" data-revoke="${esc(i.id)}">отозвать</button></span>
+      </div>`).join('')}</div>`;
+    $$('[data-revoke]').forEach(b=>b.onclick=async()=>{
+      try{await api(`/api/v1/invitations/${b.dataset.revoke}`,{method:'DELETE'});toast('Приглашение отозвано');await renderPendingInvites()}
+      catch(error){toast(error.message)}
+    });
+  }catch{box.innerHTML=''}
+}
+
+const ROLE_LABEL={owner:'владелец',admin:'администратор',manager:'руководитель',member:'сотрудник',guest:'гость'};
+
 function inviteModal(){modal('Пригласить сотрудника',`<div class="stack" style="margin-bottom:14px"><button type="button" data-bulk class="button secondary pressable">Пригласить списком — сразу весь отдел</button></div><form id="invite-form" class="form-stack"><label>Email<input name="email" type="email" required></label><label>Роль<select name="role" class="field"><option value="member">Сотрудник</option><option value="manager">Руководитель</option><option value="admin">Администратор</option><option value="guest">Гость</option></select></label>
     <label id="invite-unit-field" hidden>Подразделение<select name="unitId" class="field"><option value="">без подразделения</option></select></label>
     <p class="muted" id="invite-domain-hint" style="margin:-4px 0 0;font-size:12px" hidden></p>
     <label id="invite-until-field" hidden>Доступ до<input name="accessUntil" type="datetime-local"></label>
-    <p class="muted" id="invite-until-hint" style="margin:-4px 0 0;font-size:12px" hidden>Проект закончится, а доступ к переписке и файлам останется — срок закроет его сам.</p><button class="button primary">Создать приглашение</button></form>`);
+    <p class="muted" id="invite-until-hint" style="margin:-4px 0 0;font-size:12px" hidden>Проект закончится, а доступ к переписке и файлам останется — срок закроет его сам.</p><button class="button primary">Создать приглашение</button></form><div id="invite-pending"></div>`);
   // Срок доступа спрашиваем только у гостя: сотрудник здесь работает, и
   // предлагать ему дату окончания — странный приём на работу.
   $('[data-bulk]').onclick=()=>replaceModal(bulkInviteModal);
+  renderPendingInvites();
   const roleSelect=$('#invite-form [name="role"]');
   const untilField=$('#invite-until-field'),untilHint=$('#invite-until-hint');
   const unitField=$('#invite-unit-field'),unitSelect=unitField.querySelector('select');

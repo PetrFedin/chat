@@ -85,7 +85,11 @@ pg.types.setTypeParser(20,(value)=>value===null?null:Number(value));
 const publicRoot=fileURLToPath(new URL('../public/',import.meta.url));
 const uploadsRoot=process.env.UPLOAD_DIR??fileURLToPath(new URL('../data/uploads/',import.meta.url));
 const livekitClientPath=fileURLToPath(new URL('../node_modules/livekit-client/dist/livekit-client.umd.js',import.meta.url));
-const mime=new Map([['.html','text/html; charset=utf-8'],['.css','text/css; charset=utf-8'],['.js','text/javascript; charset=utf-8'],['.webmanifest','application/manifest+json; charset=utf-8'],['.json','application/json; charset=utf-8'],['.svg','image/svg+xml']]);
+const mime=new Map([['.html','text/html; charset=utf-8'],['.css','text/css; charset=utf-8'],['.js','text/javascript; charset=utf-8'],['.webmanifest','application/manifest+json; charset=utf-8'],['.json','application/json; charset=utf-8'],['.svg','image/svg+xml'],
+  // Растровые значки отдавались как `application/octet-stream`: браузер
+  // такой ответ не считает картинкой, и установка приложения на телефон
+  // получала иконку, которую нечем нарисовать.
+  ['.png','image/png'],['.ico','image/x-icon'],['.webp','image/webp'],['.txt','text/plain; charset=utf-8']]);
 const cookieName='chat_session';
 const sessionCookie=(token)=>`${cookieName}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${30*86400}${process.env.NODE_ENV==='production'?'; Secure':''}`;
 const clearSession=()=>`${cookieName}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV==='production'?'; Secure':''}`;

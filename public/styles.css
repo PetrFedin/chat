@@ -536,7 +536,7 @@ h4{font-size:15px;font-weight:700}
 /* Имя продукта на главной: знак и слово в одну строку, одного роста с
    заголовком раздела на прочих экранах — чтобы шапка не прыгала. */
 .brand{display:inline-flex;align-items:center;gap:9px}
-.brand img{display:block;border-radius:var(--r-1);flex:none}
+.brand-mark{display:block;border-radius:var(--r-1);flex:none}
 .brand>span{font-weight:700;letter-spacing:-.02em}
 
 /* Закрытое подразделение в схеме: замок и приглушённая рамка. Видно, что

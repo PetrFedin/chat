@@ -376,6 +376,36 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     return unitId;
   };
 
+  /**
+   * Кого позвали и кто ещё не пришёл.
+   *
+   * Видит тот же, кто и зовёт: это общая очередь, и главное, ради чего
+   * её показывают, — не позвать человека дважды.
+   */
+  if(method==='GET'&&path==='/api/v1/invitations'){
+    const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);
+    json(res,200,{items:await store.listPendingInvitations(s)});return true;
+  }
+
+  /**
+   * Отозвать приглашение.
+   *
+   * Отзывает тот, кто позвал, или тот, кто распоряжается составом
+   * компании: человек мог передумать увольняться, а ссылка живёт неделю.
+   */
+  if(method==='DELETE'&&/^\/api\/v1\/invitations\/[0-9a-f-]{36}$/i.test(path)){
+    const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);
+    const id=path.split('/').pop();
+    const mayManage=(ctx.permissions(s.role)??[]).includes(Permission.MEMBER_MANAGE);
+    const{rows}=await store.pool.query("SELECT invited_by FROM workspace_invitations WHERE workspace_id=$1 AND id=$2 AND status='pending'",[s.workspaceId,id]);
+    if(!rows.length)throw Object.assign(new Error('Приглашение не найдено'),{code:'INVITATION_NOT_FOUND',statusCode:404,expose:true});
+    if(!mayManage&&rows[0].invited_by!==s.userId){
+      throw Object.assign(new Error('Отозвать может тот, кто позвал'),{code:'NOT_YOUR_INVITATION',statusCode:403,expose:true});
+    }
+    await store.revokeInvitation(s,id);
+    noContent(res);return true;
+  }
+
   if(method==='POST'&&path==='/api/v1/invitations/bulk'){
     const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);
     const b=await readJson(req);
