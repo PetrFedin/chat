@@ -71,7 +71,23 @@ export class PostgresStore extends DailyWorkPostgresStore {
     if(wanted.has('person'))jobs.push(this.pool.query(`SELECT 'person' type,m.user_id id,COALESCE(p.display_name,u.email) title,concat_ws(' · ',p.title,p.department) snippet,m.created_at "createdAt",ts_rank_cd(to_tsvector('russian',coalesce(p.display_name,'')||' '||coalesce(p.email,u.email)||' '||coalesce(p.title,'')||' '||coalesce(p.department,'')),plainto_tsquery('russian',$2)) score FROM memberships m JOIN users u ON u.id=m.user_id LEFT JOIN workspace_profiles p ON p.workspace_id=m.workspace_id AND p.user_id=m.user_id WHERE m.workspace_id=$1 AND($7::uuid IS NULL OR m.user_id=$7 OR m.user_id=ANY(SELECT cm2.user_id FROM conversation_members cm1 JOIN conversation_members cm2 ON cm2.conversation_id=cm1.conversation_id AND cm2.workspace_id=cm1.workspace_id WHERE cm1.workspace_id=$1 AND cm1.user_id=$7)) AND(to_tsvector('russian',coalesce(p.display_name,'')||' '||coalesce(p.email,u.email)||' '||coalesce(p.title,'')||' '||coalesce(p.department,''))@@plainto_tsquery('russian',$2) OR p.display_name ILIKE $3 OR COALESCE(p.email,u.email) ILIKE $3 OR p.title ILIKE $3 OR p.department ILIKE $3) AND ${inRange('m.created_at',5,6)} ORDER BY score DESC,m.created_at DESC LIMIT $4`,[session.workspaceId,q,like,each,since,until,session.role==='guest'?session.userId:null]).then(r=>items.push(...r.rows)));
 
     if(wanted.has('event'))jobs.push(this.pool.query(`SELECT 'event' type,e.id,e.title,COALESCE(e.description,e.kind) snippet,e.conversation_id "conversationId",e.created_at "createdAt",ts_rank_cd(to_tsvector('russian',coalesce(e.title,'')||' '||coalesce(e.description,'')),plainto_tsquery('russian',$3)) score FROM calendar_events e LEFT JOIN calendar_event_participants ep ON ep.workspace_id=e.workspace_id AND ep.calendar_event_id=e.id AND ep.user_id=$2 WHERE e.workspace_id=$1 AND ${visibleEventSql('e','$2','$6')} AND(to_tsvector('russian',coalesce(e.title,'')||' '||coalesce(e.description,''))@@plainto_tsquery('russian',$3) OR e.title ILIKE $4 OR e.description ILIKE $4) AND ${inRange('e.created_at',7,8)} ORDER BY score DESC,e.created_at DESC LIMIT $5`,[session.workspaceId,session.userId,q,like,each,session.role,since,until]).then(r=>items.push(...r.rows)));
-    if(wanted.has('file'))jobs.push(this.listFiles(session,{query:q,limit:each}).then(rows=>items.push(...rows.map(f=>({type:'file',id:f.id,title:f.name,snippet:f.mimeType,conversationId:f.context?.conversationId,messageId:f.context?.messageId,createdAt:f.createdAt,previewUrl:f.previewUrl,contentUrl:f.contentUrl,score:1})))));
+    // Личные записи — вещь личная: чужие не ищутся ни при каких словах.
+    if(wanted.has('note'))jobs.push(this.pool.query(`SELECT 'note' type,i.id,i.title,COALESCE(left(i.body,140),i.kind) snippet,i.created_at "createdAt",
+        ts_rank_cd(to_tsvector('russian',coalesce(i.title,'')||' '||coalesce(i.body,'')),plainto_tsquery('russian',$3)) score
+        FROM personal_items i
+       WHERE i.workspace_id=$1 AND i.owner_id=$2
+         AND(to_tsvector('russian',coalesce(i.title,'')||' '||coalesce(i.body,''))@@plainto_tsquery('russian',$3) OR i.title ILIKE $4 OR i.body ILIKE $4)
+         AND ${inRange('i.created_at',6,7)}
+       ORDER BY score DESC,i.created_at DESC LIMIT $5`,
+      [session.workspaceId,session.userId,q,like,each,since,until]).then(r=>items.push(...r.rows)));
+
+    // Отбор по сроку действовал везде, кроме файлов, найденных по имени:
+    // поиск «договор за январь» молча выдавал сегодняшние. `listFiles` о
+    // сроке не знает, поэтому отсекаем здесь — по тому же полю, что и
+    // остальные плечи.
+    if(wanted.has('file'))jobs.push(this.listFiles(session,{query:q,limit:each}).then(rows=>items.push(...rows
+      .filter(f=>(!since||new Date(f.createdAt)>=new Date(since))&&(!until||new Date(f.createdAt)<=new Date(until)))
+      .map(f=>({type:'file',id:f.id,title:f.name,snippet:f.mimeType,conversationId:f.context?.conversationId,messageId:f.context?.messageId,createdAt:f.createdAt,previewUrl:f.previewUrl,contentUrl:f.contentUrl,score:1})))));
 
     /**
      * Поиск внутри вложений.

@@ -1,6 +1,10 @@
 import { json, readJson, pageSize } from './helpers.js';
 
-const SEARCH_TYPES = new Set(['message','conversation','task','file','person','event']);
+// Личные записи не искались вовсе: человек заводил заметку «Мысли по
+// тарифам», а через неделю не мог её найти ни по одному слову. Список
+// личных дел растёт быстрее прочих именно потому, что в него пишут не
+// думая.
+const SEARCH_TYPES = new Set(['message','conversation','task','file','person','event','note']);
 
 function parseTypes(value) {
   if (!value) return null;

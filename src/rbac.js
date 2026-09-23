@@ -94,6 +94,46 @@ export function hasPermission(role, permission) {
   return Boolean(ROLE_PERMISSIONS[role]?.has(permission));
 }
 
+/**
+ * О чём отказ — человеческими словами.
+ *
+ * Ключ — право, значение — дело, ради которого оно нужно. Пары хватает,
+ * чтобы отказ объяснял и что не вышло, и к кому идти.
+ */
+const WHAT_FOR = {
+  'organization.manage': 'Переименовать компанию, передать её и выгрузить архив',
+  'organization.settings': 'Вести реквизиты компании, места и слои календаря',
+  'member.invite': 'Звать людей в компанию',
+  'member.manage': 'Вести людей: роли, увольнение и возвращение',
+  'channel.create': 'Заводить каналы',
+  'channel.manage': 'Распоряжаться беседой: состав, роли, закрепления',
+  'message.delete.any': 'Удалять чужие сообщения',
+  'task.manage.team': 'Вести чужие задачи',
+  'calendar.manage.team': 'Вести чужие встречи',
+  'call.record': 'Записывать звонки',
+  'audit.read': 'Читать журнал действий',
+  'vault.use': 'Пользоваться хранилищем паролей',
+  'ai.use': 'Пользоваться разбором встреч',
+  'meeting.ops.manage': 'Вести очередь обработки встреч',
+  'meeting.cost.read': 'Смотреть расходы на встречи',
+  'meeting.cost.manage': 'Менять тарифы на обработку встреч',
+  'integration.manage': 'Вести интеграции и подписки на события',
+  'org.structure.manage': 'Менять оргструктуру компании',
+  'org.unit.private.create': 'Заводить закрытые подразделения',
+};
+const WHO_CAN = {
+  'organization.manage': 'только владелец',
+  'organization.settings': 'владелец или администратор',
+  'member.manage': 'владелец или администратор',
+  'audit.read': 'владелец, администратор или руководитель',
+  'message.delete.any': 'владелец или администратор',
+  'task.manage.team': 'владелец, администратор или руководитель',
+  'calendar.manage.team': 'владелец, администратор или руководитель',
+  'call.record': 'владелец, администратор или руководитель',
+  'channel.create': 'сотрудник компании, но не внешний участник',
+  'org.structure.manage': 'владелец или администратор',
+};
+
 export function requirePermission(role, permission) {
   if (hasPermission(role, permission)) return;
   // Гостю — «не найдено», а не «запрещено».
@@ -110,7 +150,13 @@ export function requirePermission(role, permission) {
     hidden.statusCode = 404;
     throw hidden;
   }
-  const error = new Error(`Role ${role ?? 'unknown'} does not have ${permission}`);
+  // Отказ называл внутреннее имя права: «Role member does not have
+  // audit.read». Эта строка доходит до экрана как есть — человек читает
+  // фразу, которой нет ни в его языке, ни в его словаре, и не узнаёт из
+  // неё, что делать. Говорим о деле, а не об устройстве.
+  const error = new Error(WHAT_FOR[permission]
+    ? `${WHAT_FOR[permission]} — это может ${WHO_CAN[permission] ?? 'тот, кому доверены такие дела в компании'}.`
+    : 'Это действие вам не доступно. Если оно нужно для работы, попросите администратора компании.');
   error.code = 'FORBIDDEN';
   error.statusCode = 403;
   throw error;

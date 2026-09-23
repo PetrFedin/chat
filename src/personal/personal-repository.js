@@ -205,14 +205,32 @@ export function createPersonalRepository(pool, store = null, labels = null) {
       const item = await this.get(session, id);
       if (!startAt || !endAt) throw fail('У блока в календаре должны быть начало и конец', 'INVALID_TIME_RANGE');
       if (new Date(endAt) <= new Date(startAt)) throw fail('Блок должен кончаться позже, чем начинается', 'INVALID_TIME_RANGE');
-      const event = await store.createCalendarEvent(session, {
-        kind: 'focus', title: item.title, description: item.body ?? null,
-        startAt: new Date(startAt).toISOString(), endAt: new Date(endAt).toISOString(),
-        timezone: 'UTC', allDay: false, visibility: 'participants', commitmentId: null, conversationId: null,
-      });
+      // «Перенести в календаре» не переносило, а заводило второй блок:
+      // запись помнила только новое событие, а прежнее оставалось
+      // ничьим — убрать его можно было лишь руками, найдя в календаре.
+      // Если блок уже есть и он наш, двигаем его.
+      let eventId = null;
+      if (item.calendarEventId) {
+        const { rows } = await pool.query(
+          `UPDATE calendar_events SET start_at=$3, end_at=$4, title=$5, updated_at=now()
+            WHERE workspace_id=$1 AND id=$2 AND kind='focus' AND owner_id=$6
+            RETURNING id`,
+          [session.workspaceId, item.calendarEventId, new Date(startAt).toISOString(),
+            new Date(endAt).toISOString(), item.title, session.userId],
+        );
+        eventId = rows[0]?.id ?? null;
+      }
+      if (!eventId) {
+        const event = await store.createCalendarEvent(session, {
+          kind: 'focus', title: item.title, description: item.body ?? null,
+          startAt: new Date(startAt).toISOString(), endAt: new Date(endAt).toISOString(),
+          timezone: 'UTC', allDay: false, visibility: 'participants', commitmentId: null, conversationId: null,
+        });
+        eventId = event.id;
+      }
       await pool.query(
         'UPDATE personal_items SET calendar_event_id=$3, planned_start=$4, planned_end=$5, updated_at=now() WHERE workspace_id=$1 AND id=$2',
-        [session.workspaceId, id, event.id, new Date(startAt).toISOString(), new Date(endAt).toISOString()],
+        [session.workspaceId, id, eventId, new Date(startAt).toISOString(), new Date(endAt).toISOString()],
       );
       return this.get(session, id);
     },

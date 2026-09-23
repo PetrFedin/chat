@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { open, readVaultKey, readVaultKeys, seal } from '../vault/vault-repository.js';
-import { newRecoveryCodes, newSecret, otpauthUrl, verifyCode } from './totp.js';
+import { newRecoveryCodes, newSecret, otpauthUrl, verifyCode, matchCode } from './totp.js';
 
 /**
  * Второй множитель: хранение и проверка.
@@ -50,7 +50,7 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
     /** Что показать человеку в настройках. */
     async state(userId) {
       const { rows } = await pool.query(
-        'SELECT confirmed_at, last_used_at FROM auth_totp WHERE user_id = $1',
+        'SELECT confirmed_at, last_used_at, pending_secret FROM auth_totp WHERE user_id = $1',
         [userId],
       );
       const { rows: [left] } = await pool.query(
@@ -60,7 +60,10 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
       return {
         available: Boolean(key),
         enabled: Boolean(rows[0]?.confirmed_at),
-        startedAt: rows[0] ? !rows[0].confirmed_at : false,
+        // «Настройка начата» — это незавершённая настройка, а не
+        // «выключено»: экран обязан их различать, иначе человек,
+        // закрывший окно на полпути, не узнает, что код так и не введён.
+        startedAt: Boolean(rows[0]?.pending_secret),
         lastUsedAt: rows[0]?.last_used_at ?? null,
         recoveryCodesLeft: left?.n ?? 0,
       };
@@ -76,11 +79,21 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
     async begin(userId, account) {
       if (!key) throw unavailable();
       const secret = newSecret();
+      // Новый секрет кладётся отдельно и не трогает уже работающий.
+      //
+      // Раньше «начать настройку» перезаписывало секрет и обнуляло
+      // подтверждение — а включённым второй множитель считается именно
+      // по подтверждению. Один запрос без пароля снимал защиту насовсем:
+      // в журнале ни следа, а на экране начатая настройка неотличима от
+      // «выключено». Человек, передумавший на полпути, оставался без
+      // защиты и не знал об этом.
       await pool.query(
-        `INSERT INTO auth_totp(user_id, secret, confirmed_at, last_counter)
-         VALUES($1, $2, NULL, NULL)
+        `INSERT INTO auth_totp(user_id, secret, pending_secret, confirmed_at, last_counter)
+         VALUES($1, $2::bytea, $2::bytea, NULL, NULL)
          ON CONFLICT (user_id) DO UPDATE
-            SET secret = EXCLUDED.secret, confirmed_at = NULL, last_counter = NULL, created_at = now()`,
+            SET pending_secret = EXCLUDED.pending_secret,
+                secret = CASE WHEN auth_totp.confirmed_at IS NULL THEN EXCLUDED.secret ELSE auth_totp.secret END,
+                last_counter = CASE WHEN auth_totp.confirmed_at IS NULL THEN NULL ELSE auth_totp.last_counter END`,
         [userId, seal(key, secret)],
       );
       return { secret, otpauth: otpauthUrl({ secret, account }) };
@@ -93,18 +106,19 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
      */
     async confirm(userId, code) {
       if (!key) throw unavailable();
-      const { rows } = await pool.query('SELECT secret, confirmed_at FROM auth_totp WHERE user_id = $1', [userId]);
-      if (!rows[0]) {
+      const { rows } = await pool.query('SELECT secret, pending_secret, confirmed_at FROM auth_totp WHERE user_id = $1', [userId]);
+      if (!rows[0] || !rows[0].pending_secret) {
         throw Object.assign(new Error('Настройка не начата'), { code: 'TWO_FACTOR_NOT_STARTED', statusCode: 409, expose: true });
       }
       if (rows[0].confirmed_at) {
         throw Object.assign(new Error('Второй множитель уже включён'), { code: 'TWO_FACTOR_ALREADY_ON', statusCode: 409, expose: true });
       }
-      if (!verifyCode(open(readers, rows[0].secret), code)) {
+      if (!verifyCode(open(readers, rows[0].pending_secret), code)) {
         throw Object.assign(new Error('Код не подошёл'), { code: 'TWO_FACTOR_BAD_CODE', statusCode: 400, expose: true });
       }
       const codes = newRecoveryCodes();
-      await pool.query('UPDATE auth_totp SET confirmed_at = now() WHERE user_id = $1', [userId]);
+      // Подтверждённый секрет переезжает из ожидания в рабочие.
+      await pool.query('UPDATE auth_totp SET secret = pending_secret, pending_secret = NULL, confirmed_at = now(), last_counter = NULL WHERE user_id = $1', [userId]);
       await pool.query('DELETE FROM auth_recovery_codes WHERE user_id = $1', [userId]);
       for (const recovery of codes) {
         await pool.query('INSERT INTO auth_recovery_codes(user_id, code_hash) VALUES($1, $2)', [userId, digest(recovery)]);
@@ -159,11 +173,11 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
 
       if (/^\d{6}$/.test(given)) {
         const secret = open(readers, row.secret);
-        if (!verifyCode(secret, given)) return { ok: false, reason: 'bad_code' };
-        const counter = Math.floor(Date.now() / 1000 / 30);
-        // Окно уже могло быть использовано — но сдвиг на секунду не
-        // должен ломать честный вход, поэтому сравниваем с последним
-        // принятым, а не с текущим.
+        // Запоминается окно, которому код подошёл, а не то, в котором мы
+        // проверяли: иначе код из прошлого окна проходил второй раз уже
+        // в следующем.
+        const counter = matchCode(secret, given);
+        if (counter === null) return { ok: false, reason: 'bad_code' };
         if (row.last_counter !== null && Number(row.last_counter) >= counter) {
           return { ok: false, reason: 'code_used' };
         }

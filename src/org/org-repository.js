@@ -141,6 +141,25 @@ export function createOrgRepository(pool) {
      * ровно то, ради чего журнал и держат. Раньше оргструктура менялась
      * бесследно: тридцать восемь видов событий, и ни одного про неё.
      */
+    /**
+     * Какие подразделения этот человек вправе видеть изнутри.
+     *
+     * Нужно журналу: строки про закрытый отдел он показывает только тем,
+     * кто в нём состоит, — иначе замок стоит в схеме, а состав читается
+     * в журнале.
+     */
+    async visibleUnitIds(session) {
+      const { rows } = await pool.query(
+        `SELECT u.id FROM org_units u
+          WHERE u.workspace_id=$1
+            AND (u.visibility<>'closed'
+              OR EXISTS(SELECT 1 FROM org_unit_members m
+                         WHERE m.workspace_id=u.workspace_id AND m.unit_id=u.id AND m.user_id=$2))`,
+        [session.workspaceId, session.userId],
+      );
+      return new Set(rows.map((row) => row.id));
+    },
+
     async note(client, session, unitId, eventType, payload) {
       await client.query(
         `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
@@ -384,6 +403,29 @@ export function createOrgRepository(pool) {
     async removeMember(session, unitId, userId) {
       return tx(async (client) => {
         const unit = await loadUnit(client, session, unitId);
+        // Закрытым подразделением распоряжаются только изнутри — и это
+        // верно. Но последний, кто мог им распоряжаться, спокойно выходил
+        // сам, и дальше не мог никто: ни он (его там больше нет), ни
+        // владелец компании (снаружи в закрытое не вписывают). Люди
+        // оставались внутри навсегда, а починить это можно было только
+        // правкой базы. Пусть сначала назначит себе смену.
+        if (unit.visibility === 'closed') {
+          const { rows: keepers } = await client.query(
+            `SELECT user_id FROM org_unit_members
+              WHERE workspace_id=$1 AND unit_id=$2 AND role IN ('head','admin')`,
+            [session.workspaceId, unitId],
+          );
+          if (keepers.length === 1 && keepers[0].user_id === userId) {
+            const { rows: rest } = await client.query(
+              'SELECT count(*)::int n FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id<>$3',
+              [session.workspaceId, unitId, userId],
+            );
+            if (rest[0].n > 0) {
+              throw fail('Вы последний, кто ведёт это закрытое подразделение. Назначьте руководителя или администратора вместо себя — или распустите подразделение.',
+                'LAST_UNIT_KEEPER', 409);
+            }
+          }
+        }
         const { rowCount } = await client.query('DELETE FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id=$3', [session.workspaceId, unitId, userId]);
         if (!rowCount) throw fail('That person is not in this unit', 'NOT_A_UNIT_MEMBER', 404);
         if (unit.conversation_id) {
@@ -413,9 +455,18 @@ export function createOrgRepository(pool) {
          )
          SELECT DISTINCT ON (s.id) s.id "unitId", s.name "unitName", s.kind, s.step, s.head_user_id "headUserId",
                 pr.display_name "headName"
-         FROM start s LEFT JOIN workspace_profiles pr ON pr.workspace_id=$1 AND pr.user_id=s.head_user_id
+         FROM start s
+         JOIN org_units su ON su.workspace_id=$1 AND su.id=s.id
+         LEFT JOIN workspace_profiles pr ON pr.workspace_id=$1 AND pr.user_id=s.head_user_id
+         -- Единственный запрос по оргструктуре, где не было замка: список
+         -- подразделений человека фильтровал, а цепочка подчинения — нет, и карточка
+         -- человека выдавала название закрытого отдела и его руководителя
+         -- тому, от кого отдел и закрывали. По одному человеку за раз
+         -- собирался весь состав.
+         WHERE su.visibility<>'closed' OR $2::uuid=$3::uuid
+           OR EXISTS(SELECT 1 FROM org_unit_members me WHERE me.workspace_id=su.workspace_id AND me.unit_id=su.id AND me.user_id=$3)
          ORDER BY s.id, s.step`,
-        [session.workspaceId, userId],
+        [session.workspaceId, userId, session.userId],
       );
       return rows.sort((a, b) => a.step - b.step);
     },

@@ -124,7 +124,10 @@ test('администратор ведёт реквизиты и места, н
   const rename = await request(base, '/api/v1/workspace', {
     cookie: admin.cookie, method: 'PATCH', body: { companyName: 'Не опора' } });
   assert.equal(rename.status, 403);
-  assert.match(rename.payload.error.message, /organization\.manage/);
+  // Отказ говорит о деле, а не о внутреннем имени права: «Role admin does
+  // not have organization.manage» доходило до экрана как есть.
+  assert.doesNotMatch(rename.payload.error.message, /organization\.manage|Role /);
+  assert.match(rename.payload.error.message, /Переименовать компанию/);
   assert.equal((await request(base, '/api/v1/workspace/owner', {
     cookie: admin.cookie, method: 'POST', body: { userId: chief.payload.session?.userId ?? null } })).status, 403);
   // Выгрузка всего пространства тоже осталась хозяйской.

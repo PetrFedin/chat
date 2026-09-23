@@ -78,20 +78,33 @@ export function codeAt(secret, counter) {
 }
 
 /**
- * Подходит ли код.
+ * Подходит ли код, и если да — какому окну.
  *
  * Сравнение постоянного времени: посимвольное на шести цифрах — это
  * измеримая подсказка о том, сколько знаков угадано.
+ *
+ * Возвращается именно ОКНО, а не просто
+ * «да»: запоминать надо именно его.
+ *
+ * Раньше вызывающий запоминал текущее окно — то, в котором проверял. Код
+ * принимается с дрейфом в шаг в обе стороны, поэтому код из окна N,
+ * предъявленный в окне N, запоминался как N — и через тридцать секунд,
+ * уже в окне N+1, тот же код проходил снова: N меньше N+1. Подсмотренный
+ * через плечо код жил минуту вместо «до первого входа».
  */
-export function verifyCode(secret, code, { now = Date.now() } = {}) {
+export function matchCode(secret, code, { now = Date.now() } = {}) {
   const given = String(code ?? '').replace(/\D/g, '');
-  if (given.length !== DIGITS) return false;
+  if (given.length !== DIGITS) return null;
   const counter = Math.floor(now / 1000 / STEP_SECONDS);
   for (let shift = -DRIFT; shift <= DRIFT; shift += 1) {
     const expected = Buffer.from(codeAt(secret, counter + shift));
-    if (timingSafeEqual(expected, Buffer.from(given))) return true;
+    if (timingSafeEqual(expected, Buffer.from(given))) return counter + shift;
   }
-  return false;
+  return null;
+}
+
+export function verifyCode(secret, code, options = {}) {
+  return matchCode(secret, code, options) !== null;
 }
 
 /**

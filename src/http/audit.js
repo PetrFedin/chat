@@ -29,6 +29,21 @@ export function createAuditHandler() {
       // безопасность компании целиком, и самому человеку про себя.
       personal: (ctx.permissions(session.role) ?? []).includes(Permission.ORGANIZATION_MANAGE),
     });
+    // Замок на закрытом подразделении есть в схеме, а в журнале его не
+    // было: строки «завели отдел», «приняли человека», «вывели человека»
+    // лежали там с полной начинкой — названием отдела и опознавателями
+    // людей. Любой руководитель с правом на журнал собирал по ним состав
+    // отдела, куда его не пускают. Внутренности остаются тем, кто внутри;
+    // сам факт, что отдел есть и в нём что-то происходит, скрывать
+    // незачем — за места платит компания.
+    if (ctx.org?.visibleUnitIds) {
+      const mine = await ctx.org.visibleUnitIds(session);
+      for (const row of page.items ?? []) {
+        if (row.aggregateType !== 'org_unit') continue;
+        if (mine.has(row.aggregateId)) continue;
+        row.payload = { closed: true };
+      }
+    }
     json(res, 200, page);
     return true;
   };
