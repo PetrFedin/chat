@@ -226,18 +226,34 @@ export function expandOccurrences({ startAt, durationMs = 0, rule, timeZone = 'U
 }
 
 /** Человеческое описание правила — для карточки события. */
+/**
+ * Русское числительное при числе.
+ *
+ * Формы подставлялись как константы, годные только для двух и трёх:
+ * «каждые 5 года», «каждые 5 месяца», «2 раз». Это первое, что человек
+ * читает на карточке планёрки, и по нему судит об остальном.
+ */
+const plural = (n, one, few, many) => {
+  const mod100 = Math.abs(n) % 100;
+  const mod10 = mod100 % 10;
+  if (mod100 >= 11 && mod100 <= 14) return many;
+  if (mod10 === 1) return one;
+  if (mod10 >= 2 && mod10 <= 4) return few;
+  return many;
+};
+
 export function describeRecurrence(rule) {
   if (!rule) return null;
   const names = { MO: 'пн', TU: 'вт', WE: 'ср', TH: 'чт', FR: 'пт', SA: 'сб', SU: 'вс' };
-  const every = rule.interval > 1 ? `каждые ${rule.interval} ` : 'каждый ';
+  const n = rule.interval;
   let text;
-  if (rule.freq === 'DAILY') text = rule.interval > 1 ? `каждые ${rule.interval} дня` : 'каждый день';
+  if (rule.freq === 'DAILY') text = n > 1 ? `каждые ${n} ${plural(n, 'день', 'дня', 'дней')}` : 'каждый день';
   else if (rule.freq === 'WEEKLY') {
     const days = rule.byDay?.length ? ` по ${rule.byDay.map((day) => names[day]).join(', ')}` : '';
-    text = (rule.interval > 1 ? `каждые ${rule.interval} недели` : 'каждую неделю') + days;
-  } else if (rule.freq === 'MONTHLY') text = rule.interval > 1 ? `каждые ${rule.interval} месяца` : 'каждый месяц';
-  else text = rule.interval > 1 ? `${every}года` : 'каждый год';
-  if (rule.count) text += `, ${rule.count} раз`;
+    text = (n > 1 ? `каждые ${n} ${plural(n, 'неделю', 'недели', 'недель')}` : 'каждую неделю') + days;
+  } else if (rule.freq === 'MONTHLY') text = n > 1 ? `каждые ${n} ${plural(n, 'месяц', 'месяца', 'месяцев')}` : 'каждый месяц';
+  else text = n > 1 ? `каждые ${n} ${plural(n, 'год', 'года', 'лет')}` : 'каждый год';
+  if (rule.count) text += `, ${rule.count} ${plural(rule.count, 'раз', 'раза', 'раз')}`;
   if (rule.until) {
     text += `, до ${new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(rule.until)}`;
   }

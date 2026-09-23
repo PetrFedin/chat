@@ -74,7 +74,10 @@ export function createStories(pool, store) {
         `SELECT s.id, s.author_id "authorId", s.file_id "fileId", s.caption,
                 s.created_at "createdAt", s.expires_at "expiresAt",
                 COALESCE(p.display_name, u.email) "authorName",
-                EXISTS(SELECT 1 FROM story_views v WHERE v.story_id=s.id AND v.user_id=$2) seen,
+                -- Своя сторис всегда просмотрена: автор её не «смотрит»,
+                -- поэтому строки в просмотрах у него нет и рамка «новое»
+                -- горела на собственной записи до самого конца её жизни.
+                (s.author_id=$2 OR EXISTS(SELECT 1 FROM story_views v WHERE v.story_id=s.id AND v.user_id=$2)) seen,
                 (SELECT count(*)::int FROM story_views v WHERE v.story_id=s.id) views
            FROM stories s
            JOIN users u ON u.id=s.author_id

@@ -1,4 +1,5 @@
 import { pageSize, toDateOrNull } from '../http/helpers.js';
+import { openConversationSql } from '../persistence/visibility.js';
 import { randomUUID } from 'node:crypto';
 
 /**
@@ -97,7 +98,21 @@ export function createReminderRepository(pool) {
       const remindAt = readWhen(body.remindAt);
       const note = body.note == null || body.note === '' ? null : String(body.note).slice(0, MAX_NOTE);
       const sourceType = body.sourceType == null || body.sourceType === '' ? null : String(body.sourceType);
-      if (sourceType && !SOURCES.has(sourceType)) throw fail('Unknown reminder source', 'INVALID_REMINDER_SOURCE', 400);
+      if (sourceType && !SOURCES.has(sourceType)) throw fail('Такого источника напоминания нет', 'INVALID_REMINDER_SOURCE', 400);
+      // Беседа проверяется на существование и на доступность: напоминание
+      // цеплялось к любому опознавателю, в том числе выдуманному и к
+      // чужой личной переписке. Когда оно срабатывало, человека вели по
+      // этой связи — в никуда либо в чужую комнату, где его встречал 404.
+      if (body.conversationId) {
+        const { rowCount } = await pool.query(
+          `SELECT 1 FROM conversations c
+             LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$3
+            WHERE c.workspace_id=$1 AND c.id=$2 AND c.archived_at IS NULL
+              AND (${openConversationSql(session, 'c')} OR cm.user_id IS NOT NULL)`,
+          [session.workspaceId, body.conversationId, session.userId],
+        );
+        if (!rowCount) throw fail('Такой беседы нет', 'CONVERSATION_NOT_FOUND', 404);
+      }
       const { rows } = await pool.query(
         `INSERT INTO reminders(organization_id,workspace_id,user_id,title,note,remind_at,source_type,source_id,conversation_id)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING ${COLUMNS}`,
@@ -156,7 +171,8 @@ export function createReminderRepository(pool) {
         await client.query('BEGIN');
         const { rows } = await client.query(
           `SELECT id,organization_id "organizationId",workspace_id "workspaceId",user_id "userId",
-                  title,note,conversation_id "conversationId"
+                  title,note,conversation_id "conversationId",
+                  source_type "sourceType",source_id "sourceId"
              FROM reminders
             WHERE status='pending' AND remind_at <= $1
             ORDER BY remind_at
@@ -166,13 +182,21 @@ export function createReminderRepository(pool) {
         );
         for (const row of rows) {
           await client.query(
+            // Связь с тем, о чём напоминали, терялась: человек сам указал
+            // встречу или задачу, а извещение приходило без неё и без
+            // ссылки — за предметом надо было идти искать руками.
             `INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,
-                                       dedupe_key,type,title,body,conversation_id)
-             VALUES($1,$2,$3,$4,$5,'calendar.reminder',$6,$7,$8)
+                                       dedupe_key,type,title,body,conversation_id,calendar_event_id,commitment_id,url)
+             VALUES($1,$2,$3,$4,$5,'calendar.reminder',$6,$7,$8,$9,$10,$11)
              ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`,
             [row.organizationId, row.workspaceId, row.userId, randomUUID(),
              `reminder:${row.id}`, row.title,
-             row.note?.trim() ? row.note : 'Вы просили напомнить.', row.conversationId],
+             row.note?.trim() ? row.note : 'Вы просили напомнить.', row.conversationId,
+             row.sourceType === 'event' ? row.sourceId : null,
+             row.sourceType === 'task' ? row.sourceId : null,
+             row.sourceType === 'event' && row.sourceId ? `/#/calendar/${row.sourceId}`
+               : row.sourceType === 'task' && row.sourceId ? `/#/tasks/${row.sourceId}`
+               : row.conversationId ? `/#/chats/${row.conversationId}` : null],
           );
           await client.query(
             "UPDATE reminders SET status='fired',fired_at=now(),updated_at=now() WHERE id=$1",
