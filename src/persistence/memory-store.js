@@ -273,6 +273,8 @@ export class MemoryStore {
     const conversation = this.conversations.get(conversationId);
     if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
     if (conversation.kind === 'direct') throw Object.assign(new Error('Direct conversation membership is immutable'), { code:'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode:409 });
+    // Завёдшего беседу чужими руками не выводят: см. хранилище с базой.
+    if (conversation.createdBy === userId && session.userId !== userId) throw Object.assign(new Error('Того, кто завёл беседу, из неё не выводят: он может уйти сам'), { code:'CANNOT_REMOVE_CREATOR', statusCode:409, expose:true });
     const key=this.conversationMemberKey(conversationId,userId),member=this.conversationMembers.get(key);
     if(!member)throw Object.assign(new Error('Conversation member not found'),{code:'CONVERSATION_MEMBER_NOT_FOUND',statusCode:404});
     if(member.role==='owner'&&role!=='owner'){

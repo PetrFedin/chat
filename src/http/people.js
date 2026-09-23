@@ -121,7 +121,7 @@ export function createPeopleHandler() {
       if (body.accessUntil) {
         const at = new Date(body.accessUntil);
         if (Number.isNaN(at.getTime())) {
-          throw Object.assign(new Error('Invalid date'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
+          throw Object.assign(new Error('Непонятная дата'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
         }
         accessUntil = at.toISOString();
       }

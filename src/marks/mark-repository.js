@@ -115,7 +115,12 @@ export function createMarkRepository(pool) {
         `SELECT f.target_type "targetType", f.target_id "targetId", f.created_at "createdAt",
                 CASE f.target_type
                   WHEN 'conversation' THEN (SELECT c.title FROM conversations c WHERE c.workspace_id=f.workspace_id AND c.id=f.target_id)
-                  WHEN 'message' THEN (SELECT left(m.body,140) FROM messages m WHERE m.workspace_id=f.workspace_id AND m.id=f.target_id)
+                  -- Удалённое сообщение и в избранном удалённое: тело
+                  -- затёрто в ленте, а здесь оставалось процитированным —
+                  -- человек отозвал ошибочную фразу, а у коллеги она
+                  -- по-прежнему на виду и ведёт в никуда.
+                  WHEN 'message' THEN (SELECT CASE WHEN m.deleted_at IS NULL THEN left(m.body,140) ELSE 'Сообщение удалено' END
+                                         FROM messages m WHERE m.workspace_id=f.workspace_id AND m.id=f.target_id)
                   WHEN 'task' THEN (SELECT t.title FROM commitments t WHERE t.workspace_id=f.workspace_id AND t.id=f.target_id)
                   WHEN 'event' THEN (SELECT e.title FROM calendar_events e WHERE e.workspace_id=f.workspace_id AND e.id=f.target_id)
                   WHEN 'file' THEN (SELECT x.name FROM files x WHERE x.workspace_id=f.workspace_id AND x.id=f.target_id)
@@ -256,7 +261,10 @@ export function createMarkRepository(pool) {
         `SELECT n.id,n.conversation_id "conversationId",n.message_id "messageId",n.kind,n.body,
                 n.created_at "createdAt",n.updated_at "updatedAt",
                 ${conversationTitleSql('n.conversation_id','n.workspace_id','$2')} "conversationTitle",
-                (SELECT left(m.body,140) FROM messages m WHERE m.workspace_id=n.workspace_id AND m.id=n.message_id) "messagePreview"
+                -- То же и у заметки: своя заметка остаётся, а цитата из
+                -- удалённого сообщения — нет.
+                (SELECT CASE WHEN m.deleted_at IS NULL THEN left(m.body,140) ELSE 'Сообщение удалено' END
+                   FROM messages m WHERE m.workspace_id=n.workspace_id AND m.id=n.message_id) "messagePreview"
            FROM message_notes n
           WHERE n.workspace_id=$1 AND n.user_id=$2
             AND ($3::uuid IS NULL OR n.conversation_id=$3)

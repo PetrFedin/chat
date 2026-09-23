@@ -613,7 +613,19 @@ export class PostgresStore {
     if(!rows[0])throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});
     return rows[0];
   }
-  async removeConversationMember(s,id,userId){return this.tx(async c=>{const conv=(await c.query('SELECT kind FROM conversations WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE',[s.workspaceId,id])).rows[0];if(!conv)throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});if(conv.kind==='direct')throw Object.assign(new Error('Direct conversation membership is immutable'),{code:'DIRECT_MEMBERSHIP_IMMUTABLE',statusCode:409});const member=(await c.query('SELECT role FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3 FOR UPDATE',[s.workspaceId,id,userId])).rows[0];if(!member)throw Object.assign(new Error('Conversation member not found'),{code:'CONVERSATION_MEMBER_NOT_FOUND',statusCode:404});if(member.role==='owner'){const owners=await c.query("SELECT 1 FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND role='owner' FOR UPDATE",[s.workspaceId,id]);if(owners.rowCount<=1)throw Object.assign(new Error('Conversation must keep at least one owner'),{code:'LAST_CONVERSATION_OWNER',statusCode:409})}await c.query('DELETE FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3',[s.workspaceId,id,userId]);
+  /**
+   * Завёдшего беседу из неё не выставляют.
+   *
+   * Владелец компании создал группу, дал коллеге права в комнате — и тот
+   * его оттуда убрал. Дальше выхода не было: закрытой беседы без
+   * членства не видно ниоткуда, вернуть себя нельзя (комнаты для тебя
+   * нет), а «принять беседу без владельца» отказывает, потому что
+   * владелец у неё есть. Чинилось только правкой базы.
+   *
+   * Уйти самому заводивший может — это его решение; вот выставить его
+   * чужими руками нельзя.
+   */
+  async removeConversationMember(s,id,userId){return this.tx(async c=>{const conv=(await c.query('SELECT kind,created_by FROM conversations WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE',[s.workspaceId,id])).rows[0];if(!conv)throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});if(conv.created_by===userId&&s.userId!==userId)throw Object.assign(new Error('Того, кто завёл беседу, из неё не выводят: он может уйти сам'),{code:'CANNOT_REMOVE_CREATOR',statusCode:409,expose:true});if(conv.kind==='direct')throw Object.assign(new Error('Direct conversation membership is immutable'),{code:'DIRECT_MEMBERSHIP_IMMUTABLE',statusCode:409});const member=(await c.query('SELECT role FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3 FOR UPDATE',[s.workspaceId,id,userId])).rows[0];if(!member)throw Object.assign(new Error('Conversation member not found'),{code:'CONVERSATION_MEMBER_NOT_FOUND',statusCode:404});if(member.role==='owner'){const owners=await c.query("SELECT 1 FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND role='owner' FOR UPDATE",[s.workspaceId,id]);if(owners.rowCount<=1)throw Object.assign(new Error('Conversation must keep at least one owner'),{code:'LAST_CONVERSATION_OWNER',statusCode:409})}await c.query('DELETE FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3',[s.workspaceId,id,userId]);
     // Уведомления по закрытой беседе оставались в колокольчике у того, кого
     // из неё вывели: нажатие давало «беседа не найдена», а заголовок
     // приватной комнаты продолжал светиться в списке.

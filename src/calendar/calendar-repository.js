@@ -341,18 +341,46 @@ export function createCalendarRepository(pool, store = null) {
       return out;
     },
 
-    /** Everything still awaiting this person's answer, for the attention strip. */
+    /**
+     * Всё, что ещё ждёт ответа этого человека, — для полосы внимания.
+     *
+     * Отбор шёл по времени начала самой строки события. У серии это
+     * время её первой встречи: еженедельная планёрка, заведённая месяц
+     * назад, через неделю исчезала отсюда навсегда — и ответа от людей
+     * никто уже не ждал, хотя встречи шли. Серии берём целиком и дату
+     * считаем по правилу: показываем ближайшую встречу, до которой
+     * человек ещё может дойти.
+     */
     async pendingInvitations(session) {
       const { rows } = await pool.query(
-        `SELECT e.id,e.title,e.start_at "startAt",e.kind, pr.display_name "organiser"
+        `SELECT e.id,e.title,e.start_at "startAt",e.end_at "endAt",e.kind,e.timezone,
+                e.recurrence_rule "recurrenceRule", pr.display_name "organiser"
          FROM calendar_event_participants pa
          JOIN calendar_events e ON e.workspace_id=pa.workspace_id AND e.id=pa.calendar_event_id
          LEFT JOIN workspace_profiles pr ON pr.workspace_id=e.workspace_id AND pr.user_id=e.owner_id
-         WHERE pa.workspace_id=$1 AND pa.user_id=$2 AND pa.response_status='invited' AND e.start_at > now() - interval '1 day'
-         ORDER BY e.start_at LIMIT 20`,
+         WHERE pa.workspace_id=$1 AND pa.user_id=$2 AND pa.response_status='invited'
+           AND (e.recurrence_rule IS NOT NULL OR e.start_at > now() - interval '1 day')
+         ORDER BY e.start_at LIMIT 60`,
         [session.workspaceId, session.userId],
       );
-      return rows;
+      const now = Date.now();
+      const horizon = new Date(now + 400 * 86400000);
+      const out = [];
+      for (const row of rows) {
+        if (!row.recurrenceRule) { out.push(row); continue; }
+        const rule = parseRecurrence(row.recurrenceRule);
+        if (!rule) { out.push(row); continue; }
+        const duration = row.endAt ? new Date(row.endAt) - new Date(row.startAt) : 0;
+        // Ближайшее вхождение, которое ещё не прошло. Серия, которая вся
+        // позади, отсюда честно уходит.
+        const next = expandOccurrences({
+          startAt: row.startAt, durationMs: duration, rule, timeZone: row.timezone || 'UTC',
+          from: new Date(now - 86400000), to: horizon, limit: 1,
+        })[0];
+        if (!next) continue;
+        out.push({ ...row, startAt: next.toISOString(), occurrenceAt: next.toISOString(), seriesId: row.id, id: `${row.id}@${next.toISOString()}` });
+      }
+      return out.sort((a, b) => new Date(a.startAt) - new Date(b.startAt)).slice(0, 20);
     },
 
     /**
