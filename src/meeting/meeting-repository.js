@@ -654,7 +654,7 @@ export class PostgresMeetingRepository {
           VALUES($1,$2,$3,$4,$5,'task.assigned',$6,$7,$8,$4,$9,'normal',$10)
           ON CONFLICT(workspace_id,dedupe_key) DO NOTHING`,
         [session.organizationId, session.workspaceId, taskOwner, taskId, `task.assigned:${taskId}:${taskOwner}`,
-          `Новая задача от ${session.displayName ?? 'участника встречи'}`, task.title, session.userId, `/#/tasks/${taskId}`,
+          `${session.displayName ?? 'Участник встречи'} поручил(а) задачу`, task.title, session.userId, `/#/tasks/${taskId}`,
           { source:'meeting_intelligence', proposalId }]);
       }
 

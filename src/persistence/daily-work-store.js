@@ -152,7 +152,10 @@ export class MemoryStore extends BaseMemoryStore {
         sourceEventId:task.id,
         dedupeKey:`task.assigned:${task.id}:${task.ownerId}`,
         type:'task.assigned',
-        title:`Новая задача от ${session.displayName}`,
+        // «Новая задача от Игорь Ветров»: имя вставлялось в родительный
+        // падеж как есть, и склонять чужие имена нам нечем. Ставим имя
+        // в именительный — глагол делает фразу правильной при любом имени.
+        title:`${session.displayName} поручил(а) задачу`,
         body:task.title,
         actorUserId:session.userId,
         commitmentId:task.id,
@@ -203,7 +206,7 @@ export class MemoryStore extends BaseMemoryStore {
       rows.push(this.putNotification({
         organizationId:session.organizationId, workspaceId:session.workspaceId, recipientUserId:userId,
         sourceEventId:message.id, dedupeKey:`message.mentioned:${message.id}:${userId}`, type:'message.mentioned',
-        title:`Упоминание от ${session.displayName}`, body:notificationBody(message), actorUserId:session.userId,
+        title:`${session.displayName} упомянул(а) вас`, body:notificationBody(message), actorUserId:session.userId,
         conversationId, messageId:message.id, url:`/#/chats/${conversationId}?message=${message.id}`, priority:'high',
       }));
     }
@@ -213,7 +216,7 @@ export class MemoryStore extends BaseMemoryStore {
         rows.push(this.putNotification({
           organizationId:session.organizationId, workspaceId:session.workspaceId, recipientUserId:userId,
           sourceEventId:message.id, dedupeKey:`message.created:${message.id}:${userId}`, type:'message.created',
-          title:`Новое сообщение от ${session.displayName}`, body:notificationBody(message), actorUserId:session.userId,
+          title:`${session.displayName} написал(а)`, body:notificationBody(message), actorUserId:session.userId,
           conversationId, messageId:message.id, url:`/#/chats/${conversationId}?message=${message.id}`, priority:'normal',
         }));
       }
@@ -417,7 +420,7 @@ export class PostgresStore extends BasePostgresStore {
       await this.insertNotification({
         organizationId:session.organizationId,workspaceId:session.workspaceId,recipientUserId:task.ownerId,
         sourceEventId:task.id,dedupeKey:`task.assigned:${task.id}:${task.ownerId}`,type:'task.assigned',
-        title:`Новая задача от ${session.displayName}`,body:task.title,actorUserId:session.userId,commitmentId:task.id,
+        title:`${session.displayName} поручил(а) задачу`,body:task.title,actorUserId:session.userId,commitmentId:task.id,
         url:`/#/tasks/${task.id}`,priority:['urgent','high'].includes(task.priority)?'high':'normal',metadata:{priority:task.priority},
       }).catch((error)=>console.error('task notification projection failed',error));
     }
@@ -487,10 +490,14 @@ export class PostgresStore extends BasePostgresStore {
   }
 
   async markRead(session, conversationId, messageId = null) {
-    await this.tx(async c=>{
-      await c.query('UPDATE conversation_members SET last_read_at=now(),last_read_message_id=$4 WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3',[session.workspaceId,conversationId,session.userId,messageId]);
-      await c.query(`UPDATE notifications SET status='read',read_at=COALESCE(read_at,now()),read_by=$3,updated_at=now() WHERE workspace_id=$1 AND conversation_id=$2 AND recipient_user_id=$3 AND status='unread'`,[session.workspaceId,conversationId,session.userId]);
-    });
+    // Здесь лежала своя запись отметки — голый UPDATE с `now()`. Она
+    // перекрывала выверенную родительскую и вместе с ней две вещи:
+    // строчку участника, которой у пришедшего по общей видимости нет, и
+    // границу чтения по времени названного сообщения. Отметка «прочитано
+    // до середины» стирала всё, что пришло после. Пишет теперь родитель,
+    // а здесь остаётся то, ради чего наследник и заведён, — извещения.
+    await super.markRead(session, conversationId, messageId);
+    await this.pool.query(`UPDATE notifications SET status='read',read_at=COALESCE(read_at,now()),read_by=$3,updated_at=now() WHERE workspace_id=$1 AND conversation_id=$2 AND recipient_user_id=$3 AND status='unread'`,[session.workspaceId,conversationId,session.userId]);
   }
 
   async listNotifications(session, { status = null, type = null, limit = 50 } = {}) {

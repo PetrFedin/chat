@@ -55,8 +55,11 @@ test('сейф отказывает гостю на самом маршруте,
 
   for (const [method, body] of [['GET', undefined], ['POST', { title: 'Почта', secret: 'S3cret!!' }]]) {
     const answer = await request(base, '/api/v1/vault', { cookie: guest.cookie, method, body });
-    assert.equal(answer.status, 403, `сейф ответил гостю ${answer.status} на ${method}`);
-    assert.equal(answer.code, 'FORBIDDEN');
+    // Не 403: отказ с названием права рассказал бы подрядчику, что у
+    // компании вообще есть хранилище паролей. Гость видит свою комнату —
+    // всё остальное отвечает ему как несуществующий адрес.
+    assert.equal(answer.status, 404, `сейф ответил гостю ${answer.status} на ${method}`);
+    assert.equal(answer.code, 'NOT_FOUND');
   }
   // Владельцу сейф при этом открыт — иначе проверка доказывала бы поломку.
   assert.equal((await request(base, '/api/v1/vault', { cookie: owner.cookie })).status, 200);
@@ -64,10 +67,10 @@ test('сейф отказывает гостю на самом маршруте,
   // Задачи и календарь гость и раньше не мог заводить — здесь это закреплено,
   // потому что интерфейс теперь строится ровно на этих отказах.
   assert.equal((await request(base, '/api/v1/tasks', {
-    cookie: guest.cookie, method: 'POST', body: { title: 'проба' } })).status, 403);
+    cookie: guest.cookie, method: 'POST', body: { title: 'проба' } })).status, 404);
   assert.equal((await request(base, '/api/v1/calendar-events', {
     cookie: guest.cookie, method: 'POST',
-    body: { title: 'проба', startAt: new Date().toISOString(), endAt: new Date(Date.now() + 3600e3).toISOString() } })).status, 403);
+    body: { title: 'проба', startAt: new Date().toISOString(), endAt: new Date(Date.now() + 3600e3).toISOString() } })).status, 404);
 });
 
 /**

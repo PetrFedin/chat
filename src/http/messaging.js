@@ -3,6 +3,7 @@ const MAX_FORWARD_TEXT=8000;
 import { resolveAvatar } from '../media/avatar.js';
 import { randomUUID } from 'node:crypto';
 import { Permission, hasPermission, requirePermission } from '../rbac.js';
+import { isGuest } from '../persistence/visibility.js';
 import { allowedConversationKinds, allowedMessageKinds, serverOnlyMessageKinds, cleanText, json, noContent, readJson, messageKindLabel, stripControl, pageSize } from './helpers.js';
 
 const CONVERSATION_ID='([0-9a-f-]+)';
@@ -55,6 +56,12 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     const s=await requireSession(req),b=await readJson(req),kind=String(b.kind??'group');
     if(!allowedConversationKinds.has(kind))throw httpError('Unsupported conversation kind','INVALID_CONVERSATION_KIND',400);
     requirePermission(s.role,kind==='channel'?Permission.CHANNEL_CREATE:Permission.MESSAGE_SEND);
+    // Гость беседы не заводит. Право на отправку сообщений у него есть —
+    // он для того и позван, — но заводить комнаты это право не даёт:
+    // гость не может никого в них позвать (состав ему менять нельзя), и
+    // получались пустые комнаты без единого собеседника. Свою переписку
+    // с ним заводит принимающая сторона.
+    if(isGuest(s))throw httpError('Not found','NOT_FOUND',404);
     const ids=Array.isArray(b.participantIds)?[...new Set(b.participantIds.map(String).filter(Boolean))]:[];
     const participantCount=new Set([s.userId,...ids]).size;
     if(kind==='direct'&&participantCount!==2)throw httpError('Direct conversation requires exactly two users','DIRECT_REQUIRES_TWO_PARTICIPANTS',400);
@@ -282,7 +289,7 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     const called=notificationAudience.filter(id=>id!==s.userId&&mentioned.has(String(id)));
     const conversation=S_KIND(store.getConversation?await store.getConversation(s,m[1]).catch(()=>null):null);
     await Promise.all([
-      notifyUsers(s.workspaceId,called,{title:`${s.displayName} упомянул вас`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}`,kind:'message.mentioned'}),
+      notifyUsers(s.workspaceId,called,{title:`Вас упомянул(а) ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}`,kind:'message.mentioned'}),
       notifyUsers(s.workspaceId,others,{title:`Новое сообщение от ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}`,kind:conversation}),
     ]);
     json(res,201,{message});return true;

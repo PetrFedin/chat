@@ -37,8 +37,11 @@ test('marking read creates the row it needs and rejects a foreign cursor', async
   const source = await read('src/persistence/postgres-store.js');
   // Somebody reaching a channel by workspace visibility has no member row, so
   // the old bare UPDATE matched nothing and the unread badge never cleared.
-  assert.match(source, /async markRead[\s\S]{0,700}INSERT INTO conversation_members/);
+  assert.match(source, /async markRead[\s\S]{0,1800}INSERT INTO conversation_members/);
   assert.match(source, /MESSAGE_NOT_IN_CONVERSATION/);
+  // И граница чтения — время названного сообщения, а не `now()`: иначе
+  // отметка «прочитано до середины» съедала всё, что пришло после.
+  assert.match(source, /async markRead[\s\S]{0,1800}SELECT created_at FROM messages WHERE workspace_id=\$2 AND id=\$5/);
 });
 
 test('a call nobody answered can be closed, and declining one works', async () => {

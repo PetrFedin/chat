@@ -327,7 +327,9 @@ const ROUTES = [
   { route: 'GET /api/v1/saved-messages', path: () => '/api/v1/saved-messages', expect: 200 },
   {
     route: 'POST /api/v1/conversations (группа)', method: 'POST', path: () => '/api/v1/conversations',
-    body: () => ({ kind: 'group', title: `Группа ${rnd()}` }), expect: 201,
+    // Гость бесед не заводит вовсе: для него такого действия нет.
+    body: () => ({ kind: 'group', title: `Группа ${rnd()}` }),
+    expect: { owner: 201, admin: 201, manager: 201, member: 201, guest: 404 },
   },
   {
     route: 'POST /api/v1/conversations (канал)', method: 'POST', path: () => '/api/v1/conversations',
@@ -348,24 +350,25 @@ const ROUTES = [
   },
   {
     route: 'PATCH /api/v1/conversations/{id}', method: 'PATCH', path: (w) => `/api/v1/conversations/${w.room.id}`,
-    body: () => ({ title: `Переименовано ${rnd()}` }),
+    body: () => ({ title: `Переименовано ${rnd()}` }), guestForbidden: true,
     expect: { owner: 200, admin: 200, manager: 200, member: 403, guest: 403 },
   },
   { route: 'GET /api/v1/conversations/{id}/pins', path: (w) => `/api/v1/conversations/${w.room.id}/pins`, expect: 200 },
   { route: 'GET /api/v1/conversations/{id}/members', path: (w) => `/api/v1/conversations/${w.room.id}/members`, expect: 200 },
   {
     route: 'POST /api/v1/conversations/{id}/members', method: 'POST', path: (w) => `/api/v1/conversations/${w.room.id}/members`,
-    body: (w) => ({ userIds: [w.actors.owner.userId], role: 'member' }),
+    body: (w) => ({ userIds: [w.actors.owner.userId], role: 'member' }), guestForbidden: true,
     expect: { owner: 200, admin: 200, manager: 200, member: 403, guest: 403 },
   },
   {
     route: 'PATCH /api/v1/conversations/{id}/members/{u}', method: 'PATCH',
     path: (w) => `/api/v1/conversations/${w.room.id}/members/${w.stranger.userId}`, body: () => ({ role: 'moderator' }),
+    guestForbidden: true,
     expect: { owner: 200, admin: 200, manager: 200, member: 403, guest: 403 },
   },
   {
     route: 'DELETE /api/v1/conversations/{id}/members/{u}', method: 'DELETE',
-    path: (w) => `/api/v1/conversations/${w.room.id}/members/${w.stranger.userId}`,
+    path: (w) => `/api/v1/conversations/${w.room.id}/members/${w.stranger.userId}`, guestForbidden: true,
     expect: { owner: 200, admin: 200, manager: 200, member: 403, guest: 403 },
   },
   { route: 'GET /api/v1/conversations/{id}/messages', path: (w) => `/api/v1/conversations/${w.room.id}/messages`, expect: 200 },
@@ -375,7 +378,7 @@ const ROUTES = [
   },
   { route: 'POST /api/v1/messages/{чужое}/save', method: 'POST', path: (w) => `/api/v1/messages/${id(w.strangerMessage)}/save`, body: () => ({}), expect: 200 },
   {
-    route: 'POST /api/v1/messages/{чужое}/pin', method: 'POST', path: (w) => `/api/v1/messages/${id(w.strangerMessageToPin)}/pin`, body: () => ({}),
+    route: 'POST /api/v1/messages/{чужое}/pin', method: 'POST', path: (w) => `/api/v1/messages/${id(w.strangerMessageToPin)}/pin`, body: () => ({}), guestForbidden: true,
     expect: { owner: 200, admin: 200, manager: 200, member: 403, guest: 403 },
   },
   {
@@ -384,7 +387,7 @@ const ROUTES = [
   },
   {
     route: 'PATCH /api/v1/messages/{чужое}', method: 'PATCH', path: (w) => `/api/v1/messages/${id(w.strangerMessage)}`,
-    body: () => ({ body: 'правка чужого' }), expect: 403,
+    body: () => ({ body: 'правка чужого' }), expect: 403, guestForbidden: true,
   },
   {
     route: 'DELETE /api/v1/messages/{чужое}', method: 'DELETE', path: (w) => `/api/v1/messages/${id(w.strangerMessageToDelete)}`,
@@ -425,7 +428,7 @@ const ROUTES = [
     expect: { owner: 409, admin: 409, manager: 409, member: 403, guest: 403 },
   },
   {
-    route: 'POST /api/v1/calls/{чужой}/end', method: 'POST', path: (w) => `/api/v1/calls/${id(w.foreignCall)}/end`, body: () => ({}),
+    route: 'POST /api/v1/calls/{чужой}/end', method: 'POST', path: (w) => `/api/v1/calls/${id(w.foreignCall)}/end`, body: () => ({}), guestForbidden: true,
     expect: { owner: 200, admin: 200, manager: 200, member: 403, guest: 403 },
   },
 
@@ -515,7 +518,7 @@ const ROUTES = [
   },
   { route: 'GET /api/v1/people/{другой}', path: (w) => `/api/v1/people/${w.stranger.userId}`, expect: 200 },
   {
-    route: 'PATCH /api/v1/people/{другой}', method: 'PATCH', path: (w) => `/api/v1/people/${w.stranger.userId}`, body: () => ({ title: 'Ведущий инженер' }),
+    route: 'PATCH /api/v1/people/{другой}', method: 'PATCH', path: (w) => `/api/v1/people/${w.stranger.userId}`, body: () => ({ title: 'Ведущий инженер' }), guestForbidden: true,
     expect: { owner: 200, admin: 200, manager: 403, member: 403, guest: 403 },
   },
   { route: 'PATCH /api/v1/people/{себя}', method: 'PATCH', path: (w) => `/api/v1/people/${w.actor.userId}`, body: () => ({ about: 'о себе' }), expect: 200 },
@@ -547,6 +550,7 @@ const ROUTES = [
   { route: 'GET /api/v1/labels', path: () => '/api/v1/labels', expect: 200 },
   {
     route: 'POST /api/v1/labels', method: 'POST', path: () => '/api/v1/labels', body: () => ({ name: `Метка ${rnd()}` }),
+    guestForbidden: true,
     expect: { owner: 201, admin: 201, manager: 201, member: 201, guest: 403 },
   },
   { route: 'GET /api/v1/labels/{id}/targets', path: (w) => `/api/v1/labels/${id(w.sharedLabel)}/targets`, expect: 200 },
@@ -638,7 +642,22 @@ const ROUTES = [
   },
 ];
 
-const expectedFor = (row, role) => (typeof row.expect === 'number' ? row.expect : row.expect[role]);
+/**
+ * Гостю — «не найдено», а не «запрещено».
+ *
+ * 403 с названием права рассказывает постороннему устройство компании:
+ * что есть журнал, приглашения, хранилище паролей и кто ими ведает. Гость
+ * подрядчика должен видеть ровно свою комнату, а на всё прочее получать
+ * тот же ответ, что и на выдуманный адрес.
+ *
+ * Исключение — `guestForbidden`: там объект гостю виден (комната, в
+ * которую его позвали), и прятать его бессмысленно; отказ честно говорит,
+ * что распоряжаться ею он не вправе.
+ */
+const expectedFor = (row, role) => {
+  const expected = typeof row.expect === 'number' ? row.expect : row.expect[role];
+  return role === 'guest' && expected === 403 && !row.guestForbidden ? 404 : expected;
+};
 
 test('матрица «роль × маршрут»', { skip, concurrency: false }, async (t) => {
   const base = await startServer(t);

@@ -96,11 +96,20 @@ export function createCalendarRepository(pool, store = null) {
   const notify = async (client, session, { recipients, type, title, body, eventId }) => {
     const targets = [...new Set(recipients)].filter((id) => id && id !== session.userId);
     if (!targets.length) return;
+    const linked = type !== 'calendar.cancelled';
     for (const recipient of targets) {
       await client.query(
-        `INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`,
-        [session.organizationId, session.workspaceId, recipient, randomUUID(), `${type}:${eventId}:${recipient}:${Date.now()}`, type, title, body],
+        // Колонки под ссылку, встречу и позвавшего есть с миграции 007, но
+        // календарь их не заполнял: приходило «Требуется ответ» без встречи,
+        // без имени и без места, куда нажать.
+        `INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,
+           actor_user_id,calendar_event_id,url)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`,
+        [session.organizationId, session.workspaceId, recipient, randomUUID(), `${type}:${eventId}:${recipient}:${Date.now()}`, type, title, body,
+          // Отменённую встречу связывать не с чем: связь стоит на каскадном
+          // удалении, и вместе со встречей исчезло бы само извещение о том,
+          // что её отменили. Остаётся имя отменившего — оно и есть новость.
+          session.userId, linked ? eventId : null, linked ? `/#/calendar/${eventId}` : null],
       );
     }
   };
@@ -432,8 +441,14 @@ export function createCalendarRepository(pool, store = null) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
         const { rows } = await client.query(
-          `UPDATE calendar_event_participants SET response_status=$3, responded_at=now(), note=$4
-           WHERE workspace_id=$1 AND calendar_event_id=$2 AND user_id=$5 RETURNING *`,
+          // `RETURNING *` отдаёт только колонки самой строки, а имя и
+          // должность лежат в профиле: ответивший получал в ответе
+          // `displayName: null` и видел на экране пустое место вместо себя.
+          `WITH answered AS (
+             UPDATE calendar_event_participants SET response_status=$3, responded_at=now(), note=$4
+              WHERE workspace_id=$1 AND calendar_event_id=$2 AND user_id=$5 RETURNING *)
+           SELECT a.*, p.display_name, p.title FROM answered a
+             LEFT JOIN workspace_profiles p ON p.workspace_id=a.workspace_id AND p.user_id=a.user_id`,
           [session.workspaceId, eventId, response, note, session.userId],
         );
         if (!rows[0]) throw fail('You are not invited to this event', 'NOT_INVITED', 404);

@@ -61,7 +61,8 @@ test('журнал рабочего пространства можно проч
   // Руководитель отвечает за порядок и читает; рядовой и гость — нет.
   assert.equal((await request(base, '/api/v1/audit', { cookie: chief.cookie })).status, 200);
   assert.equal((await request(base, '/api/v1/audit', { cookie: worker.cookie })).status, 403);
-  assert.equal((await request(base, '/api/v1/audit', { cookie: guest.cookie })).status, 403);
+  // Гостю журнала не существует: 403 назвал бы право и выдал, что журнал есть.
+  assert.equal((await request(base, '/api/v1/audit', { cookie: guest.cookie })).status, 404);
 
   // Чужое рабочее пространство в журнал не попадает.
   const other = await request(base, '/api/v1/auth/register-company', {

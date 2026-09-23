@@ -86,12 +86,25 @@ export function hasPermission(role, permission) {
 }
 
 export function requirePermission(role, permission) {
-  if (!hasPermission(role, permission)) {
-    const error = new Error(`Role ${role ?? 'unknown'} does not have ${permission}`);
-    error.code = 'FORBIDDEN';
-    error.statusCode = 403;
-    throw error;
+  if (hasPermission(role, permission)) return;
+  // Гостю — «не найдено», а не «запрещено».
+  //
+  // Гость — чужой сотрудник, пришедший на одну работу. Отказ вида «роль
+  // guest не имеет права audit.read» сам по себе отвечает на вопрос,
+  // который ему задавать не положено: есть ли здесь журнал действий,
+  // сейф паролей, очередь приглашений, счёт денег за встречи. Модуль
+  // оргструктуры так и сделан с самого начала; остальные отвечали 403 и
+  // называли право вслух.
+  if (role === 'guest') {
+    const hidden = new Error('Not found');
+    hidden.code = 'NOT_FOUND';
+    hidden.statusCode = 404;
+    throw hidden;
   }
+  const error = new Error(`Role ${role ?? 'unknown'} does not have ${permission}`);
+  error.code = 'FORBIDDEN';
+  error.statusCode = 403;
+  throw error;
 }
 
 export function visiblePermissions(role) {

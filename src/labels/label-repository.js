@@ -96,6 +96,41 @@ export function createLabelRepository(pool, store = null) {
     }
     if (targetType === 'file') {
       if (!(await store.getFile(session, targetId))) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      return;
+    }
+    // Встреча, человек и заметка проверок не проходили вовсе: метку брала
+    // любая строчка, в том числе выдуманный опознаватель. Список метки потом
+    // показывал такую связь с пустым названием — и убрать её было неоткуда,
+    // потому что объекта, с которого снимают метку, не существует.
+    if (targetType === 'event') {
+      const { rowCount } = await pool.query(
+        `SELECT 1 FROM calendar_events e WHERE e.workspace_id=$1 AND e.id=$2 AND (
+           e.owner_id=$3
+           OR (e.visibility='workspace' AND $4<>'guest')
+           OR EXISTS(SELECT 1 FROM calendar_event_participants p WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.user_id=$3)
+           OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))`,
+        [session.workspaceId, targetId, session.userId, session.role],
+      );
+      if (!rowCount) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      return;
+    }
+    if (targetType === 'person') {
+      const { rowCount } = await pool.query(
+        `SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2
+           AND (access_until IS NULL OR access_until>now())`,
+        [session.workspaceId, targetId],
+      );
+      if (!rowCount) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      return;
+    }
+    if (targetType === 'note') {
+      // `note` — это запись личного плана. Она вещь личная: чужую нельзя ни
+      // разметить, ни нащупать перебором опознавателей.
+      const { rowCount } = await pool.query(
+        'SELECT 1 FROM personal_items WHERE workspace_id=$1 AND id=$2 AND owner_id=$3',
+        [session.workspaceId, targetId, session.userId],
+      );
+      if (!rowCount) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
     }
   };
 

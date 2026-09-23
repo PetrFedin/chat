@@ -316,6 +316,9 @@ async function routeFromHash(){
   const parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);
   if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}
   if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}
+  // У задачи и беседы адрес был, у встречи — нет: уведомление «вас позвали»
+  // вело в общий календарь, и человек искал нужную встречу глазами.
+  if(parts[0]==='calendar'&&parts[1]){S.view='calendar';render();await eventPage(parts[1]);return}
   if(parts[0]&&VIEWS.has(parts[0])){if(S.view!==parts[0])go(parts[0],{silent:true});return}
   if(!parts.length&&S.view!=='today')go('today',{silent:true});
 }
@@ -1301,6 +1304,11 @@ function go(v,{silent=false}={}){
     const want=`#/${v}`;
     if(location.hash!==want){try{history.pushState(null,'',want)}catch{location.hash=want}}
   }
+  // Экран задач рисуется из отдельно загруженной страницы, а грузилась
+  // она только при старте приложения и при смене вкладки. Человек
+  // заводил задачу, шёл в «Задачи» — и видел «здесь пусто»: список был
+  // тот же, что при входе. Входя на экран, перечитываем его.
+  if(v==='tasks')loadTaskPage().then(()=>render());
   if(v!=='chats')S.mobileChat=false;
   // A screen opened after scrolling another one started halfway down it: the
   // conversation header, the calendar toolbar and the day's greeting were all
@@ -2658,7 +2666,7 @@ function companyModal(){
       <label>Телефон<input name="phone" maxlength="40" inputmode="tel" value="${esc(S.boot?.company?.phone||'')}"></label>
       <label>Почтовый домен<input name="emailDomain" maxlength="120" placeholder="granit.ru" value="${esc(S.boot?.company?.emailDomain||'')}"></label>
       <label>Мест в компании<input name="seatLimit" type="number" min="1" step="1" placeholder="без ограничения" value="${S.boot?.company?.seatLimit??''}"></label>
-      <p class="muted" style="margin:-4px 0 0;font-size:12px">Занято ${S.boot?.company?.seatsUsed??0}${S.boot?.company?.seatLimit?` из ${S.boot.company.seatLimit}`:''}. Гости мест не занимают.</p>
+      <p class="muted" style="margin:-4px 0 0;font-size:12px">Занято ${(S.boot?.company?.seatsUsed??0)+(S.boot?.company?.seatsInvited??0)}${S.boot?.company?.seatLimit?` из ${S.boot.company.seatLimit}`:''}: ${S.boot?.company?.seatsUsed??0} ${plural(S.boot?.company?.seatsUsed??0,'человек','человека','человек')} и ${S.boot?.company?.seatsInvited??0} ${plural(S.boot?.company?.seatsInvited??0,'неотвеченное приглашение','неотвеченных приглашения','неотвеченных приглашений')}. Гости мест не занимают.</p>
       <label class="switch-row"><input type="checkbox" name="domainJoin" ${S.boot?.company?.domainJoin?'checked':''}>
         <span><span class="row-title">Сотрудники заводятся сами</span>
         <span class="row-sub">Человек с адресом на вашем домене вводит рабочую почту и получает ссылку-подтверждение — заводить каждого руками не нужно. Пока мест хватает; когда кончатся, письмо придёт вам.</span></span></label>
@@ -4296,7 +4304,9 @@ function taskModal(sourceMessageId=null,prefill=''){modal('Новая задач
         ownerId:f.get('ownerId'),acceptorId:f.get('acceptorId'),priority:f.get('priority'),
         promisedAt:f.get('promisedAt')?new Date(f.get('promisedAt')).toISOString():null,sourceMessageId,
       })});
-      upsertTask(task);closeModal();render();toast('Задача создана');
+      // Не только в общий список, но и в страницу экрана задач: иначе
+      // только что заведённая задача не видна там, где её пошли искать.
+      upsertTask(task);closeModal();await loadTaskPage();render();toast('Задача создана');
     }catch(error){toast(error.message)}
   };
 });

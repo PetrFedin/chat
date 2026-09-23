@@ -202,9 +202,15 @@ export class PostgresStore {
       this.pool.query('SELECT show_birthdays "showBirthdays",show_holidays "showHolidays" FROM workspaces WHERE id=$1',[s.workspaceId]),
       // Реквизиты компании: их показывают в «Компании» и подставляют в
       // письма, поэтому приходят сразу, а не отдельным запросом.
-      this.pool.query(`SELECT o.name,o.legal_name "legalName",o.tax_id "taxId",o.address,o.website,o.phone,
+      // Реквизиты компании — не для гостя: он чужой сотрудник, и ИНН,
+      // юридический адрес, телефон и число купленных мест его не
+      // касаются. Ручка `/api/v1/workspace` ему закрыта, и bootstrap не
+      // должен отдавать то же самое в обход.
+      s.role==='guest'?{rows:[]}:this.pool.query(`SELECT o.name,o.legal_name "legalName",o.tax_id "taxId",o.address,o.website,o.phone,
           o.email_domain "emailDomain",o.seat_limit "seatLimit",o.domain_join "domainJoin",
-          (SELECT count(*)::int FROM memberships m WHERE m.organization_id=o.id AND m.role<>'guest') "seatsUsed"
+          (SELECT count(*)::int FROM memberships m WHERE m.organization_id=o.id AND m.role<>'guest') "seatsUsed",
+          (SELECT count(*)::int FROM workspace_invitations i
+            WHERE i.organization_id=o.id AND i.status='pending' AND i.expires_at>now() AND i.role<>'guest') "seatsInvited"
         FROM organizations o WHERE o.id=$1`,[s.organizationId]),
     ]);
     return{session:s,conversations,people,workspace:workspace.rows[0]??{showBirthdays:true,showHolidays:true},
@@ -906,15 +912,26 @@ export class PostgresStore {
       await c.query('UPDATE messages SET deleted_at=now() WHERE workspace_id=$1 AND id=$2',[s.workspaceId,id]);await c.query('DELETE FROM message_pins WHERE workspace_id=$1 AND message_id=$2',[s.workspaceId,id])});return this.getMessage(s,id)}
   async toggleReaction(s,id,reaction){const message=await this.getMessage(s,id);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});const deleted=await this.pool.query('DELETE FROM message_reactions WHERE workspace_id=$1 AND message_id=$2 AND user_id=$3 AND reaction=$4 RETURNING reaction',[s.workspaceId,id,s.userId,reaction]);if(!deleted.rowCount)await this.pool.query('INSERT INTO message_reactions(organization_id,workspace_id,message_id,user_id,reaction) VALUES($1,$2,$3,$4,$5)',[s.organizationId,s.workspaceId,id,s.userId,reaction]);const{rows}=await this.pool.query('SELECT user_id "userId",reaction,created_at "createdAt" FROM message_reactions WHERE workspace_id=$1 AND message_id=$2 ORDER BY created_at',[s.workspaceId,id]);return rows}
   async markRead(s,id,messageId=null){
+    // Отметка «прочитано до сообщения» ставила `now()` — и всё, что пришло
+    // после названного сообщения, молча становилось прочитанным. Человек
+    // открыл беседу, прочёл до середины, ушёл — а счётчик обнулялся вместе
+    // с остальными тридцатью. Граница чтения — время самого сообщения.
+    //
+    // Время берётся подзапросом, а не вознёй в памяти: у отметки времени в
+    // базе доли тоньше, чем у Date в JavaScript, и округление до
+    // миллисекунды оставляло само названное сообщение непрочитанным.
     if(messageId){
       const{rowCount}=await this.pool.query('SELECT 1 FROM messages WHERE workspace_id=$1 AND id=$2 AND conversation_id=$3',[s.workspaceId,messageId,id]);
       if(!rowCount)throw Object.assign(new Error('That message is not in this conversation'),{code:'MESSAGE_NOT_IN_CONVERSATION',statusCode:400});
     }
+    const readAt=`COALESCE((SELECT created_at FROM messages WHERE workspace_id=$2 AND id=$5),now())`;
     await this.pool.query(`INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role,last_read_at,last_read_message_id)
-      VALUES($1,$2,$3,$4,'member',now(),$5)
-      ON CONFLICT(workspace_id,conversation_id,user_id) DO UPDATE SET last_read_at=now(),last_read_message_id=EXCLUDED.last_read_message_id`,
+      VALUES($1,$2,$3,$4,'member',${readAt},$5)
+      ON CONFLICT(workspace_id,conversation_id,user_id) DO UPDATE SET last_read_at=${readAt},last_read_message_id=EXCLUDED.last_read_message_id`,
       [s.organizationId,s.workspaceId,id,s.userId,messageId]);
   }
+
+
   /**
    * Присутствие и объявленная доступность.
    *
