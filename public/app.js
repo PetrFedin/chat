@@ -3153,7 +3153,10 @@ async function journalModal(){
 // Signed webhooks with retries, a dead-letter and a delivery log were built,
 // tested and reachable only with curl. An administrator could not see whether
 // anything was leaving the building.
-const DELIVERY_STATUS={pending:'в очереди',delivering:'отправляется',delivered:'доставлено',failed:'не дошло',dead_letter:'остановлено'};
+// База хранит `dead`, а ключ был взят из соседней схемы, где состояние
+// зовётся `dead_letter`: на экране печаталось английское слово — прямо
+// под обещанием, что недоставленное «не теряется».
+const DELIVERY_STATUS={pending:'в очереди',delivering:'отправляется',delivered:'доставлено',failed:'не дошло',dead:'остановлено',dead_letter:'остановлено'};
 
 async function integrationsModal(){
   let endpoints=[],deliveries=[];
@@ -3167,7 +3170,7 @@ async function integrationsModal(){
   const endpointRow=(e)=>`<div class="label-row">
     <span><div class="row-title">${esc(e.label||e.url)}</div>
       <div class="row-sub">${esc(e.url)}</div>
-      <div class="row-sub">${(e.topics||[]).map(t=>`<span class="label-chip" data-colour="blue">${esc(t)}</span>`).join(' ')||'<span class="muted">без тем</span>'}</div></span>
+      <div class="row-sub">${(e.topics||[]).map(t=>`<span class="label-chip" data-colour="blue">${esc(t)}</span>`).join(' ')||'<span class="warn-text">все события</span>'}</div></span>
     <span class="inline-actions">
       <button class="text-button" data-toggle-endpoint="${esc(e.id)}" data-enabled="${e.enabled?'1':''}">${e.enabled?'выключить':'включить'}</button>
       <button class="text-button danger" data-drop-endpoint="${esc(e.id)}">удалить</button>
@@ -3203,7 +3206,11 @@ async function integrationsModal(){
   });
 }
 
-const WEBHOOK_TOPICS=['task.created','task.transitioned','task.rescheduled','task.reassigned','task.evidence.added','message.created','calendar.created'];
+// В форме предлагались два события, которых не бывает: `message.created`
+// и `calendar.created` никогда не попадают в очередь исходящих — они
+// живут только как мгновенная рассылка. Подписка на них создавалась,
+// показывалась включённой и не срабатывала никогда.
+const WEBHOOK_TOPICS=['task.created','task.transitioned','task.rescheduled','task.reassigned','task.evidence.added'];
 
 function endpointFormModal(after){
   modal('Новая подписка',`<form id="endpoint-form" class="form-stack">

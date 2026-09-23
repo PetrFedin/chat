@@ -9,6 +9,34 @@ const unavailable = () => Object.assign(
   { code: 'INTEGRATIONS_UNAVAILABLE', statusCode: 503, expose: true },
 );
 
+/**
+ * Список тем подписки.
+ *
+ * Пустой список — уговор «присылать всё». Значит, всё, что пришло не
+ * списком, обязано быть ошибкой: иначе опечатка превращается в подписку
+ * на весь рабочий граф компании, а на экране выглядит как «без тем».
+ *
+ * Тема сверяется со списком существующих: подписка на выдуманное
+ * событие создавалась молча и не срабатывала никогда, и отличить её от
+ * сломанной интеграции было неоткуда.
+ */
+const KNOWN_TOPICS = new Set(['task.created', 'task.transitioned', 'task.rescheduled',
+  'task.reassigned', 'task.evidence.added']);
+const topicList = (value) => {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw Object.assign(new Error('Темы задаются списком. Пустой список означает «присылать всё».'),
+      { code: 'INVALID_TOPICS', statusCode: 400, expose: true });
+  }
+  return value.map((topic) => {
+    const name = String(topic ?? '').trim();
+    if (name === '*' || KNOWN_TOPICS.has(name)) return name;
+    if (name.endsWith('.*') && [...KNOWN_TOPICS].some((known) => known.startsWith(name.slice(0, -1)))) return name;
+    throw Object.assign(new Error(`Такого события не бывает: «${name}». Есть: ${[...KNOWN_TOPICS].join(', ')}.`),
+      { code: 'UNKNOWN_TOPIC', statusCode: 400, expose: true });
+  });
+};
+
 export function createIntegrationsHandler() {
   return async function handleIntegrations(req, res, ctx, url, path, method) {
     if (!path.startsWith('/api/v1/integrations/')) return false;
@@ -29,7 +57,12 @@ export function createIntegrationsHandler() {
       const endpoint = await webhooks.createEndpoint(session, {
         label: cleanText(body.label, 120),
         url: String(body.url ?? ''),
-        topics: Array.isArray(body.topics) ? body.topics.map((topic) => cleanText(topic, 120)) : [],
+        // Пустой список означает «все события», и это осознанный уговор.
+        // Но не-массив молча превращался в пустой список: подписка с
+        // `topics: "всё"` создавалась как подписка на всё подряд, а на
+        // экране рисовалась как «без тем». Данные компании уходили
+        // наружу ровно там, где администратор был уверен в обратном.
+        topics: topicList(body.topics),
       });
       json(res, 201, { endpoint, secretShownOnce: true });
       return true;

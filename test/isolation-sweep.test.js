@@ -214,7 +214,7 @@ async function company(base, tag) {
   })).invitation;
 
   s.webhookId = ok('webhook', await call(base, '/api/v1/integrations/webhooks', {
-    cookie: O, method: 'POST', body: { label: `Хук ${suffix}`, url: 'https://example.test/hook', topics: ['message.created'] },
+    cookie: O, method: 'POST', body: { label: `Хук ${suffix}`, url: 'https://example.test/hook', topics: ['task.created'] },
   })).endpoint.id;
 
   s.callId = ok('call', await call(base, `/api/v1/conversations/${s.conversationId}/calls`, {
