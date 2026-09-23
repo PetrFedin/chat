@@ -1,7 +1,7 @@
 import { hashPassword, verifyPassword, equalizePasswordTiming, normalizeEmail, createOpaqueToken, hashToken } from '../security.js';
 import { Permission, requirePermission, hasPermission } from '../rbac.js';
 import { log } from '../obs/log.js';
-import { cleanText, clientAddress, trustsProxy, json, noContent, readJson } from './helpers.js';
+import { cleanText, clientAddress, trustsProxy, json, noContent, readJson, toDateOrNull } from './helpers.js';
 import { invitationMail, passwordResetMail } from '../mail/templates.js';
 
 /** Адрес этого стенда глазами пришедшего — из него собираются ссылки в письмах. */
@@ -550,11 +550,26 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     // умолчанию не ставится — он здесь работает.
     let accessUntil=null;
     if(b.accessUntil){
-      const at=new Date(b.accessUntil);
-      if(Number.isNaN(at.getTime()))throw Object.assign(new Error('Invalid date'),{code:'INVALID_DATE',statusCode:400,expose:true});
+      // Строгий разбор: срок «до 31 февраля» уезжал на 3 марта.
+      const iso=toDateOrNull(b.accessUntil);
+      const at=new Date(iso??NaN);
+      if(Number.isNaN(at.getTime()))throw Object.assign(new Error('Такой даты не бывает'),{code:'INVALID_DATE',statusCode:400,expose:true});
       if(at.getTime()<=Date.now())throw Object.assign(new Error('Срок доступа должен быть в будущем'),{code:'ACCESS_UNTIL_IN_PAST',statusCode:400,expose:true});
       accessUntil=at.toISOString();
     }
+    // Того, кто уже здесь, звать незачем.
+    //
+    // Приглашение создавалось, ссылка уходила, место занималось — а
+    // перейти по ней человек не мог: «у этого адреса уже есть учётная
+    // запись». Приглашение оставалось в очереди навсегда и держало
+    // место, а совет «отзовите лишние» не подсказывал, какие именно.
+    // Списочный ввод эту проверку делает с самого начала; одиночный — нет.
+    const invitee=normalizeEmail(b.email??'');
+    if(store.emailWorksHere&&invitee&&await store.emailWorksHere(s.workspaceId,invitee)){
+      throw Object.assign(new Error('Этот человек уже работает в компании. Чтобы поменять ему роль, откройте его карточку в разделе «Команда».'),
+        {code:'ALREADY_IN_WORKSPACE',statusCode:409,expose:true});
+    }
+
     // Места. Неотвеченное приглашение занимает место: иначе в компанию
     // на десять мест зовут пятьдесят, и сорок упираются в стену уже на
     // входе, когда отказываться поздно и неловко.
@@ -575,7 +590,21 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     // Гостя в оргструктуру не ставят: он чужой сотрудник, и схема
     // компании врала бы про то, кто здесь работает.
     const unitId=wanted==='guest'?null:await unitForInvite(s,b.unitId??null);
-    const token=createOpaqueToken(),i=await store.createInvitation(s,{email:normalizeEmail(b.email),role:wanted,tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*86400000).toISOString(),accessUntil,unitId});
+    const token=createOpaqueToken();
+    let i;
+    try{
+      i=await store.createInvitation(s,{email:normalizeEmail(b.email),role:wanted,tokenHash:hashToken(token),expiresAt:new Date(Date.now()+7*86400000).toISOString(),accessUntil,unitId});
+    }catch(error){
+      // Повтор того же адреса — обычное двойное нажатие, а не поломка.
+      // Наружу выходило нарушение единственности из базы: «A record with
+      // these values already exists». Для списочного ввода человеческий
+      // текст написан давно; одиночный его не получил.
+      if(error?.code==='23505'||error?.code==='ALREADY_EXISTS'){
+        throw Object.assign(new Error('Этого человека уже позвали — приглашение ещё ждёт ответа. Отозвать или отправить заново можно в списке приглашений.'),
+          {code:'ALREADY_INVITED',statusCode:409,expose:true});
+      }
+      throw error;
+    }
     const inviteUrl=`${originOf(req)}/?invite=${encodeURIComponent(token)}`;
     const letter=invitationMail({workspaceName:s.workspaceName??'рабочее пространство',inviterName:s.displayName??s.email,role:wanted,url:inviteUrl,expiresAt:i.expiresAt});
     const delivery=await post(ctx,{organizationId:s.organizationId,workspaceId:s.workspaceId,kind:'invitation',actorId:s.userId,

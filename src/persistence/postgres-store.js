@@ -464,6 +464,22 @@ export class PostgresStore {
   }
 
   /** Уже здесь или уже позван — второй раз звать не надо. */
+  /**
+   * Работает ли этот человек здесь уже — именно работает, а не позван.
+   *
+   * `emailKnownInWorkspace` отвечает «да» и на неотвеченное приглашение,
+   * и это верно для самостоятельного входа по домену. А приглашающему
+   * нужно различать: «он уже здесь, поменяйте ему роль» и «его уже
+   * позвали, приглашение ждёт ответа» — это два разных следующих шага.
+   */
+  async emailWorksHere(workspaceId,email){
+    const{rowCount}=await this.pool.query(
+      `SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id
+        WHERE m.workspace_id=$1 AND lower(u.email)=lower($2)`,
+      [workspaceId,email]);
+    return rowCount>0;
+  }
+
   async emailKnownInWorkspace(workspaceId,email){
     const{rows}=await this.pool.query(
       `SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id
@@ -716,6 +732,27 @@ export class PostgresStore {
   // То же и здесь: звонок в общий канал звал постороннего, а открыть
   // этот звонок он всё равно не мог.
   async conversationAudience(s,id){const{rows}=await this.pool.query(`SELECT DISTINCT m.user_id FROM conversations c JOIN memberships m ON m.workspace_id=c.workspace_id LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=m.user_id WHERE c.workspace_id=$1 AND c.id=$2 AND c.archived_at IS NULL AND(${openToMemberSql('c','m')} OR cm.user_id IS NOT NULL)`,[s.workspaceId,id]);return rows.map(r=>r.user_id)}
+  /**
+   * Уже заведённая переписка вдвоём.
+   *
+   * Личная переписка между двумя людьми одна и только одна: это не
+   * «комната, которую можно создать», а сам факт того, что эти двое
+   * разговаривают. Заводилась же она каждый раз заново — двойной клик по
+   * имени в справочнике давал два одинаковых пункта в списке, и половина
+   * разговора уезжала в один, половина в другой. Склеить их потом нечем.
+   */
+  async findDirectConversation(s,otherUserId){
+    const{rows}=await this.pool.query(
+      `SELECT c.id FROM conversations c
+        WHERE c.workspace_id=$1 AND c.kind='direct' AND c.archived_at IS NULL
+          AND EXISTS(SELECT 1 FROM conversation_members m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.user_id=$2)
+          AND EXISTS(SELECT 1 FROM conversation_members m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id AND m.user_id=$3)
+          AND (SELECT count(*) FROM conversation_members m WHERE m.workspace_id=c.workspace_id AND m.conversation_id=c.id)=2
+        ORDER BY c.created_at LIMIT 1`,
+      [s.workspaceId,s.userId,otherUserId]);
+    return rows[0]?.id ?? null;
+  }
+
   async createConversation(s,v){return this.tx(async c=>{const id=randomUUID();for(const userId of new Set([s.userId,...(v.participantIds??[])]))if(!(await c.query('SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2',[s.workspaceId,userId])).rowCount)throw Object.assign(new Error('Conversation participant must belong to the workspace'),{code:'INVALID_CONVERSATION_MEMBER',statusCode:400});await c.query('INSERT INTO conversations(id,organization_id,workspace_id,kind,title,slug,purpose,visibility,announcement_only,created_by) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,s.organizationId,s.workspaceId,v.kind,v.title,v.slug,v.purpose,v.visibility,Boolean(v.announcementOnly),s.userId]);if(v.visibility==='workspace'&&v.kind==='channel')await c.query(`INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role) SELECT organization_id,workspace_id,$2,user_id,CASE WHEN user_id=$3 THEN 'owner' ELSE 'member' END FROM memberships WHERE workspace_id=$1 AND role<>'guest' ON CONFLICT DO NOTHING`,[s.workspaceId,id,s.userId]);else for(const userId of new Set([s.userId,...(v.participantIds??[])]))await c.query('INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role) VALUES($1,$2,$3,$4,$5)',[s.organizationId,s.workspaceId,id,userId,userId===s.userId?'owner':'member']);
     // Кто завёл беседу и какую — в журнал: удаление участника и
     // передача владения туда попадали, а само появление комнаты — нет.

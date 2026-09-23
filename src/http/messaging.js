@@ -65,6 +65,16 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     const ids=Array.isArray(b.participantIds)?[...new Set(b.participantIds.map(String).filter(Boolean))]:[];
     const participantCount=new Set([s.userId,...ids]).size;
     if(kind==='direct'&&participantCount!==2)throw httpError('Direct conversation requires exactly two users','DIRECT_REQUIRES_TWO_PARTICIPANTS',400);
+    // Переписка вдвоём одна на двоих: если она уже есть, открываем её, а
+    // не заводим вторую. Двойной клик по имени в справочнике давал два
+    // одинаковых пункта в списке, и разговор делился пополам.
+    if(kind==='direct'&&store.findDirectConversation){
+      const existing=await store.findDirectConversation(s,ids[0]);
+      if(existing){
+        const already=await store.getConversation?.(s,existing);
+        json(res,200,{conversation:already??{id:existing},existed:true});return true;
+      }
+    }
     const visibility=kind==='direct'||kind==='group'?'private':(b.visibility??'private');
     const conversation=await store.createConversation(s,{
       kind,

@@ -1,5 +1,5 @@
 import { Permission, requirePermission } from '../rbac.js';
-import { cleanText, json, readJson, allowedPresence } from './helpers.js';
+import { cleanText, json, readJson, allowedPresence, toDateOrNull, INVALID_DATE } from './helpers.js';
 
 /** Объявленная доступность — короткий набор понятных слов. */
 const AVAILABILITY=new Set(['available','meeting','lunch','focus','away','sick','vacation','trip']);
@@ -95,39 +95,7 @@ const taskEventNotice=(task,reason)=>{
 // Only undefined means "leave unchanged" and only null means "clear": a
 // falsy-but-present value like 0 is a date the caller meant, and treating it
 // as "delete the promise" destroyed commitment dates behind a 200.
-const INVALID_DATE=()=>Object.assign(new Error('Invalid date'),{code:'INVALID_DATE',statusCode:400});
-
-/**
- * Разбор даты, который не додумывает за человека.
- *
- * `new Date` переполняет поля вместо отказа: 29 февраля невисокосного
- * года молча становится 1 марта, 31 ноября — 1 декабря, а `null` —
- * первым января 1970-го. Сервер отвечал «создано» и ставил встречу не на
- * тот день. Здесь дата принимается только если она и есть та, что
- * написана, и попадает в разумный горизонт: столетие в обе стороны
- * PostgreSQL хранит, а +275760 год роняет запрос в пятисотку.
- */
-const toDateOrNull=(value)=>{
-  if(value===undefined)return undefined;
-  if(value===null||value==='')return null;
-  const date=new Date(value);
-  if(Number.isNaN(date.getTime()))throw INVALID_DATE();
-  const iso=date.toISOString();
-  // Календарная часть должна совпасть с написанной: так ловится
-  // несуществующий день, который Date досчитал до следующего месяца.
-  if(typeof value==='string'){
-    const written=value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if(written&&!iso.startsWith(`${written[1]}-${written[2]}-${written[3]}`)){
-      // Смещение пояса может законно сдвинуть дату на сутки — сверяем и
-      // местную календарную часть тоже.
-      const local=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
-      if(local!==`${written[1]}-${written[2]}-${written[3]}`)throw INVALID_DATE();
-    }
-  }
-  const year=date.getUTCFullYear();
-  if(year<1970||year>2200)throw INVALID_DATE();
-  return iso;
-};
+// Разбор дат общий на весь продукт — см. helpers.js.
 
 export async function handleWorkspace(req,res,ctx,url,path,method){
   const {store,requireSession,hub,notifyUsers}=ctx;

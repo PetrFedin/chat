@@ -1,4 +1,4 @@
-import { pageSize } from '../http/helpers.js';
+import { pageSize, toDateOrNull } from '../http/helpers.js';
 import { randomUUID } from 'node:crypto';
 
 /**
@@ -43,19 +43,25 @@ const view = (row) => ({
 });
 
 function readWhen(value, { allowPast = false } = {}) {
-  const at = new Date(value);
-  if (!value || Number.isNaN(at.getTime())) throw fail('A reminder needs a valid time', 'INVALID_REMIND_AT', 400);
+  // Через общий строгий разбор: 31 ноября молча уезжало на 1 декабря, а
+  // 31 февраля — на 3 марта, и человек читал отказ «нельзя ставить
+  // напоминание больше чем на сутки назад» про дату, которую назначил в
+  // будущем. Отказ объяснял не то, что случилось.
+  let iso;
+  try { iso = toDateOrNull(value); } catch { throw fail('Такой даты не бывает', 'INVALID_REMIND_AT', 400); }
+  if (!iso) throw fail('У напоминания должно быть время', 'INVALID_REMIND_AT', 400);
+  const at = new Date(iso);
   const yearAhead = Date.now() + 366 * 24 * 3600 * 1000;
-  if (at.getTime() > yearAhead) throw fail('A reminder cannot be set more than a year ahead', 'REMIND_AT_TOO_FAR', 400);
+  if (at.getTime() > yearAhead) throw fail('Напоминание нельзя поставить больше чем на год вперёд', 'REMIND_AT_TOO_FAR', 400);
   if (!allowPast && at.getTime() < Date.now() - 24 * 3600 * 1000) {
-    throw fail('A reminder cannot be set more than a day in the past', 'REMIND_AT_TOO_OLD', 400);
+    throw fail('Напоминание нельзя поставить больше чем на сутки назад', 'REMIND_AT_TOO_OLD', 400);
   }
   return at.toISOString();
 }
 
 function readTitle(value) {
   const title = String(value ?? '').trim();
-  if (!title) throw fail('A reminder needs a title', 'INVALID_REMINDER_TITLE', 400);
+  if (!title) throw fail('У напоминания должно быть название', 'INVALID_REMINDER_TITLE', 400);
   if (title.length > MAX_TITLE) throw fail(`A reminder title is at most ${MAX_TITLE} characters`, 'INVALID_REMINDER_TITLE', 400);
   return title;
 }

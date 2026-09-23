@@ -16,6 +16,40 @@ const CONTROL=/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 export const cleanText=(value,max=500)=>{const s=String(value??'').replace(CONTROL,'').trim();if(!s||s.length>max)throw Object.assign(new Error('Invalid text value'),{code:'INVALID_TEXT'});return s};
 // То же для длинных текстов, которые не проходят через cleanText: тело
 // сообщения, заметки. Здесь только вычищаем, длину меряет вызывающий.
+/**
+ * Дата, написанная человеком, — и никакая другая.
+ *
+ * `new Date` дописывает несуществующие дни: 31 февраля молча становится
+ * 3 марта, и человек получает напоминание не в тот день, звонок не в тот
+ * день и срок доступа не тогда, когда назначил. Календарная часть
+ * обязана совпасть с написанной.
+ *
+ * Всё, что пришло не строкой и не числом, — ошибка. Массив `[1]`
+ * превращался в 2000 год: обещание, просроченное с рождения, проходило
+ * все проверки.
+ */
+export const INVALID_DATE=()=>Object.assign(new Error('Такой даты не бывает'),{code:'INVALID_DATE',statusCode:400,expose:true});
+export const toDateOrNull=(value)=>{
+  if(value===undefined)return undefined;
+  if(value===null||value==='')return null;
+  if(typeof value!=='string'&&typeof value!=='number'&&!(value instanceof Date))throw INVALID_DATE();
+  const date=new Date(value);
+  if(Number.isNaN(date.getTime()))throw INVALID_DATE();
+  const iso=date.toISOString();
+  if(typeof value==='string'){
+    const written=value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if(written&&!iso.startsWith(`${written[1]}-${written[2]}-${written[3]}`)){
+      // Смещение пояса может законно сдвинуть дату на сутки — сверяем и
+      // местную календарную часть тоже.
+      const local=`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`;
+      if(local!==`${written[1]}-${written[2]}-${written[3]}`)throw INVALID_DATE();
+    }
+  }
+  const year=date.getUTCFullYear();
+  if(year<1970||year>2200)throw INVALID_DATE();
+  return iso;
+};
+
 export const stripControl=(value)=>String(value??'').replace(CONTROL,'');
 /**
  * Размер страницы.

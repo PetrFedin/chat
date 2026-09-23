@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Permission, hasPermission, requirePermission } from '../rbac.js';
 import { opaqueRoomName } from '../media/livekit-provider.js';
-import { cleanText, json, readJson } from './helpers.js';
+import { cleanText, json, readJson, toDateOrNull } from './helpers.js';
 
 const CALL_ID = '([0-9a-f-]+)';
 
@@ -109,12 +109,16 @@ export function createCallHandler() {
       if (!conversationId || !(await store.canAccessConversation(session, conversationId))) throw callNotFound();
       const mode = body.mode === 'audio' ? 'audio' : 'video';
       const title = cleanText(body.title, 240);
-      const startAt = new Date(body.startAt);
-      if (Number.isNaN(startAt.getTime())) {
+      // Строгий разбор: назначенный на 31 февраля звонок создавался на
+      // 3 марта — и никто не приходил.
+      const startIso = toDateOrNull(body.startAt);
+      if (!startIso) {
         throw Object.assign(new Error('Не разобрали дату и время'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
       }
+      const startAt = new Date(startIso);
       const minutes = Math.min(Math.max(Number(body.minutes) || 30, 5), 8 * 60);
-      const endAt = body.endAt ? new Date(body.endAt) : new Date(startAt.getTime() + minutes * 60000);
+      const endIso = body.endAt ? toDateOrNull(body.endAt) : null;
+      const endAt = endIso ? new Date(endIso) : new Date(startAt.getTime() + minutes * 60000);
       if (Number.isNaN(endAt.getTime()) || endAt <= startAt) {
         throw Object.assign(new Error('Звонок заканчивается раньше, чем начинается'), { code: 'INVALID_RANGE', statusCode: 400, expose: true });
       }
