@@ -1,5 +1,14 @@
 export const Permission = Object.freeze({
   ORGANIZATION_MANAGE: 'organization.manage',
+  // Настройки компании — не то же, что владение ею.
+  //
+  // Под `organization.manage` лежали вперемешку передача владения,
+  // выгрузка всего пространства и число оплаченных мест. Из-за этого
+  // администратор, который вправе звать людей, упирался в «мест нет» и
+  // получал отказ на том самом экране, куда его отправляло сообщение об
+  // ошибке. Реквизиты, места и слои календаря — работа администратора;
+  // отдать компанию другому человеку по-прежнему может только владелец.
+  ORGANIZATION_SETTINGS: 'organization.settings',
   MEMBER_INVITE: 'member.invite',
   MEMBER_MANAGE: 'member.manage',
   CHANNEL_CREATE: 'channel.create',

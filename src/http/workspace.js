@@ -37,6 +37,24 @@ async function assertEvidenceValue(store, session, type, value) {
     if (!file) throw invalidEvidence('Evidence file is not available');
   }
 }
+/**
+ * Важность задачи проверяется здесь, а не в базе.
+ *
+ * Значение уходило в `INSERT` как есть, и ловил его CHECK: человек,
+ * написавший «критично» вместо «urgent», читал в ответ «A value failed a
+ * validation rule» — ни поля, ни допустимых значений, ни русского языка.
+ * Для встреч это уже починили; для задач — нет.
+ */
+const TASK_PRIORITIES=new Set(['low','normal','high','urgent']);
+const taskPriority=(value)=>{
+  if(value===undefined||value===null||value==='')return 'normal';
+  const priority=String(value);
+  if(!TASK_PRIORITIES.has(priority))throw Object.assign(
+    new Error('Важность бывает low, normal, high или urgent'),
+    {code:'INVALID_TASK_PRIORITY',statusCode:400,expose:true});
+  return priority;
+};
+
 const taskAudience=(task)=>[...new Set([task?.ownerId,task?.requesterId,task?.acceptorId].filter(Boolean))];
 const taskRealtime=(task)=>{const {allowedTransitions,...state}=task??{};return state};
 const taskLabel=(status)=>({
@@ -52,6 +70,27 @@ const taskLabel=(status)=>({
   scheduled:'Задача запланирована',
   clarify:'Нужно уточнение',
 })[status]||'Задача обновлена';
+
+/**
+ * Заголовок извещения о ходе задачи.
+ *
+ * Подписывалось состояние, в которое пришли, — и возврат работы с
+ * проверки приходил исполнителю тем же «Задача в работе», что и его
+ * собственное «беру в работу». Событие и состояние — разные вещи: в
+ * `in_progress` приходят двумя разными путями, и человеку важен путь.
+ *
+ * Причина перехода — единственное содержание возврата, блокировки и
+ * запроса уточнения — не доходила вовсе: в извещение клали только
+ * заголовок, а текстом подставлялось название задачи, и так человек
+ * узнавал, что его работу вернули, но не узнавал зачем.
+ */
+const taskEventNotice=(task,reason)=>{
+  const text=typeof reason==='string'&&reason.trim()?reason.trim():null;
+  // В `in_progress` с причиной приходят только сверху — с проверки или
+  // из принятого результата: своё «беру в работу» причины не требует.
+  if(task.status==='in_progress'&&text)return{title:'Работу вернули на доработку',body:text};
+  return{title:taskLabel(task.status),body:text||task.title};
+};
 
 // Only undefined means "leave unchanged" and only null means "clear": a
 // falsy-but-present value like 0 is a date the caller meant, and treating it
@@ -125,7 +164,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     return true;
   }
   if(path==='/api/v1/tasks'&&method==='POST'){
-    const s=await requireSession(req);requirePermission(s.role,Permission.TASK_CREATE);const b=await readJson(req),task=await store.createTask(s,{title:cleanText(b.title,240),outcome:b.outcome?cleanText(b.outcome,1000):undefined,ownerId:b.ownerId??s.userId,acceptorId:b.acceptorId??s.userId,sourceMessageId:b.sourceMessageId??null,priority:b.priority??'normal',promisedAt:toDateOrNull(b.promisedAt)??null,forecastAt:toDateOrNull(b.forecastAt)??null});
+    const s=await requireSession(req);requirePermission(s.role,Permission.TASK_CREATE);const b=await readJson(req),task=await store.createTask(s,{title:cleanText(b.title,240),outcome:b.outcome?cleanText(b.outcome,1000):undefined,ownerId:b.ownerId??s.userId,acceptorId:b.acceptorId??s.userId,sourceMessageId:b.sourceMessageId??null,priority:taskPriority(b.priority),promisedAt:toDateOrNull(b.promisedAt)??null,forecastAt:toDateOrNull(b.forecastAt)??null});
     const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.created',taskRealtime(task));json(res,201,{task});return true
   }
   let m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}$`,'i'));
@@ -133,10 +172,10 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/transitions$`,'i'));
   if(m&&method==='POST'){
     const s=await requireSession(req),b=await readJson(req),task=await store.transitionTask(s,m[1],{to:String(b.to??''),reason:b.reason??null,expectedVersion:b.expectedVersion});
-    const audience=taskAudience(task),title=taskLabel(task.status);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(task));
-    await store.projectTaskLifecycleNotification?.(s,task,{type:task.status==='in_review'?'review.requested':'task.updated',title});
+    const audience=taskAudience(task),{title,body}=taskEventNotice(task,b.reason);hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(task));
+    await store.projectTaskLifecycleNotification?.(s,task,{type:task.status==='in_review'?'review.requested':'task.updated',title,body});
     const recipients=audience.filter(id=>id!==s.userId);
-    await notifyUsers(s.workspaceId,recipients,{title,body:task.title,url:`/#/tasks/${task.id}`,kind:'task.updated'});
+    await notifyUsers(s.workspaceId,recipients,{title,body,url:`/#/tasks/${task.id}`,kind:'task.updated'});
     json(res,200,{task});return true
   }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/evidence$`,'i'));
@@ -202,13 +241,28 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     });
     const audience=taskAudience(task);
     hub.broadcastUsers(s.workspaceId,audience,'task.updated',taskRealtime(task));
+    // Извещение писалось только в push, а push — вещь необязательная и
+    // выключаемая. Получалось, что обязательство переезжало на другого
+    // человека молча: у нового оно просто появлялось в списке, а прежний
+    // не узнавал, что с него сняли слово. Передача — ровно тот случай,
+    // ради которого всё это и сделано, и уж она должна быть слышна.
+    const handoverReason=typeof b.reason==='string'&&b.reason.trim()?b.reason.trim():null;
+    await store.projectTaskLifecycleNotification?.(s,task,{type:'task.assigned',title:'Задачу передали вам',
+      body:handoverReason?`${task.title} — ${handoverReason}`:task.title});
     await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Задача передана',body:task.title,url:`/#/tasks/${task.id}`,kind:'task.assigned'});
     json(res,200,{task});return true
   }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule$`,'i'));
   if(m&&method==='PATCH'){
     const s=await requireSession(req),b=await readJson(req),task=await store.rescheduleTask(s,m[1],{promisedAt:toDateOrNull(b.promisedAt),forecastAt:toDateOrNull(b.forecastAt),reason:b.reason,expectedVersion:b.expectedVersion});
-    const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',task);await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{kind:'task.rescheduled',title:'Срок задачи изменён',body:task.title,url:`/#/tasks/${task.id}`});json(res,200,{task});return true
+    const audience=taskAudience(task);hub.broadcastUsers(s.workspaceId,audience,'task.updated',task);
+    // Срок — это и есть обещание. Он уезжал тихо, в один push, которого
+    // может не быть вовсе: человек узнавал о переносе, открыв задачу.
+    const when=task.promisedAt?new Date(task.promisedAt).toLocaleDateString('ru-RU',{day:'numeric',month:'long'}):'без срока';
+    const why=typeof b.reason==='string'&&b.reason.trim()?` — ${b.reason.trim()}`:'';
+    await store.projectTaskLifecycleNotification?.(s,task,{type:'task.rescheduled',title:'Срок задачи изменён',
+      body:`${task.title}: ${when}${why}`});
+    await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{kind:'task.rescheduled',title:'Срок задачи изменён',body:task.title,url:`/#/tasks/${task.id}`});json(res,200,{task});return true
   }
   if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=toDateOrNull(url.searchParams.get('from')),to=toDateOrNull(url.searchParams.get('to'));json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to}):await store.listCalendar(s,from,to)});return true}
   if(path==='/api/v1/calendar-events'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.CALENDAR_CREATE);const b=await readJson(req);

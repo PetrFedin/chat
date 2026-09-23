@@ -553,7 +553,10 @@ const ROUTES = [
     guestForbidden: true,
     expect: { owner: 201, admin: 201, manager: 201, member: 201, guest: 403 },
   },
-  { route: 'GET /api/v1/labels/{id}/targets', path: (w) => `/api/v1/labels/${id(w.sharedLabel)}/targets`, expect: 200 },
+  // Общий словарь компании гостю не показывают ни списком, ни применением
+  // — и список объектов общей метки тоже: правило одно.
+  { route: 'GET /api/v1/labels/{id}/targets', path: (w) => `/api/v1/labels/${id(w.sharedLabel)}/targets`,
+    expect: { owner: 200, admin: 200, manager: 200, member: 200, guest: 404 } },
   {
     route: 'PUT /api/v1/labels/{id}/links/task/{t}', method: 'PUT',
     path: (w) => `/api/v1/labels/${id(w.sharedLabel)}/links/task/${id(w.foreignTask)}`, body: () => ({}),

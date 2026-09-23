@@ -1,5 +1,5 @@
 import { hashPassword, verifyPassword, equalizePasswordTiming, normalizeEmail, createOpaqueToken, hashToken } from '../security.js';
-import { Permission, requirePermission } from '../rbac.js';
+import { Permission, requirePermission, hasPermission } from '../rbac.js';
 import { log } from '../obs/log.js';
 import { cleanText, clientAddress, trustsProxy, json, noContent, readJson } from './helpers.js';
 import { invitationMail, passwordResetMail } from '../mail/templates.js';
@@ -520,8 +520,19 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
       }catch(error){
         // Уже в компании или уже приглашён — не беда и не повод рушить
         // весь список: так и пишем в строке.
-        results.push({email,status:error?.code==='EMAIL_TAKEN'||error?.code==='ALREADY_INVITED'?'already':'failed',
-          role,reason:error?.message??String(error)});
+        //
+        // Повтор внутри одного списка приходил сюда не кодом, а нарушением
+        // единственности в базе: строка получала «failed» и причиной —
+        // имя ограничения PostgreSQL. Человек, приславший список из сорока
+        // адресов, читал про workspace_pending_invite_email_uq и не мог
+        // понять, звать ли ему этого человека заново.
+        const duplicate=error?.code==='EMAIL_TAKEN'||error?.code==='ALREADY_INVITED'||error?.code==='23505';
+        results.push({email,status:duplicate?'already':'failed',role,
+          // Наружу идёт только то, что написано для человека: сообщение
+          // драйвера рассказывает про устройство базы и ничего — про то,
+          // что делать дальше.
+          reason:duplicate?'Этого человека уже позвали — приглашение ещё ждёт ответа.'
+            :error?.expose?error.message:'Пригласить не вышло. Попробуйте ещё раз или позовите этого человека отдельно.'});
       }
     }
     const invited=results.filter(x=>x.status==='invited').length;
@@ -553,7 +564,11 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     if(wanted!=='guest'&&store.seatState){
       const seats=await store.seatState(s);
       if(seats.full){
-        throw Object.assign(new Error(`Свободных мест нет: занято ${seats.used} из ${seats.limit}, включая ${seats.invited} неотвеченных приглашений. Добавьте мест в «Ещё → Компания» или отзовите лишние приглашения.`),
+        // Совет должен быть выполним тем, кто его читает: руководитель
+        // вправе звать людей, но не вправе добавлять мест, и отправлять
+        // его в карточку компании — значит обещать ему закрытую дверь.
+        const mayAddSeats=hasPermission(s.role,Permission.ORGANIZATION_SETTINGS);
+        throw Object.assign(new Error(`Свободных мест нет: занято ${seats.used} из ${seats.limit}, включая ${seats.invited} неотвеченных приглашений. ${mayAddSeats?'Добавьте мест в «Ещё → Компания» или отзовите лишние приглашения.':'Отзовите лишние приглашения или попросите администратора добавить мест.'}`),
           {code:'NO_FREE_SEATS',statusCode:409,expose:true});
       }
     }

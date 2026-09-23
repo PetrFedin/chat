@@ -1,4 +1,5 @@
 import { avatarUrlSql } from '../media/avatar.js';
+import { Permission, hasPermission } from '../rbac.js';
 const PROFILE_FIELDS = ['displayName', 'title', 'department', 'phone', 'about', 'location', 'startedOn', 'timezone', 'statusText', 'birthDay', 'birthMonth', 'avatarFileId'];
 
 const COLUMN = {
@@ -28,7 +29,44 @@ const ACTIVITY_LABEL = {
   'profile.updated': 'изменил(а) карточку сотрудника',
   'commitment.reassigned': 'передал(а) задачу другому',
   'conversation.ownership_claimed': 'принял(а) беседу, оставшуюся без владельца',
+  'message.edited': 'поправил(а) своё сообщение',
+  'invitation.revoked': 'отозвал(а) приглашение',
+  'conversation.member_added': 'позвал(а) человека в беседу',
+  'conversation.member_removed': 'вывел(а) человека из беседы',
+  'org.unit.created': 'завёл(а) подразделение',
+  'org.unit.renamed': 'переименовал(а) подразделение',
+  'org.unit.deleted': 'распустил(а) подразделение',
+  'org.unit.member_added': 'принял(а) человека в подразделение',
+  'org.unit.member_removed': 'вывел(а) человека из подразделения',
+  'org.unit.head_set': 'назначил(а) руководителя подразделения',
+  'workspace.renamed': 'переименовал(а) компанию',
+  'ownership.transferred': 'передал(а) владение компанией',
+  'workspace.exported': 'выгрузил(а) архив пространства',
+  'calendar.event_created': 'назначил(а) встречу',
+  'calendar.event_cancelled': 'отменил(а) встречу',
+  'meeting.processing_started': 'отправил(а) встречу на расшифровку',
+  'meeting.notes_published': 'опубликовал(а) протокол встречи',
 };
+
+/**
+ * Что показывать на карточке человека, а что — только в журнале.
+ *
+ * Лента задумана как «чем человек занимался», а не как выписка из
+ * журнала действий. Пока она отдавала всё подряд, по ней читались чужие
+ * пароли из сейфа, смены паролей и входы в систему — причём кому угодно,
+ * включая подрядчика-гостя, которому и карточку-то не открывают.
+ *
+ * Безопасность и хозяйские дела остаются журналу: у него своё право и
+ * свой экран. Сюда идёт только работа.
+ */
+const PRIVATE_TO_JOURNAL = new Set([
+  'auth.login.succeeded', 'auth.login.failed', 'auth.logout',
+  'auth.second_factor.enabled', 'auth.second_factor.disabled', 'auth.second_factor.failed',
+  'password.changed', 'password.reset.issued', 'password.reset.requested', 'password.reset.used',
+  'session.revoked', 'session.revoked.others',
+  'vault.created', 'vault.updated', 'vault.revealed', 'vault.deleted',
+  'workspace.exported', 'ownership.transferred',
+]);
 
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
 
@@ -329,6 +367,12 @@ export function createPeopleRepository(pool, org = null) {
      * already being recorded, they simply had no reader.
      */
     async activity(session, userId, { limit = 40, before = null } = {}) {
+      // Лента — часть карточки человека, и закрыта ровно так же: если
+      // карточку смотрящему не открывают, ленту тем более. Проверки не
+      // было вовсе, и гость читал по ней состав закрытых каналов,
+      // адреса приглашённых и записи сейфа.
+      await this.getPerson(session, userId);
+      const journalReader = hasPermission(session.role, Permission.AUDIT_READ);
       const { rows } = await pool.query(
         `SELECT a.sequence, a.event_type "eventType", a.aggregate_type "aggregateType", a.aggregate_id "aggregateId",
                 a.payload, a.created_at "createdAt",
@@ -338,11 +382,21 @@ export function createPeopleRepository(pool, org = null) {
          ORDER BY a.sequence DESC LIMIT $4`,
         [session.workspaceId, userId, before, Math.min(Number(limit) || 40, 100)],
       );
-      return rows.map((row) => ({
-        ...row,
-        sequence: Number(row.sequence),
-        label: ACTIVITY_LABEL[row.eventType] ?? row.eventType,
-      }));
+      return rows
+        .filter((row) => !PRIVATE_TO_JOURNAL.has(row.eventType))
+        .map((row) => ({
+          ...row,
+          sequence: Number(row.sequence),
+          // Содержимое события — это внутренности журнала: состав канала,
+          // адреса, роли. Человеку без права на журнал остаётся то, что
+          // карточка и обещает: кто, что и когда.
+          payload: journalReader ? row.payload : null,
+          // Если события в словаре нет, показывать его машинное имя —
+          // значит печатать «auth.login.succeeded» там, где человек ждёт
+          // русскую фразу. Лучше честное «сделал(а) что-то в системе»,
+          // чем строка из лога.
+          label: ACTIVITY_LABEL[row.eventType] ?? 'отметился(ась) в работе',
+        }));
     },
   };
 }

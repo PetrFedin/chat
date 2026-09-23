@@ -78,3 +78,94 @@ test('компанию переименовывает и передаёт тол
   assert.ok(kinds.includes('ownership.transferred'));
   assert.ok(kinds.includes('workspace.renamed'));
 });
+
+/**
+ * Реквизиты и места — работа администратора, а не хозяина.
+ *
+ * Всё, что лежит в карточке компании, стояло за одним правом
+ * `organization.manage`, которого у администратора нет. Получалось так:
+ * звать людей он вправе, но на сороковом приглашении упирался в
+ * «свободных мест нет» — и это же сообщение отправляло его в «Ещё →
+ * Компания», где его ждал отказ. Совет, который нельзя выполнить, хуже
+ * молчания.
+ *
+ * Вывеску на двери он при этом не меняет и компанию не передаёт.
+ */
+test('администратор ведёт реквизиты и места, но не вывеску и не владение',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const app = await createChatServer({ databaseUrl: DATABASE_URL, startMeetingWorker: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const suffix = Math.random().toString(36).slice(2, 7);
+
+  const owner = await request(base, '/api/v1/auth/register-company', {
+    method: 'POST',
+    body: { companyName: `Опора ${suffix}`, ownerName: 'Владелец', email: `so-${suffix}@t.test`, password: 'OwnerPassword42' },
+  });
+  const join = async (role, mail, displayName) => {
+    const invitation = await request(base, '/api/v1/invitations', {
+      cookie: owner.cookie, method: 'POST', body: { email: mail, role } });
+    const token = new URL(invitation.payload.invitation.inviteUrl).searchParams.get('invite');
+    return request(base, '/api/v1/invitations/accept', {
+      method: 'POST', body: { token, displayName, password: 'MemberPassword42' } });
+  };
+  const admin = await join('admin', `sa-${suffix}@t.test`, 'Администратор');
+  const chief = await join('manager', `sm-${suffix}@t.test`, 'Руководитель');
+
+  // Реквизиты, число мест и самостоятельный вход — его работа.
+  const details = await request(base, '/api/v1/workspace', {
+    cookie: admin.cookie, method: 'PATCH',
+    body: { legalName: 'ООО «Опора»', taxId: '7701234567', seatLimit: 25, emailDomain: 'opora.test' },
+  });
+  assert.equal(details.status, 200, `администратор не смог завести реквизиты: ${details.code}`);
+
+  // А вывеску — нет: это решение хозяина, и отказ говорит именно о нём.
+  const rename = await request(base, '/api/v1/workspace', {
+    cookie: admin.cookie, method: 'PATCH', body: { companyName: 'Не опора' } });
+  assert.equal(rename.status, 403);
+  assert.match(rename.payload.error.message, /organization\.manage/);
+  assert.equal((await request(base, '/api/v1/workspace/owner', {
+    cookie: admin.cookie, method: 'POST', body: { userId: chief.payload.session?.userId ?? null } })).status, 403);
+  // Выгрузка всего пространства тоже осталась хозяйской.
+  assert.equal((await request(base, '/api/v1/export', { cookie: admin.cookie })).status, 403);
+
+  // Руководитель зовёт людей, но карточки компании ему не открывают.
+  assert.equal((await request(base, '/api/v1/workspace', {
+    cookie: chief.cookie, method: 'PATCH', body: { seatLimit: 99 } })).status, 403);
+});
+
+/**
+ * Отказ в списке приглашений говорит человеческим языком.
+ *
+ * Повтор адреса, приглашённого прошлым разом, приходил не кодом, а
+ * нарушением единственности в базе: строка получала «failed», а причиной
+ * — имя ограничения PostgreSQL. Приславший список из сорока адресов
+ * читал про workspace_pending_invite_email_uq и не мог понять, звать ли
+ * этого человека заново.
+ */
+test('повторно приглашённый адрес отмечается, а не падает с именем ограничения',
+  { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
+  const app = await createChatServer({ databaseUrl: DATABASE_URL, startMeetingWorker: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const suffix = Math.random().toString(36).slice(2, 7);
+
+  const owner = await request(base, '/api/v1/auth/register-company', {
+    method: 'POST',
+    body: { companyName: `Повтор ${suffix}`, ownerName: 'Владелец', email: `rp-${suffix}@t.test`, password: 'OwnerPassword42' },
+  });
+  const email = `again-${suffix}@granit.test`;
+  const first = await request(base, '/api/v1/invitations/bulk', {
+    cookie: owner.cookie, method: 'POST', body: { items: [{ email, role: 'member' }] } });
+  assert.equal(first.payload.results[0].status, 'invited');
+
+  const second = await request(base, '/api/v1/invitations/bulk', {
+    cookie: owner.cookie, method: 'POST', body: { items: [{ email, role: 'member' }] } });
+  const row = second.payload.results[0];
+  assert.equal(row.status, 'already', 'повтор объявлен провалом');
+  assert.doesNotMatch(row.reason, /constraint|_uq|duplicate key|violates/i,
+    `наружу вышло сообщение драйвера: ${row.reason}`);
+  assert.match(row.reason, /уже позвали/);
+});

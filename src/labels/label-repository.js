@@ -249,8 +249,12 @@ export function createLabelRepository(pool, store = null) {
      * viewer lost access to.
      */
     async targetsOf(session, labelId, { limit = 50 } = {}) {
+      // Здесь правило было переписано заново — и разошлось с общим:
+      // гость, которому список меток отдаёт пустоту, а применение метки
+      // отвечает «не найдено», всё же получал список объектов общего
+      // словаря. Правило одно на всех и живёт в `ownScope`.
       const label = await pool.query(
-        'SELECT 1 FROM labels WHERE workspace_id=$1 AND id=$2 AND (owner_id IS NULL OR owner_id=$3)',
+        `SELECT 1 FROM labels WHERE workspace_id=$1 AND id=$2 AND ${ownScope(session)}`,
         [session.workspaceId, labelId, session.userId],
       );
       if (!label.rowCount) throw fail('Label not found', 'LABEL_NOT_FOUND', 404);
@@ -262,6 +266,14 @@ export function createLabelRepository(pool, store = null) {
                   WHEN 'conversation' THEN (SELECT title FROM conversations c WHERE c.workspace_id=k.workspace_id AND c.id=k.target_id)
                   WHEN 'file' THEN (SELECT name FROM files f WHERE f.workspace_id=k.workspace_id AND f.id=k.target_id)
                   WHEN 'message' THEN (SELECT left(body, 80) FROM messages m WHERE m.workspace_id=k.workspace_id AND m.id=k.target_id)
+                  -- Человек и запись личного плана названий не получали:
+                  -- список метки показывал строку с пустым местом, и снять
+                  -- её было не с чего — непонятно, что это.
+                  WHEN 'person' THEN (SELECT COALESCE(p.display_name, u.email) FROM memberships mm
+                                        JOIN users u ON u.id=mm.user_id
+                                        LEFT JOIN workspace_profiles p ON p.workspace_id=mm.workspace_id AND p.user_id=mm.user_id
+                                       WHERE mm.workspace_id=k.workspace_id AND mm.user_id=k.target_id)
+                  WHEN 'note' THEN (SELECT title FROM personal_items i WHERE i.workspace_id=k.workspace_id AND i.id=k.target_id)
                 END title
          FROM label_links k WHERE k.workspace_id=$1 AND k.label_id=$2
          ORDER BY k.created_at DESC LIMIT $3`,

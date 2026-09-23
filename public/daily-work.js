@@ -58,7 +58,8 @@ function ensureAttentionStrip(){const screen=$('#screen');if(!screen||!D.attenti
 <button class="dwc-attention-card pressable" data-dwc-attention="unread"><strong>${Number(a.unreadMessages||0)}</strong><span>${countOf(a.unreadMessages,['непрочитанное сообщение','непрочитанных сообщения','непрочитанных сообщений'],['unread message','unread messages'])}</span></button>
 <button class="dwc-attention-card pressable warm" data-dwc-attention="mentions"><strong>${Number(a.mentions||0)}</strong><span>${countOf(a.mentions,['упоминание','упоминания','упоминаний'],['mention','mentions'])}</span></button>
 ${taskCountsVisible()?`<button class="dwc-attention-card pressable ${a.overdueTasks?'hot':''}" data-dwc-attention="overdue"><strong>${Number(a.overdueTasks||0)}</strong><span>${countOf(a.overdueTasks,['просроченная задача','просроченные задачи','просроченных задач'],['overdue task','overdue tasks'])}</span></button>
-<button class="dwc-attention-card pressable" data-dwc-attention="soon"><strong>${Number(a.dueSoonTasks||0)}</strong><span>${tr('срок в 24 часа','due in 24 hours')}</span></button>`:''}`)}
+<button class="dwc-attention-card pressable" data-dwc-attention="soon"><strong>${Number(a.dueSoonTasks||0)}</strong><span>${tr('срок в 24 часа','due in 24 hours')}</span></button>
+<button class="dwc-attention-card pressable ${a.awaitingMyDecision?'warm':''}" data-dwc-attention="decide"><strong>${Number(a.awaitingMyDecision||0)}</strong><span>${countOf(a.awaitingMyDecision,['ждёт вашего решения','ждут вашего решения','ждут вашего решения'],['awaits your decision','await your decision'])}</span></button>`:''}`)}
 
 function decorate(){ensureBell();applyUnreadBadges();ensureAttentionStrip()}
 
@@ -89,7 +90,14 @@ function openConversation(conversationId,messageId){
     return;
   }
   if(messageId)setTimeout(()=>highlightMessage(messageId),450);const target=document.querySelector(`.sidebar-row[data-conversation="${CSS.escape(conversationId)}"]`)||document.querySelector(`.conversation-card[data-conversation="${CSS.escape(conversationId)}"]`);if(target){target.click();setTimeout(()=>refreshAttention(true),650);return}const chats=$('[data-nav="chats"]');chats?.click();setTimeout(()=>document.querySelector(`[data-conversation="${CSS.escape(conversationId)}"]`)?.click(),80)}
-function openNav(name){closeOverlay();document.querySelector(`[data-nav="${name}"]`)?.click()}
+function openNav(name,{taskFilter=null}={}){
+  closeOverlay();
+  // Карточка «ждут вашего решения» ведёт не просто на экран задач, а на
+  // ту вкладку, ради которой человек нажал: иначе он приходит в «В работе»
+  // и заново ищет глазами то, что карточка уже сосчитала.
+  if(taskFilter&&window.ChatApp?.openTaskFilter)window.ChatApp.openTaskFilter(taskFilter);
+  else document.querySelector(`[data-nav="${name}"]`)?.click();
+}
 
 async function openNotificationItem(id){const n=D.notifications.find(x=>x.id===id);if(!n)return;if(n.status==='unread')await api(`/api/v1/notifications/${id}/read`,{method:'POST',body:'{}'}).catch(()=>{});if(n.conversationId)return openConversation(n.conversationId,n.messageId);if(n.commitmentId)return openNav('tasks');if(n.calendarEventId)return openNav('calendar');await refreshAttention(true)}
 
@@ -153,7 +161,7 @@ document.addEventListener('click',async(event)=>{const target=event.target;
   if(target.closest('[data-action="search"]')){event.preventDefault();event.stopImmediatePropagation();openSearch();return}
   if(target.closest('[data-action="files"]')){event.preventDefault();event.stopImmediatePropagation();openFiles();return}
   if(target.closest('[data-dwc-close]')){closeOverlay();return}
-  const attention=target.closest('[data-dwc-attention]');if(attention){const type=attention.dataset.dwcAttention;if(type==='mentions')return openNotifications('mentions');if(type==='unread'){const c=D.conversations.find(x=>x.unreadCount>0);if(c)return openConversation(c.id);closeOverlay();return openNav('chats')}if(['overdue','soon'].includes(type))return openNav('tasks');return}
+  const attention=target.closest('[data-dwc-attention]');if(attention){const type=attention.dataset.dwcAttention;if(type==='mentions')return openNotifications('mentions');if(type==='unread'){const c=D.conversations.find(x=>x.unreadCount>0);if(c)return openConversation(c.id);closeOverlay();return openNav('chats')}if(type==='decide')return openNav('tasks',{taskFilter:'mine'});if(['overdue','soon'].includes(type))return openNav('tasks');return}
   const filter=target.closest('[data-dwc-notification-filter]');if(filter){D.notificationFilter=filter.dataset.dwcNotificationFilter;$$('[data-dwc-notification-filter]').forEach(b=>b.classList.toggle('active',b===filter));await loadNotifications();return}
   if(target.closest('[data-dwc-read-all]')){await api('/api/v1/notifications/read-all',{method:'POST',body:JSON.stringify({type:D.notificationFilter==='mentions'?'mentions':null})}).catch(()=>{});await Promise.all([loadNotifications(),refreshAttention(true)]);return}
   const notification=target.closest('[data-dwc-notification]');if(notification){await openNotificationItem(notification.dataset.dwcNotification);return}

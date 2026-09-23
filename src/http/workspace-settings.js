@@ -13,12 +13,22 @@ export function createWorkspaceSettingsHandler() {
   return async function handleWorkspaceSettings(req, res, ctx, url, path, method) {
     if (path !== '/api/v1/workspace' && path !== '/api/v1/workspace/owner') return false;
     const session = await ctx.requireSession(req);
-    requirePermission(session.role, Permission.ORGANIZATION_MANAGE);
+    // Порог входа — административный, а хозяйские решения проверяются
+    // отдельно, каждое на своём месте.
+    //
+    // Пока право было одно, администратор, который вправе звать людей,
+    // упирался в «свободных мест нет» и получал отказ ровно на том
+    // экране, куда его отправляло само сообщение об ошибке. Но вести
+    // реквизиты и число мест — не то же, что переименовать компанию или
+    // отдать её другому человеку: это остаётся за владельцем.
+    requirePermission(session.role, Permission.ORGANIZATION_SETTINGS);
 
     if (path === '/api/v1/workspace' && method === 'PATCH') {
       const body = await readJson(req);
       const companyName = body.companyName === undefined ? null : cleanText(body.companyName, 120);
       const workspaceName = body.workspaceName === undefined ? null : cleanText(body.workspaceName, 120);
+      // Имя компании — как вывеска на двери: его меняет хозяин.
+      if (companyName || workspaceName) requirePermission(session.role, Permission.ORGANIZATION_MANAGE);
       // Слои календаря — решение пространства, а не каждого человека:
       // нерабочий день одинаков для всех, кто в нём работает.
       const layers = {};
@@ -53,6 +63,7 @@ export function createWorkspaceSettingsHandler() {
     // Передача владения: компания перестаёт быть привязанной к одному
     // человеку навсегда.
     if (path === '/api/v1/workspace/owner' && method === 'POST') {
+      requirePermission(session.role, Permission.ORGANIZATION_MANAGE);
       const body = await readJson(req);
       if (!body.userId) throw Object.assign(new Error('Кому передаём?'), { code: 'INVALID_OWNER', statusCode: 400, expose: true });
       json(res, 200, await ctx.store.transferOwnership(session, body.userId));

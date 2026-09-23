@@ -268,7 +268,15 @@ export class MemoryStore extends BaseMemoryStore {
       && [t.ownerId, t.requesterId, t.acceptorId].includes(session.userId)
       && ACTIVE_TASK_STATUSES.has(t.status));
     const now = Date.now(), soon = now + 24*60*60*1000;
+    // Те же три случая, что и в хранилище с базой: ход за смотрящим.
+    const all = [...this.tasks.values()].filter((t) => t.workspaceId === session.workspaceId);
+    const me = session.userId;
+    const toAnswer = all.filter((t) => t.status === 'proposed' && t.ownerId === me).length;
+    const toReview = all.filter((t) => t.status === 'in_review' && t.acceptorId === me).length;
+    const toClose = all.filter((t) => t.status === 'accepted_result' && (t.requesterId === me || t.acceptorId === me)).length;
     return {
+      awaitingMyDecision: toAnswer + toReview + toClose,
+      tasksToAnswer: toAnswer, tasksToReview: toReview, tasksToClose: toClose,
       unreadMessages:conversations.reduce((sum,c) => sum + Number(c.unreadCount || 0), 0),
       unreadConversations:conversations.filter((c) => c.unreadCount > 0).length,
       unreadNotifications:notifications.length,
@@ -520,7 +528,7 @@ export class PostgresStore extends BasePostgresStore {
   async markAllNotificationsRead(session,type=null){const typeValue=type==='mentions'?'message.mentioned':type,{rowCount}=await this.pool.query(`UPDATE notifications SET status='read',read_at=COALESCE(read_at,now()),read_by=$2,updated_at=now() WHERE workspace_id=$1 AND recipient_user_id=$2 AND status='unread' AND archived_at IS NULL AND($3::text IS NULL OR type=$3)`,[session.workspaceId,session.userId,typeValue]);return rowCount}
 
   async attentionSummary(session){
-    const [conversationRows,notificationCounts,taskCounts]=await Promise.all([
+    const [conversationRows,notificationCounts,taskCounts,decisions]=await Promise.all([
       this.listConversations(session),
       this.pool.query(`SELECT count(*) FILTER(WHERE status='unread')::int unread,count(*) FILTER(WHERE status='unread' AND type='message.mentioned')::int mentions FROM notifications WHERE workspace_id=$1 AND recipient_user_id=$2 AND archived_at IS NULL`,[session.workspaceId,session.userId]),
       // Считались только задачи, которыми человек владеет. Руководитель
@@ -531,10 +539,28 @@ export class PostgresStore extends BasePostgresStore {
                count(*) FILTER(WHERE promised_at>=now() AND promised_at<=now()+interval '24 hours')::int due_soon
           FROM commitments
          WHERE workspace_id=$1 AND (owner_id=$2 OR requester_id=$2 OR acceptor_id=$2)
-           AND status=ANY($3::text[])`,[session.workspaceId,session.userId,[...ACTIVE_TASK_STATUSES]])
+           AND status=ANY($3::text[])`,[session.workspaceId,session.userId,[...ACTIVE_TASK_STATUSES]]),
+      // Работа, дошедшая до чужих рук, не значилась нигде.
+      //
+      // Экран «Сегодня» считал непрочитанное, упоминания и сроки — то есть
+      // всё, что человек должен прочесть, и ничего из того, что он должен
+      // решить. Исполнитель сдал работу и ждёт; руководителю она видна
+      // одной строчкой в колокольчике, которая уходит вниз за полдня. Ход
+      // при этом за ним, и пока он его не сделает, не движется никто.
+      //
+      // Три случая, когда мяч на стороне смотрящего: ему предложили
+      // обязательство, ему сдали работу на приёмку, принятый результат
+      // ждёт закрытия.
+      this.pool.query(`SELECT
+               count(*) FILTER(WHERE status='proposed' AND owner_id=$2)::int mine_to_answer,
+               count(*) FILTER(WHERE status='in_review' AND acceptor_id=$2)::int to_review,
+               count(*) FILTER(WHERE status='accepted_result' AND (requester_id=$2 OR acceptor_id=$2))::int to_close
+          FROM commitments WHERE workspace_id=$1`,[session.workspaceId,session.userId])
     ]);
-    const n=notificationCounts.rows[0]??{},t=taskCounts.rows[0]??{};
-    return{unreadMessages:conversationRows.reduce((sum,c)=>sum+Number(c.unreadCount||0),0),unreadConversations:conversationRows.filter(c=>c.unreadCount>0).length,unreadNotifications:Number(n.unread||0),mentions:Number(n.mentions||0),overdueTasks:Number(t.overdue||0),dueSoonTasks:Number(t.due_soon||0)};
+    const n=notificationCounts.rows[0]??{},t=taskCounts.rows[0]??{},d=decisions.rows[0]??{};
+    return{unreadMessages:conversationRows.reduce((sum,c)=>sum+Number(c.unreadCount||0),0),unreadConversations:conversationRows.filter(c=>c.unreadCount>0).length,unreadNotifications:Number(n.unread||0),mentions:Number(n.mentions||0),overdueTasks:Number(t.overdue||0),dueSoonTasks:Number(t.due_soon||0),
+      awaitingMyDecision:Number(d.mine_to_answer||0)+Number(d.to_review||0)+Number(d.to_close||0),
+      tasksToAnswer:Number(d.mine_to_answer||0),tasksToReview:Number(d.to_review||0),tasksToClose:Number(d.to_close||0)};
   }
 
   async linkFile(session,fileId,entityType,entityId){await this.pool.query(`INSERT INTO file_links(organization_id,workspace_id,file_id,entity_type,entity_id,linked_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,[session.organizationId,session.workspaceId,fileId,entityType,entityId,session.userId])}

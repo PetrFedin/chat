@@ -799,6 +799,12 @@ function message(m,grouped=false){
  * в SQL — его просто никто не запрашивал.
  */
 const TASK_TABS=[
+  // «Ждут меня» стоит первой не из вежливости: остальные вкладки отвечают
+  // на вопрос «что происходит», а эта — «за кем ход». Работа, сданная на
+  // проверку, до сих пор не значилась нигде: исполнитель ждал, а
+  // принимающий видел одну строчку в колокольчике, уходившую вниз за
+  // полдня.
+  ['mine','Ждут меня'],
   ['active','В работе'],
   ['overdue','Просрочено'],
   ['proposed','Ждут ответа'],
@@ -809,7 +815,16 @@ function taskTabCount(key,counts){
   if(!counts)return null;
   if(key==='all')return counts.total;
   if(key==='done')return counts.done;
+  if(key==='mine')return counts.mine;
   return counts[key]??null;
+}
+/** Открыть экран задач сразу на нужной вкладке. */
+function openTaskFilter(filter){
+  S.taskFilter=filter;
+  S.tasksCursor=null;
+  S.tasksPage=null;
+  go('tasks');
+  loadTaskPage().then(()=>render());
 }
 function tasks(){
   const filter=S.taskFilter||'active';
@@ -834,6 +849,9 @@ async function loadTaskPage({append=false}={}){
   const filter=S.taskFilter||'active';
   if(filter!=='all')query.set('status',filter==='done'?'closed,accepted_result':filter);
   if(S.taskScope==='all')query.set('scope','all');
+  // «Ждут меня» — про смотрящего, и охват команды его не расширяет:
+  // чужой ход остаётся чужим, сколько бы задач человеку ни было видно.
+  if(filter==='mine')query.delete('scope');
   if(append&&S.tasksCursor)query.set('cursor',S.tasksCursor);
   try{
     const page=await api(`/api/v1/tasks?${query}`);
@@ -1158,7 +1176,7 @@ function eventCancelModal(event){
   });
 }
 
-function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.manage')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>Название и передача владения</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button><button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
+function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} сотрудников, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.settings')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>${can('organization.manage')?'Название, реквизиты, места и передача владения':'Реквизиты, места и почтовый домен'}</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button><button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
 function bind(){
   // Строка встречи в расписании дня выглядела нажимаемой и не открывала
   // ничего: карточку встречи знал только календарь.
@@ -2657,8 +2675,9 @@ function companyModal(){
   const staff=S.people.filter(p=>p.userId!==me().userId&&p.role!=='guest'&&p.active!==false);
   modal('Компания',`
     <form id="company-name" class="form-stack">
+      ${can('organization.manage')?`
       <label>Название компании<input name="companyName" maxlength="120" value="${esc(me().organizationName||'')}"></label>
-      <label>Название пространства<input name="workspaceName" maxlength="120" value="${esc(me().workspaceName||'')}"></label>
+      <label>Название пространства<input name="workspaceName" maxlength="120" value="${esc(me().workspaceName||'')}"></label>`:''}
       <label>Юридическое лицо<input name="legalName" maxlength="200" placeholder="ООО «Гранит»" value="${esc(S.boot?.company?.legalName||'')}"></label>
       <label>ИНН<input name="taxId" maxlength="40" inputmode="numeric" value="${esc(S.boot?.company?.taxId||'')}"></label>
       <label>Адрес<input name="address" maxlength="300" value="${esc(S.boot?.company?.address||'')}"></label>
@@ -2683,6 +2702,7 @@ function companyModal(){
           <span class="row-sub">Из карточек сотрудников — только день и месяц, без года.</span></span></label>
       <button class="button secondary pressable">Сохранить слои</button>
     </form>
+    ${can('organization.manage')?`
     <h3 class="person-section">Выгрузка данных</h3>
     <p class="muted">Весь архив пространства одним файлом: люди, беседы, все сообщения, обязательства, календарь, журнал действий и сами вложения. Внутри — обычный текст по строке на запись, читается чем угодно. Выгрузка займёт время: она собирается на лету, а не лежит готовой.</p>
     <div class="row flow" style="margin-top:10px">
@@ -2695,7 +2715,7 @@ function companyModal(){
     ${staff.length?`<form id="company-owner" class="form-stack" style="margin-top:10px">
       <label>Кому<select name="userId">${staff.map(p=>`<option value="${esc(p.userId)}">${esc(p.displayName||p.email)}</option>`).join('')}</select></label>
       <button class="button danger">Передать владение</button>
-    </form>`:'<p class="muted">Передать пока некому: в компании нет других сотрудников.</p>'}
+    </form>`:'<p class="muted">Передать пока некому: в компании нет других сотрудников.</p>'}`:''}
   `,()=>{
     $('#company-layers').onsubmit=async(event)=>{
       event.preventDefault();
@@ -2712,8 +2732,12 @@ function companyModal(){
       event.preventDefault();
       const form=new FormData(event.currentTarget);
       try{
+        // Поля названия администратору не показаны: посылать по ним
+        // пустоту нельзя — сервер примет её за попытку переименовать и
+        // откажет всей форме, вместе с реквизитами и местами.
+        const named=form.has('companyName')?{companyName:form.get('companyName'),workspaceName:form.get('workspaceName')}:{};
         await api('/api/v1/workspace',{method:'PATCH',body:JSON.stringify({
-          companyName:form.get('companyName'),workspaceName:form.get('workspaceName'),
+          ...named,
           legalName:form.get('legalName'),taxId:form.get('taxId'),address:form.get('address'),
           website:form.get('website'),phone:form.get('phone'),emailDomain:form.get('emailDomain'),
           seatLimit:form.get('seatLimit')===''?null:Number(form.get('seatLimit')),
@@ -4313,7 +4337,9 @@ function taskModal(sourceMessageId=null,prefill=''){modal('Новая задач
 }
 
 function upsertTask(task){const i=S.tasks.findIndex(x=>x.id===task.id);if(i>=0)S.tasks[i]={...S.tasks[i],...task};else S.tasks.unshift(task)}
-const taskReasonRequired=(task,to)=>['blocked','deferred','cancelled'].includes(to)||(task.status==='in_review'&&to==='in_progress')||(task.status==='accepted_result'&&to==='in_progress');
+// Отказ тоже спрашивает причину: без неё просивший не узнает, что делать
+// дальше, а договорённость уже умерла — переоткрыть её нельзя.
+const taskReasonRequired=(task,to)=>['blocked','deferred','cancelled','rejected'].includes(to)||(task.status==='in_review'&&to==='in_progress')||(task.status==='accepted_result'&&to==='in_progress');
 function taskActionLabel(task,to){if(to==='in_progress'&&task.status==='in_review')return'Вернуть на доработку';if(to==='in_progress'&&task.status==='accepted_result')return'Переоткрыть';return TASK_ACTION[to]||to}
 function toLocalInput(v){if(!v)return'';const d=new Date(v),pad=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`}
 function canRescheduleTask(t){return !['closed','rejected','cancelled'].includes(t.status)&&([t.ownerId,t.requesterId].includes(me().userId)||['owner','admin','manager'].includes(me().role))}
@@ -5459,7 +5485,7 @@ window.CHAT_ERRORS=ERROR_MESSAGE;
 // разметке двенадцать раз подряд и молча сдавались.
 // Поиск живёт в отдельном файле и не видит внутренностей приложения:
 // всё, чем он открывает найденное, проходит через эту дверь.
-window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,openPerson:personPage,openTask,openEvent:eventPage};
+window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
 // Предложение установки приходит один раз и до того, как человек
 // откроет настройки: держим его, пока оно не понадобится.
 window.addEventListener('beforeinstallprompt',(event)=>{event.preventDefault();S.installPrompt=event});

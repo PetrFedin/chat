@@ -34,7 +34,15 @@ export const ACTIVE_TASK_STATUSES = new Set(
  * один — таблица в rbac.js.
  */
 export const managesTeamTasks = (session) => hasPermission(session?.role, Permission.TASK_MANAGE_TEAM);
-const REASON_REQUIRED = new Set(['blocked','deferred','cancelled']);
+// Отказ — самое обидное для просившего событие, и он единственный
+// проходил молча: «Задача отклонена» без единого слова почему. Причина
+// здесь не формальность, а единственное, что остаётся от договорённости:
+// по ней решают, переформулировать задачу, отдать её другому или снять
+// вовсе.
+const REASON_REQUIRED = new Set(['blocked','deferred','cancelled','rejected']);
+const STATUS_WORD = {
+  blocked:'заблокирована', deferred:'отложена', cancelled:'отменена', rejected:'отклонена',
+};
 
 export class TaskAuthorityError extends Error {
   constructor(code,message,statusCode=409){
@@ -140,9 +148,11 @@ export function assertTaskTransition(task,session,{to,reason=null,expectedVersio
   if(to==='in_review'&&task.ownerId===session.userId&&Number(evidenceCount)<1) throw new TaskAuthorityError('TASK_EVIDENCE_REQUIRED','Add execution evidence before requesting review',409);
   if(!actorTransitions(task,session,evidenceCount).includes(to)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot perform this task transition',403);
   const normalizedReason=typeof reason==='string'&&reason.trim()?reason.trim():null;
-  if(REASON_REQUIRED.has(to)&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED',`Reason is required for ${to}`,400);
-  if(task.status==='in_review'&&to==='in_progress'&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Return to work requires a review comment',400);
-  if(task.status==='accepted_result'&&to==='in_progress'&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Reopening an accepted result requires a reason',400);
+  if(REASON_REQUIRED.has(to)&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED',
+    to==='rejected'?'Откажитесь словами: без причины просивший не узнает, что делать дальше'
+      :`Без причины нельзя: напишите, почему задача ${STATUS_WORD[to]??'меняет состояние'}`,400);
+  if(task.status==='in_review'&&to==='in_progress'&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Возврат на доработку без замечаний бессмыслен: напишите, что не так',400);
+  if(task.status==='accepted_result'&&to==='in_progress'&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Переоткрыть принятый результат можно, но объясните почему',400);
   if(to==='in_review'&&Number(evidenceCount)<1) throw new TaskAuthorityError('TASK_EVIDENCE_REQUIRED','Add execution evidence before requesting review',409);
   return {from:task.status,to,reason:normalizedReason};
 }
