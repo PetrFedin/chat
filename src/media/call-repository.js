@@ -181,6 +181,9 @@ export class MemoryCallRepository {
   async end(session, callId) {
     const call = this.calls.get(callId);
     if (!call || call.workspaceId !== session.workspaceId) return null;
+    // Не начинался — значит, не закончился: «никто не пришёл». Времени
+    // окончания у такого звонка нет и быть не может.
+    if (!call.startedAt) { call.state = 'missed'; call.lastActivityAt = now(); return this.get(session, callId); }
     call.state = 'ended';
     call.endedAt ??= now();
     for (const participant of this.participants.values()) {
@@ -393,7 +396,10 @@ export class PostgresCallRepository {
   async end(session, callId) {
     await this.tx(async (c) => {
       await c.query(`UPDATE call_sessions
-        SET state=CASE WHEN started_at IS NULL THEN 'cancelled' ELSE 'ended' END,
+        -- Звонок, который никто не взял, — это «никто не пришёл», а не
+      -- «отменён». Отменяет тот, кто передумал; здесь же люди просто не
+      -- подошли, и в отчётности эти два случая смешивались.
+      SET state=CASE WHEN started_at IS NULL THEN 'missed' ELSE 'ended' END,
             ended_at=CASE WHEN started_at IS NULL THEN ended_at ELSE COALESCE(ended_at,now()) END,
             last_activity_at=now()
         WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, callId]);

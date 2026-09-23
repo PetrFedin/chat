@@ -98,7 +98,30 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     return true;
   }
 
-  let match = path.match(/^\/api\/v1\/notifications\/([0-9a-f-]+)\/read$/i);
+  // Архив: разобранное убирается с глаз. Без него список рос бесконечно,
+  // и разгрести его можно было только «прочитать всё» — после чего
+  // прочитанное оставалось лежать тем же списком.
+  if (path === '/api/v1/notifications/archive-read' && method === 'POST') {
+    const session = await requireSession(req);
+    if (!store.archiveReadNotifications) throw Object.assign(new Error('Архив доступен в режиме с базой данных'), { code: 'NOTIFICATIONS_UNAVAILABLE', statusCode: 503, expose: true });
+    const count = await store.archiveReadNotifications(session);
+    hub.broadcastUsers(session.workspaceId, [session.userId], 'notification.archived', { count });
+    json(res, 200, { count });
+    return true;
+  }
+
+  let match = path.match(/^\/api\/v1\/notifications\/([0-9a-f-]+)\/archive$/i);
+  if (match && method === 'POST') {
+    const session = await requireSession(req);
+    if (!store.archiveNotification) throw Object.assign(new Error('Архив доступен в режиме с базой данных'), { code: 'NOTIFICATIONS_UNAVAILABLE', statusCode: 503, expose: true });
+    const notification = await store.archiveNotification(session, match[1]);
+    if (!notification) throw Object.assign(new Error('Извещение не найдено'), { code: 'NOT_FOUND', statusCode: 404, expose: true });
+    hub.broadcastUsers(session.workspaceId, [session.userId], 'notification.archived', { notificationId: match[1] });
+    json(res, 200, { notification });
+    return true;
+  }
+
+  match = path.match(/^\/api\/v1\/notifications\/([0-9a-f-]+)\/read$/i);
   if (match && method === 'POST') {
     const session = await requireSession(req);
     const notification = await store.markNotificationRead(session,match[1]);
@@ -132,7 +155,8 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     const query = boundedQuery(url.searchParams.get('q'));
     const mime = url.searchParams.get('mime');
     const limit = pageSize(url.searchParams.get('limit'), 60, 100);
-    json(res,200,{items:await store.listFiles(session,{query,mime,limit})});
+    const items = await store.listFiles(session, { query, mime, limit, cursor: url.searchParams.get('cursor') });
+    json(res, 200, { items, nextCursor: items.nextCursor ?? null });
     return true;
   }
 

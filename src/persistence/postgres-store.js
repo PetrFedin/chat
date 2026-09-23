@@ -577,7 +577,7 @@ export class PostgresStore {
     return rows;
   }
   async canAccessConversation(s,id){return(await this.pool.query(`SELECT 1 FROM conversations c LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$3 WHERE c.workspace_id=$1 AND c.id=$2 AND c.archived_at IS NULL AND(${openConversationSql(s,'c')} OR cm.user_id IS NOT NULL)`,[s.workspaceId,id,s.userId])).rowCount>0}
-  async conversationPolicy(s,id){const{rows}=await this.pool.query(`SELECT c.id,c.kind,c.title,c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",${avatarUrlSql('c.avatar_file_id')} "avatarUrl",c.created_by "createdBy",c.created_at "createdAt",cm.role "memberRole",cm.archived_at "archivedAt",cm.muted_until "mutedUntil" FROM conversations c LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$3 WHERE c.workspace_id=$1 AND c.id=$2 AND c.archived_at IS NULL AND(${openConversationSql(s,'c')} OR cm.user_id IS NOT NULL)`,[s.workspaceId,id,s.userId]);const r=rows[0];return r?{conversation:{id:r.id,kind:r.kind,title:r.title,slug:r.slug,purpose:r.purpose,visibility:r.visibility,announcementOnly:r.announcementOnly,createdBy:r.createdBy,createdAt:r.createdAt,avatarUrl:r.avatarUrl},memberRole:r.memberRole??null,preferences:{archivedAt:r.archivedAt??null,mutedUntil:r.mutedUntil??null}}:null}
+  async conversationPolicy(s,id){const{rows}=await this.pool.query(`SELECT c.id,c.kind,c.title,c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",${avatarUrlSql('c.avatar_file_id')} "avatarUrl",c.created_by "createdBy",c.created_at "createdAt",c.version,cm.role "memberRole",cm.archived_at "archivedAt",cm.muted_until "mutedUntil" FROM conversations c LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$3 WHERE c.workspace_id=$1 AND c.id=$2 AND c.archived_at IS NULL AND(${openConversationSql(s,'c')} OR cm.user_id IS NOT NULL)`,[s.workspaceId,id,s.userId]);const r=rows[0];return r?{conversation:{id:r.id,kind:r.kind,title:r.title,slug:r.slug,purpose:r.purpose,visibility:r.visibility,announcementOnly:r.announcementOnly,createdBy:r.createdBy,createdAt:r.createdAt,version:r.version,avatarUrl:r.avatarUrl},memberRole:r.memberRole??null,preferences:{archivedAt:r.archivedAt??null,mutedUntil:r.mutedUntil??null}}:null}
   async setConversationPreferences(s,id,{archived,mutedUntil}={}){if(!await this.canAccessConversation(s,id))throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});return this.tx(async c=>{await c.query(`INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role) SELECT organization_id,workspace_id,id,$3,'member' FROM conversations WHERE workspace_id=$1 AND id=$2 ON CONFLICT(workspace_id,conversation_id,user_id) DO NOTHING`,[s.workspaceId,id,s.userId]);if(archived!==undefined)await c.query('UPDATE conversation_members SET archived_at=CASE WHEN $4::boolean THEN now() ELSE NULL END WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3',[s.workspaceId,id,s.userId,Boolean(archived)]);if(mutedUntil!==undefined)await c.query('UPDATE conversation_members SET muted_until=$4::timestamptz WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3',[s.workspaceId,id,s.userId,mutedUntil||null]);const r=(await c.query('SELECT archived_at "archivedAt",muted_until "mutedUntil" FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3',[s.workspaceId,id,s.userId])).rows[0];return r??{archivedAt:null,mutedUntil:null}})}
   // Круг получателей считается по КАЖДОМУ из них, а не по пишущему:
   // иначе сообщение из канала «для всей компании» уходило и подрядчику.
@@ -614,6 +614,17 @@ export class PostgresStore {
   }
 
   // See the memory store: a room could never be renamed or repurposed.
+  /**
+   * Правка настроек беседы — с оглядкой на то, что видел правящий.
+   *
+   * Правки шли поверх друг друга молча: двое, открывшие «Настройки
+   * канала» одновременно, сохраняли по очереди, побеждал последний, и
+   * первому никто не говорил, что его работу стёрли. У задач эта защита
+   * есть с первого дня; здесь её не было.
+   *
+   * Версия необязательна: старые клиенты её не шлют, и отказывать им
+   * значит сломать работающее. Но если прислали — сверяем.
+   */
   async updateConversation(s,id,patch){
     const sets=[],params=[s.workspaceId,id];
     for(const [key,column] of [['title','title'],['purpose','purpose'],['announcementOnly','announcement_only'],['avatarFileId','avatar_file_id']]){
@@ -622,11 +633,23 @@ export class PostgresStore {
       sets.push(`${column}=$${params.length}`);
     }
     if(!sets.length)return this.getConversation?.(s,id)??null;
+    let guard='';
+    if(patch.expectedVersion!==undefined&&patch.expectedVersion!==null){
+      params.push(Number(patch.expectedVersion));
+      guard=` AND version=$${params.length}`;
+    }
     const{rows}=await this.pool.query(
-      `UPDATE conversations SET ${sets.join(',')} WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL
-       RETURNING id,kind,title,slug,purpose,visibility,announcement_only "announcementOnly",created_at "createdAt",
+      `UPDATE conversations SET ${sets.join(',')},version=version+1,updated_at=now()
+        WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL${guard}
+       RETURNING id,kind,title,slug,purpose,visibility,announcement_only "announcementOnly",created_at "createdAt",version,
                  ${avatarUrlSql('avatar_file_id')} "avatarUrl"`,params);
-    if(!rows[0])throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});
+    if(!rows[0]){
+      if(guard){
+        const{rowCount}=await this.pool.query('SELECT 1 FROM conversations WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL',[s.workspaceId,id]);
+        if(rowCount)throw Object.assign(new Error('Беседу успели поправить в другом окне. Обновите экран и повторите.'),{code:'STALE_CONVERSATION',statusCode:409,expose:true});
+      }
+      throw Object.assign(new Error('Conversation not found'),{code:'NOT_FOUND',statusCode:404});
+    }
     return rows[0];
   }
   /**
@@ -722,7 +745,7 @@ export class PostgresStore {
   async getConversation(s,id){
     const{rows}=await this.pool.query(
       `SELECT c.id,c.kind,c.title,c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",
-              c.created_at "createdAt",c.archived_at "archivedAt"
+              c.created_at "createdAt",c.archived_at "archivedAt",c.version
          FROM conversations c
          LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$3
         WHERE c.workspace_id=$1 AND c.id=$2 AND(${openConversationSql(s,'c')} OR cm.user_id IS NOT NULL)`,

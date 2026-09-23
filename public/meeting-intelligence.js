@@ -22,10 +22,36 @@ function toast(text){const root=$('#toast-root');if(!root)return;const node=docu
 async function loadPeople(){if(M.people.length)return M.people;try{const boot=await (window.ChatBootstrap?.get()??api('/api/v1/bootstrap'));M.people=boot.people||[]}catch{}return M.people}
 async function loadMeetings(force=false){if(M.loading)return M.items;if(!force&&Date.now()-M.loadedAt<4000)return M.items;M.loading=true;try{const payload=await api('/api/v1/meetings?limit=80');M.items=payload.items||[];M.loadedAt=Date.now();decorate();return M.items}catch{return M.items}finally{M.loading=false}}
 
+/**
+ * Что со встречей — прежде, чем что с её разбором.
+ *
+ * Плашка читала только состояние обработки, поэтому назначенная на
+ * завтра, отменённая, пропущенная и та, где никто не пришёл, выглядели
+ * одинаково: «Без итогов». Сначала говорим про саму встречу, и только у
+ * состоявшейся — про её разбор.
+ */
+function callStateMeta(item){
+  if(item.state==='scheduled')return['scheduled',tr('Назначена','Scheduled')];
+  if(item.state==='cancelled')return['cancelled',tr('Отменена','Cancelled')];
+  if(item.state==='missed')return['cancelled',tr('Никто не пришёл','Nobody joined')];
+  if(item.state==='ringing')return['processing',tr('Идёт вызов','Ringing')];
+  if(item.state==='active')return['processing',tr('Идёт сейчас','In progress')];
+  return null;
+}
+
+/**
+ * Когда встреча — а не когда её завели.
+ *
+ * Бралось `startedAt||createdAt`: у назначенной на послезавтра встречи
+ * на экране стоял сегодняшний день, потому что она ещё не начиналась.
+ * `scheduledFor` приходит в ответе с первого дня и не использовался.
+ */
+function meetingWhen(item){return item.startedAt||item.scheduledFor||item.createdAt}
+
 function statusMeta(item){const status=item.intelligenceStatus;if(status==='review_ready')return['ready',tr('Готово к разбору','Ready for review')];if(status==='transcribing')return['processing',tr('Стенограмма','Transcribing')];if(status==='summarizing')return['processing',tr('Формируем итоги','Summarizing')];if(status==='queued')return['processing',tr('В очереди','Queued')];if(status==='failed')return['failed',tr('Ошибка обработки','Processing failed')];if(item.recordingStatus==='recording')return['processing',tr('Идёт запись','Recording')];return['',tr('Без итогов','No intelligence yet')]}
 function filterItem(item){if(M.filter==='review')return item.intelligenceStatus==='review_ready'&&item.needsReview;if(M.filter==='ready')return item.intelligenceStatus==='review_ready';if(M.filter==='processing')return['queued','transcribing','summarizing'].includes(item.intelligenceStatus);if(M.filter==='failed')return item.intelligenceStatus==='failed';return true}
 function countsHtml(item){const c=item.proposalCounts||{};const chunks=[];if(c.decisions)chunks.push(`<span class="mi-count">${c.decisions} · ${tr(plural(c.decisions,'решение','решения','решений'),'decisions')}</span>`);if(c.actions)chunks.push(`<span class="mi-count">${c.actions} · ${tr(plural(c.actions,'действие','действия','действий'),'actions')}</span>`);if(c.risks)chunks.push(`<span class="mi-count">${c.risks} · ${tr('риски','risks')}</span>`);if(c.questions)chunks.push(`<span class="mi-count">${c.questions} · ${tr('вопросы','questions')}</span>`);return chunks.join('')}
-function meetingCard(item){const [kind,label]=statusMeta(item);return `<button class="mi-card" data-mi-meeting="${item.id}"><div class="mi-card-head"><div><h3>${esc(item.title)}</h3><div class="mi-meta"><span>${esc(fmtDate(item.startedAt||item.createdAt))}</span>${item.durationMs?`<span>· ${esc(fmtDuration(item.durationMs))}</span>`:''}<span>· ${Number(item.participantCount||0)} ${tr('уч.','people')}</span></div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><span class="mi-pill ${kind}">${esc(label)}</span>${item.synthetic?`<span class="mi-pill demo">${tr('ДЕМО','DEMO')}</span>`:''}</div></div>${item.overview?`<p>${esc(item.overview)}</p>`:''}<div class="mi-counts">${countsHtml(item)}</div></button>`}
+function meetingCard(item){const [kind,label]=callStateMeta(item)??statusMeta(item);return `<button class="mi-card" data-mi-meeting="${item.id}"><div class="mi-card-head"><div><h3>${esc(item.title)}</h3><div class="mi-meta"><span>${esc(fmtDate(meetingWhen(item)))}</span>${item.durationMs?`<span>· ${esc(fmtDuration(item.durationMs))}</span>`:''}<span>· ${Number(item.participantCount||0)} ${tr('уч.','people')}</span></div></div><div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end"><span class="mi-pill ${kind}">${esc(label)}</span>${item.synthetic?`<span class="mi-pill demo">${tr('ДЕМО','DEMO')}</span>`:''}</div></div>${item.overview?`<p>${esc(item.overview)}</p>`:''}<div class="mi-counts">${countsHtml(item)}</div></button>`}
 
 function renderMeetingList(){const root=$('#mi-list');if(!root)return;const items=M.items.filter(filterItem);if(!items.length){root.innerHTML=`<div class="mi-empty"><strong>${tr('Здесь пока нет встреч','No meetings here yet')}</strong>${tr('После звонка и обработки записи итоги появятся в этом центре.','After a recorded call is processed, its review will appear here.')}</div>`;return}root.innerHTML=items.map(meetingCard).join('')}
 function openMeetingCenter(filter='all',{updateHash=true}={}){M.filter=filter;closeMeetingOverlay(false);const overlay=document.createElement('div');overlay.className='mi-overlay';overlay.innerHTML=`<section class="mi-panel wide"><header class="mi-header"><div><p class="mi-kicker" data-mi-kicker="intelligence">${tr('ИНТЕЛЛЕКТ ВСТРЕЧ','MEETING INTELLIGENCE')}</p><h2>${tr('Встречи','Meetings')}</h2></div><button class="mi-close" data-mi-close aria-label="${tr('Закрыть','Close')}">×</button></header><div class="mi-body"><div class="mi-filters"><button class="mi-filter ${filter==='all'?'active':''}" data-mi-filter="all">${tr('Все','All')}</button><button class="mi-filter ${filter==='review'?'active':''}" data-mi-filter="review">${tr('Требуют решения','Needs review')}</button><button class="mi-filter ${filter==='ready'?'active':''}" data-mi-filter="ready">${tr('Готовые','Ready')}</button><button class="mi-filter ${filter==='processing'?'active':''}" data-mi-filter="processing">${tr('В обработке','Processing')}</button><button class="mi-filter ${filter==='failed'?'active':''}" data-mi-filter="failed">${tr('Ошибки','Failed')}</button></div><div id="mi-list" class="mi-grid"><div class="mi-empty">${tr('Загружаем встречи…','Loading meetings…')}</div></div></div></section>`;document.body.append(overlay);overlay.addEventListener('click',event=>{if(event.target===overlay)closeMeetingOverlay()});if(updateHash&&location.hash!=='#/meetings')history.pushState(null,'','/#/meetings');loadMeetings(true).then(renderMeetingList);loadPeople()}

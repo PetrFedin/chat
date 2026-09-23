@@ -142,7 +142,10 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     // Обложка группы — ссылка на уже загруженный файл: снимок проходит
     // тот же путь, что и любое вложение, с проверкой типа и размера.
     if(Object.prototype.hasOwnProperty.call(b,'avatarFileId'))patch.avatarFileId=await resolveAvatar(store,s,b.avatarFileId);
-    if(!Object.keys(patch).length)throw httpError('Nothing to change','EMPTY_PATCH',400);
+    // Номер версии необязателен: старые клиенты его не шлют. Но если
+    // прислан — правка не ляжет поверх чужой, сделанной в другом окне.
+    if(b.expectedVersion!==undefined)patch.expectedVersion=b.expectedVersion;
+    if(!Object.keys(patch).filter((key)=>key!=='expectedVersion').length)throw httpError('Nothing to change','EMPTY_PATCH',400);
     const conversation=await store.updateConversation(s,m[1],patch);
     const audience=await store.conversationAudience(s,m[1]);
     hub.broadcastUsers(s.workspaceId,audience,'conversation.updated',conversation);

@@ -48,7 +48,11 @@ test('a call nobody answered can be closed, and declining one works', async () =
   const source = await read('src/media/call-repository.js');
   // ended_at without started_at violates a CHECK, so ending a ringing call
   // surfaced a driver error to the caller as "your input is invalid".
-  assert.match(source, /state=CASE WHEN started_at IS NULL THEN 'cancelled' ELSE 'ended' END/);
+  //
+  // Состояние при этом — «никто не пришёл», а не «отменён»: отменяет
+  // тот, кто передумал, а здесь люди просто не подошли, и в отчётности
+  // эти два случая смешивались.
+  assert.match(source, /state=CASE WHEN started_at IS NULL THEN 'missed' ELSE 'ended' END/);
   assert.match(source, /left_at=CASE WHEN joined_at IS NULL THEN left_at ELSE now\(\) END/);
 });
 

@@ -133,6 +133,7 @@ const time=v=>v?new Intl.DateTimeFormat('ru',{hour:'2-digit',minute:'2-digit'}).
  * server's own words rather than being paraphrased into vagueness.
  */
 const ERROR_MESSAGE={
+  STALE_CONVERSATION:'Беседу успели поправить в другом окне. Закройте настройки, откройте заново и повторите.',
   LAST_CONVERSATION_OWNER:'Вы единственный владелец беседы. Сначала назначьте владельцем кого-то ещё в списке участников.',
   MEDIA_PROVIDER_UNAVAILABLE:'Звонки на этом сервере ещё не подключены.',
   NOT_A_MEMBER:'Вы видите этот канал по его открытости — выходить не из чего, уберите его в архив.',
@@ -4935,7 +4936,9 @@ function conversationEditModal(c){
     $('#conv-form').onsubmit=async(event)=>{
       event.preventDefault();
       const form=new FormData(event.currentTarget);
-      const body={title:form.get('title'),purpose:form.get('purpose')||null};
+      // Номер версии, с которой открыли окно: если беседу успели
+      // поправить в другой вкладке, правка не ляжет поверх чужой молча.
+      const body={title:form.get('title'),purpose:form.get('purpose')||null,expectedVersion:c.version};
       if(c.kind==='channel')body.announcementOnly=form.get('announcementOnly')==='on';
       try{
         const picked=event.currentTarget.querySelector('[name="avatar"]').files[0];
@@ -5353,7 +5356,8 @@ async function profileModal(){
         </div>`).join('')}
 
       <div class="section-head" style="margin-top:16px"><div><h3>Что присылать</h3>
-        <p class="muted">Касается только push — того, что прерывает. Список уведомлений внутри приложения остаётся полным.</p></div></div>
+        <p class="muted">Касается только push — того, что прерывает. Список уведомлений внутри приложения остаётся полным.</p>
+        ${S.boot?.push?.enabled?'':'<p class="warn-text">На этом сервере push пока не подключён, поэтому переключатели ниже ни на что не влияют: всё приходит только в список уведомлений. Настройки сохранятся и заработают, когда push включат.</p>'}</div></div>
       <form id="notify-form" class="form-stack">
         ${NOTIFY_SWITCHES.map(([name,caption,hint])=>`<label class="switch-row">
           <input type="checkbox" name="${name}" ${settings[name]===false?'':'checked'}>

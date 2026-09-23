@@ -59,7 +59,7 @@ export const conversationListSql = (session, { withMentions = false } = {}) => `
         LEFT JOIN workspace_profiles p2 ON p2.workspace_id=cm2.workspace_id AND p2.user_id=cm2.user_id
        WHERE cm2.workspace_id=c.workspace_id AND cm2.conversation_id=c.id AND cm2.user_id<>$2
        LIMIT 1) END) "title",
-    c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_at "createdAt",
+    c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_at "createdAt",c.version,
     -- У группы и канала фотография своя, у личной переписки — лицо
     -- собеседника: своей обложки у разговора вдвоём не бывает.
     COALESCE(

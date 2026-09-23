@@ -264,6 +264,25 @@ export class MemoryStore extends BaseMemoryStore {
     return clone(rows.slice(0, Math.min(Math.max(Number(limit) || 50, 1), 100)).map((row) => ({ ...row, actorName:this.profiles.get(this.membershipKey(row.workspaceId,row.actorUserId))?.displayName ?? null, conversationTitle:this.conversations.get(row.conversationId)?.title ?? null })));
   }
 
+  async archiveNotification(session, id) {
+    const row = this.dailyNotifications.get(id);
+    if (!row || row.workspaceId !== session.workspaceId || row.recipientUserId !== session.userId || row.archivedAt) return null;
+    row.archivedAt = nowIso();
+    if (row.status === 'unread') { row.status = 'read'; row.readAt = row.readAt ?? nowIso(); }
+    return { id: row.id, type: row.type, status: row.status, archivedAt: row.archivedAt };
+  }
+
+  async archiveReadNotifications(session) {
+    let count = 0;
+    for (const row of this.dailyNotifications.values()) {
+      if (row.workspaceId !== session.workspaceId || row.recipientUserId !== session.userId) continue;
+      if (row.status !== 'read' || row.archivedAt) continue;
+      row.archivedAt = nowIso();
+      count += 1;
+    }
+    return count;
+  }
+
   async markNotificationRead(session, id) {
     const row = this.dailyNotifications.get(id);
     if (!row || row.workspaceId !== session.workspaceId || row.recipientUserId !== session.userId) return null;
@@ -566,9 +585,39 @@ export class PostgresStore extends BasePostgresStore {
       CASE WHEN dm.id IS NOT NULL THEN 'Сообщение удалено' ELSE n.body END AS body,n.status,n.priority,n.url,n.actor_user_id "actorUserId",n.conversation_id "conversationId",n.message_id "messageId",n.commitment_id "commitmentId",n.calendar_event_id "calendarEventId",n.metadata,n.created_at "createdAt",n.read_at "readAt",p.display_name "actorName",c.title "conversationTitle"
       FROM notifications n LEFT JOIN workspace_profiles p ON p.workspace_id=n.workspace_id AND p.user_id=n.actor_user_id LEFT JOIN conversations c ON c.workspace_id=n.workspace_id AND c.id=n.conversation_id
       LEFT JOIN messages dm ON dm.workspace_id=n.workspace_id AND dm.id=n.message_id AND dm.deleted_at IS NOT NULL
-      WHERE n.workspace_id=$1 AND n.recipient_user_id=$2 AND n.archived_at IS NULL AND($3::text IS NULL OR n.status=$3) AND($4::text IS NULL OR n.type=$4)
+      WHERE n.workspace_id=$1 AND n.recipient_user_id=$2
+        -- «archived» — это не состояние прочтения, а место: разобранное,
+        -- убранное с глаз. Поэтому оно выбирает архив целиком, а не
+        -- строки со статусом «archived», которого не бывает.
+        AND (CASE WHEN $3::text='archived' THEN n.archived_at IS NOT NULL ELSE n.archived_at IS NULL END)
+        AND ($3::text IS NULL OR $3::text='archived' OR n.status=$3)
+        AND ($4::text IS NULL OR n.type=$4)
       ORDER BY n.created_at DESC,n.id DESC LIMIT $5`,[session.workspaceId,session.userId,status,typeValue,Math.min(Math.max(Number(limit)||50,1),100)]);
     return rows;
+  }
+
+  /**
+   * Убрать разобранное с глаз.
+   *
+   * Список рос бесконечно: единственным способом его разгрести было
+   * «прочитать всё», после чего разобранное оставалось лежать тем же
+   * списком. Архив был заложен с самого начала — колонка `archived_at`
+   * есть, — но заполнять её было нечем.
+   */
+  async archiveNotification(session,id){
+    const{rows}=await this.pool.query(`UPDATE notifications SET archived_at=now(),status=CASE WHEN status='unread' THEN 'read' ELSE status END,
+      read_at=COALESCE(read_at,now()),updated_at=now()
+      WHERE workspace_id=$1 AND id=$2 AND recipient_user_id=$3 AND archived_at IS NULL
+      RETURNING id,type,status,archived_at "archivedAt"`,[session.workspaceId,id,session.userId]);
+    return rows[0]??null;
+  }
+
+  /** Убрать в архив всё прочитанное разом. */
+  async archiveReadNotifications(session){
+    const{rowCount}=await this.pool.query(`UPDATE notifications SET archived_at=now(),updated_at=now()
+      WHERE workspace_id=$1 AND recipient_user_id=$2 AND status='read' AND archived_at IS NULL`,
+      [session.workspaceId,session.userId]);
+    return rowCount;
   }
 
   async markNotificationRead(session,id){const{rows}=await this.pool.query(`UPDATE notifications SET status='read',read_at=COALESCE(read_at,now()),read_by=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND recipient_user_id=$3 RETURNING id,type,status,read_at "readAt"`,[session.workspaceId,id,session.userId]);return rows[0]??null}
@@ -617,13 +666,20 @@ export class PostgresStore extends BasePostgresStore {
 
   async getFile(session,id){if(!await this.canAccessFile(session,id))return null;return super.getFile(session,id)}
 
-  async listFiles(session,{query='',mime=null,limit=60}={}){
+  async listFiles(session,{query='',mime=null,limit=60,cursor=null}={}){
+    const size=Math.min(Math.max(Number(limit)||60,1),100);
     const q=String(query??'').trim();
     const{rows}=await this.pool.query(`SELECT f.id,f.name,f.mime_type "mimeType",f.size_bytes "sizeBytes",f.storage_key "storageKey",f.sha256,f.status,f.created_at "createdAt",f.uploaded_by "uploadedBy",p.display_name "uploaderName",ctx.message_id "messageId",ctx.conversation_id "conversationId",ctx.conversation_title "conversationTitle",ctx.conversation_kind "conversationKind"
       FROM files f LEFT JOIN workspace_profiles p ON p.workspace_id=f.workspace_id AND p.user_id=f.uploaded_by
       LEFT JOIN LATERAL(SELECT m.id message_id,c.id conversation_id,c.title conversation_title,c.kind conversation_kind FROM file_links fl JOIN messages m ON m.workspace_id=fl.workspace_id AND fl.entity_type='message' AND m.id=fl.entity_id JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$2 WHERE fl.workspace_id=f.workspace_id AND fl.file_id=f.id AND m.deleted_at IS NULL AND c.archived_at IS NULL AND(${openConversationSql(session,'c')} OR cm.user_id IS NOT NULL) ORDER BY fl.created_at DESC LIMIT 1)ctx ON true
-      WHERE f.workspace_id=$1 AND f.deleted_at IS NULL AND f.status<>'deleted' AND(f.uploaded_by=$2 OR ctx.message_id IS NOT NULL) AND($3='' OR f.name ILIKE '%'||$3||'%') AND($4::text IS NULL OR f.mime_type LIKE $4||'%') ORDER BY f.created_at DESC LIMIT $5`,[session.workspaceId,session.userId,q,mime,Math.min(Math.max(Number(limit)||60,1),100)]);
-    return rows.map(r=>({...r,context:r.messageId?{messageId:r.messageId,conversationId:r.conversationId,conversationTitle:r.conversationTitle,conversationKind:r.conversationKind}:null,contentUrl:`/api/v1/files/${r.id}/content`,previewUrl:/^(image\/|application\/pdf$|text\/)/.test(r.mimeType??'')?`/api/v1/files/${r.id}/preview`:null}));
+      WHERE f.workspace_id=$1 AND f.deleted_at IS NULL AND f.status<>'deleted' AND(f.uploaded_by=$2 OR ctx.message_id IS NOT NULL) AND($3='' OR f.name ILIKE '%'||$3||'%') AND($4::text IS NULL OR f.mime_type LIKE $4||'%') AND($6::timestamptz IS NULL OR f.created_at<$6) ORDER BY f.created_at DESC,f.id DESC LIMIT $5`,[session.workspaceId,session.userId,q,mime,size+1,cursor||null]);
+    // Список обрывался на сотне и молчал об этом: после сто первого
+    // файла остальные были недостижимы с экрана. Курсор — время
+    // последнего показанного файла, как у сообщений и задач.
+    const page=rows.slice(0,size);
+    const items=page.map(r=>({...r,context:r.messageId?{messageId:r.messageId,conversationId:r.conversationId,conversationTitle:r.conversationTitle,conversationKind:r.conversationKind}:null,contentUrl:`/api/v1/files/${r.id}/content`,previewUrl:/^(image\/|application\/pdf$|text\/)/.test(r.mimeType??'')?`/api/v1/files/${r.id}/preview`:null}));
+    items.nextCursor=rows.length>size?page[page.length-1]?.createdAt??null:null;
+    return items;
   }
 
 
