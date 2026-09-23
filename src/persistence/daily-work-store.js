@@ -227,7 +227,7 @@ export class MemoryStore extends BaseMemoryStore {
       rows.push(this.putNotification({
         organizationId:session.organizationId, workspaceId:session.workspaceId, recipientUserId:userId,
         sourceEventId:message.id, dedupeKey:`message.mentioned:${message.id}:${userId}`, type:'message.mentioned',
-        title:`${session.displayName} упомянул(а) вас`, body:notificationBody(message), actorUserId:session.userId,
+        title:`Упоминание · ${session.displayName}`, body:notificationBody(message), actorUserId:session.userId,
         conversationId, messageId:message.id, url:`/#/chats/${conversationId}?message=${message.id}`, priority:'high',
       }));
     }
@@ -539,7 +539,7 @@ export class PostgresStore extends BasePostgresStore {
     };
 
     const rows=[
-      ...await many(mentioned,{type:'message.mentioned',title:`Упоминание от ${session.displayName}`,priority:'high'}),
+      ...await many(mentioned,{type:'message.mentioned',title:`Упоминание · ${session.displayName}`,priority:'high'}),
       ...await many(plain,{type:'message.created',title:`Новое сообщение · ${session.displayName}`,priority:'normal'}),
     ];
     return rows;

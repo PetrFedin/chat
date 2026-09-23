@@ -320,7 +320,7 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     if(policy.conversation.announcementOnly&&!canManageConversation(s,policy))throw httpError('Only channel managers may publish in this announcement channel','ANNOUNCEMENT_ONLY',403);
     const message=await store.forwardMessage(s,m[1],targetConversationId),audience=await store.conversationAudience(s,targetConversationId),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,targetConversationId):audience;
     hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:targetConversationId,message});
-    await notifyUsers(s.workspaceId,notificationAudience.filter(id=>id!==s.userId),{title:`Переслано от ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${targetConversationId}`,kind:'message.created'});
+    await notifyUsers(s.workspaceId,notificationAudience.filter(id=>id!==s.userId),{title:`Переслано · ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${targetConversationId}`,kind:'message.created'});
     json(res,201,{message});return true;
   }
 
