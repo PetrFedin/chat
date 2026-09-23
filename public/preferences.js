@@ -526,6 +526,8 @@
     'Закрыты все остальные входы': ['Закрыты все остальные входы', 'All other sign-ins were closed'],
     'Ограничен срок доступа': ['Ограничен срок доступа', 'Access was given an end date'],
     'Сотрудник отключён': ['Сотрудник отключён', 'An employee was switched off'],
+    'Сменилась роль сотрудника': ['Сменилась роль сотрудника', 'An employee changed role'],
+    'Роль в компании': ['Роль в компании', 'Role in the company'],
     'Сотрудник возвращён': ['Сотрудник возвращён', 'An employee was brought back'],
     'Передано владение компанией': ['Передано владение компанией', 'Ownership of the company was handed over'],
     'Компания переименована': ['Компания переименована', 'The company was renamed'],

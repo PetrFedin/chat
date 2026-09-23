@@ -265,6 +265,74 @@ export function createPeopleRepository(pool, org = null) {
     },
 
     /**
+     * Повысить или понизить сотрудника.
+     *
+     * Сменить роль было нечем: ни маршрута, ни кнопки. Повысить человека
+     * до руководителя можно было только одним способом — пригласить его
+     * заново с нужной ролью, потеряв всё, что за ним числится. В живой
+     * компании роли меняются чаще, чем люди.
+     *
+     * Лестница та же, что у увольнения: трогать можно тех, кто ниже
+     * тебя, и ставить роль ниже своей. Владение передаётся отдельно —
+     * это не смена роли, а смена хозяина.
+     *
+     * Место в компании занимает сотрудник, а не гость: превращение
+     * гостя в сотрудника проверяется по счёту мест, обратное — освобождает.
+     */
+    async setRole(session, userId, role, { rank = () => 0, seatState = null } = {}) {
+      if (userId === session.userId) throw fail('Свою роль не меняют', 'CANNOT_CHANGE_OWN_ROLE', 400);
+      if (!['guest', 'member', 'manager', 'admin'].includes(role)) {
+        throw fail('Роль бывает guest, member, manager или admin. Владение передаётся отдельно.', 'INVALID_ROLE', 400);
+      }
+      if (rank(role) >= rank(session.role)) {
+        throw fail('Назначить можно только роль ниже своей', 'ROLE_TOO_HIGH', 403);
+      }
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows: member } = await client.query(
+          `SELECT m.role, u.disabled_at FROM memberships m JOIN users u ON u.id=m.user_id
+            WHERE m.workspace_id=$1 AND m.user_id=$2 FOR UPDATE OF m,u`,
+          [session.workspaceId, userId],
+        );
+        if (!member[0]) throw fail('Человек не найден', 'PERSON_NOT_FOUND', 404);
+        const was = member[0].role;
+        if (was === 'owner') throw fail('Владельца компании роль не меняет — компания передаётся отдельно', 'CANNOT_CHANGE_OWNER', 403);
+        if (rank(was) >= rank(session.role)) throw fail('Менять роль можно только тем, кто ниже вас по лестнице', 'ROLE_TOO_HIGH', 403);
+        if (member[0].disabled_at) throw fail('Уволенному роль не меняют: сначала верните его на работу', 'PERSON_INACTIVE', 409);
+        if (was === role) throw fail('Эта роль у человека уже есть', 'ROLE_UNCHANGED', 409);
+
+        // Гость мест не занимает; сотрудник занимает. Повышение гостя —
+        // это наём, и упираться в предел мест оно должно так же.
+        if (was === 'guest' && role !== 'guest' && seatState) {
+          const seats = await seatState();
+          if (seats?.full) {
+            throw fail(`Свободных мест нет: занято ${seats.used} из ${seats.limit}. Добавьте мест или отзовите лишние приглашения.`,
+              'NO_FREE_SEATS', 409);
+          }
+        }
+
+        await client.query('UPDATE memberships SET role=$3 WHERE workspace_id=$1 AND user_id=$2', [session.workspaceId, userId, role]);
+        // Роль живёт и в сеансе: без отзыва человек доработал бы день с
+        // прежними правами, а на экране у него были бы новые кнопки.
+        await client.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [userId]);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'membership',$3,'member.role_changed',$4,$5)`,
+          [session.organizationId, session.workspaceId, userId, session.userId, { from: was, to: role }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+      return this.getPerson(session, userId);
+    },
+
+    /**
      * The people this person actually deals with, which is not the same list
      * as the staff directory.
      *

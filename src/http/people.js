@@ -6,6 +6,7 @@ const ID = '([0-9a-f-]{36})';
 const PERSON = new RegExp(`^/api/v1/people/${ID}$`, 'i');
 const ACTIVITY = new RegExp(`^/api/v1/people/${ID}/activity$`, 'i');
 const EMPLOYMENT = new RegExp(`^/api/v1/people/${ID}/(deactivate|reactivate)$`, 'i');
+const ROLE = new RegExp(`^/api/v1/people/${ID}/role$`, 'i');
 const ACCESS = new RegExp(`^/api/v1/people/${ID}/access$`, 'i');
 
 // Лестница ролей: увольняют только тех, кто ниже.
@@ -126,6 +127,24 @@ export function createPeopleHandler() {
         accessUntil = at.toISOString();
       }
       json(res, 200, await people.setAccessUntil(session, m[1], accessUntil));
+      return true;
+    }
+
+    // Повышение и понижение. Владение передаётся отдельным маршрутом:
+    // это не смена роли, а смена хозяина компании.
+    m = path.match(ROLE);
+    if (m && method === 'PUT') {
+      if (!(ctx.permissions(session.role) ?? []).includes(Permission.MEMBER_MANAGE)) {
+        throw Object.assign(new Error('Менять роли может владелец или администратор'),
+          { code: 'FORBIDDEN', statusCode: 403, expose: true });
+      }
+      if (!people.setRole) throw unavailable();
+      const body = await readJson(req);
+      const person = await people.setRole(session, m[1], String(body.role ?? ''), {
+        rank: (role) => RANK[role] ?? 0,
+        seatState: ctx.store.seatState ? () => ctx.store.seatState(session) : null,
+      });
+      json(res, 200, { person });
       return true;
     }
 

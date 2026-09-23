@@ -2803,6 +2803,7 @@ const JOURNAL_EVENT={
   'access.limited':['Ограничен срок доступа', e=>e.payload?.accessUntil?`До ${dateTime(e.payload.accessUntil)}`:'Срок снят'],
   'member.deactivated':['Сотрудник отключён', e=>name(e.aggregateId)],
   'member.reactivated':['Сотрудник возвращён', e=>name(e.aggregateId)],
+  'member.role_changed':['Сменилась роль сотрудника', e=>`${name(e.aggregateId)}: ${WORKSPACE_ROLE[e.payload?.from]??e.payload?.from} → ${WORKSPACE_ROLE[e.payload?.to]??e.payload?.to}`],
   'ownership.transferred':['Передано владение компанией', e=>name(e.payload?.toUserId)],
   'workspace.renamed':['Компания переименована', e=>e.payload?.workspaceName??e.payload?.companyName??''],
   'workspace.exported':['Выгрузка пространства', e=>e.payload?.withFiles===false?'без вложений':'со вложениями'],
@@ -3347,13 +3348,35 @@ async function personPage(userId){
     </details>
     ${person.disabledAt?`<p class="person-about">Сотрудник уволен ${esc(when(person.disabledAt))}. Доступ закрыт, история работы сохранена.</p>`:''}
     ${!person.isSelf&&can('member.invite')?'<div class="stack" style="margin-top:16px"><button data-reset class="button secondary">Выписать ссылку для смены пароля</button></div>':''}
-    ${!person.isSelf&&person.workspaceRole!=='owner'&&can('member.manage')?`<div class="stack" style="margin-top:10px">${person.disabledAt
+    ${!person.isSelf&&person.workspaceRole!=='owner'&&can('member.manage')?`
+    ${person.disabledAt?'':`<h3 class="person-section">Роль в компании</h3>
+      <p class="muted">Назначить можно роль ниже своей. Человек выйдет из своих сеансов и войдёт заново — уже с новыми правами. Всё, что за ним числится, остаётся при нём.</p>
+      <form id="person-role" class="row flow" style="margin-top:8px;gap:8px">
+        <select name="role" class="input" style="flex:1 1 160px">
+          ${['guest','member','manager','admin'].map(r=>`<option value="${r}"${person.workspaceRole===r?' selected':''}>${esc(WORKSPACE_ROLE[r]??r)}</option>`).join('')}
+        </select>
+        <button class="button secondary pressable">Назначить</button>
+      </form>`}
+    <div class="stack" style="margin-top:10px">${person.disabledAt
       ?'<button data-employ class="button secondary">Вернуть на работу</button>'
       :'<button data-dismiss class="button danger">Уволить</button>'}</div>`:''}
     ${person.isSelf?'<div class="stack" style="margin-top:16px"><button data-edit class="button secondary">Редактировать карточку</button><button data-push class="button secondary">Включить push</button><button data-logout class="button danger">Выйти</button></div>':''}
   `,()=>{
     const reset=$('[data-reset]');
     if(reset)reset.onclick=()=>issueResetModal(person);
+    const roleForm=$('#person-role');
+    if(roleForm)roleForm.onsubmit=async(event)=>{
+      event.preventDefault();
+      const role=new FormData(event.currentTarget).get('role');
+      if(role===person.workspaceRole){toast('Эта роль у человека уже есть');return}
+      const button=event.currentTarget.querySelector('button');
+      button.disabled=true;
+      try{
+        await api(`/api/v1/people/${person.userId}/role`,{method:'PUT',body:JSON.stringify({role})});
+        toast(`${person.displayName||person.email} теперь ${WORKSPACE_ROLE[role]??role}`);
+        S.people=(await api('/api/v1/bootstrap')).people||S.people;closeModal();personPage(person.userId);
+      }catch(error){button.disabled=false;toast(ERROR_MESSAGE[error.code]||error.message)}
+    };
     const dismiss=$('[data-dismiss]');
     if(dismiss)dismiss.onclick=()=>dismissModal(person);
     const employ=$('[data-employ]');
