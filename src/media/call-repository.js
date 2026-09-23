@@ -90,6 +90,20 @@ export class MemoryCallRepository {
     return this.get(session, callId);
   }
 
+  async decline(session, callId) {
+    const key = this.participantKey(callId, session.userId);
+    const participant = this.participants.get(key);
+    if (participant && !participant.joinedAt) participant.connectionState = 'declined';
+    const call = this.calls.get(callId);
+    const others = [...this.participants.values()].filter((p) => p.callId === callId
+      && p.userId !== call?.createdBy && p.connectionState !== 'declined' && !p.leftAt);
+    const joined = [...this.participants.values()].some((p) => p.callId === callId && p.joinedAt);
+    if (call && call.state === 'ringing' && !others.length && !joined) call.state = 'missed';
+    return this.get(session, callId);
+  }
+
+  async sweepUnanswered() { return []; }
+
   async leave(session, callId) {
     const key = this.participantKey(callId, session.userId);
     const participant = this.participants.get(key);
@@ -264,6 +278,61 @@ export class PostgresCallRepository {
         ended_at=CASE WHEN state='active' THEN COALESCE(ended_at,now()) ELSE ended_at END,last_activity_at=now() WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, callId]);
     });
     return this.get(session, callId);
+  }
+
+  /**
+   * «Не сейчас».
+   *
+   * Отклонить входящий было нечем: кнопка на экране просто убирала
+   * плашку у того, кто отказался, и звонящий продолжал смотреть на
+   * гудки. Обычный выход для этого не годится — после него человек
+   * неотличим от того, у кого оборвалась связь.
+   *
+   * Если отказались все, кого звали, и никто не взял трубку, звонок
+   * закрывается как пропущенный: звонить дальше некому.
+   */
+  async decline(session, callId) {
+    await this.tx(async (c) => {
+      // Времени выхода у отказавшегося нет: таблица требует, чтобы
+      // вышедший когда-то входил, а он и не входил. Сам отказ и есть
+      // ответ, его несёт `connection_state`.
+      await c.query(`UPDATE call_participants SET connection_state='declined', last_media_at=now()
+        WHERE workspace_id=$1 AND call_id=$2 AND user_id=$3 AND joined_at IS NULL`,
+      [session.workspaceId, callId, session.userId]);
+      const waiting = Number((await c.query(`SELECT count(*) n FROM call_participants
+        WHERE workspace_id=$1 AND call_id=$2 AND user_id<>(SELECT created_by FROM call_sessions WHERE workspace_id=$1 AND id=$2)
+          AND connection_state<>'declined' AND left_at IS NULL`, [session.workspaceId, callId])).rows[0].n);
+      const joined = Number((await c.query(`SELECT count(*) n FROM call_participants
+        WHERE workspace_id=$1 AND call_id=$2 AND joined_at IS NOT NULL`, [session.workspaceId, callId])).rows[0].n);
+      if (!waiting && !joined) {
+        await c.query(`UPDATE call_sessions SET state='missed',last_activity_at=now()
+          WHERE workspace_id=$1 AND id=$2 AND state='ringing'`, [session.workspaceId, callId]);
+      }
+    });
+    return this.get(session, callId);
+  }
+
+  /**
+   * Звонки, до которых никто не дошёл.
+   *
+   * У состояния «звонит» не было срока: звонок, который не взяли,
+   * оставался звонящим навсегда — в назначенных он не показывался, а
+   * завершить его мог только тот, кто звонил. Через пять минут гудков
+   * звонка уже нет, и списки должны говорить то же самое.
+   */
+  async sweepUnanswered({ after = '5 minutes' } = {}) {
+    const { rows } = await this.pool.query(`WITH closed AS (
+        UPDATE call_sessions SET state='missed', last_activity_at=now()
+         WHERE state='ringing' AND created_at < now() - $1::interval
+        RETURNING id, organization_id, workspace_id, conversation_id, created_by, title, mode)
+      SELECT c.id, c.organization_id "organizationId", c.workspace_id "workspaceId",
+             c.conversation_id "conversationId", c.created_by "createdBy", c.title, c.mode,
+             COALESCE(array_agg(p.user_id) FILTER (WHERE p.user_id IS NOT NULL AND p.user_id<>c.created_by), '{}') missed
+        FROM closed c
+        LEFT JOIN call_participants p ON p.workspace_id=c.workspace_id AND p.call_id=c.id
+             AND p.joined_at IS NULL AND p.connection_state<>'declined'
+       GROUP BY c.id, c.organization_id, c.workspace_id, c.conversation_id, c.created_by, c.title, c.mode`, [after]);
+    return rows;
   }
 
   async setMedia(session, callId, value) {

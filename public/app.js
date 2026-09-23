@@ -1033,6 +1033,11 @@ async function eventPage(id){
   let event;
   try{event=(await api(`/api/v1/calendar-events/${seriesId}`)).event}
   catch(error){toast(error.code==='CALENDAR_UNAVAILABLE'?'Детали встречи доступны в режиме с базой данных':error.message);return}
+  // Сервер отдаёт саму серию — то есть её первую встречу. Человек же
+  // нажал на пятницу: карточка обязана показать пятницу, вместе с её
+  // собственным временем и названием, если вхождение переносили.
+  const shown=occurrenceAt?(S.calendar||[]).find(e=>e.id===id):null;
+  if(shown)event={...event,startAt:shown.startAt,endAt:shown.endAt,title:shown.title??event.title};
   const range=`${esc(dateTime(event.startAt))}${event.endAt?` — ${esc(time(event.endAt))}`:''}`;
   const people=event.participants.length
     ? event.participants.map(p=>`<div class="person-event"><span>${esc(p.displayName||'—')}${p.optional?' · необязательно':''}${p.note?` — ${esc(p.note)}`:''}</span><span class="inline-actions"><span class="chip ${p.response==='invited'?'pulse':'warm'}">${esc(RESPONSE_LABEL[p.response])}</span>${event.canEdit?`<button class="close-button" data-uninvite="${esc(p.userId)}" title="Убрать из встречи" aria-label="Убрать ${esc(p.displayName||'участника')} из встречи">×</button>`:''}</span></div>`).join('')
@@ -1095,7 +1100,8 @@ async function eventPage(id){
       }catch(error){toast(error.message)}
     });
     const notesButton=$('[data-event-notes]');
-    if(notesButton)notesButton.onclick=()=>notesModal(event.id,event.title);
+    // Протокол — этой встречи, а не серии: передаём составной адрес.
+    if(notesButton)notesButton.onclick=()=>notesModal(id,event.title);
     const edit=$('[data-event-edit]');
     if(edit)edit.onclick=()=>eventEditModal(event);
     const invite=$('[data-event-invite]');
@@ -3318,7 +3324,7 @@ async function personPage(userId){
     </div>
     <div class="person-fields">
       ${field('Почта',person.email)}
-      ${field('Роль в системе',person.workspaceRole)}
+      ${field('Роль в системе',WORKSPACE_ROLE[person.workspaceRole]??person.workspaceRole)}
       ${field('Город',person.location)}
       ${field('Телефон',person.phone)}
       ${field('В команде с',person.startedOn?String(person.startedOn).slice(0,10):null)}
@@ -3807,10 +3813,21 @@ const MATERIAL_KINDS=[['all','Все'],['photo','Фото'],['video','Видео
  * проходили мимо: договорились и разошлись, а через месяц каждый
  * помнит своё.
  */
+/**
+ * Адрес протокола.
+ *
+ * У вхождения серии опознаватель составной — «событие@момент», — а в
+ * моменте двоеточия, которых в пути быть не может. Кодируем только
+ * хвост: собака разделяет части и должна остаться собой.
+ */
+function notesPath(eventId){
+  const [seriesId,occurrenceAt]=String(eventId).split('@');
+  return occurrenceAt?`${seriesId}@${encodeURIComponent(occurrenceAt)}`:seriesId;
+}
 async function notesModal(eventId,eventTitle=''){
   let notes=null;
   let failed=null;
-  try{notes=(await api(`/api/v1/calendar-events/${eventId}/notes`)).notes}
+  try{notes=(await api(`/api/v1/calendar-events/${notesPath(eventId)}/notes`)).notes}
   catch(error){failed=ERROR_MESSAGE[error.code]||error.message}
 
   const list=(values)=>(values||[]).join('\n');
@@ -3853,7 +3870,7 @@ async function notesModal(eventId,eventTitle=''){
       const data=new FormData(form);
       const rows=(value)=>String(value||'').split('\n').map(x=>x.trim()).filter(Boolean);
       try{
-        await api(`/api/v1/calendar-events/${eventId}/notes`,{method:'PUT',body:JSON.stringify({
+        await api(`/api/v1/calendar-events/${notesPath(eventId)}/notes`,{method:'PUT',body:JSON.stringify({
           title:data.get('title')||eventTitle||'Встреча',
           notes:data.get('notes')||null,
           decisions:rows(data.get('decisions')),
@@ -3869,7 +3886,7 @@ async function notesModal(eventId,eventTitle=''){
         const index=Number(button.dataset.commit);
         const owner=$(`[data-commit-owner="${index}"]`)?.value||null;
         const day=$(`[data-commit-date="${index}"]`)?.value||null;
-        const{task}=await api(`/api/v1/calendar-events/${eventId}/notes/commit`,{method:'POST',
+        const{task}=await api(`/api/v1/calendar-events/${notesPath(eventId)}/notes/commit`,{method:'POST',
           body:JSON.stringify({index,ownerId:owner,promisedAt:day?new Date(`${day}T18:00:00`).toISOString():null})});
         toast(`Задача создана: ${task.title}`);
         if(!S.tasks.some(x=>x.id===task.id))S.tasks.unshift(task);

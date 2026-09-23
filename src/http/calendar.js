@@ -6,8 +6,11 @@ const RESPOND = new RegExp(`^/api/v1/calendar-events/${ID}/respond$`, 'i');
 const PARTICIPANTS = new RegExp(`^/api/v1/calendar-events/${ID}/participants$`, 'i');
 const PARTICIPANT = new RegExp(`^/api/v1/calendar-events/${ID}/participants/${ID}$`, 'i');
 const FILES = new RegExp(`^/api/v1/calendar-events/${ID}/files$`, 'i');
-const NOTES = new RegExp(`^/api/v1/calendar-events/${ID}/notes$`, 'i');
-const NOTES_COMMIT = new RegExp(`^/api/v1/calendar-events/${ID}/notes/commit$`, 'i');
+// У протокола адрес может нести момент вхождения: протокол принадлежит
+// встрече, а не серии, и понедельничный не должен затираться средой.
+const NOTE_ID = `([0-9a-f-]{36}(?:@[^/]{10,64})?)`;
+const NOTES = new RegExp(`^/api/v1/calendar-events/${NOTE_ID}/notes$`, 'i');
+const NOTES_COMMIT = new RegExp(`^/api/v1/calendar-events/${NOTE_ID}/notes/commit$`, 'i');
 // Вхождение серии адресуется моментом, на который оно приходится по
 // правилу: это его единственный устойчивый признак.
 // Момент приезжает в адресе закодированным: двоеточия превращаются в

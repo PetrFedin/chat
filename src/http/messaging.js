@@ -284,9 +284,14 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     // два разных события: его назвали по имени — или в канале, за
     // которым он следит, появилось сообщение. У них и переключатели
     // разные, и в тихий час первое проходит, а второе нет.
+    // Названные по имени берутся из полного круга, а не из очищенного
+    // от приглушивших: приглушение убирает шум «в канале что-то новое»,
+    // но не личное обращение. Пока обе пачки строились из одного списка,
+    // «приглушить на восемь часов» означало пропустить и прямой вопрос —
+    // ровно то, от чего приглушение не должно защищать.
     const mentioned=new Set((message.mentionedUserIds??[]).map(String));
     const others=notificationAudience.filter(id=>id!==s.userId&&!mentioned.has(String(id)));
-    const called=notificationAudience.filter(id=>id!==s.userId&&mentioned.has(String(id)));
+    const called=audience.filter(id=>id!==s.userId&&mentioned.has(String(id)));
     const conversation=S_KIND(store.getConversation?await store.getConversation(s,m[1]).catch(()=>null):null);
     await Promise.all([
       notifyUsers(s.workspaceId,called,{title:`Вас упомянул(а) ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}`,kind:'message.mentioned'}),

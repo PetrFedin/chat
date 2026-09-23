@@ -45,6 +45,16 @@ export function createCallHandler() {
       });
       const recipients = participants.filter((id) => id !== session.userId);
       hub.broadcastUsers(session.workspaceId, participants, 'call.created', { call });
+      // Звонок писался только в push. Кто отошёл от стола — не узнавал о
+      // нём никогда: в списке уведомлений звонков не было как класса.
+      if (!body.scheduledFor) {
+        await store.projectCallNotification?.(session, call, {
+          recipients,
+          type: 'call.started',
+          title: `${session.displayName} звонит`,
+          body: call.title || (mode === 'video' ? 'Видеозвонок' : 'Аудиозвонок'),
+        });
+      }
       await notifyUsers(session.workspaceId, recipients, {
         title: `${session.displayName} начинает ${mode === 'video' ? 'видеозвонок' : 'звонок'}`,
         body: call.title || 'Входящий корпоративный звонок',
@@ -209,6 +219,27 @@ export function createCallHandler() {
       const audience = await store.conversationAudience(session, call.conversationId);
       hub.broadcastUsers(session.workspaceId, audience, 'call.participant.joined', { callId: call.id, userId: session.userId, call: updated });
       json(res, 200, { call: updated, credentials });
+      return true;
+    }
+
+    // «Не сейчас» — отдельное действие, а не выход из звонка: звонящий
+    // должен увидеть отказ, а не гадать, оборвалась ли связь.
+    match = path.match(new RegExp(`^/api/v1/calls/${CALL_ID}/decline$`, 'i'));
+    if (match && method === 'POST') {
+      const session = await requireSession(req);
+      const call = await accessibleCall(store, calls, session, match[1]);
+      const updated = await calls.decline(session, call.id);
+      const audience = await store.conversationAudience(session, call.conversationId);
+      hub.broadcastUsers(session.workspaceId, audience, 'call.participant.declined', { callId: call.id, userId: session.userId, call: updated });
+      if (call.createdBy && call.createdBy !== session.userId) {
+        await store.projectCallNotification?.(session, call, {
+          recipients: [call.createdBy],
+          type: 'call.declined',
+          title: `${session.displayName} не может говорить`,
+          body: call.title || 'Отклонён входящий звонок',
+        });
+      }
+      json(res, 200, { call: updated });
       return true;
     }
 

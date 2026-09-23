@@ -77,7 +77,11 @@ export function createPeopleRepository(pool, org = null) {
     const { rows } = await pool.query(
       `SELECT m.user_id "userId", m.role "workspaceRole", m.created_at "joinedAt", u.email, u.disabled_at "disabledAt",
               p.display_name "displayName", p.title, p.department, p.phone, p.about, p.location,
-              p.started_on "startedOn", p.timezone, p.locale, p.status_text "statusText",
+              -- Дата выхода на работу — именно дата, без часа. Драйвер
+              -- превращал её в момент по местному поясу сервера, и в
+              -- ответе 1 марта становилось 29 февраля 21:00, а карточка
+              -- печатала первые десять знаков — то есть день раньше.
+              to_char(p.started_on,'YYYY-MM-DD') "startedOn", p.timezone, p.locale, p.status_text "statusText",
               ${avatarUrlSql('p.avatar_file_id')} "avatarUrl",
               p.birth_day "birthDay", p.birth_month "birthMonth", m.access_until "accessUntil",
               pr.state "presenceState", pr.last_seen_at "lastSeenAt",

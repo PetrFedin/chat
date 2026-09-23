@@ -208,7 +208,7 @@ export class PostgresStore {
       // должен отдавать то же самое в обход.
       s.role==='guest'?{rows:[]}:this.pool.query(`SELECT o.name,o.legal_name "legalName",o.tax_id "taxId",o.address,o.website,o.phone,
           o.email_domain "emailDomain",o.seat_limit "seatLimit",o.domain_join "domainJoin",
-          (SELECT count(*)::int FROM memberships m WHERE m.organization_id=o.id AND m.role<>'guest') "seatsUsed",
+          (SELECT count(*)::int FROM memberships m JOIN users mu ON mu.id=m.user_id WHERE m.organization_id=o.id AND m.role<>'guest' AND mu.disabled_at IS NULL) "seatsUsed",
           (SELECT count(*)::int FROM workspace_invitations i
             WHERE i.organization_id=o.id AND i.status='pending' AND i.expires_at>now() AND i.role<>'guest') "seatsInvited"
         FROM organizations o WHERE o.id=$1`,[s.organizationId]),
@@ -398,16 +398,24 @@ export class PostgresStore {
     const domain=String(email||'').split('@')[1]?.toLowerCase();
     if(!domain)return null;
     const{rows}=await this.pool.query(
+      // Мест считалось двумя разными способами: здесь — только людьми, а
+      // на экране компании и при обычном приглашении — людьми ПЛЮС
+      // неотвеченными приглашениями. Из-за этого предел мест обходился
+      // любым, у кого почта на домене: владелец в ту же секунду получал
+      // «свободных мест нет», а самостоятельный вход пускал дальше.
+      // Счёт должен быть один: место занято с того мига, как позвали.
       `SELECT o.id organization_id,o.name,o.seat_limit "seatLimit",w.id workspace_id,
-         (SELECT count(*)::int FROM memberships m WHERE m.organization_id=o.id AND m.role<>'guest') seats_used
+         (SELECT count(*)::int FROM memberships m JOIN users mu ON mu.id=m.user_id WHERE m.organization_id=o.id AND m.role<>'guest' AND mu.disabled_at IS NULL) seats_used,
+         (SELECT count(*)::int FROM workspace_invitations i WHERE i.organization_id=o.id AND i.status='pending' AND i.expires_at>now() AND i.role<>'guest') seats_invited
        FROM organizations o JOIN workspaces w ON w.organization_id=o.id
        WHERE o.domain_join AND lower(o.email_domain)=$1
        ORDER BY w.created_at LIMIT 1`,[domain]);
     if(!rows.length)return null;
     const row=rows[0];
+    const taken=row.seats_used+row.seats_invited;
     return{organizationId:row.organization_id,workspaceId:row.workspace_id,name:row.name,
-      seatLimit:row.seatLimit,seatsUsed:row.seats_used,
-      full:row.seatLimit!==null&&row.seats_used>=row.seatLimit};
+      seatLimit:row.seatLimit,seatsUsed:row.seats_used,seatsInvited:row.seats_invited,
+      full:row.seatLimit!==null&&taken>=row.seatLimit};
   }
 
   /**
@@ -439,7 +447,7 @@ export class PostgresStore {
   async seatState(s){
     const{rows}=await this.pool.query(
       `SELECT o.seat_limit "limit",
-        (SELECT count(*)::int FROM memberships m WHERE m.organization_id=o.id AND m.role<>'guest') members,
+        (SELECT count(*)::int FROM memberships m JOIN users mu ON mu.id=m.user_id WHERE m.organization_id=o.id AND m.role<>'guest' AND mu.disabled_at IS NULL) members,
         (SELECT count(*)::int FROM workspace_invitations i
           WHERE i.organization_id=o.id AND i.status='pending' AND i.expires_at>now() AND i.role<>'guest') invited
        FROM organizations o WHERE o.id=$1`,[s.organizationId]);

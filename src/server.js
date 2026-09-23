@@ -158,7 +158,7 @@ export async function createChatServer(options={}){
   const reminders=options.reminders??createReminderRepository(pool);
   const vault=options.vault??createVaultRepository(pool);
   const marks=options.marks??createMarkRepository(pool);
-  const reminderWorker=options.reminderWorker??createReminderWorker(reminders);
+  // Работник напоминаний собирается ниже — ему нужен `calls`.
   const calendar=options.calendar??createCalendarRepository(pool,store);
   // Протокол наследует видимость встречи, а не заводит свою: иначе
   // появляется второй ответ на вопрос «кому это видно».
@@ -187,6 +187,19 @@ export async function createChatServer(options={}){
   const digestMailer=options.digestMailer??(mail&&digest?createDigestMailer({pool,digest,mail}):null);
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
+  // Тот же обход времени закрывает звонки, которых никто не взял, и
+  // извещает звонившего: раньше такой звонок оставался «звонящим»
+  // навсегда, а тот, кому звонили, не узнавал об этом никогда.
+  const reminderWorker=options.reminderWorker??createReminderWorker(reminders,{calls,
+    onMissedCalls:async(missed)=>{
+      for(const row of missed){
+        if(!row.missed?.length)continue;
+        await store.projectCallNotification?.(
+          {organizationId:row.organizationId,workspaceId:row.workspaceId,userId:row.createdBy,displayName:''},
+          {id:row.id,conversationId:row.conversationId,title:row.title??null,mode:row.mode??null},
+          {recipients:row.missed,type:'call.missed',title:'Пропущенный звонок',body:row.title??'Вам звонили'}).catch(()=>{});
+      }
+    }});
   const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
   const meetingOps=options.meetingOps??createMeetingOperationsRepository(meeting,pool);
   const liveKitWebhook=options.liveKitWebhook??createLiveKitWebhookReceiver();

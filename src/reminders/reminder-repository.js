@@ -188,7 +188,13 @@ export function createReminderRepository(pool) {
 /**
  * Работник очереди: спит между проходами и не держит процесс живым.
  */
-export function createReminderWorker(repository, { intervalMs, env = process.env } = {}) {
+/**
+ * `calls` — необязательный сосед: тот же обход времени закрывает звонки,
+ * которых никто не взял. Отдельного работника ради этого заводить не
+ * стоит, а без обхода звонок оставался «звонящим» навсегда: срока у
+ * состояния не было, и понятия «пропущенный» в продукте не существовало.
+ */
+export function createReminderWorker(repository, { intervalMs, env = process.env, calls = null, onMissedCalls = null } = {}) {
   // Как часто заглядывать в напоминания и включён ли обход вообще — решение
   // эксплуатации, а не константа в коде.
   const everyMs = Math.max(1000, Number(intervalMs ?? env.REMINDER_WORKER_POLL_MS ?? 30_000));
@@ -197,15 +203,26 @@ export function createReminderWorker(repository, { intervalMs, env = process.env
   let running = false;
   const schedule = (loop) => { timer = setTimeout(loop, everyMs); timer.unref?.(); };
   return {
+    async sweepCalls() {
+      if (!calls?.sweepUnanswered) return [];
+      const missed = await calls.sweepUnanswered({ after: env.CALL_RINGING_TIMEOUT ?? '5 minutes' });
+      if (missed.length && onMissedCalls) await onMissedCalls(missed);
+      return missed;
+    },
     async tick() {
+      await this.sweepCalls().catch(() => {});
       if (!repository?.enabled) return { fired: 0 };
       return repository.due({});
     },
     start() {
-      if (!enabled || !repository?.enabled || running) return;
+      // Обход нужен и тогда, когда напоминаний нет: звонки, которых
+      // никто не взял, закрывает он же.
+      if (!enabled || running) return;
+      if (!repository?.enabled && !calls?.sweepUnanswered) return;
       running = true;
       const loop = async () => {
-        try { await repository.due({}); } catch { /* следующий проход попробует снова */ }
+        try { await this.sweepCalls(); } catch { /* следующий проход попробует снова */ }
+        if (repository?.enabled) try { await repository.due({}); } catch { /* следующий проход попробует снова */ }
         if (running) schedule(loop);
       };
       // Первый обход — сразу, а не через интервал: после перезапуска

@@ -61,17 +61,36 @@ export function createMeetingNotes(pool, { calendar = null, store = null } = {})
     return event;
   };
 
+  /**
+   * Протокол принадлежит встрече, а не серии.
+   *
+   * Записали, что решили в понедельник, а в среду записали среду — и
+   * понедельник исчезал без предупреждения вместе с решениями. Вхождение
+   * адресуется моментом, на который приходится по правилу: тем же
+   * признаком, которым уже адресуются перенос и отмена одной встречи.
+   * У одиночной встречи момента нет.
+   */
+  const splitId = (eventId) => {
+    const [seriesId, occurrenceAt = null] = String(eventId).split('@');
+    if (!occurrenceAt) return { seriesId, occurrenceAt: null };
+    const at = new Date(decodeURIComponent(occurrenceAt));
+    if (Number.isNaN(at.getTime())) throw fail('Непонятно, о какой встрече серии речь', 'INVALID_OCCURRENCE', 400);
+    return { seriesId, occurrenceAt: at.toISOString() };
+  };
+
   return {
     /** Протокол встречи, если он есть. */
     async get(session, eventId) {
-      await eventOrFail(session, eventId);
+      const { seriesId, occurrenceAt } = splitId(eventId);
+      await eventOrFail(session, seriesId);
       const { rows } = await pool.query(
         `SELECT ${COLUMNS} FROM meeting_notes n
            LEFT JOIN users u ON u.id = n.created_by
            LEFT JOIN workspace_profiles p ON p.workspace_id = n.workspace_id AND p.user_id = n.created_by
           WHERE n.workspace_id = $1 AND n.calendar_event_id = $2
+            AND n.occurrence_at IS NOT DISTINCT FROM $3::timestamptz
           ORDER BY n.created_at LIMIT 1`,
-        [session.workspaceId, eventId],
+        [session.workspaceId, seriesId, occurrenceAt],
       );
       return rows[0] ? view(rows[0]) : null;
     },
@@ -83,26 +102,28 @@ export function createMeetingNotes(pool, { calendar = null, store = null } = {})
      * же спор, только теперь письменный.
      */
     async save(session, eventId, { notes = null, decisions = [], actionItems = [], title = null } = {}) {
-      const event = await eventOrFail(session, eventId);
+      const { seriesId, occurrenceAt } = splitId(eventId);
+      const event = await eventOrFail(session, seriesId);
       const heading = String(title ?? event.title ?? 'Встреча').replace(/\s+/g, ' ').trim().slice(0, 240);
       if (!heading) throw fail('У протокола должно быть название', 'INVALID_TITLE');
       const body = notes === null || notes === undefined ? null : String(notes).slice(0, 20000);
       const { rows } = await pool.query(
-        `INSERT INTO meeting_notes(organization_id, workspace_id, calendar_event_id, created_by,
+        `INSERT INTO meeting_notes(organization_id, workspace_id, calendar_event_id, occurrence_at, created_by,
                                    title, notes, decisions, action_items, visibility)
-         VALUES($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, 'participants')
-         ON CONFLICT (workspace_id, calendar_event_id) WHERE calendar_event_id IS NOT NULL
+         VALUES($1, $2, $3, $9::timestamptz, $4, $5, $6, $7::jsonb, $8::jsonb, 'participants')
+         ON CONFLICT (workspace_id, calendar_event_id, COALESCE(occurrence_at, '-infinity'::timestamptz))
+           WHERE calendar_event_id IS NOT NULL
          DO UPDATE SET title = EXCLUDED.title, notes = EXCLUDED.notes,
                        decisions = EXCLUDED.decisions, action_items = EXCLUDED.action_items,
                        updated_at = now()
          RETURNING id`,
-        [session.organizationId, session.workspaceId, eventId, session.userId, heading, body,
-          JSON.stringify(lines(decisions)), JSON.stringify(lines(actionItems))],
+        [session.organizationId, session.workspaceId, seriesId, session.userId, heading, body,
+          JSON.stringify(lines(decisions)), JSON.stringify(lines(actionItems)), occurrenceAt],
       );
       await pool.query(
         `INSERT INTO audit_events(organization_id, workspace_id, aggregate_type, aggregate_id, event_type, actor_id, payload)
          VALUES($1, $2, 'calendar_event', $3, 'meeting.notes.saved', $4, $5)`,
-        [session.organizationId, session.workspaceId, eventId, session.userId,
+        [session.organizationId, session.workspaceId, seriesId, session.userId,
           { noteId: rows[0].id, decisions: lines(decisions).length, actionItems: lines(actionItems).length }],
       );
       return this.get(session, eventId);
@@ -126,9 +147,11 @@ export function createMeetingNotes(pool, { calendar = null, store = null } = {})
       // Пункт, уже ставший задачей, второй раз задачей не становится:
       // возвращаем ту же. Иначе двое, открывшие протокол после
       // совещания, заводят два одинаковых обязательства — и оба живые.
+      const { seriesId, occurrenceAt } = splitId(eventId);
       const { rows: existing } = await pool.query(
-        `SELECT committed->>$3 id FROM meeting_notes WHERE workspace_id=$1 AND calendar_event_id=$2`,
-        [session.workspaceId, eventId, String(position)],
+        `SELECT committed->>$3 id FROM meeting_notes
+          WHERE workspace_id=$1 AND calendar_event_id=$2 AND occurrence_at IS NOT DISTINCT FROM $4::timestamptz`,
+        [session.workspaceId, seriesId, String(position), occurrenceAt],
       );
       const known = existing[0]?.id;
       if (known) {
@@ -145,8 +168,8 @@ export function createMeetingNotes(pool, { calendar = null, store = null } = {})
       });
       await pool.query(
         `UPDATE meeting_notes SET committed=committed||jsonb_build_object($3::text,$4::text)
-          WHERE workspace_id=$1 AND calendar_event_id=$2`,
-        [session.workspaceId, eventId, String(position), task.id],
+          WHERE workspace_id=$1 AND calendar_event_id=$2 AND occurrence_at IS NOT DISTINCT FROM $5::timestamptz`,
+        [session.workspaceId, seriesId, String(position), task.id, occurrenceAt],
       );
       return { task };
     },

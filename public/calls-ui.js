@@ -52,7 +52,17 @@
     root.className = 'incoming-call';
     root.innerHTML = `<div><strong>${esc(payload.title || 'Входящий звонок')}</strong><span>${esc(payload.body || 'Корпоративный звонок')}</span></div><div class="incoming-actions"><button data-call-answer>Присоединиться</button><button class="dismiss" data-call-dismiss>Не сейчас</button></div>`;
     document.body.append(root);
-    root.querySelector('[data-call-dismiss]').onclick = () => root.remove();
+    // «Не сейчас» убирало плашку и только: звонящий продолжал смотреть
+    // на гудки, не зная, что ему отказали. Отказ — это ответ, и он
+    // должен дойти до того, кто звонит.
+    root.querySelector('[data-call-dismiss]').onclick = () => {
+      root.remove();
+      fetch(`/api/v1/calls/${callId}/decline`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
+        body: '{}',
+      }).catch(() => { /* плашка уже убрана; отказ не дошёл — звонок закроется сам по сроку */ });
+    };
     root.querySelector('[data-call-answer]').onclick = () => {
       root.remove();
       history.replaceState(null, '', `/#/calls/${callId}`);

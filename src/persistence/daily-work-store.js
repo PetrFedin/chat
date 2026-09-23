@@ -166,6 +166,25 @@ export class MemoryStore extends BaseMemoryStore {
     return task;
   }
 
+  async projectCallNotification(session, call, { recipients=[], type='call.started', title='Звонок', body=null } = {}) {
+    const targets=[...new Set(recipients.filter((id)=>id&&id!==session.userId))];
+    return targets.map((recipientUserId)=>this.putNotification({
+      organizationId:session.organizationId,
+      workspaceId:session.workspaceId,
+      recipientUserId,
+      sourceEventId:call.id,
+      dedupeKey:`${type}:${call.id}:${recipientUserId}`,
+      type,
+      title,
+      body:body||call.title||'Звонок',
+      actorUserId:session.userId,
+      conversationId:call.conversationId??null,
+      url:call.conversationId?`/#/chats/${call.conversationId}`:null,
+      priority:type==='call.started'?'high':'normal',
+      metadata:{callId:call.id,mode:call.mode??null},
+    }));
+  }
+
   async projectTaskLifecycleNotification(session, task, { type='task.updated', title='Задача обновлена', body=null } = {}) {
     const recipients=[...new Set([task.ownerId,task.requesterId,task.acceptorId].filter((id)=>id&&id!==session.userId))];
     return recipients.map((recipientUserId)=>this.putNotification({
@@ -199,8 +218,10 @@ export class MemoryStore extends BaseMemoryStore {
   async projectMessageNotifications(session, conversationId, message) {
     const conversation = this.conversations.get(conversationId);
     if (!conversation) return [];
+    const everyone = await this.conversationAudience(session, conversationId);
     const audience = await this.conversationNotificationAudience(session, conversationId);
-    const mentioned = new Set((message.mentionedUserIds ?? []).filter((id) => id !== session.userId && audience.includes(id)));
+    // Названного по имени приглушение не касается: см. хранилище с базой.
+    const mentioned = new Set((message.mentionedUserIds ?? []).filter((id) => id !== session.userId && everyone.includes(id)));
     const rows = [];
     for (const userId of mentioned) {
       rows.push(this.putNotification({
@@ -435,6 +456,28 @@ export class PostgresStore extends BasePostgresStore {
     return task;
   }
 
+  /**
+   * Извещение о звонке.
+   *
+   * Звонок был слышен только тому, кто сидел у экрана: извещение уходило
+   * в браузерный push и никуда больше. Отошёл от стола — и не узнал ни
+   * что тебе звонили, ни что человек не смог говорить.
+   */
+  async projectCallNotification(session, call, { recipients=[], type='call.started', title='Звонок', body=null } = {}) {
+    const targets=[...new Set(recipients.filter((id)=>id&&id!==session.userId))],rows=[];
+    for(const recipientUserId of targets){
+      const row=await this.insertNotification({
+        organizationId:session.organizationId,workspaceId:session.workspaceId,recipientUserId,
+        sourceEventId:call.id,dedupeKey:`${type}:${call.id}:${recipientUserId}`,type,title,
+        body:body||call.title||'Звонок',actorUserId:session.userId,conversationId:call.conversationId??null,
+        url:call.conversationId?`/#/chats/${call.conversationId}`:null,
+        priority:type==='call.started'?'high':'normal',metadata:{callId:call.id,mode:call.mode??null},
+      });
+      if(row)rows.push(row);
+    }
+    return rows;
+  }
+
   async projectTaskLifecycleNotification(session, task, { type='task.updated', title='Задача обновлена', body=null } = {}) {
     const recipients=[...new Set([task.ownerId,task.requesterId,task.acceptorId].filter((id)=>id&&id!==session.userId))],rows=[];
     for(const recipientUserId of recipients){
@@ -466,8 +509,13 @@ export class PostgresStore extends BasePostgresStore {
   async projectMessageNotifications(session, conversationId, message) {
     const conversation=(await this.pool.query('SELECT kind FROM conversations WHERE workspace_id=$1 AND id=$2',[session.workspaceId,conversationId])).rows[0];
     if(!conversation)return[];
+    // Круга два: полный — для тех, кого назвали по имени, и очищенный от
+    // приглушивших — для всех прочих. Приглушение убирает шум, а не
+    // личное обращение; пока круг был один, «приглушить на восемь часов»
+    // означало пропустить и прямой вопрос.
+    const everyone=await this.conversationAudience(session,conversationId);
     const audience=await this.conversationNotificationAudience(session,conversationId);
-    const mentioned=[...new Set((message.mentionedUserIds??[]).filter((id)=>id!==session.userId&&audience.includes(id)))];
+    const mentioned=[...new Set((message.mentionedUserIds??[]).filter((id)=>id!==session.userId&&everyone.includes(id)))];
     const plain=['direct','group'].includes(conversation.kind)
       ? audience.filter((id)=>id!==session.userId&&!mentioned.includes(id))
       : [];
