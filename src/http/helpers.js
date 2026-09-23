@@ -13,7 +13,20 @@ export const messageKindLabel=(kind)=>({voice:'Голосовое сообщен
 // Заодно уходят прочие управляющие символы, кроме перевода строки и
 // табуляции: в названии задачи им делать нечего.
 const CONTROL=/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
-export const cleanText=(value,max=500)=>{const s=String(value??'').replace(CONTROL,'').trim();if(!s||s.length>max)throw Object.assign(new Error('Invalid text value'),{code:'INVALID_TEXT'});return s};
+/**
+ * Обязательное текстовое поле.
+ *
+ * Отказ говорил «Invalid text value» — ни поля, ни того, что не так.
+ * Человек, оставивший пустым имя, и человек, вписавший название на
+ * двести символов, читали одну и ту же фразу и не знали, что чинить.
+ * Третьим доводом идёт название поля: где его передали, там и скажем.
+ */
+export const cleanText=(value,max=500,field=null)=>{
+  const s=String(value??'').replace(CONTROL,'').trim();
+  if(!s)throw Object.assign(new Error(field?`Заполните поле «${field}»`:'Поле не заполнено'),{code:'INVALID_TEXT',statusCode:400,expose:true});
+  if(s.length>max)throw Object.assign(new Error(field?`«${field}» длиннее ${max} символов`:`Текст длиннее ${max} символов`),{code:'INVALID_TEXT',statusCode:400,expose:true});
+  return s;
+};
 // То же для длинных текстов, которые не проходят через cleanText: тело
 // сообщения, заметки. Здесь только вычищаем, длину меряет вызывающий.
 /**

@@ -23,14 +23,20 @@ async function post(ctx,letter){
   if(!ctx.mail)return{queued:false,reason:'no-queue'};
   try{
     const queued=await ctx.mail.enqueue(letter);
-    return{queued:Boolean(queued),reason:queued?null:'duplicate'};
+    // «Поставлено в очередь» и «уйдёт» — разные вещи. Когда почтовый
+    // канал не настроен, письмо ложится в таблицу и остаётся там
+    // навсегда, а человек читал «Приглашение отправлено» и ждал. Ссылку
+    // при этом можно передать и руками — но об этом надо сказать.
+    const configured=ctx.mailWorker?.status?.().configured;
+    return{queued:Boolean(queued),reason:queued?null:'duplicate',
+      willSend:configured===undefined?Boolean(queued):Boolean(queued&&configured)};
   }catch(error){
     log('error','mail.enqueue.failed',{kind:letter.kind,err:String(error?.message??error)});
     return{queued:false,reason:'enqueue-failed'};
   }
 }
 
-const invalidCredentials=()=>Object.assign(new Error('Invalid email or password'),{code:'INVALID_CREDENTIALS',statusCode:401});
+const invalidCredentials=()=>Object.assign(new Error('Неверная почта или пароль'),{code:'INVALID_CREDENTIALS',statusCode:401});
 
 export async function handleAuth(req,res,ctx,path,method,url=null){
   const {store,requireSession,openSession,clearSession,cookieToken,authThrottle}=ctx;
@@ -38,7 +44,7 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
   if(method==='POST'&&path==='/api/v1/auth/register-company'){
     authThrottle?.guard('register',{address});
     const b=await readJson(req),email=normalizeEmail(b.email),p=hashPassword(b.password);
-    const x=await store.createCompany({companyName:cleanText(b.companyName,120),workspaceName:b.workspaceName?cleanText(b.workspaceName,120):undefined,ownerName:cleanText(b.ownerName,120),email,passwordHash:p.hash,passwordSalt:p.salt});
+    const x=await store.createCompany({companyName:cleanText(b.companyName,120,'Название компании'),workspaceName:b.workspaceName?cleanText(b.workspaceName,120,'Название пространства'):undefined,ownerName:cleanText(b.ownerName,120,'Ваше имя'),email,passwordHash:p.hash,passwordSalt:p.salt});
     await openSession(res,req,x.user.id,x.workspace.id,201);return true;
   }
   /**
@@ -97,7 +103,7 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
 
   if(method==='POST'&&path==='/api/v1/invitations/accept'){
     authThrottle?.guard('invitation',{address});
-    const b=await readJson(req),p=hashPassword(b.password),x=await store.acceptInvitation({tokenHash:hashToken(cleanText(b.token,200)),displayName:cleanText(b.displayName,120),passwordHash:p.hash,passwordSalt:p.salt});
+    const b=await readJson(req),p=hashPassword(b.password),x=await store.acceptInvitation({tokenHash:hashToken(cleanText(b.token,200)),displayName:cleanText(b.displayName,120,'Ваше имя'),passwordHash:p.hash,passwordSalt:p.salt});
     await openSession(res,req,x.user.id,x.workspace.id,201);return true;
   }
   if(method==='POST'&&path==='/api/v1/auth/login'){

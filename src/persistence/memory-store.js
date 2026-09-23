@@ -43,7 +43,7 @@ export class MemoryStore {
   messageForwardKey(workspaceId,messageId){return `${workspaceId}:${messageId}`}
 
   async createCompany({ companyName, workspaceName, ownerName, email, passwordHash, passwordSalt }) {
-    if (this.userByEmail.has(email)) throw Object.assign(new Error('Email already registered'), { code: 'EMAIL_EXISTS', statusCode: 409 });
+    if (this.userByEmail.has(email)) throw Object.assign(new Error('На этот адрес уже заведена учётная запись'), { code: 'EMAIL_EXISTS', statusCode: 409 });
     const organizationId = randomUUID();
     const workspaceId = randomUUID();
     const userId = randomUUID();

@@ -122,6 +122,14 @@ const WHAT_FOR = {
   'org.unit.private.create': 'Заводить закрытые подразделения',
 };
 const WHO_CAN = {
+  'member.invite': 'владелец, администратор или руководитель',
+  'vault.use': 'сотрудник компании, но не внешний участник',
+  'ai.use': 'сотрудник компании, но не внешний участник',
+  'integration.manage': 'владелец или администратор',
+  'meeting.ops.manage': 'владелец или администратор',
+  'meeting.cost.read': 'владелец или администратор',
+  'meeting.cost.manage': 'владелец или администратор',
+  'org.unit.private.create': 'владелец, администратор или руководитель',
   'organization.manage': 'только владелец',
   'organization.settings': 'владелец или администратор',
   'member.manage': 'владелец или администратор',

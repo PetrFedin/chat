@@ -7,7 +7,7 @@ const TIMING_PROBE_SALT = 'chat-timing-probe-salt';
 export function normalizeEmail(value) {
   const email = String(value ?? '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    const error = new Error('A valid email is required');
+    const error = new Error('Это не похоже на адрес почты');
     error.code = 'INVALID_EMAIL';
     throw error;
   }
@@ -16,12 +16,12 @@ export function normalizeEmail(value) {
 
 export function validatePassword(password) {
   if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
-    const error = new Error(`Password must contain at least ${MIN_PASSWORD_LENGTH} characters`);
+    const error = new Error(`Пароль должен быть не короче ${MIN_PASSWORD_LENGTH} символов`);
     error.code = 'WEAK_PASSWORD';
     throw error;
   }
   if (!/[A-Za-zА-Яа-яЁё]/.test(password) || !/\d/.test(password)) {
-    const error = new Error('Password must contain letters and a number');
+    const error = new Error('В пароле должны быть буквы и хотя бы одна цифра');
     error.code = 'WEAK_PASSWORD';
     throw error;
   }

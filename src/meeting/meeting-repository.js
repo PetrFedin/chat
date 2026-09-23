@@ -688,6 +688,22 @@ export class PostgresMeetingRepository {
    * решение, а отклонённое им и не стало.
    */
   async decisions(session, { query = null, from = null, to = null, limit = 60 } = {}) {
+    // Предел зажимается снизу тоже: `?limit=-5` уходило в SQL как
+    // `LIMIT -5` и отвечало пятисоткой — на экране это «Решения
+    // недоступны · Internal server error». Соседние разделы зажимают.
+    const size = Math.min(Math.max(Number(limit) || 60, 1), 200);
+    // Дата, которую не разобрать, тоже давала пятисотку: строка уходила
+    // в timestamptz как есть.
+    const bound = (value, what) => {
+      if (value === null || value === undefined || value === '') return null;
+      const at = new Date(value);
+      if (Number.isNaN(at.getTime())) {
+        throw Object.assign(new Error(`Не разобрали дату «${what}»`), { code: 'INVALID_DATE', statusCode: 400, expose: true });
+      }
+      return at.toISOString();
+    };
+    from = bound(from, 'с');
+    to = bound(to, 'по');
     const like = query ? `%${String(query).replace(/[\\%_]/g, (ch) => `\\${ch}`)}%` : null;
     const { rows } = await this.pool.query(`SELECT
         p.id, p.title, p.body, p.accepted_at "acceptedAt",
@@ -706,7 +722,7 @@ export class PostgresMeetingRepository {
         AND ($5::timestamptz IS NULL OR p.accepted_at <= $5)
       ORDER BY p.accepted_at DESC
       LIMIT $6`,
-    [session.workspaceId, session.userId, like, from, to, Math.min(Number(limit) || 60, 200)]);
+    [session.workspaceId, session.userId, like, from, to, size]);
 
     // Решения из протоколов встреч, у которых не было записи. Человеку
     // всё равно, записывали встречу или нет: он ищет «что мы решили».
@@ -727,11 +743,11 @@ export class PostgresMeetingRepository {
         AND ($5::timestamptz IS NULL OR n.updated_at <= $5)
       ORDER BY n.updated_at DESC
       LIMIT $6`,
-    [session.workspaceId, session.userId, like, from, to, Math.min(Number(limit) || 60, 200)]);
+    [session.workspaceId, session.userId, like, from, to, size]);
 
     return [...rows, ...written]
       .sort((a, b) => String(b.acceptedAt ?? '').localeCompare(String(a.acceptedAt ?? '')))
-      .slice(0, Math.min(Number(limit) || 60, 200));
+      .slice(0, size);
   }
 }
 
