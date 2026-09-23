@@ -1003,7 +1003,7 @@
     'Что присылать': ['Что присылать', 'What to send'],
     'Касается только push — того, что прерывает. Список уведомлений внутри приложения остаётся полным.': ['Касается только push — того, что прерывает. Список уведомлений внутри приложения остаётся полным.', 'This affects push only — what interrupts you. The in-app notification list stays complete.'],
     'Тихие часы': ['Тихие часы', 'Quiet hours'],
-    'В выбранные часы push не приходит.': ['В выбранные часы push не приходит.', 'No push arrives during the chosen hours.'],
+    'В выбранные часы push не приходит. Одинаковые «с» и «до» означают, что тихих часов нет.': ['В выбранные часы push не приходит. Одинаковые «с» и «до» означают, что тихих часов нет.', 'No push arrives during the chosen hours. Equal «from» and «to» mean quiet hours are off.'],
     'С': ['С', 'From'],
     'До': ['До', 'To'],
     'Кроме личных обращений': ['Кроме личных обращений', 'Except when called by name'],
@@ -1270,6 +1270,12 @@
     '.profile-card strong',
     '.message-author',
     '.participant-label span:first-child',
+    // Заголовок и текст извещения — чужие слова: там имя коллеги и
+    // название его задачи. «Марта Соколова» становилась «March
+    // Соколова», а «Закрыть акты за сентябрь» теряло сентябрь.
+    '.dwc-notification strong',
+    '.dwc-notification p',
+    '.dwc-result-meta',
     '[data-prefs-owned]'
   ].join(',');
 
@@ -1312,10 +1318,15 @@
     // «Sunтреча»: the map holds two-letter day abbreviations, and «чт» and
     // «вс» live inside ordinary Russian words. Only whole words are replaced,
     // and a short abbreviation only where the string reads as a date.
+    // Полное название месяца — тоже обычное русское слово и тоже чьё-то
+    // имя: «Марта Соколова» превращалась в «March Соколова», «Августа
+    // Белова» — в «August Белова», а «Закрыть акты за сентябрь» теряло
+    // сентябрь посреди названия задачи. Месяц заменяется только там, где
+    // строка и впрямь читается как дата: рядом есть число.
     const looksLikeDate = /\d/.test(value);
+    if (!looksLikeDate) return value.replace(/\sг\.$/, '');
     let translated = value;
     for (const [ru, en] of Object.entries(monthWords)) {
-      if (ru.length <= 3 && !looksLikeDate) continue;
       const escaped = ru.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const boundary = new RegExp(`(^|[^\\p{L}\\p{N}])(${escaped})(?![\\p{L}\\p{N}])`, 'giu');
       translated = translated.replace(boundary, (whole, before, found) => before + caseLike(found, en));

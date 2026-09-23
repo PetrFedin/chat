@@ -217,6 +217,15 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     const handoverReason=typeof b.reason==='string'&&b.reason.trim()?b.reason.trim():null;
     await store.projectTaskLifecycleNotification?.(s,task,{type:'task.assigned',title:'Задачу передали вам',
       body:handoverReason?`${task.title} — ${handoverReason}`:task.title});
+    // Круг получателей собирается из обновлённой задачи — прежнего
+    // владельца там уже нет, и он один оставался в неведении: в его
+    // колокольчике по-прежнему висело «вам поручили задачу» про задачу,
+    // которая давно не его, а сам он считал себя ответственным.
+    if(task.previousOwnerId&&task.previousOwnerId!==s.userId&&task.previousOwnerId!==task.ownerId){
+      await store.projectTaskLifecycleNotification?.(s,{...task,ownerId:task.previousOwnerId,requesterId:null,acceptorId:null},
+        {type:'task.updated',title:'Задачу передали другому',
+          body:handoverReason?`${task.title} — ${handoverReason}`:`${task.title}: теперь её ведёт кто-то другой`});
+    }
     await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Задача передана',body:task.title,url:`/#/tasks/${task.id}`,kind:'task.assigned'});
     json(res,200,{task});return true
   }

@@ -193,7 +193,12 @@ test('the translator replaces whole words, not pieces of them', async () => {
   // A global substring replace over two-letter day abbreviations turned
   // «Почта» into «ПоThuа» and «Встреча» into «Sunтреча».
   assert.match(source, /const looksLikeDate = \/\\d\/\.test\(value\)/);
-  assert.match(source, /if \(ru\.length <= 3 && !looksLikeDate\) continue;/);
+  // Правило стало строже: месяц подменяется только там, где строка и
+  // впрямь читается как дата. Полное название месяца — тоже обычное
+  // русское слово и тоже чьё-то имя: «Марта Соколова» превращалась в
+  // «March Соколова», а «Закрыть акты за сентябрь» теряло сентябрь
+  // посреди названия задачи.
+  assert.match(source, /if \(!looksLikeDate\) return value\.replace/);
   assert.match(source, /\\\\p\{L\}\\\\p\{N\}/, 'word boundaries must be unicode-aware');
   assert.doesNotMatch(source, /translated\.replace\(new RegExp\(escaped, 'gi'\)/);
 });

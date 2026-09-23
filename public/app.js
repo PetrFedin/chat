@@ -5359,10 +5359,10 @@ async function profileModal(){
           <input type="checkbox" name="${name}" ${settings[name]===false?'':'checked'}>
           <span><span class="row-title">${caption}</span><span class="row-sub">${hint}</span></span></label>`).join('')}
         <label class="switch-row"><input type="checkbox" name="quiet" ${settings.quietFrom===null||settings.quietFrom===undefined?'':'checked'}>
-          <span><span class="row-title">Тихие часы</span><span class="row-sub">В выбранные часы push не приходит.</span></span></label>
+          <span><span class="row-title">Тихие часы</span><span class="row-sub">В выбранные часы push не приходит. Одинаковые «с» и «до» означают, что тихих часов нет.</span></span></label>
         <div class="quiet-row" ${settings.quietFrom===null||settings.quietFrom===undefined?'hidden':''}>
-          <label>С<select name="quietFrom" class="field">${HOURS.map(h=>`<option value="${h}" ${Number(settings.quietFrom)===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('')}</select></label>
-          <label>До<select name="quietTo" class="field">${HOURS.map(h=>`<option value="${h}" ${Number(settings.quietTo)===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('')}</select></label>
+          <label>С<select name="quietFrom" class="field">${HOURS.map(h=>`<option value="${h}" ${(settings.quietFrom??22)===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('')}</select></label>
+          <label>До<select name="quietTo" class="field">${HOURS.map(h=>`<option value="${h}" ${(settings.quietTo??8)===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('')}</select></label>
         </div>
         <label class="switch-row" ${settings.quietFrom===null||settings.quietFrom===undefined?'hidden':''} data-quiet-exception>
           <input type="checkbox" name="quietAllowMentions" ${settings.quietAllowMentions===false?'':'checked'}>

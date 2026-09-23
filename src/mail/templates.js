@@ -64,11 +64,27 @@ export function digestMail({ workspaceName, displayName, url, digest }) {
   const sections = [
     ['Вас упоминали', (digest.mentions ?? []).map((m) =>
       `${m.authorName} · ${m.conversationTitle || 'личная переписка'}: ${oneLine(m.snippet ?? m.body)}`)],
-    ['Ждут вашего ответа', (digest.awaiting ?? []).map((t) => `${t.title} — просит ${t.requesterName}`)],
-    ['Сроки прошли', (digest.slipped ?? []).map((t) => `${t.title} — ${formatDay(t.promisedAt)}`)],
-    ['Сдвинулось без вас', (digest.moved ?? []).map((t) => `${t.title} — ${t.actorName}: ${t.to}`)],
-    ['Встречи', (digest.meetings ?? []).map((e) => `${formatDate(e.startAt)} — ${e.title}`)],
+    // Разделы читались не под теми именами, под какими сводка их
+    // отдаёт: `awaiting` вместо `awaitingYourAnswer` и так далее.
+    // Совпадали только упоминания и приглашения — только они и попадали
+    // в письмо, и только они считались в «накопилось: N». Человек,
+    // который днями на объекте и в приложение не заходит — а письмо для
+    // него и придумано, — читал «ничего не накопилось» при просроченных
+    // сроках и работе, сданной ему на приёмку.
+    ['Ждут вашего ответа', (digest.awaitingYourAnswer ?? []).map((t) => {
+      if (t.status === 'in_review') return `${t.title} — ${t.ownerName ?? 'исполнитель'} сдал(а) работу, нужна приёмка`;
+      if (t.status === 'accepted_result') return `${t.title} — результат принят, осталось закрыть`;
+      return `${t.title} — просит ${t.requesterName}`;
+    })],
+    ['Сроки прошли', (digest.slippedDeadlines ?? []).map((t) => `${t.title} — ${formatDay(t.promisedAt)}`)],
+    ['Сдвинулось без вас', (digest.movedWithoutYou ?? []).map((t) => {
+      if (t.eventType === 'commitment.reassigned') return `${t.title} — ${t.actorName} передал(а) задачу другому`;
+      if (t.eventType === 'commitment.rescheduled') return `${t.title} — ${t.actorName} перенёс(ла) срок`;
+      return `${t.title} — ${t.actorName}: ${t.to}`;
+    })],
+    ['Встречи прошли', (digest.meetingsHeld ?? []).map((e) => `${formatDate(e.startAt)} — ${e.title}`)],
     ['Приглашения на встречи', (digest.invitations ?? []).map((e) => `${formatDate(e.startAt)} — ${e.title}`)],
+    ['Вышли на работу', (digest.joined ?? []).map((p) => `${p.displayName ?? p.email}`)],
   ].filter(([, lines]) => lines.length);
 
   const total = sections.reduce((sum, [, lines]) => sum + lines.length, 0);

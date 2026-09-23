@@ -99,7 +99,27 @@ function openNav(name,{taskFilter=null}={}){
   else document.querySelector(`[data-nav="${name}"]`)?.click();
 }
 
-async function openNotificationItem(id){const n=D.notifications.find(x=>x.id===id);if(!n)return;if(n.status==='unread')await api(`/api/v1/notifications/${id}/read`,{method:'POST',body:'{}'}).catch(()=>{});if(n.conversationId)return openConversation(n.conversationId,n.messageId);if(n.commitmentId)return openNav('tasks');if(n.calendarEventId)return openNav('calendar');await refreshAttention(true)}
+/**
+ * Открыть то, о чём известили.
+ *
+ * У извещения с первого дня проставлен адрес — `/#/tasks/{id}`,
+ * `/#/calendar/{id}`, — и маршруты под него в приложении разобраны. Но
+ * читался не адрес, а вид связи: «результат отправлен на проверку» вело
+ * в общий список задач, а приглашение на планёрку — в календарь на
+ * месяц, и человек искал нужное глазами. Для бесед это давно починено;
+ * теперь и для остальных.
+ */
+async function openNotificationItem(id){
+  const n=D.notifications.find(x=>x.id===id);
+  if(!n)return;
+  if(n.status==='unread')await api(`/api/v1/notifications/${id}/read`,{method:'POST',body:'{}'}).catch(()=>{});
+  if(n.conversationId)return openConversation(n.conversationId,n.messageId);
+  if(n.commitmentId&&window.ChatApp?.openTask){closeOverlay();return window.ChatApp.openTask(n.commitmentId)}
+  if(n.calendarEventId&&window.ChatApp?.openEvent){closeOverlay();return window.ChatApp.openEvent(n.calendarEventId)}
+  if(n.commitmentId)return openNav('tasks');
+  if(n.calendarEventId)return openNav('calendar');
+  await refreshAttention(true);
+}
 
 const SEARCH_FILTERS=[['all','Все','All'],['message','Сообщения','Messages'],['task','Задачи','Tasks'],['file','Файлы','Files'],['person','Люди','People'],['conversation','Каналы','Conversations'],['event','Календарь','Calendar']];
 /**

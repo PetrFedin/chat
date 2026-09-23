@@ -41,13 +41,40 @@ test('в письме нет пустых разделов', () => {
   assert.match(empty.text, /ничего, что требует вашего участия/);
   assert.ok(!/Сроки прошли/.test(empty.text));
 
+  // Имена разделов — те же, под какими их отдаёт сводка. Здесь стояли
+  // другие (`slipped` вместо `slippedDeadlines`), и письмо теряло шесть
+  // разделов из восьми: совпадали только упоминания и приглашения,
+  // только они и считались в «накопилось: N». Человек, который днями на
+  // объекте и в приложение не заходит — а письмо ради него и есть, —
+  // читал «ничего не накопилось» при просроченных сроках.
   const full = digestMail({
     workspaceName: 'Гранит', displayName: 'Анна', url: 'https://t.test/',
-    digest: { slipped: [{ title: 'Свозить бетон', promisedAt: '2026-09-20T09:00:00Z' }] },
+    digest: { slippedDeadlines: [{ title: 'Свозить бетон', promisedAt: '2026-09-20T09:00:00Z' }] },
   });
   assert.match(full.subject, /Что было без вас: 1/);
   assert.match(full.text, /Сроки прошли:/);
   assert.match(full.text, /Свозить бетон/);
+
+  // Все разделы, какие сводка умеет отдавать, доходят до письма.
+  const everything = digestMail({
+    workspaceName: 'Гранит', displayName: 'Анна', url: 'https://t.test/',
+    digest: {
+      mentions: [{ authorName: 'Пётр', conversationTitle: 'Общий', snippet: 'смотри смету' }],
+      awaitingYourAnswer: [{ title: 'Свести смету', status: 'in_review', ownerName: 'Лена' }],
+      slippedDeadlines: [{ title: 'Акты', promisedAt: '2026-09-20T09:00:00Z' }],
+      movedWithoutYou: [{ title: 'Реестр', eventType: 'commitment.rescheduled', actorName: 'Анна' }],
+      meetingsHeld: [{ title: 'Планёрка', startAt: '2026-09-21T09:00:00Z' }],
+      invitations: [{ title: 'Приёмка', startAt: '2026-09-25T09:00:00Z' }],
+      joined: [{ displayName: 'Новичок' }],
+    },
+  });
+  assert.match(everything.subject, /Что было без вас: 7/,
+    `письмо потеряло разделы: ${everything.subject}`);
+  for (const word of ['смотри смету', 'Свести смету', 'Акты', 'Реестр', 'Планёрка', 'Приёмка', 'Новичок']) {
+    assert.match(everything.text, new RegExp(word), `в письме нет «${word}»`);
+  }
+  // И сданная на приёмку работа подписана тем, что от человека нужно.
+  assert.match(everything.text, /нужна приёмка/);
 });
 
 /**
