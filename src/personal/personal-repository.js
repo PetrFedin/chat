@@ -59,7 +59,7 @@ export function createPersonalRepository(pool, store = null, labels = null) {
       'SELECT * FROM personal_items WHERE workspace_id=$1 AND id=$2 AND owner_id=$3 FOR UPDATE',
       [session.workspaceId, id, session.userId],
     );
-    if (!rows[0]) throw fail('Item not found', 'PERSONAL_ITEM_NOT_FOUND', 404);
+    if (!rows[0]) throw fail('Запись не найдена', 'PERSONAL_ITEM_NOT_FOUND', 404);
     return rows[0];
   };
 
@@ -70,7 +70,7 @@ export function createPersonalRepository(pool, store = null, labels = null) {
 
   const repository = {
     async list(session, { status = 'open', kind = null, due = null, limit = 100 } = {}) {
-      if (status && status !== 'all' && !STATUSES.has(status)) throw fail('Unknown status', 'INVALID_STATUS');
+      if (status && status !== 'all' && !STATUSES.has(status)) throw fail('Состояние бывает open, done или dropped', 'INVALID_STATUS');
       const { rows } = await pool.query(
         `SELECT p.*,
                 (SELECT count(*) FROM personal_item_comments c WHERE c.workspace_id=p.workspace_id AND c.item_id=p.id) comment_count,
@@ -104,16 +104,16 @@ export function createPersonalRepository(pool, store = null, labels = null) {
           [session.workspaceId, id],
         ),
       ]);
-      if (!item.rows[0]) throw fail('Item not found', 'PERSONAL_ITEM_NOT_FOUND', 404);
+      if (!item.rows[0]) throw fail('Запись не найдена', 'PERSONAL_ITEM_NOT_FOUND', 404);
       const [view] = await withLabels(session, item.rows);
       return { ...view, comments: comments.rows, files: files.rows };
     },
 
     async create(session, { kind = 'todo', title, body = null, dueAt = null, plannedStart = null, plannedEnd = null, position = 0 }) {
-      if (!KINDS.has(kind)) throw fail('Unknown item kind', 'INVALID_ITEM_KIND');
-      if (!String(title ?? '').trim()) throw fail('An item needs a title', 'INVALID_ITEM_TITLE');
-      if (plannedEnd && !plannedStart) throw fail('A window needs a start', 'INVALID_TIME_RANGE');
-      if (plannedEnd && new Date(plannedEnd) <= new Date(plannedStart)) throw fail('The window must end after it starts', 'INVALID_TIME_RANGE');
+      if (!KINDS.has(kind)) throw fail('Вид записи бывает todo, note, screenshot или link', 'INVALID_ITEM_KIND');
+      if (!String(title ?? '').trim()) throw fail('У записи должно быть название', 'INVALID_ITEM_TITLE');
+      if (plannedEnd && !plannedStart) throw fail('У окна времени должно быть начало', 'INVALID_TIME_RANGE');
+      if (plannedEnd && new Date(plannedEnd) <= new Date(plannedStart)) throw fail('Окно времени должно кончаться позже, чем начинается', 'INVALID_TIME_RANGE');
       const { rows } = await pool.query(
         `INSERT INTO personal_items(id,organization_id,workspace_id,owner_id,kind,title,body,due_at,planned_start,planned_end,position)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
@@ -129,14 +129,14 @@ export function createPersonalRepository(pool, store = null, labels = null) {
         const columns = { title: 'title', body: 'body', kind: 'kind', dueAt: 'due_at', plannedStart: 'planned_start', plannedEnd: 'planned_end', position: 'position' };
         const fields = Object.keys(columns).filter((f) => patch[f] !== undefined);
         const changingStatus = patch.status !== undefined && patch.status !== item.status;
-        if (!fields.length && !changingStatus) throw fail('Nothing to update', 'EMPTY_PATCH');
-        if (patch.kind !== undefined && !KINDS.has(patch.kind)) throw fail('Unknown item kind', 'INVALID_ITEM_KIND');
-        if (patch.title !== undefined && !String(patch.title).trim()) throw fail('An item needs a title', 'INVALID_ITEM_TITLE');
+        if (!fields.length && !changingStatus) throw fail('Нечего менять', 'EMPTY_PATCH');
+        if (patch.kind !== undefined && !KINDS.has(patch.kind)) throw fail('Вид записи бывает todo, note, screenshot или link', 'INVALID_ITEM_KIND');
+        if (patch.title !== undefined && !String(patch.title).trim()) throw fail('У записи должно быть название', 'INVALID_ITEM_TITLE');
 
         const start = patch.plannedStart === undefined ? item.planned_start : patch.plannedStart;
         const end = patch.plannedEnd === undefined ? item.planned_end : patch.plannedEnd;
-        if (end && !start) throw fail('A window needs a start', 'INVALID_TIME_RANGE');
-        if (end && new Date(end) <= new Date(start)) throw fail('The window must end after it starts', 'INVALID_TIME_RANGE');
+        if (end && !start) throw fail('У окна времени должно быть начало', 'INVALID_TIME_RANGE');
+        if (end && new Date(end) <= new Date(start)) throw fail('Окно времени должно кончаться позже, чем начинается', 'INVALID_TIME_RANGE');
 
         if (fields.length) {
           const setters = fields.map((f, i) => `${columns[f]}=$${i + 3}`).join(',');
@@ -146,7 +146,7 @@ export function createPersonalRepository(pool, store = null, labels = null) {
           );
         }
         if (changingStatus) {
-          if (!STATUSES.has(patch.status)) throw fail('Unknown status', 'INVALID_STATUS');
+          if (!STATUSES.has(patch.status)) throw fail('Состояние бывает open, done или dropped', 'INVALID_STATUS');
           // completed_at and status move together; the schema refuses any
           // other combination, so "done" always says when.
           await client.query(
@@ -166,14 +166,14 @@ export function createPersonalRepository(pool, store = null, labels = null) {
         'DELETE FROM personal_items WHERE workspace_id=$1 AND id=$2 AND owner_id=$3',
         [session.workspaceId, id, session.userId],
       );
-      if (!rowCount) throw fail('Item not found', 'PERSONAL_ITEM_NOT_FOUND', 404);
+      if (!rowCount) throw fail('Запись не найдена', 'PERSONAL_ITEM_NOT_FOUND', 404);
       return { deleted: true };
     },
 
     async comment(session, id, body) {
       return tx(async (client) => {
         await loadOwn(client, session, id);
-        if (!String(body ?? '').trim()) throw fail('A comment needs text', 'INVALID_COMMENT');
+        if (!String(body ?? '').trim()) throw fail('Пустой комментарий не сохранить', 'INVALID_COMMENT');
         const { rows } = await client.query(
           `INSERT INTO personal_item_comments(organization_id,workspace_id,item_id,author_id,body)
            VALUES($1,$2,$3,$4,$5) RETURNING id,body,created_at "createdAt"`,
@@ -186,7 +186,7 @@ export function createPersonalRepository(pool, store = null, labels = null) {
     async attachFile(session, id, fileId) {
       return tx(async (client) => {
         await loadOwn(client, session, id);
-        if (store && !(await store.getFile(session, fileId))) throw fail('File not found', 'FILE_NOT_FOUND', 404);
+        if (store && !(await store.getFile(session, fileId))) throw fail('Файл не найден', 'FILE_NOT_FOUND', 404);
         await client.query(
           `INSERT INTO personal_item_files(organization_id,workspace_id,item_id,file_id)
            VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`,
@@ -201,10 +201,10 @@ export function createPersonalRepository(pool, store = null, labels = null) {
      * purpose: deleting the block frees the time without deleting the plan.
      */
     async schedule(session, id, { startAt, endAt }) {
-      if (!store) throw fail('Scheduling needs the workspace store', 'SCHEDULING_UNAVAILABLE', 503);
+      if (!store) throw fail('Планирование в календаре доступно в режиме с базой данных', 'SCHEDULING_UNAVAILABLE', 503);
       const item = await this.get(session, id);
-      if (!startAt || !endAt) throw fail('A block needs a start and an end', 'INVALID_TIME_RANGE');
-      if (new Date(endAt) <= new Date(startAt)) throw fail('The block must end after it starts', 'INVALID_TIME_RANGE');
+      if (!startAt || !endAt) throw fail('У блока в календаре должны быть начало и конец', 'INVALID_TIME_RANGE');
+      if (new Date(endAt) <= new Date(startAt)) throw fail('Блок должен кончаться позже, чем начинается', 'INVALID_TIME_RANGE');
       const event = await store.createCalendarEvent(session, {
         kind: 'focus', title: item.title, description: item.body ?? null,
         startAt: new Date(startAt).toISOString(), endAt: new Date(endAt).toISOString(),

@@ -126,7 +126,11 @@ export function createTaskReport(pool) {
              JOIN users u ON u.id = c.owner_id
              LEFT JOIN workspace_profiles wp ON wp.workspace_id = c.workspace_id AND wp.user_id = c.owner_id
             WHERE c.workspace_id=$1${onlyMine(2, 3)}
-              AND c.status IN ('blocked','deferred','clarify','proposed')
+              -- Результат, неделю лежащий на приёмке, — такой же
+              -- застрявший, как заблокированная задача, и обиднее: работа
+              -- сделана, а не засчитана. Принятый результат, который
+              -- некому закрыть, — то же самое на шаг позже.
+              AND c.status IN ('blocked','deferred','clarify','proposed','in_review','accepted_result')
               AND c.updated_at < now() - interval '7 days'
             ORDER BY c.updated_at LIMIT 20`, plain),
 

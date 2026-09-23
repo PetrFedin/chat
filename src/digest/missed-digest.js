@@ -85,14 +85,27 @@ export function createMissedDigest(pool) {
               AND m.created_at > $3 AND m.deleted_at IS NULL
             ORDER BY m.created_at DESC LIMIT 20`, params),
 
-        // Вам предложили обязательство и ждут ответа.
+        // Дела, где ход за вами.
+        //
+        // Раздел показывал только предложенные обязательства — то есть
+        // один случай из трёх. Работа, сданная вам на приёмку, и
+        // принятый результат, который некому закрыть, ждут ответа не
+        // меньше: пока вы не ответите, не движется никто. Понедельничная
+        // сводка о них молчала, и человек с чужой работой на руках читал
+        // «всё разобрано».
         pool.query(
-          `SELECT c.id, c.title, c.promised_at "promisedAt", c.created_at "createdAt",
-                  COALESCE(rp.display_name, ru.email) "requesterName"
+          `SELECT c.id, c.title, c.status, c.promised_at "promisedAt", c.created_at "createdAt",
+                  COALESCE(rp.display_name, ru.email) "requesterName",
+                  COALESCE(op.display_name, ou.email) "ownerName"
              FROM commitments c
              JOIN users ru ON ru.id=c.requester_id
+             JOIN users ou ON ou.id=c.owner_id
              LEFT JOIN workspace_profiles rp ON rp.workspace_id=c.workspace_id AND rp.user_id=c.requester_id
-            WHERE c.workspace_id=$1 AND c.owner_id=$2 AND c.status='proposed'
+             LEFT JOIN workspace_profiles op ON op.workspace_id=c.workspace_id AND op.user_id=c.owner_id
+            WHERE c.workspace_id=$1 AND (
+                    (c.status='proposed' AND c.owner_id=$2)
+                 OR (c.status='in_review' AND c.acceptor_id=$2)
+                 OR (c.status='accepted_result' AND (c.requester_id=$2 OR c.acceptor_id=$2)))
             ORDER BY c.created_at DESC LIMIT 20`, now),
 
         // Сроки, прошедшие, пока вас не было: срок наступил внутри
@@ -114,14 +127,24 @@ export function createMissedDigest(pool) {
           // за неделю четыре состояния, — это одна новость, а не четыре.
           // Показываем последнее движение и откуда она в него пришла.
           `SELECT DISTINCT ON (a.aggregate_id)
-                  a.aggregate_id id, c.title, a.payload->>'to' "to", a.payload->>'from' "from",
+                  a.aggregate_id id, c.title, a.event_type "eventType",
+                  a.payload->>'to' "to", a.payload->>'from' "from",
+                  a.payload->>'promisedAt' "promisedAt", a.payload->>'previousPromisedAt' "previousPromisedAt",
+                  a.payload->>'reason' "reason",
                   a.created_at "at", COALESCE(ap.display_name, au.email) "actorName"
              FROM audit_events a
              JOIN commitments c ON c.workspace_id=a.workspace_id AND c.id=a.aggregate_id
              JOIN users au ON au.id=a.actor_id
              LEFT JOIN workspace_profiles ap ON ap.workspace_id=a.workspace_id AND ap.user_id=a.actor_id
             WHERE a.workspace_id=$1 AND a.aggregate_type='commitment'
-              AND a.event_type='commitment.transitioned' AND a.created_at > $3
+              -- Читались только переходы по состояниям. Передача задачи
+              -- другому человеку и перенос срока — тоже движение, и
+              -- именно они происходят без ведома того, кого касаются:
+              -- новый владелец узнавал о своём обязательстве, только
+              -- открыв список задач, а уехавший срок не показывался
+              -- вовсе. Оба события в журнале лежали с первого дня.
+              AND a.event_type IN ('commitment.transitioned','commitment.reassigned','commitment.rescheduled')
+              AND a.created_at > $3
               AND a.actor_id <> $2
               AND (c.owner_id=$2 OR c.requester_id=$2 OR c.acceptor_id=$2)
             ORDER BY a.aggregate_id, a.created_at DESC LIMIT 20`, params),

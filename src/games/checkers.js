@@ -128,7 +128,7 @@ export function move(state, { from, to }) {
   const fromIndex = typeof from === 'number' ? from : squareIndex(from);
   const toIndex = typeof to === 'number' ? to : squareIndex(to);
   const chosen = legalMoves(state).find((m) => m.from === fromIndex && m.to === toIndex);
-  if (!chosen) throw Object.assign(new Error('That is not a legal move'), { code: 'ILLEGAL_MOVE' });
+  if (!chosen) throw Object.assign(new Error('Так сходить нельзя'), { code: 'ILLEGAL_MOVE' });
 
   let board = state.board;
   const piece = board[chosen.from];

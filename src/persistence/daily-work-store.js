@@ -492,7 +492,7 @@ export class PostgresStore extends BasePostgresStore {
 
     const rows=[
       ...await many(mentioned,{type:'message.mentioned',title:`Упоминание от ${session.displayName}`,priority:'high'}),
-      ...await many(plain,{type:'message.created',title:`Новое сообщение от ${session.displayName}`,priority:'normal'}),
+      ...await many(plain,{type:'message.created',title:`Новое сообщение · ${session.displayName}`,priority:'normal'}),
     ];
     return rows;
   }

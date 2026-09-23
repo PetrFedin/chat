@@ -61,7 +61,7 @@ export function createLabelRepository(pool, store = null) {
    */
   const assertMayChange = (session, row) => {
     if (row.owner_id) {
-      if (row.owner_id !== session.userId) throw fail('Label not found', 'LABEL_NOT_FOUND', 404);
+      if (row.owner_id !== session.userId) throw fail('Метка не найдена', 'LABEL_NOT_FOUND', 404);
       return;
     }
     if (!hasPermission(session.role, Permission.CHANNEL_MANAGE)) {
@@ -74,7 +74,7 @@ export function createLabelRepository(pool, store = null) {
       `SELECT * FROM labels WHERE workspace_id=$1 AND id=$2 AND ${ownScope(session)} FOR UPDATE`,
       [session.workspaceId, id, session.userId],
     );
-    if (!rows[0]) throw fail('Label not found', 'LABEL_NOT_FOUND', 404);
+    if (!rows[0]) throw fail('Метка не найдена', 'LABEL_NOT_FOUND', 404);
     return rows[0];
   };
 
@@ -83,19 +83,19 @@ export function createLabelRepository(pool, store = null) {
     if (!store) return;
     if (targetType === 'message') {
       const conversationId = await store.messageConversation?.(session, targetId);
-      if (!conversationId || !(await store.canAccessConversation(session, conversationId))) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      if (!conversationId || !(await store.canAccessConversation(session, conversationId))) throw fail('Объект не найден', 'TARGET_NOT_FOUND', 404);
       return;
     }
     if (targetType === 'conversation') {
-      if (!(await store.canAccessConversation(session, targetId))) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      if (!(await store.canAccessConversation(session, targetId))) throw fail('Объект не найден', 'TARGET_NOT_FOUND', 404);
       return;
     }
     if (targetType === 'task') {
-      if (!(await store.getTask(session, targetId))) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      if (!(await store.getTask(session, targetId))) throw fail('Объект не найден', 'TARGET_NOT_FOUND', 404);
       return;
     }
     if (targetType === 'file') {
-      if (!(await store.getFile(session, targetId))) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      if (!(await store.getFile(session, targetId))) throw fail('Объект не найден', 'TARGET_NOT_FOUND', 404);
       return;
     }
     // Встреча, человек и заметка проверок не проходили вовсе: метку брала
@@ -111,7 +111,7 @@ export function createLabelRepository(pool, store = null) {
            OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))`,
         [session.workspaceId, targetId, session.userId, session.role],
       );
-      if (!rowCount) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      if (!rowCount) throw fail('Объект не найден', 'TARGET_NOT_FOUND', 404);
       return;
     }
     if (targetType === 'person') {
@@ -120,7 +120,7 @@ export function createLabelRepository(pool, store = null) {
            AND (access_until IS NULL OR access_until>now())`,
         [session.workspaceId, targetId],
       );
-      if (!rowCount) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      if (!rowCount) throw fail('Объект не найден', 'TARGET_NOT_FOUND', 404);
       return;
     }
     if (targetType === 'note') {
@@ -130,7 +130,7 @@ export function createLabelRepository(pool, store = null) {
         'SELECT 1 FROM personal_items WHERE workspace_id=$1 AND id=$2 AND owner_id=$3',
         [session.workspaceId, targetId, session.userId],
       );
-      if (!rowCount) throw fail('Target not found', 'TARGET_NOT_FOUND', 404);
+      if (!rowCount) throw fail('Объект не найден', 'TARGET_NOT_FOUND', 404);
     }
   };
 
@@ -148,10 +148,10 @@ export function createLabelRepository(pool, store = null) {
 
     async createLabel(session, { kind = 'tag', name, colour = 'neutral', parentId = null, personal = false, description = null, position = 0 }) {
       if (!KINDS.has(kind)) throw fail('Unknown label kind', 'INVALID_LABEL_KIND');
-      if (!String(name ?? '').trim()) throw fail('A label needs a name', 'INVALID_LABEL_NAME');
+      if (!String(name ?? '').trim()) throw fail('У метки должно быть название', 'INVALID_LABEL_NAME');
       // Only folders nest. A nested importance or tag has no meaning and would
       // make the filter ambiguous.
-      if (parentId && kind !== 'folder') throw fail('Only folders can be nested', 'LABEL_NESTING_NOT_ALLOWED', 409);
+      if (parentId && kind !== 'folder') throw fail('Вкладывать одну в другую можно только папки', 'LABEL_NESTING_NOT_ALLOWED', 409);
       // Гость — сотрудник другой компании, пришедший по одному делу.
       // Личные метки у него свои, общий словарь компании — не его.
       if (!personal && session.role === 'guest') {
@@ -171,8 +171,8 @@ export function createLabelRepository(pool, store = null) {
         assertMayChange(session, await loadLabel(client, session, id));
         const columns = { name: 'name', colour: 'colour', description: 'description', position: 'position' };
         const fields = Object.keys(columns).filter((f) => patch[f] !== undefined);
-        if (!fields.length) throw fail('Nothing to update', 'EMPTY_PATCH');
-        if (patch.name !== undefined && !String(patch.name).trim()) throw fail('A label needs a name', 'INVALID_LABEL_NAME');
+        if (!fields.length) throw fail('Нечего менять', 'EMPTY_PATCH');
+        if (patch.name !== undefined && !String(patch.name).trim()) throw fail('У метки должно быть название', 'INVALID_LABEL_NAME');
         const setters = fields.map((f, i) => `${columns[f]}=$${i + 3}`).join(',');
         const { rows } = await client.query(
           `UPDATE labels SET ${setters}, updated_at=now() WHERE workspace_id=$1 AND id=$2 RETURNING *`,
@@ -192,7 +192,7 @@ export function createLabelRepository(pool, store = null) {
     },
 
     async apply(session, labelId, targetType, targetId) {
-      if (!TARGETS.has(targetType)) throw fail('Unknown target type', 'INVALID_TARGET_TYPE');
+      if (!TARGETS.has(targetType)) throw fail('Метку вешают на сообщение, файл, задачу, встречу, беседу, человека или запись плана', 'INVALID_TARGET_TYPE');
       return tx(async (client) => {
         // The label is checked before the target on purpose: somebody who does
         // not hold the label learns nothing about what the target is.
@@ -225,7 +225,7 @@ export function createLabelRepository(pool, store = null) {
           'DELETE FROM label_links WHERE workspace_id=$1 AND label_id=$2 AND target_type=$3 AND target_id=$4',
           [session.workspaceId, labelId, targetType, targetId],
         );
-        if (!rowCount) throw fail('That label is not on this object', 'LABEL_NOT_APPLIED', 404);
+        if (!rowCount) throw fail('На этом объекте такой метки нет', 'LABEL_NOT_APPLIED', 404);
         return { removed: true };
       });
     },
@@ -257,7 +257,7 @@ export function createLabelRepository(pool, store = null) {
         `SELECT 1 FROM labels WHERE workspace_id=$1 AND id=$2 AND ${ownScope(session)}`,
         [session.workspaceId, labelId, session.userId],
       );
-      if (!label.rowCount) throw fail('Label not found', 'LABEL_NOT_FOUND', 404);
+      if (!label.rowCount) throw fail('Метка не найдена', 'LABEL_NOT_FOUND', 404);
       const { rows } = await pool.query(
         `SELECT k.target_type "targetType", k.target_id "targetId", k.created_at "appliedAt",
                 CASE k.target_type

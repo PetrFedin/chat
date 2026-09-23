@@ -742,7 +742,7 @@ function message(m,grouped=false){
   const forwarded=m.forwardedFrom
     ?(m.forwardedFrom.restricted
       ?'<div class="msg-forward">Пересланное сообщение</div>'
-      :`<button class="msg-forward" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">Переслано от ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`)
+      :`<button class="msg-forward" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">Переслано · ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`)
     :'';
   // Откуда это пришло: без отметки перенос из мессенджера выглядит как
   // собственные слова того, кто его вставил.
@@ -2272,7 +2272,7 @@ function planScheduleModal(item,after){
 const GAME_NAME={chess:'Шахматы',checkers:'Шашки',battleship:'Морской бой'};
 const GAME_ICON={chess:'♞',checkers:'⛂',battleship:'⚓'};
 const CHESS_GLYPH={K:'♔',Q:'♕',R:'♖',B:'♗',N:'♘',P:'♙',k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'};
-const GAME_RESULT={checkmate:'мат',stalemate:'пат',resigned:'сдался',draw:'ничья','no-pieces':'все фигуры побиты','no-moves':'ходов не осталось','fleet-destroyed':'флот потоплен','insufficient-material':'ничья: нечем матовать','fifty-move':'ничья по правилу 50 ходов'};
+const GAME_RESULT={checkmate:'мат',stalemate:'пат',resigned:'партия сдана',draw:'ничья','no-pieces':'все фигуры побиты','no-moves':'ходов не осталось','fleet-destroyed':'флот потоплен','insufficient-material':'ничья: нечем матовать','fifty-move':'ничья по правилу 50 ходов'};
 
 async function gamesModal(conversationId=null){
   try{
@@ -2294,16 +2294,28 @@ async function gamesBuild(conversationId){
 }
 function gamesBody(items,conversationId){
   const row=(g)=>{
+    // В списке беседы партии бывают и чужие: играют двое других, а
+    // смотрят все. Строка же говорила «вы проиграли» тому, кто за доску
+    // не садился, и «ход соперника» — по отклонённому приглашению,
+    // открыв которое человек попадал на доску без единой кнопки.
+    const mine=g.challengerId===me().userId||g.opponentId===me().userId;
     const opponent=g.challengerId===me().userId?g.opponentId:g.challengerId;
     const waiting=g.status==='invited'&&g.opponentId===me().userId;
-    const state=g.status==='finished'
-      ? `${g.winnerId?(g.winnerId===me().userId?'вы выиграли':'вы проиграли'):'ничья'} · ${GAME_RESULT[g.result]||g.result}`
+    const finished=g.status==='finished'
+      ? (mine
+          ? `${g.winnerId?(g.winnerId===me().userId?'вы выиграли':'вы проиграли'):'ничья'} · ${GAME_RESULT[g.result]||g.result}`
+          : `${g.winnerId?`выиграл(а) ${name(g.winnerId)}`:'ничья'} · ${GAME_RESULT[g.result]||g.result}`)
+      : null;
+    const state=finished
+      ?? (g.status==='declined'?(mine&&g.challengerId===me().userId?'соперник отказался':'вы отказались')
+      : g.status==='abandoned'?'партия брошена'
       : g.status==='invited'?(waiting?'ждёт вашего ответа':'ждём ответа соперника')
-      : g.yourTurn?'ваш ход':'ход соперника';
+      : !mine?'идёт партия'
+      : g.yourTurn?'ваш ход':'ход соперника');
     return `<button class="row pressable" data-game="${esc(g.id)}">
       <span class="game-mark">${GAME_ICON[g.kind]||'●'}</span>
-      <span><div class="row-title">${esc(GAME_NAME[g.kind]||g.kind)} · ${esc(name(opponent))}</div><div class="row-sub">${esc(state)}</div></span>
-      ${g.yourTurn&&g.status==='active'?'<span class="chip warm">ваш ход</span>':waiting?'<span class="chip warm">ответьте</span>':'<span class="chip"></span>'}
+      <span><div class="row-title">${esc(GAME_NAME[g.kind]||g.kind)} · ${esc(mine?name(opponent):`${name(g.challengerId)} и ${name(g.opponentId)}`)}</div><div class="row-sub">${esc(state)}</div></span>
+      ${g.yourTurn&&g.status==='active'&&mine?'<span class="chip warm">ваш ход</span>':waiting?'<span class="chip warm">ответьте</span>':'<span class="chip"></span>'}
     </button>`;
   };
   return `${items.length?items.map(row).join(''):'<p class="muted">Партий пока нет.</p>'}
@@ -2948,10 +2960,16 @@ async function digestModal(){
         <span><div class="row-title">${esc(m.authorName)} · ${esc(m.conversationTitle||'Личная переписка')}</div>
           <div class="row-sub">${esc(m.snippet)}</div></span>
         <time class="row-sub">${esc(dateTime(m.createdAt))}</time></button>`));
-    const awaiting=block('Ждут вашего ответа','Вам пообещали не вы — пока вы не ответите, обязательства нет.',data.awaitingYourAnswer.map(t=>
+    // Раздел показывает три разных «ждут вас», и подпись обязана их
+    // различать: предложенное обязательство, сданная вам работа и
+    // принятый результат, который некому закрыть.
+    const awaitingWhy=(t)=>t.status==='in_review'?`${t.ownerName??'исполнитель'} сдал(а) работу — нужна приёмка`
+      :t.status==='accepted_result'?'результат принят — осталось закрыть'
+      :`просит ${t.requesterName}`;
+    const awaiting=block('Ждут вашего ответа','Пока вы не ответите, не движется никто.',data.awaitingYourAnswer.map(t=>
       `<button type="button" class="row flow pressable" data-task-open="${esc(t.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(t.title)}</div>
-          <div class="row-sub">просит ${esc(t.requesterName)}${t.promisedAt?` · срок ${esc(dateTime(t.promisedAt))}`:''}</div></span></button>`));
+          <div class="row-sub">${esc(awaitingWhy(t))}${t.promisedAt?` · срок ${esc(dateTime(t.promisedAt))}`:''}</div></span></button>`));
     const invitations=block('Приглашения на встречи','',data.invitations.map(i=>
       `<button type="button" class="row flow pressable" data-cal-event="${esc(i.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(i.title)}</div>
@@ -2960,10 +2978,19 @@ async function digestModal(){
       `<button type="button" class="row flow pressable" data-task-open="${esc(t.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(t.title)}</div>
           <div class="row-sub"><span class="late">срок ${esc(dateTime(t.promisedAt))}</span> · ${esc(t.ownerName)} · ${esc(digestStatus[t.status]??t.status)}</div></span></button>`));
+    // Сюда приходят три вида движения, а не один: переход по
+    // состояниям, передача задачи другому и перенос срока. У последних
+    // двух нет «из» и «в», и подпись «undefined → undefined» была бы
+    // хуже молчания.
+    const movedWhat=(m)=>{
+      if(m.eventType==='commitment.reassigned')return 'передал(а) задачу другому';
+      if(m.eventType==='commitment.rescheduled')return `перенёс(ла) срок${m.promisedAt?` на ${dateTime(m.promisedAt)}`:''}`;
+      return `${digestStatus[m.from]??m.from} → ${digestStatus[m.to]??m.to}`;
+    };
     const moved=block('Двигалось без вас','',data.movedWithoutYou.map(m=>
       `<button type="button" class="row flow pressable" data-task-open="${esc(m.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(m.title)}</div>
-          <div class="row-sub">${esc(m.actorName)}: ${esc(digestStatus[m.from]??m.from)} → ${esc(digestStatus[m.to]??m.to)} · ${esc(dateTime(m.at))}</div></span></button>`));
+          <div class="row-sub">${esc(m.actorName)}: ${esc(movedWhat(m))} · ${esc(dateTime(m.at))}${m.reason?`<br>${esc(m.reason)}`:''}</div></span></button>`));
     const meetings=block('Встречи прошли','',data.meetingsHeld.map(m=>
       `<div class="row flow"><span><div class="row-title">${esc(m.title)}</div>
         <div class="row-sub">${esc(m.organiserName)} · ${esc(dateTime(m.startAt))}${m.attended?'':' · вы не подтверждали участие'}</div></span></div>`));
@@ -3789,7 +3816,7 @@ async function notesModal(eventId,eventTitle=''){
   const list=(values)=>(values||[]).join('\n');
   modal('Протокол',`
     ${failed?`<div class="empty"><strong>Протокол недоступен</strong>${esc(failed)}</div>`:`
-    <p class="muted">${notes?`Записал ${esc(notes.createdByName||'кто-то из участников')}, ${esc(dateTime(notes.updatedAt))}.`
+    <p class="muted">${notes?`Записал(а) ${esc(notes.createdByName||'кто-то из участников')}, ${esc(dateTime(notes.updatedAt))}.`
       :'Протокола ещё нет. Он виден тем же людям, что и сама встреча.'}</p>
     <form id="notes-form" class="form-stack">
       <label>Название<input name="title" maxlength="240" value="${esc(notes?.title||eventTitle||'')}"></label>
@@ -3800,9 +3827,22 @@ async function notesModal(eventId,eventTitle=''){
     </form>
     ${notes?.actionItems?.length?`<h3 class="person-section">Из пунктов — задачи</h3>
       <p class="muted">Пока у пункта нет владельца и срока, это не договорённость, а благое намерение.</p>
-      ${notes.actionItems.map((item,index)=>`<div class="row">
-        <span><div class="row-title">${esc(item)}</div></span>
-        <button type="button" class="button small secondary pressable" data-commit="${index}">В задачу</button></div>`).join('')}`:''}
+      ${notes.actionItems.map((item,index)=>{
+        // Рядом написано, что без владельца и срока это благое намерение
+        // — а кнопка ровно его и делала: задача падала на того, кто вёл
+        // протокол, и без срока. Спрашиваем здесь же, не уводя с экрана.
+        const done=(notes.committed||[]).includes(index);
+        return `<div class="row" style="align-items:flex-start;gap:8px;flex-wrap:wrap">
+        <span style="flex:1 1 160px"><div class="row-title">${esc(item)}</div>
+          ${done?'<div class="row-sub">уже поручено</div>':''}</span>
+        ${done?'<span class="chip">в задачах</span>':`
+        <select data-commit-owner="${index}" class="input small" style="flex:0 1 150px">
+          <option value="">кому — выберите</option>
+          ${S.people.filter(p=>p.role!=='guest'&&p.active!==false).map(p=>`<option value="${esc(p.userId)}"${p.userId===me().userId?' selected':''}>${esc(p.displayName||p.email)}</option>`).join('')}
+        </select>
+        <input type="date" data-commit-date="${index}" class="input small" style="flex:0 1 140px">
+        <button type="button" class="button small secondary pressable" data-commit="${index}">В задачу</button>`}</div>`;
+      }).join('')}`:''}
     <p class="muted" style="margin-top:12px;font-size:12px">Решения отсюда попадают в общий список решений компании — искать их потом можно там.</p>`}
   `,()=>{
     const form=$('#notes-form');
@@ -3826,10 +3866,16 @@ async function notesModal(eventId,eventTitle=''){
     $$('[data-commit]').forEach(button=>button.onclick=async()=>{
       button.disabled=true;
       try{
+        const index=Number(button.dataset.commit);
+        const owner=$(`[data-commit-owner="${index}"]`)?.value||null;
+        const day=$(`[data-commit-date="${index}"]`)?.value||null;
         const{task}=await api(`/api/v1/calendar-events/${eventId}/notes/commit`,{method:'POST',
-          body:JSON.stringify({index:Number(button.dataset.commit)})});
+          body:JSON.stringify({index,ownerId:owner,promisedAt:day?new Date(`${day}T18:00:00`).toISOString():null})});
         toast(`Задача создана: ${task.title}`);
         if(!S.tasks.some(x=>x.id===task.id))S.tasks.unshift(task);
+        // Перерисовываем: пункт должен отметиться как уже поручённый,
+        // иначе вторая попытка заведёт вторую такую же задачу.
+        closeModal();notesModal(eventId,eventTitle);
       }catch(error){button.disabled=false;toast(ERROR_MESSAGE[error.code]||error.message)}
     });
   });
@@ -3850,7 +3896,7 @@ async function decisionsModal(query=''){
       :items.length?items.map(d=>`<div class="row">
         <span><div class="row-title">${esc(d.title)}</div>
           ${d.body?`<div class="row-sub">${esc(d.body)}</div>`:''}
-          <div class="row-sub">${esc(dateTime(d.acceptedAt))}${d.acceptedByName?` · принял ${esc(d.acceptedByName)}`:''}${
+          <div class="row-sub">${esc(dateTime(d.acceptedAt))}${d.acceptedByName?` · записал(а) ${esc(d.acceptedByName)}`:''}${
             d.callTitle?` · ${esc(d.callTitle)}`:''}</div></span>
         ${d.conversationId?`<button type="button" class="button small secondary pressable" data-decision-room="${esc(d.conversationId)}">К беседе</button>`:''}
       </div>`).join('')

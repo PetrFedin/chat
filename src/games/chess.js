@@ -253,12 +253,12 @@ export function outcome(state) {
 export function move(state, { from, to, promotion = null }) {
   const fromIndex = typeof from === 'number' ? from : squareIndex(from);
   const toIndex = typeof to === 'number' ? to : squareIndex(to);
-  if (fromIndex < 0 || toIndex < 0) throw Object.assign(new Error('Square is off the board'), { code: 'INVALID_MOVE' });
+  if (fromIndex < 0 || toIndex < 0) throw Object.assign(new Error('Такой клетки на доске нет'), { code: 'INVALID_MOVE' });
 
   const legal = legalMoves(state);
   const chosen = legal.find((m) => m.from === fromIndex && m.to === toIndex
     && (m.promotion ? m.promotion === (promotion || 'q') : true));
-  if (!chosen) throw Object.assign(new Error('That is not a legal move'), { code: 'ILLEGAL_MOVE' });
+  if (!chosen) throw Object.assign(new Error('Так сходить нельзя'), { code: 'ILLEGAL_MOVE' });
 
   const next = applyMove(state, chosen);
   const after = outcome(next);

@@ -35,11 +35,15 @@ const view = (row) => ({
   createdByName: row.createdByName ?? null,
   createdAt: row.createdAt,
   updatedAt: row.updatedAt,
+  // Номера пунктов, по которым задача уже заведена: экран отмечает их
+  // как поручённые и не предлагает завести вторую.
+  committed: Object.keys(row.committed ?? {}).map(Number).sort((a, b) => a - b),
 });
 
 const COLUMNS = `n.id, n.calendar_event_id "calendarEventId", n.call_id "callId", n.title, n.notes,
   n.decisions, n.action_items "actionItems", n.visibility, n.created_by "createdBy",
-  COALESCE(p.display_name, u.email) "createdByName", n.created_at "createdAt", n.updated_at "updatedAt"`;
+  COALESCE(p.display_name, u.email) "createdByName", n.created_at "createdAt", n.updated_at "updatedAt",
+  n.committed`;
 
 export function createMeetingNotes(pool, { calendar = null, store = null } = {}) {
   if (!pool) return null;
@@ -114,9 +118,24 @@ export function createMeetingNotes(pool, { calendar = null, store = null } = {})
     async commit(session, eventId, { index, ownerId, promisedAt = null }) {
       const note = await this.get(session, eventId);
       if (!note) throw fail('Протокола нет', 'NOTES_NOT_FOUND', 404);
-      const title = note.actionItems[Number(index)];
+      const position = Number(index);
+      const title = note.actionItems[position];
       if (!title) throw fail('В протоколе нет такого пункта', 'ACTION_ITEM_NOT_FOUND', 404);
       if (!store?.createTask) throw fail('Задачи доступны в режиме с базой данных', 'TASKS_UNAVAILABLE', 503);
+
+      // Пункт, уже ставший задачей, второй раз задачей не становится:
+      // возвращаем ту же. Иначе двое, открывшие протокол после
+      // совещания, заводят два одинаковых обязательства — и оба живые.
+      const { rows: existing } = await pool.query(
+        `SELECT committed->>$3 id FROM meeting_notes WHERE workspace_id=$1 AND calendar_event_id=$2`,
+        [session.workspaceId, eventId, String(position)],
+      );
+      const known = existing[0]?.id;
+      if (known) {
+        const already = await store.getTask?.(session, known);
+        if (already) return { task: already, alreadyCommitted: true };
+      }
+
       const task = await store.createTask(session, {
         title,
         ownerId: ownerId ?? session.userId,
@@ -124,6 +143,11 @@ export function createMeetingNotes(pool, { calendar = null, store = null } = {})
         promisedAt: promisedAt ?? null,
         outcome: `Из протокола встречи «${note.title}»`,
       });
+      await pool.query(
+        `UPDATE meeting_notes SET committed=committed||jsonb_build_object($3::text,$4::text)
+          WHERE workspace_id=$1 AND calendar_event_id=$2`,
+        [session.workspaceId, eventId, String(position), task.id],
+      );
       return { task };
     },
   };

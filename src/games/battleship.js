@@ -116,7 +116,7 @@ const sunk = (board, ship) => ship.every((cell) => board.shots[cell] === 'hit');
  */
 export function shoot(state, player, cell) {
   if (state.phase !== 'playing') throw fail('The game is not running', 'WRONG_PHASE');
-  if (state.turn !== player) throw fail('It is not your turn', 'NOT_YOUR_TURN', 409);
+  if (state.turn !== player) throw fail('Сейчас не ваш ход', 'NOT_YOUR_TURN', 409);
   const target = Object.keys(state.boards).find((id) => id !== player);
   const board = state.boards[target];
   const index = Number(cell);

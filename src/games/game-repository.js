@@ -89,14 +89,27 @@ export function createGameRepository(pool, store = null) {
       return rows.map((row) => view(row, session.userId));
     },
 
-    /** Games waiting for this person, wherever they are. */
+    /**
+     * Партии этого человека, где бы они ни шли.
+     *
+     * Список отбирал только «позвали» и «идёт» — и законченная партия
+     * исчезала у обоих в тот самый миг, когда появлялся результат.
+     * Выиграл — и это нигде не отмечено; экран для такой строки написан,
+     * но показать её было нечему. Недавно доигранные остаются на виду:
+     * итог партии — новость не меньшая, чем чужой ход.
+     *
+     * Сортировка прежняя — сначала те, где ход за тобой, — а доигранные
+     * уходят вниз сами, потому что дальше идёт свежесть.
+     */
     async listMine(session) {
       const { rows } = await pool.query(
         `SELECT id,conversation_id "conversationId",kind,status,challenger_id "challengerId",opponent_id "opponentId",
                 turn_user_id "turnUserId",state,winner_id "winnerId",result,version,created_at "createdAt",updated_at "updatedAt"
          FROM games
-         WHERE workspace_id=$1 AND status IN ('invited','active') AND $2 IN (challenger_id,opponent_id)
-         ORDER BY (turn_user_id=$2) DESC, updated_at DESC LIMIT 50`,
+         WHERE workspace_id=$1 AND $2 IN (challenger_id,opponent_id)
+           AND (status IN ('invited','active')
+                OR (status IN ('finished','declined','abandoned') AND updated_at > now() - interval '3 days'))
+         ORDER BY (status IN ('invited','active')) DESC, (turn_user_id=$2) DESC, updated_at DESC LIMIT 50`,
         [session.workspaceId, session.userId],
       );
       return rows.map((row) => view(row, session.userId));
@@ -203,12 +216,12 @@ export function createGameRepository(pool, store = null) {
       return this.tx(async (client) => {
         const row = await loadRow(client, session, id);
         assertPlayer(row, session);
-        if (row.status !== 'active') throw fail('This game is not running', 'WRONG_STATUS', 409);
+        if (row.status !== 'active') throw fail('Партия уже не идёт', 'WRONG_STATUS', 409);
         const rules = RULES[row.kind];
 
         if (row.kind === 'battleship') return this.playBattleship(client, session, row, payload);
 
-        if (row.turnUserId !== session.userId) throw fail('It is not your turn', 'NOT_YOUR_TURN', 409);
+        if (row.turnUserId !== session.userId) throw fail('Сейчас не ваш ход', 'NOT_YOUR_TURN', 409);
         const played = rules.move(row.state, payload);
         const ordinal = (await client.query('SELECT count(*)::int c FROM game_moves WHERE game_id=$1', [row.id])).rows[0].c + 1;
         await client.query(
