@@ -36,7 +36,9 @@ blocked/in_review → accepted_result → closed — with an evidence gate
 before review and a designated acceptor who alone can close the loop.
 Calendar with recurrence (RRULE-subset), time zones, per-occurrence
 edits and per-occurrence meeting notes, participant RSVPs, a
-closed-department visibility model with real seat accounting.
+closed-department visibility model with real seat accounting, and a
+personal, revocable `.ics` subscription for reading it from an
+external calendar app (see Gaps for what that does not cover).
 
 **Realtime and reliability**
 WebSocket presence/typing/event stream with durable cursors, calls
@@ -90,8 +92,15 @@ drifts from the routes the server actually serves, in either direction.
 Ordered by how much it costs the product that it's missing, not by how
 hard it is to build.
 
-- **External calendar sync (Google/Outlook/ICS) does not exist.** No
-  import, no export, no loop-prevention logic to build it against yet.
+- **External calendar sync: export exists (ICS subscription), import/OAuth does not.**
+  Any person can get a private `.ics` subscription link (personal
+  token, revocable, visibility-filtered the same way the in-app
+  calendar is) to paste into Google/Outlook/Apple Calendar; it emits
+  real `RRULE`/`EXDATE`/`RECURRENCE-ID`, not pre-expanded occurrences,
+  so the calendar app expands recurrence itself. One-way only: nothing
+  writes back into ChatX from an external calendar, and there is no
+  Google/Outlook OAuth flow — that needs a registered OAuth application
+  and secrets nobody has created yet.
 - **No live Slack/Teams adapters yet; Telegram has one, but untested against a real bot.**
   A ChatX conversation can bridge to a Telegram chat through a bot: the
   bot token is verified with a real `getMe` call, sealed the same way

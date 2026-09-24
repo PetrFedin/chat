@@ -897,7 +897,10 @@ function calendar(){
       :fmt({month:'long',year:'numeric'}).format(base);
     return `<div class="calendar-toolbar">
       <div><h2>${esc(label)}</h2></div>
-      ${can('calendar.create')?'<button data-action="event" class="button primary small pressable">＋ Событие</button>':''}
+      <div class="inline-actions">
+        <button data-action="calendar-subscribe" class="button secondary small pressable">Подписка</button>
+        ${can('calendar.create')?'<button data-action="event" class="button primary small pressable">＋ Событие</button>':''}
+      </div>
     </div>
     <div class="cal-controls">
       <div class="cal-switch">${['day','week','month'].map(v=>`<button class="cal-tab ${c.view===v?'active':''}" data-cal-view="${v}">${v==='day'?'День':v==='week'?'Неделя':'Месяц'}</button>`).join('')}</div>
@@ -1428,7 +1431,7 @@ async function openChatAtMessage(id,messageId=null){
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
   },60);
 }
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),knowledge:()=>knowledgeModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),knowledge:()=>knowledgeModal(),'calendar-subscribe':()=>calendarSubscribeModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 /**
  * Роль по-русски.
@@ -2078,6 +2081,47 @@ function knowledgeFormModal(article,after){
       }catch(error){toast(error.message)}
     };
   });
+}
+
+/**
+ * Подписка на календарь ChatX в Google/Outlook/Apple Calendar.
+ *
+ * Ссылка — секрет сама по себе: календарное приложение читает по ней
+ * без пароля и перечитывает по расписанию. Показываем её один раз на
+ * экране, а не только по клику «скопировать» — то, что нельзя увидеть
+ * снова после случайного закрытия, раздражает больше, чем помогает.
+ */
+async function calendarSubscribeModal(){
+  let token=null;
+  try{({token}=await api('/api/v1/calendar/ics'))}catch(error){toast(error.message);return}
+  const render=()=>{
+    const url=`${location.origin}/api/v1/calendar/ics/${token}`;
+    modal('Подписка на календарь',`
+      <p class="muted">Вставьте эту ссылку в Google Calendar («Другие календари → По URL»), Outlook или Apple Calendar («Подписаться на календарь») — события ChatX появятся там и будут обновляться сами.</p>
+      <label>Ссылка на подписку<textarea readonly rows="3" onclick="this.select()">${esc(url)}</textarea></label>
+      <div class="chip-row" style="margin-top:10px">
+        <button type="button" class="chipbtn pressable" data-copy-ics>Скопировать ссылку</button>
+        <button type="button" class="chipbtn pressable" data-regenerate-ics>Выпустить новую ссылку</button>
+      </div>
+      <p class="muted" style="margin-top:10px">Новая ссылка — старая сразу перестаёт работать: полезно, если ссылка случайно кому-то досталась.</p>`,
+    ()=>{
+      $('[data-copy-ics]').onclick=async()=>{try{await navigator.clipboard.writeText(url);toast('Ссылка скопирована')}catch{toast('Скопируйте ссылку вручную')}};
+      $('[data-regenerate-ics]').onclick=async()=>{
+        modal('Выпустить новую ссылку?','<p class="muted">Старая ссылка перестанет открывать календарь — приложение по ней больше ничего не получит.</p><button id="confirm-ics-regen" class="button danger" style="width:100%">Выпустить новую</button>',()=>{
+          $('#confirm-ics-regen').onclick=async()=>{
+            try{
+              await api('/api/v1/calendar/ics',{method:'POST'});
+              // Два уровня назад — подтверждение и старую ссылку, — не
+              // закрывая всё окно целиком, как делает closeModal().
+              const depth=2;overlayStack.splice(-depth);renderOverlay();unwinding+=depth;try{history.go(-depth)}catch{unwinding-=depth}
+              setTimeout(()=>{toast('Новая ссылка готова');calendarSubscribeModal()},250);
+            }catch(error){toast(error.message)}
+          };
+        });
+      };
+    });
+  };
+  render();
 }
 
 const REMINDER_FILTERS=[['open','Ждут'],['done','Сделанные'],['all','Все']];

@@ -408,6 +408,14 @@ export const openapi = Object.freeze({
     },
     '/api/v1/integrations/telegram/webhook/{secret}': {
       post: { tags: ['Integrations'], summary: 'Telegram calls this with incoming updates', description: 'No session: authenticated by the X-Telegram-Bot-Api-Secret-Token header matching the secret Telegram was given at setWebhook time.', responses: { '200': { description: 'Accepted' }, '404': { description: 'Unknown or inactive bridge' } } },
+    },
+    '/api/v1/calendar/ics': {
+      get: { tags: ['Calendar'], summary: 'Get (creating if needed) this person’s private calendar subscription token', responses: { '200': { description: 'Token' } } },
+      post: { tags: ['Calendar'], summary: 'Regenerate the subscription token, invalidating the old link', responses: { '200': { description: 'New token' } } },
+      delete: { tags: ['Calendar'], summary: 'Revoke the subscription entirely', responses: { '200': { description: 'Revoked' } } },
+    },
+    '/api/v1/calendar/ics/{token}': {
+      get: { tags: ['Calendar'], summary: 'The .ics feed itself — what a calendar app subscribes to', description: 'No session: authenticated by the token in the URL. Emits RRULE/EXDATE/RECURRENCE-ID directly — recurrence is described, not pre-expanded, so the calendar app can expand it indefinitely.', responses: { '200': { description: 'text/calendar body' }, '404': { description: 'Unknown token' } } },
     }
   }
 });

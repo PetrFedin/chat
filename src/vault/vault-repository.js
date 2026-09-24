@@ -13,8 +13,10 @@ import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:
  * пароли открытым текстом хуже, чем не иметь такой возможности вовсе.
  */
 
+// `expose:true` всегда: без него ответ 5xx показывает человеку
+// generic "Internal server error" вместо читаемого сообщения.
 const fail = (message, code, statusCode = 400) =>
-  Object.assign(new Error(message), { code, statusCode });
+  Object.assign(new Error(message), { code, statusCode, expose: true });
 
 const ALGORITHM = 'aes-256-gcm';
 const NONCE = 12;
