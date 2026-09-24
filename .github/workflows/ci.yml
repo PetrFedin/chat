@@ -52,11 +52,13 @@ jobs:
       - name: Install runtime dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       # Ubuntu's own apt repo ships one postgresql-client version tied to
-      # the Ubuntu release (16), while the service above and the shipped
+      # the Ubuntu release, while the service above and the shipped
       # Dockerfile are both on 17 — `pg_dump` refuses to dump a server
-      # newer than itself. The PGDG repository is the only way to get a
-      # specific client version on this runner, matching what the image
-      # actually installs (postgresql17-client).
+      # newer than itself. The runner image already carries its own
+      # `pg_dump` earlier on PATH (a 16.x build baked into the image, not
+      # installed by apt/alternatives), so installing postgresql-client-17
+      # alone is not enough: it has to be put ahead of that on PATH
+      # explicitly, or the pre-existing binary keeps winning.
       - name: Install a matching postgresql-client
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
@@ -64,6 +66,7 @@ jobs:
           sudo sh -c 'echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
       - name: Apply migrations
         run: npm run migrate
         env:
