@@ -83,7 +83,7 @@ execution log is not.
 ## P7 — external collaboration and integrations — PLANNED
 
 - guests/contractors; email-to-task; Slack/Teams/Telegram adapters; public API/webhooks; CSV/Excel imports with deduplication and provenance.
-- generic EntityLink integration with SYNTHA/SYNTH-V2 without coupling their domain models into this core.
+- generic EntityLink integration with external systems without coupling their domain models into this core.
 
 ## Current priority correction
 
