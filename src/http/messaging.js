@@ -36,7 +36,7 @@ function requireConversationManager(session,policy){
 const S_KIND=(conversation)=>conversation?.kind==='direct'?'message.direct':'message.created';
 
 export async function handleMessaging(req,res,ctx,url,path,method){
-  const {store,requireSession,hub,notifyUsers}=ctx;
+  const {store,requireSession,hub,notifyUsers,telegram}=ctx;
   if(path==='/api/v1/conversations'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listConversations(s)});return true}
   if(path==='/api/v1/conversations/archived'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listConversations(s,{archived:true})});return true}
   /**
@@ -293,6 +293,9 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     const message=await store.createMessage(s,m[1],{kind,body:b.body??null,replyToId:b.replyToId??null,threadRootId:b.threadRootId??null,metadata:b.metadata??{},mentionedUserIds:Array.isArray(b.mentionedUserIds)?b.mentionedUserIds:[],clientRequestId:b.clientRequestId??randomUUID()});
     const audience=await store.conversationAudience(s,m[1]),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,m[1]):audience;
     hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:m[1],message});
+    // Лучшее старание, не гарантия: беседа не ждёт Telegram, а если моста
+    // для неё нет, deliverOutbound сама тихо ничего не сделает.
+    telegram?.enabled&&telegram.deliverOutbound(s,m[1],message).catch(()=>{});
     // Уведомление расходится двумя пачками, потому что для человека это
     // два разных события: его назвали по имени — или в канале, за
     // которым он следит, появилось сообщение. У них и переключатели

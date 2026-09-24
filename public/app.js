@@ -3259,14 +3259,20 @@ async function journalModal(){
 const DELIVERY_STATUS={pending:'в очереди',delivering:'отправляется',delivered:'доставлено',failed:'не дошло',dead:'остановлено',dead_letter:'остановлено'};
 
 async function integrationsModal(){
-  let endpoints=[],deliveries=[];
+  let endpoints=[],deliveries=[],bridges=[];
   try{
     endpoints=(await api('/api/v1/integrations/webhooks')).items||[];
     deliveries=(await api('/api/v1/integrations/deliveries?limit=20')).items||[];
+    bridges=(await api('/api/v1/integrations/telegram')).items||[];
   }catch(error){
     toast(error.status===403?'Интеграции настраивает владелец или администратор':error.message);
     return;
   }
+  const bridgeRow=(b)=>`<div class="label-row">
+    <span><div class="row-title">@${esc(b.botUsername)} → ${esc((S.conversations.find(c=>c.id===b.conversationId)||{}).title||'беседа')}</div>
+      <div class="row-sub">Telegram-чат ${esc(b.telegramChatId)}${b.lastError?` · <span class="warn-text">${esc(b.lastError)}</span>`:''}</div></span>
+    <span class="inline-actions"><button class="text-button danger" data-drop-bridge="${esc(b.id)}">удалить</button></span>
+  </div>`;
   const endpointRow=(e)=>`<div class="label-row">
     <span><div class="row-title">${esc(e.label||e.url)}</div>
       <div class="row-sub">${esc(e.url)}</div>
@@ -3286,8 +3292,21 @@ async function integrationsModal(){
     ${endpoints.length?`<div class="label-list">${endpoints.map(endpointRow).join('')}</div>`:'<p class="muted">Подписок пока нет.</p>'}
     <h3 class="person-section">Последние доставки</h3>
     <div class="person-feed">${deliveries.length?deliveries.map(deliveryRow).join(''):'<p class="muted">Ничего ещё не отправлялось.</p>'}</div>
-    <div class="stack" style="margin-top:16px"><button data-new-endpoint class="button secondary">Добавить подписку</button></div>`,()=>{
+    <div class="stack" style="margin-top:16px"><button data-new-endpoint class="button secondary">Добавить подписку</button></div>
+    <h3 class="person-section">Мосты с Telegram — ${bridges.length}</h3>
+    <p class="muted">Беседа ChatX и чат в Telegram становятся одной перепиской через бота, которого вы туда добавите.</p>
+    ${bridges.length?`<div class="label-list">${bridges.map(bridgeRow).join('')}</div>`:'<p class="muted">Мостов пока нет.</p>'}
+    <div class="stack" style="margin-top:16px"><button data-new-bridge class="button secondary">Подключить Telegram</button></div>`,()=>{
     $('[data-new-endpoint]').onclick=()=>endpointFormModal(()=>replaceModal(integrationsModal));
+    $('[data-new-bridge]').onclick=()=>telegramBridgeFormModal(()=>replaceModal(integrationsModal));
+    $$('[data-drop-bridge]').forEach(b=>b.onclick=()=>{
+      modal('Удалить мост?','<p class="muted">Сообщения перестанут ходить между ChatX и этим чатом Telegram. Уже написанное останется в обеих беседах.</p><button id="confirm-bridge-delete" class="button danger" style="width:100%">Удалить</button>',()=>{
+        $('#confirm-bridge-delete').onclick=async()=>{
+          try{await api(`/api/v1/integrations/telegram/${b.dataset.dropBridge}`,{method:'DELETE'});toast('Мост удалён');replaceModal(integrationsModal)}
+          catch(error){toast(error.message)}
+        };
+      });
+    });
     $$('[data-toggle-endpoint]').forEach(b=>b.onclick=async()=>{
       const on=Boolean(b.dataset.enabled);
       try{
@@ -3303,6 +3322,27 @@ async function integrationsModal(){
         };
       });
     });
+  });
+}
+
+function telegramBridgeFormModal(after){
+  modal('Подключить Telegram',`<form id="telegram-bridge-form" class="form-stack">
+    <p class="muted">1. Создайте бота через @BotFather в Telegram и добавьте его в нужную группу.<br>2. Узнайте ID группы (например, через @userinfobot) — обычно отрицательное число.<br>3. Вставьте токен бота сюда — он будет храниться зашифрованным и больше нигде не покажется.</p>
+    <label>Беседа ChatX<select name="conversationId" class="field" required>${S.conversations.map(c=>`<option value="${esc(c.id)}">${esc(c.title||'Диалог')}</option>`).join('')}</select></label>
+    <label>Токен бота<input name="botToken" required placeholder="123456:AAExampleTokenFromBotFather" autocomplete="off"></label>
+    <label>ID чата Telegram<input name="chatId" required placeholder="-1001234567890"></label>
+    <button class="button primary">Подключить</button>
+  </form>`,()=>{
+    $('#telegram-bridge-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      const submit=event.currentTarget.querySelector('[type="submit"],button');if(submit)submit.disabled=true;
+      try{
+        await api('/api/v1/integrations/telegram',{method:'POST',body:JSON.stringify({conversationId:form.get('conversationId'),botToken:form.get('botToken'),chatId:form.get('chatId')})});
+        history.back();setTimeout(()=>after?.(),250);
+        toast('Мост подключён');
+      }catch(error){toast(error.message);if(submit)submit.disabled=false}
+    };
   });
 }
 

@@ -15,7 +15,9 @@ import { cleanText } from '../http/helpers.js';
  * которая в памяти не эмулируется, а честно отвечает 503.
  */
 
-const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
+// `expose:true` всегда: без него ответ 5xx показывает человеку
+// «Internal server error» вместо того, что здесь написано.
+const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode, expose: true });
 const MAX_CATEGORY = 100;
 
 const view = (row) => ({

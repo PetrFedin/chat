@@ -398,6 +398,16 @@ export const openapi = Object.freeze({
       get: { tags: ['Knowledge'], summary: 'Read one article', responses: { '200': { description: 'Article' }, '404': { description: 'Not found' } } },
       patch: { tags: ['Knowledge'], summary: 'Edit an article', responses: { '200': { description: 'Updated' } } },
       delete: { tags: ['Knowledge'], summary: 'Remove an article', responses: { '200': { description: 'Removed' } } },
+    },
+    '/api/v1/integrations/telegram': {
+      get: { tags: ['Integrations'], summary: 'List Telegram bridges for this workspace', responses: { '200': { description: 'Bridges' } } },
+      post: { tags: ['Integrations'], summary: 'Link a ChatX conversation to a Telegram chat via a bot', description: 'The bot token is verified with a real getMe call and sealed the same way as a vault secret; never returned afterward.', responses: { '201': { description: 'Bridge created' }, '502': { description: 'Telegram rejected the token or the webhook registration' } } },
+    },
+    '/api/v1/integrations/telegram/{id}': {
+      delete: { tags: ['Integrations'], summary: 'Remove a bridge and best-effort deregister its webhook', responses: { '200': { description: 'Removed' } } },
+    },
+    '/api/v1/integrations/telegram/webhook/{secret}': {
+      post: { tags: ['Integrations'], summary: 'Telegram calls this with incoming updates', description: 'No session: authenticated by the X-Telegram-Bot-Api-Secret-Token header matching the secret Telegram was given at setWebhook time.', responses: { '200': { description: 'Accepted' }, '404': { description: 'Unknown or inactive bridge' } } },
     }
   }
 });

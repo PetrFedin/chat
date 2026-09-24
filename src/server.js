@@ -49,6 +49,8 @@ import { createPersonalRepository } from './personal/personal-repository.js';
 import { createLabelRepository } from './labels/label-repository.js';
 import { createKnowledgeRepository } from './knowledge/knowledge-repository.js';
 import { createKnowledgeHandler } from './http/knowledge.js';
+import { createTelegramBridgeRepository } from './integrations/telegram-bridge-repository.js';
+import { createTelegramHandler } from './http/telegram.js';
 import { createCalendarRepository } from './calendar/calendar-repository.js';
 import { createPeopleRepository } from './people/people-repository.js';
 import { createOrgRepository } from './org/org-repository.js';
@@ -167,6 +169,7 @@ export async function createChatServer(options={}){
   const meetingNotes=options.meetingNotes??createMeetingNotes(pool,{calendar,store});
   const labels=options.labels??createLabelRepository(pool,store);
   const knowledge=options.knowledge??createKnowledgeRepository(pool);
+  const telegram=options.telegram??createTelegramBridgeRepository(pool,store);
   const personal=options.personal??createPersonalRepository(pool,store,labels);
   // Без базы работникам нечего делать, поэтому 'custom' глушит их жёстко.
   // В остальных случаях решение остаётся за переменными окружения: иначе
@@ -284,8 +287,8 @@ export async function createChatServer(options={}){
 
   if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.();mailWorker.start?.();digestMailer?.start?.();reminderWorker.start?.();retention.start?.()}
 
-  const ctx={store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleKnowledge=createKnowledgeHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const ctx={store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,telegram,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleKnowledge=createKnowledgeHandler(),handleTelegram=createTelegramHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{
     // Запись о запросе — то, чего в журнале не было вовсе: двадцать
@@ -431,6 +434,7 @@ export async function createChatServer(options={}){
     if(await handleWorkspace(req,res,ctx,url,path,method))return;
     if(await handleMessaging(req,res,ctx,url,path,method))return;
     if(await handleCalls(req,res,ctx,path,method))return;
+    if(await handleTelegram(req,res,ctx,url,path,method))return;
     if(await handleIntegrations(req,res,ctx,url,path,method))return;
     if(await handleOrg(req,res,ctx,url,path,method))return;
     if(await handleExport(req,res,ctx,url,path,method))return;

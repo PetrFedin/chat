@@ -27,9 +27,10 @@ join by verified email domain.
 **Collaboration core**
 Direct/group/channel conversations with read cursors, threads,
 mentions, reactions, pins, forwarding (including from WhatsApp/Telegram
-paste-in, attributed to the original author — not a live bot adapter,
-a clipboard-format parser), voice messages, edit history, per-person
-favourites/highlights/notes. Commitments (the task model) run a full
+paste-in, attributed to the original author, and — for Telegram only —
+a live bot bridge that mirrors a conversation both ways, see Gaps for
+its untested-against-a-real-bot caveat), voice messages, edit history,
+per-person favourites/highlights/notes. Commitments (the task model) run a full
 state machine — proposed → accepted → scheduled/in_progress →
 blocked/in_review → accepted_result → closed — with an evidence gate
 before review and a designated acceptor who alone can close the loop.
@@ -91,10 +92,17 @@ hard it is to build.
 
 - **External calendar sync (Google/Outlook/ICS) does not exist.** No
   import, no export, no loop-prevention logic to build it against yet.
-- **No live chat-platform adapters** (Slack/Teams/Telegram as bots or
-  bridges). The WhatsApp/Telegram *paste-in* parser is not a substitute
-  for this — it requires a human to copy text in, there is no
-  connection to those platforms' APIs.
+- **No live Slack/Teams adapters yet; Telegram has one, but untested against a real bot.**
+  A ChatX conversation can bridge to a Telegram chat through a bot: the
+  bot token is verified with a real `getMe` call, sealed the same way
+  as a vault secret, and messages flow both ways through the Bot API
+  (inbound via webhook, attributed honestly as "Из Telegram" — the same
+  attribution the manual paste-in parser uses — outbound as best-effort
+  delivery that never blocks the conversation). Built and tested against
+  an injected fake Telegram API (getMe/setWebhook/sendMessage/deleteWebhook,
+  full round-trip including the honest-failure path), but never against
+  a real bot token or a real Telegram chat — nobody has created one to
+  test with yet. Slack/Teams remain unbuilt.
 - **No public API surface for external integrators.** The whole REST
   API is cookie-session auth; outbound webhooks exist and are signed,
   but there is no API-key/OAuth path for a third party to call in.
