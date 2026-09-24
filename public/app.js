@@ -4626,45 +4626,96 @@ function repeatRule(choice,startAt){
   })[choice]??null;
 }
 
+// Виды события — те же семь, что понимает сервер (схема
+// `calendar_events.kind`), а форма предлагала четыре из семи: завести
+// «Работу над задачей», «Веху» или просто «Событие» можно было только
+// в обход экрана.
+const EVENT_KIND_CHOICES=[
+  ['meeting','Встреча'],['focus','Фокус-время'],['task_block','Работа над задачей'],
+  ['deadline','Дедлайн'],['reminder','Напоминание'],['milestone','Веха'],['other','Событие'],
+];
+// Встреча, фокус-время и работа над задачей требуют времени окончания —
+// это правило схемы (`CHECK (kind NOT IN (...) OR end_at IS NOT NULL)`),
+// и раньше человек узнавал о нём фразой из базы, если снимал галочку.
+const EVENT_KINDS_NEEDING_END=new Set(['meeting','focus','task_block']);
+
 function eventModal(prefill=''){
   const start=new Date(Date.now()+3600000);start.setMinutes(0,0,0);
   const end=new Date(start.getTime()+3600000);
   modal('Новое событие',`<form id="event-form" class="form-stack">
     <label>Название<input name="title" required maxlength="240" value="${esc(prefill)}"></label>
     <label>Тип<select name="kind" class="field">
-      <option value="meeting">Встреча</option><option value="focus">Фокус-время</option>
-      <option value="deadline">Дедлайн</option><option value="reminder">Напоминание</option>
+      ${EVENT_KIND_CHOICES.map(([value,caption])=>`<option value="${value}">${caption}</option>`).join('')}
     </select></label>
+    <label class="switch-row"><input type="checkbox" name="allDay">
+      <span><span class="row-title">Весь день</span><span class="row-sub">Без конкретного часа — на день или на несколько дней подряд</span></span></label>
     <label>Начало<input name="start" type="datetime-local" required value="${esc(toLocalInput(start.toISOString()))}"></label>
-    <label>Окончание<input name="end" type="datetime-local" required value="${esc(toLocalInput(end.toISOString()))}"></label>
+    <label id="event-end-row">Окончание<input name="end" type="datetime-local" value="${esc(toLocalInput(end.toISOString()))}"></label>
+    <label>Видимость<select name="visibility" class="field">
+      <option value="participants">Только участникам</option>
+      <option value="workspace">Вся компания видит, что время занято</option>
+      <option value="private">Только мне</option>
+    </select></label>
     <label>Описание<textarea name="description" rows="2" maxlength="2000"></textarea></label>
     <label>Повторять<select name="repeat" class="field">
       ${REPEAT_CHOICES.map(([value,caption])=>`<option value="${esc(value)}">${caption}</option>`).join('')}
     </select></label>
     ${S.boot?.storageMode==='memory'?'':`<div><div class="row-title">Кого позвать</div>
       <div class="row-sub">Каждый получит приглашение и подтвердит участие</div>
-      <div style="margin-top:8px">${participantChecks([], 'guest')}</div></div>`}
+      <div style="margin-top:8px">${participantChecks([], 'guest', {openRoom:true})}</div></div>`}
     <button class="button primary">Создать</button>
   </form>`,()=>{
-    $('#event-form').onsubmit=async(submitEvent)=>{
+    const form=$('#event-form');
+    const kindField=form.querySelector('[name="kind"]');
+    const allDayField=form.querySelector('[name="allDay"]');
+    const startField=form.querySelector('[name="start"]');
+    const endField=form.querySelector('[name="end"]');
+    // Дата и час — одно поле, пока не отмечено «весь день»: тип поля
+    // переключается на дату без времени, а не прячется рядом с ним.
+    const syncFields=()=>{
+      const wholeDay=allDayField.checked;
+      const type=wholeDay?'date':'datetime-local';
+      for(const field of [startField,endField]){
+        if(field.type===type)continue;
+        const value=field.value?new Date(field.value):null;
+        field.type=type;
+        if(value)field.value=wholeDay?value.toISOString().slice(0,10):toLocalInput(value.toISOString());
+      }
+      // «Окончание» обязательно только для тех видов, где обязательно на
+      // сервере — иначе человек либо видит лишнюю звёздочку, либо не
+      // видит нужную.
+      endField.required=EVENT_KINDS_NEEDING_END.has(kindField.value);
+    };
+    allDayField.onchange=syncFields;
+    kindField.onchange=syncFields;
+    syncFields();
+    form.onsubmit=async(submitEvent)=>{
       submitEvent.preventDefault();
-      const form=new FormData(submitEvent.currentTarget);
-      const startAt=new Date(form.get('start'));
-      const endRaw=form.get('end');
-      const endAt=endRaw?new Date(endRaw):null;
+      const data=new FormData(submitEvent.currentTarget);
+      const wholeDay=allDayField.checked;
+      const parseField=(value,endOfDay)=>{
+        if(!value)return null;
+        if(!wholeDay)return new Date(value);
+        const day=new Date(`${value}T00:00:00`);
+        if(endOfDay)day.setHours(23,59,59,999);
+        return day;
+      };
+      const startAt=parseField(data.get('start'),false);
+      const endAt=parseField(data.get('end'),true);
       if(endAt&&endAt<=startAt)return toast('Окончание должно быть позже начала');
-      const invited=form.getAll('guest');
+      const invited=data.getAll('guest');
       try{
         // Встреча и приглашения — одним запросом, без половинчатого результата.
         await api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({
-          title:form.get('title'),kind:form.get('kind'),
-          description:form.get('description')||null,
+          title:data.get('title'),kind:data.get('kind'),allDay:wholeDay,
+          visibility:data.get('visibility'),
+          description:data.get('description')||null,
           startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
           timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
           // «Каждую неделю» без дня недели значило бы «в тот же день, что
           // и первая встреча» — но человек выбирает день, ставя дату
           // начала, и правило обязано её повторить, а не гадать.
-          recurrenceRule:repeatRule(form.get('repeat'),startAt),
+          recurrenceRule:repeatRule(data.get('repeat'),startAt),
           participantIds:invited,
         })});
         // Land on the day the event is on, or the person stares at a week

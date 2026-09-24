@@ -196,7 +196,11 @@ test('no form swallows a refusal', async () => {
 test('a meeting can be created with the people in it', async () => {
   const app = await read('public/app.js');
   const form = app.slice(app.indexOf('function eventModal('), app.indexOf('function participantChecks('));
-  assert.match(form, /participantChecks\(\[\], 'guest'\)/, 'из формы события некого позвать');
+  // `openRoom:true` исключает гостей из списка: сервер и так отказывает
+  // им во встрече («Those people are not workspace staff»), а форма без
+  // этого признака предлагала гостя к выбору — отметил его, и вся заявка
+  // на встречу отказывалась целиком, без объяснения, кто именно лишний.
+  assert.match(form, /participantChecks\(\[\], 'guest', \{openRoom:true\}\)/, 'форма события снова зовёт гостя, которого сервер не примет');
   // Событие и приглашения уходят одним запросом: половинчатый результат —
   // встреча, на которую никого не позвали, — больше не возможен.
   assert.match(form, /participantIds:invited/);
