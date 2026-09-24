@@ -62,7 +62,10 @@ honestly excluded, not silently unsearchable). Personal planning
 an existing block instead of leaving orphaned duplicates. One labelling
 mechanism (priority/tag/folder) shared across every entity type instead
 of a bespoke importance field per module. A password vault, AES-256-GCM,
-reveal-gated and fully audited.
+reveal-gated and fully audited. A company knowledge base with a
+search-based HR bot: no generation, it full-text searches articles and
+returns the best match with a highlighted excerpt (`ts_headline`), and
+says so honestly when nothing matches rather than inventing an answer.
 
 **Games and stories**
 Chess, checkers and battleship with a real server-side rules engine
@@ -86,13 +89,6 @@ drifts from the routes the server actually serves, in either direction.
 Ordered by how much it costs the product that it's missing, not by how
 hard it is to build.
 
-- **No headless-browser check in CI.** Every UI-touching test parses
-  `public/*.js` with regular expressions; none of them load the page.
-  CI can be green while the running page is broken — this has happened
-  before (see the git history around "the mutation-observer feedback
-  loop that froze the UI"). This is being closed next (tracked
-  separately, not in this file, since it's infrastructure rather than a
-  product feature).
 - **External calendar sync (Google/Outlook/ICS) does not exist.** No
   import, no export, no loop-prevention logic to build it against yet.
 - **No live chat-platform adapters** (Slack/Teams/Telegram as bots or
