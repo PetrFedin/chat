@@ -6,7 +6,7 @@ import { cleanText, json, readJson, toDateOrNull } from './helpers.js';
 const CALL_ID = '([0-9a-f-]+)';
 
 function callNotFound() {
-  return Object.assign(new Error('Call not found'), { code: 'NOT_FOUND', statusCode: 404 });
+  return Object.assign(new Error('Звонок не найден'), { code: 'NOT_FOUND', statusCode: 404 });
 }
 
 async function accessibleCall(store, calls, session, callId) {
@@ -29,9 +29,9 @@ export function createCallHandler() {
       const audience = await store.conversationAudience(session, conversationId);
       const requested = Array.isArray(body.participantIds) && body.participantIds.length ? body.participantIds : audience;
       const participants = [...new Set([session.userId, ...requested])];
-      if (participants.length < 2) throw Object.assign(new Error('A call requires at least two participants'), { code: 'CALL_REQUIRES_PARTICIPANTS' });
+      if (participants.length < 2) throw Object.assign(new Error('Для звонка нужно минимум два участника'), { code: 'CALL_REQUIRES_PARTICIPANTS' });
       if (participants.length > 100 || participants.some((id) => !audience.includes(id))) {
-        throw Object.assign(new Error('Call participants must belong to this conversation'), { code: 'INVALID_CALL_PARTICIPANTS', statusCode: 400 });
+        throw Object.assign(new Error('Участники звонка должны состоять в этой беседе'), { code: 'INVALID_CALL_PARTICIPANTS', statusCode: 400 });
       }
       const providerRoomName = opaqueRoomName(session.workspaceId, randomUUID());
       const call = await calls.create(session, {
@@ -126,9 +126,9 @@ export function createCallHandler() {
       const audience = await store.conversationAudience(session, conversationId);
       const requested = Array.isArray(body.participantIds) && body.participantIds.length ? body.participantIds : audience;
       const participants = [...new Set([session.userId, ...requested])];
-      if (participants.length < 2) throw Object.assign(new Error('A call requires at least two participants'), { code: 'CALL_REQUIRES_PARTICIPANTS' });
+      if (participants.length < 2) throw Object.assign(new Error('Для звонка нужно минимум два участника'), { code: 'CALL_REQUIRES_PARTICIPANTS' });
       if (participants.length > 100 || participants.some((id) => !audience.includes(id))) {
-        throw Object.assign(new Error('Call participants must belong to this conversation'), { code: 'INVALID_CALL_PARTICIPANTS', statusCode: 400 });
+        throw Object.assign(new Error('Участники звонка должны состоять в этой беседе'), { code: 'INVALID_CALL_PARTICIPANTS', statusCode: 400 });
       }
 
       const { event } = await ctx.calendar.createWithParticipants(session, {
@@ -211,7 +211,7 @@ export function createCallHandler() {
     if (match && method === 'POST') {
       const session = await requireSession(req);
       const call = await accessibleCall(store, calls, session, match[1]);
-      if (['ended', 'cancelled'].includes(call.state)) throw Object.assign(new Error('Call has ended'), { code: 'CALL_ENDED', statusCode: 409 });
+      if (['ended', 'cancelled'].includes(call.state)) throw Object.assign(new Error('Звонок завершён'), { code: 'CALL_ENDED', statusCode: 409 });
       const credentials = await mediaProvider.issueJoinCredential({
         workspaceId: session.workspaceId,
         callId: call.id,
@@ -297,9 +297,9 @@ export function createCallHandler() {
       const session = await requireSession(req);
       requirePermission(session.role, Permission.CALL_RECORD);
       const call = await accessibleCall(store, calls, session, match[1]);
-      if (call.state !== 'active') throw Object.assign(new Error('Recording requires an active call'), { code: 'CALL_NOT_ACTIVE', statusCode: 409 });
+      if (call.state !== 'active') throw Object.assign(new Error('Запись требует активного звонка'), { code: 'CALL_NOT_ACTIVE', statusCode: 409 });
       if (!(await calls.recordingConsentReady(session, call.id))) {
-        throw Object.assign(new Error('All active participants must consent before recording'), { code: 'RECORDING_CONSENT_REQUIRED', statusCode: 409 });
+        throw Object.assign(new Error('Все активные участники должны согласиться на запись'), { code: 'RECORDING_CONSENT_REQUIRED', statusCode: 409 });
       }
       const providerResult = await mediaProvider.startRecording({
         workspaceId: session.workspaceId,
@@ -331,7 +331,7 @@ export function createCallHandler() {
       requirePermission(session.role, Permission.CALL_RECORD);
       const call = await accessibleCall(store, calls, session, match[1]);
       const activeRecording = [...(call.recordings ?? [])].reverse().find((r) => r.status === 'recording');
-      if (!activeRecording) throw Object.assign(new Error('No active recording'), { code: 'NO_ACTIVE_RECORDING', statusCode: 409 });
+      if (!activeRecording) throw Object.assign(new Error('Нет активной записи'), { code: 'NO_ACTIVE_RECORDING', statusCode: 409 });
       await mediaProvider.stopRecording(activeRecording.providerRecordingId, activeRecording.transcriptionProviderRecordingId);
       const recording = await calls.stopRecording(session, call.id);
       const audience = await store.conversationAudience(session, call.conversationId);
@@ -345,7 +345,7 @@ export function createCallHandler() {
       const session = await requireSession(req);
       const call = await accessibleCall(store, calls, session, match[1]);
       if (call.createdBy !== session.userId && !hasPermission(session.role, Permission.CALL_MANAGE)) {
-        throw Object.assign(new Error('Only the call creator or a manager can end the call'), { code: 'FORBIDDEN', statusCode: 403 });
+        throw Object.assign(new Error('Завершить звонок может только его создатель или руководитель'), { code: 'FORBIDDEN', statusCode: 403 });
       }
       const activeRecording = [...(call.recordings ?? [])].reverse().find((r) => r.status === 'recording');
       if (activeRecording) {

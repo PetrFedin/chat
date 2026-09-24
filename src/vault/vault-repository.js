@@ -63,9 +63,9 @@ export function seal(key, plaintext) {
  */
 export function open(key, sealed) {
   const keys = (Array.isArray(key) ? key : [key]).filter(Boolean);
-  if (!keys.length) throw fail('Stored secret is damaged', 'VAULT_ENTRY_DAMAGED', 500);
+  if (!keys.length) throw fail('Сохранённый секрет повреждён', 'VAULT_ENTRY_DAMAGED', 500);
   const buffer = Buffer.from(sealed);
-  if (buffer.length <= NONCE + TAG) throw fail('Stored secret is damaged', 'VAULT_ENTRY_DAMAGED', 500);
+  if (buffer.length <= NONCE + TAG) throw fail('Сохранённый секрет повреждён', 'VAULT_ENTRY_DAMAGED', 500);
   let last = null;
   for (const candidate of keys) {
     try {
@@ -77,21 +77,21 @@ export function open(key, sealed) {
   // Ни один ключ не подошёл — это либо порча, либо потерянный ключ.
   // Различить снаружи нельзя, и обещать, что это просто «повреждено»,
   // было бы неправдой.
-  throw Object.assign(fail('Stored secret cannot be opened with the configured key', 'VAULT_KEY_MISMATCH', 500), { cause: last });
+  throw Object.assign(fail('Сохранённый секрет не открывается настроенным ключом', 'VAULT_KEY_MISMATCH', 500), { cause: last });
 }
 
 const COLUMNS = `id,title,login,url,note,created_at "createdAt",updated_at "updatedAt",last_viewed_at "lastViewedAt"`;
 
 const readTitle = (value) => {
   const title = String(value ?? '').trim();
-  if (!title || title.length > 200) throw fail('A vault entry needs a title of up to 200 characters', 'INVALID_VAULT_TITLE', 400);
+  if (!title || title.length > 200) throw fail('Записи сейфа нужно название до 200 символов', 'INVALID_VAULT_TITLE', 400);
   return title;
 };
 
 const readSecret = (value) => {
   const secret = String(value ?? '');
-  if (!secret) throw fail('A vault entry needs a secret', 'INVALID_VAULT_SECRET', 400);
-  if (secret.length > MAX_SECRET) throw fail(`A secret is at most ${MAX_SECRET} characters`, 'INVALID_VAULT_SECRET', 400);
+  if (!secret) throw fail('Записи сейфа нужен секрет', 'INVALID_VAULT_SECRET', 400);
+  if (secret.length > MAX_SECRET) throw fail(`Секрет не длиннее ${MAX_SECRET} символов`, 'INVALID_VAULT_SECRET', 400);
   return secret;
 };
 
@@ -103,11 +103,11 @@ export function createVaultRepository(pool, { key = readVaultKey(), previous = r
   const readers = [key, previous].filter(Boolean);
   const unavailable = (message, code) => () => { throw fail(message, code, 503); };
   if (!pool) {
-    const stop = unavailable('The vault needs the PostgreSQL store', 'VAULT_UNAVAILABLE');
+    const stop = unavailable('Сейфу нужно хранилище PostgreSQL', 'VAULT_UNAVAILABLE');
     return { enabled: false, reason: 'no-database', list: stop, create: stop, update: stop, remove: stop, reveal: stop };
   }
   if (!key) {
-    const stop = unavailable('The vault is not configured: set VAULT_KEY to 32 random bytes in base64', 'VAULT_KEY_MISSING');
+    const stop = unavailable('Сейф не настроен: задайте VAULT_KEY — 32 случайных байта в base64', 'VAULT_KEY_MISSING');
     return { enabled: false, reason: 'no-key', list: stop, create: stop, update: stop, remove: stop, reveal: stop };
   }
 
@@ -164,7 +164,7 @@ export function createVaultRepository(pool, { key = readVaultKey(), previous = r
       if (patch.url !== undefined) push('url', trimmed(patch.url, 500));
       if (patch.note !== undefined) push('note', trimmed(patch.note, 2000));
       if (patch.secret !== undefined) push('secret', seal(key, readSecret(patch.secret)));
-      if (!sets.length) throw fail('Nothing to change', 'EMPTY_VAULT_PATCH', 400);
+      if (!sets.length) throw fail('Нечего менять', 'EMPTY_VAULT_PATCH', 400);
       sets.push('updated_at=now()');
 
       const client = await pool.connect();
@@ -174,7 +174,7 @@ export function createVaultRepository(pool, { key = readVaultKey(), previous = r
           `UPDATE vault_entries SET ${sets.join(',')} WHERE workspace_id=$1 AND owner_id=$2 AND id=$3 RETURNING ${COLUMNS}`,
           params,
         );
-        if (!rows[0]) throw fail('Vault entry not found', 'VAULT_ENTRY_NOT_FOUND', 404);
+        if (!rows[0]) throw fail('Запись сейфа не найдена', 'VAULT_ENTRY_NOT_FOUND', 404);
         await audit(client, session, id, 'vault.updated', { secretChanged: patch.secret !== undefined });
         await client.query('COMMIT');
         return rows[0];
@@ -194,7 +194,7 @@ export function createVaultRepository(pool, { key = readVaultKey(), previous = r
           'DELETE FROM vault_entries WHERE workspace_id=$1 AND owner_id=$2 AND id=$3 RETURNING title',
           [session.workspaceId, session.userId, id],
         );
-        if (!rows[0]) throw fail('Vault entry not found', 'VAULT_ENTRY_NOT_FOUND', 404);
+        if (!rows[0]) throw fail('Запись сейфа не найдена', 'VAULT_ENTRY_NOT_FOUND', 404);
         await audit(client, session, id, 'vault.deleted', { title: rows[0].title });
         await client.query('COMMIT');
       } catch (error) {
@@ -214,7 +214,7 @@ export function createVaultRepository(pool, { key = readVaultKey(), previous = r
           'SELECT id,title,login,secret FROM vault_entries WHERE workspace_id=$1 AND owner_id=$2 AND id=$3 FOR UPDATE',
           [session.workspaceId, session.userId, id],
         );
-        if (!rows[0]) throw fail('Vault entry not found', 'VAULT_ENTRY_NOT_FOUND', 404);
+        if (!rows[0]) throw fail('Запись сейфа не найдена', 'VAULT_ENTRY_NOT_FOUND', 404);
         const secret = open(readers, rows[0].secret);
         await client.query('UPDATE vault_entries SET last_viewed_at=now() WHERE id=$1', [id]);
         await audit(client, session, id, 'vault.revealed', { title: rows[0].title });

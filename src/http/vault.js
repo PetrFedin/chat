@@ -20,8 +20,8 @@ export function createVaultHandler() {
       const noKey = vault?.reason === 'no-key';
       throw Object.assign(
         new Error(noKey
-          ? 'The vault is not configured: set VAULT_KEY to 32 random bytes in base64'
-          : 'The vault requires a database deployment'),
+          ? 'Сейф не настроен: задайте VAULT_KEY — 32 случайных байта в base64'
+          : 'Сейфу нужно развёртывание с базой данных'),
         { code: noKey ? 'VAULT_KEY_MISSING' : 'VAULT_UNAVAILABLE', statusCode: 503, expose: true },
       );
     }
@@ -55,6 +55,6 @@ export function createVaultHandler() {
       return true;
     }
 
-    throw Object.assign(new Error('Vault route not found'), { code: 'NOT_FOUND', statusCode: 404 });
+    throw Object.assign(new Error('Маршрут сейфа не найден'), { code: 'NOT_FOUND', statusCode: 404 });
   };
 }

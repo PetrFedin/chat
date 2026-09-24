@@ -14,7 +14,7 @@ export function createCallSession(input) {
   const mode = input?.mode ?? CallMode.VIDEO;
   if (!MODES.has(mode)) throw new DomainError('INVALID_CALL_MODE', `Unsupported call mode: ${mode}`);
   const participantIds = [...new Set([text(input?.createdBy, 'createdBy'), ...(input?.participantIds ?? [])])];
-  if (participantIds.length < 2) throw new DomainError('CALL_REQUIRES_PARTICIPANTS', 'A call requires at least two participants');
+  if (participantIds.length < 2) throw new DomainError('CALL_REQUIRES_PARTICIPANTS', 'Для звонка нужно минимум два участника');
   const scheduledFor = input?.scheduledFor ?? null;
   return Object.freeze({
     id: text(input?.id, 'id'),
@@ -36,20 +36,20 @@ export function createCallSession(input) {
 
 export function startCall(call, { actorId, now = new Date().toISOString() }) {
   if (![CallState.SCHEDULED, CallState.RINGING].includes(call.state)) throw new DomainError('CALL_CANNOT_START', `Cannot start call from ${call.state}`);
-  if (!call.participantIds.includes(actorId)) throw new DomainError('CALL_PARTICIPANT_REQUIRED', 'Only a participant can start the call');
+  if (!call.participantIds.includes(actorId)) throw new DomainError('CALL_PARTICIPANT_REQUIRED', 'Начать звонок может только участник');
   return Object.freeze({ ...call, state: CallState.ACTIVE, startedAt: now });
 }
 
 export function endCall(call, { actorId, now = new Date().toISOString() }) {
-  if (call.state !== CallState.ACTIVE) throw new DomainError('CALL_NOT_ACTIVE', 'Only an active call can be ended');
-  if (!call.participantIds.includes(actorId)) throw new DomainError('CALL_PARTICIPANT_REQUIRED', 'Only a participant can end the call');
+  if (call.state !== CallState.ACTIVE) throw new DomainError('CALL_NOT_ACTIVE', 'Завершить можно только активный звонок');
+  if (!call.participantIds.includes(actorId)) throw new DomainError('CALL_PARTICIPANT_REQUIRED', 'Завершить звонок может только участник');
   return Object.freeze({ ...call, state: CallState.ENDED, endedAt: now });
 }
 
 export function enableRecording(call, { actorId, consentedParticipantIds = [] }) {
-  if (call.state !== CallState.ACTIVE) throw new DomainError('CALL_NOT_ACTIVE', 'Recording requires an active call');
-  if (!call.participantIds.includes(actorId)) throw new DomainError('CALL_PARTICIPANT_REQUIRED', 'Only a participant can request recording');
+  if (call.state !== CallState.ACTIVE) throw new DomainError('CALL_NOT_ACTIVE', 'Запись требует активного звонка');
+  if (!call.participantIds.includes(actorId)) throw new DomainError('CALL_PARTICIPANT_REQUIRED', 'Запросить запись может только участник');
   const consent = new Set(consentedParticipantIds);
-  if (!call.participantIds.every((id) => consent.has(id))) throw new DomainError('RECORDING_CONSENT_REQUIRED', 'All current participants must consent before recording');
+  if (!call.participantIds.every((id) => consent.has(id))) throw new DomainError('RECORDING_CONSENT_REQUIRED', 'Все нынешние участники должны согласиться на запись');
   return Object.freeze({ ...call, recordingStatus: 'recording', recordingStartedBy: actorId });
 }
