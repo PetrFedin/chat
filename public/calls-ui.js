@@ -50,13 +50,23 @@
     document.querySelector('.incoming-call')?.remove();
     const root = document.createElement('div');
     root.className = 'incoming-call';
-    root.innerHTML = `<div><strong>${esc(payload.title || 'Входящий звонок')}</strong><span>${esc(payload.body || 'Корпоративный звонок')}</span></div><div class="incoming-actions"><button data-call-answer>Войти</button><button class="dismiss" data-call-dismiss>Не сейчас</button></div>`;
+    root.innerHTML = `<div><strong>${esc(payload.title || 'Входящий звонок')}</strong><span>${esc(payload.body || 'Корпоративный звонок')}</span></div><div class="incoming-actions"><button data-call-answer>Присоединиться</button><button class="dismiss" data-call-dismiss>Не сейчас</button></div>`;
     document.body.append(root);
-    root.querySelector('[data-call-dismiss]').onclick = () => root.remove();
+    // «Не сейчас» убирало плашку и только: звонящий продолжал смотреть
+    // на гудки, не зная, что ему отказали. Отказ — это ответ, и он
+    // должен дойти до того, кто звонит.
+    root.querySelector('[data-call-dismiss]').onclick = () => {
+      root.remove();
+      fetch(`/api/v1/calls/${callId}/decline`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'idempotency-key': crypto.randomUUID() },
+        body: '{}',
+      }).catch(() => { /* плашка уже убрана; отказ не дошёл — звонок закроется сам по сроку */ });
+    };
     root.querySelector('[data-call-answer]').onclick = () => {
       root.remove();
       history.replaceState(null, '', `/#/calls/${callId}`);
-      joinExisting(callId).catch((error) => status(error.message, true));
+      joinExisting(callId).catch((error) => status(window.CHAT_ERRORS?.[error.code] || error.message, true));
     };
   }
 
@@ -200,7 +210,7 @@
       syncControls();
     } catch (error) {
       if (type === 'screen') state.screen = false;
-      status(error.message || 'Не удалось изменить состояние звонка', true);
+      status(window.CHAT_ERRORS?.[error.code] || error.message || 'Не удалось изменить состояние звонка', true);
       syncControls();
     }
   }
@@ -303,7 +313,7 @@
     const app = document.querySelector('#app-view');
     if (!callId || state.room || state.joining || !app || app.hidden) return;
     joinExisting(callId).catch((error) => {
-      if (error.status !== 401) status(error.message, true);
+      if (error.status !== 401) status(window.CHAT_ERRORS?.[error.code] || error.message, true);
     });
   }
 
@@ -312,7 +322,7 @@
     if (!button) return;
     event.preventDefault();
     event.stopImmediatePropagation();
-    startOutgoing(button.dataset.action === 'audio' ? 'audio' : 'video').catch((error) => status(error.message, true));
+    startOutgoing(button.dataset.action === 'audio' ? 'audio' : 'video').catch((error) => status(window.CHAT_ERRORS?.[error.code] || error.message, true));
   }, true);
 
   window.addEventListener('hashchange', resumeHashCall);

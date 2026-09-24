@@ -59,6 +59,12 @@ export async function listAccessibleMeetings({ calls, meeting, store, session, l
     if (!(await store.canAccessConversation(session, candidate.conversationId))) continue;
     const call = await calls.get(session, candidate.id);
     if (!call) continue;
+    // Доступ считался по беседе, а не по составу звонка: подрядчик,
+    // позванный в общий канал, получал все встречи компании, шедшие в
+    // этом канале, — включая те, куда звали двоих. Сам продукт в другом
+    // месте формулирует правило иначе: назначенный звонок — приглашение,
+    // а не объявление. Гость видит только те встречи, где он в составе.
+    if (session.role === 'guest' && !(call.participants ?? []).some((p) => p.userId === session.userId)) continue;
     const intelligence = await meeting.getMeeting(session, call.id);
     const run = intelligence?.run ?? null;
     const proposals = intelligence?.proposals ?? [];

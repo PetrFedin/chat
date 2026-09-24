@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
+import {ACTIVE_TASK_STATUSES, allowedTaskTransitions, assertTaskEvidenceAuthority, assertTaskReassignAuthority, assertTaskScheduleAuthority, assertTaskTransition, canViewTask } from '../task/task-authority.js';
+import { GUEST_ROLE } from './visibility.js';
+import { compareTasks, encodeTaskCursor, decodeTaskCursor, taskPageSize } from '../task/task-page.js';
 
 function nowIso() { return new Date().toISOString(); }
 function clone(value) { return value == null ? value : structuredClone(value); }
@@ -41,7 +43,7 @@ export class MemoryStore {
   messageForwardKey(workspaceId,messageId){return `${workspaceId}:${messageId}`}
 
   async createCompany({ companyName, workspaceName, ownerName, email, passwordHash, passwordSalt }) {
-    if (this.userByEmail.has(email)) throw Object.assign(new Error('Email already registered'), { code: 'EMAIL_EXISTS', statusCode: 409 });
+    if (this.userByEmail.has(email)) throw Object.assign(new Error('На этот адрес уже заведена учётная запись'), { code: 'EMAIL_EXISTS', statusCode: 409 });
     const organizationId = randomUUID();
     const workspaceId = randomUUID();
     const userId = randomUUID();
@@ -71,6 +73,10 @@ export class MemoryStore {
     return membership ? { ...clone(user), ...clone(credential), workspaceId: membership.workspaceId } : null;
   }
 
+  async hasMembership(userId, workspaceId) {
+    return this.memberships.has(this.membershipKey(workspaceId, userId));
+  }
+
   async createSession({ userId, workspaceId, tokenHash, expiresAt, userAgent = null, ipAddress = null }) {
     const id = randomUUID();
     this.sessions.set(tokenHash, { id, userId, workspaceId, tokenHash, expiresAt, userAgent, ipAddress, createdAt: nowIso(), revokedAt: null });
@@ -88,10 +94,52 @@ export class MemoryStore {
 
   async revokeSession(tokenHash) { const row = this.sessions.get(tokenHash); if (row) row.revokedAt = nowIso(); }
 
+  /** См. PostgreSQL-хранилище: компания переименовывается и меняет владельца. */
+  async renameWorkspace(session, { companyName = null, workspaceName = null } = {}) {
+    const workspace = this.workspaces.get(session.workspaceId);
+    const organization = this.organizations.get(session.organizationId);
+    if (companyName && organization) organization.name = companyName;
+    if (workspaceName && workspace) workspace.name = workspaceName;
+    return { workspaceId: session.workspaceId, workspaceName: workspace?.name, organizationName: organization?.name };
+  }
+
+  async transferOwnership(session, userId) {
+    if (userId === session.userId) throw Object.assign(new Error('Вы уже владелец'), { code: 'ALREADY_OWNER', statusCode: 400 });
+    const next = this.memberships.get(this.membershipKey(session.workspaceId, userId));
+    const current = this.memberships.get(this.membershipKey(session.workspaceId, session.userId));
+    if (!next) throw Object.assign(new Error('Person not found'), { code: 'PERSON_NOT_FOUND', statusCode: 404 });
+    if (next.role === 'guest') throw Object.assign(new Error('Компанию не передают внешнему участнику'), { code: 'CANNOT_TRANSFER_TO_GUEST', statusCode: 403 });
+    next.role = 'owner';
+    if (current) current.role = 'admin';
+    return { ownerId: userId, previousOwnerId: session.userId };
+  }
+
+  /** См. PostgreSQL-хранилище: в памяти журнала нет, писать некуда. */
+  async recordAuthEvent() { return null; }
+
+  /**
+   * В памяти журнал не ведётся: он нужен затем, чтобы пережить перезапуск,
+   * а память его не переживает. Отвечаем пустой страницей, а не ошибкой —
+   * интерфейс тогда показывает «записей пока нет», что для режима без базы
+   * и есть правда.
+   */
+  async listAuditEvents() {
+    return { items: [], nextCursor: null };
+  }
+
+  /** См. PostgreSQL-хранилище: справочник получил собственный адрес. */
+  async listPeople(session) {
+    const sharesRoomWith = (userId) => [...this.conversationMembers.values()]
+      .filter((cm) => cm.userId === session.userId)
+      .some((cm) => this.conversationMembers.has(this.conversationMemberKey(cm.conversationId, userId)));
+    return [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId)
+      .filter((m) => session.role !== 'guest' || m.userId === session.userId || sharesRoomWith(m.userId))
+      .map((m) => ({ ...clone(this.profiles.get(this.membershipKey(m.workspaceId, m.userId))), userId: m.userId, role: m.role, active: true, presence: clone(this.presence.get(this.membershipKey(m.workspaceId, m.userId)) ?? { state: 'offline' }) }));
+  }
+
   async getBootstrap(session) {
     const conversations = await this.listConversations(session);
-    const people = [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId).map((m) => ({ ...clone(this.profiles.get(this.membershipKey(m.workspaceId, m.userId))), userId: m.userId, role: m.role, presence: clone(this.presence.get(this.membershipKey(m.workspaceId, m.userId)) ?? { state: 'offline' }) }));
-    return { session, conversations, people };
+    return { session, conversations, people: await this.listPeople(session) };
   }
 
   async createInvitation(session, { email, role, tokenHash, expiresAt }) {
@@ -108,7 +156,7 @@ export class MemoryStore {
     this.users.set(userId,user);this.userByEmail.set(invitation.email,userId);this.credentials.set(userId,{passwordHash,passwordSalt});
     this.memberships.set(this.membershipKey(invitation.workspaceId,userId),{organizationId:invitation.organizationId,workspaceId:invitation.workspaceId,userId,role:invitation.role,createdAt});
     this.profiles.set(this.membershipKey(invitation.workspaceId,userId),{workspaceId:invitation.workspaceId,userId,displayName,email:invitation.email,timezone:'UTC'});
-    for(const conversation of this.conversations.values()) if(conversation.workspaceId===invitation.workspaceId && conversation.kind==='channel' && conversation.visibility==='workspace') this.conversationMembers.set(this.conversationMemberKey(conversation.id,userId),{conversationId:conversation.id,workspaceId:invitation.workspaceId,userId,role:'member'});
+    if(invitation.role!=='guest')for(const conversation of this.conversations.values()) if(conversation.workspaceId===invitation.workspaceId && conversation.kind==='channel' && conversation.visibility==='workspace') this.conversationMembers.set(this.conversationMemberKey(conversation.id,userId),{conversationId:conversation.id,workspaceId:invitation.workspaceId,userId,role:'member'});
     invitation.status='accepted';invitation.acceptedBy=userId;invitation.acceptedAt=createdAt;
     return {user,workspace:this.workspaces.get(invitation.workspaceId),membership:this.memberships.get(this.membershipKey(invitation.workspaceId,userId))};
   }
@@ -125,7 +173,18 @@ export class MemoryStore {
       .map((conversation)=>{
         const list=this.messages.get(conversation.id)??[],lastMessage=[...list].reverse().find(message=>!message.deletedAt)??null;
         const member=this.conversationMembers.get(this.conversationMemberKey(conversation.id,session.userId));
-        return {...clone(conversation),lastMessage:clone(lastMessage),unreadCount:0,archivedAt:member?.archivedAt??null,mutedUntil:member?.mutedUntil??null};
+        // См. PostgreSQL-хранилище: счётчик был константой «ноль».
+        const since=Date.parse(member?.lastReadAt??member?.joinedAt??0)||0;
+        const unreadCount=list.filter(message=>!message.deletedAt&&message.authorId!==session.userId
+          &&Date.parse(message.createdAt)>since).length;
+        // См. PostgreSQL-хранилище: личная переписка зовётся именем собеседника.
+        const title=conversation.title??(conversation.kind==='direct'
+          ? (()=>{const other=[...this.conversationMembers.values()]
+              .find(cm=>cm.conversationId===conversation.id&&cm.userId!==session.userId);
+             const profile=other&&this.profiles.get(this.membershipKey(conversation.workspaceId,other.userId));
+             return profile?.displayName??profile?.email??null})()
+          : null);
+        return {...clone(conversation),title,lastMessage:clone(lastMessage),unreadCount,archivedAt:member?.archivedAt??null,mutedUntil:member?.mutedUntil??null,memberRole:member?.role??null};
       });
   }
 
@@ -181,6 +240,19 @@ export class MemoryStore {
   }
 
   async addConversationMembers(session, conversationId, userIds, role='member') {
+    const room=this.conversations.get(conversationId);
+    // A room whose visibility is «the whole company» is exactly the room an outsider must not be in: everyone writing there is addressing colleagues.
+    // Put the client in a room made for them instead.
+    if(room&&['workspace','organization'].includes(room.visibility)){
+      for(const userId of userIds){
+        const membership=this.memberships.get(this.membershipKey(session.workspaceId,userId));
+        if(membership?.role==='guest')throw Object.assign(new Error('A guest cannot be placed in a company-wide room'),{code:'GUEST_NOT_IN_OPEN_ROOM',statusCode:409});
+      }
+    }
+    if (['owner', 'moderator'].includes(role) && userIds.some((id) => this.memberships.get(this.membershipKey(session.workspaceId, id))?.role === 'guest')) {
+      throw Object.assign(new Error('A guest cannot run a conversation'), { code: 'GUEST_CANNOT_OWN_ROOM', statusCode: 409 });
+    }
+
     const conversation = this.conversations.get(conversationId);
     if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
     if (conversation.kind === 'direct') throw Object.assign(new Error('Direct conversation membership is immutable'), { code:'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode:409 });
@@ -194,9 +266,15 @@ export class MemoryStore {
   }
 
   async setConversationMemberRole(session, conversationId, userId, role) {
+    if (['owner', 'moderator'].includes(role) && [userId].some((id) => this.memberships.get(this.membershipKey(session.workspaceId, id))?.role === 'guest')) {
+      throw Object.assign(new Error('A guest cannot run a conversation'), { code: 'GUEST_CANNOT_OWN_ROOM', statusCode: 409 });
+    }
+
     const conversation = this.conversations.get(conversationId);
     if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
     if (conversation.kind === 'direct') throw Object.assign(new Error('Direct conversation membership is immutable'), { code:'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode:409 });
+    // Завёдшего беседу чужими руками не выводят: см. хранилище с базой.
+    if (conversation.createdBy === userId && session.userId !== userId) throw Object.assign(new Error('Того, кто завёл беседу, из неё не выводят: он может уйти сам'), { code:'CANNOT_REMOVE_CREATOR', statusCode:409, expose:true });
     const key=this.conversationMemberKey(conversationId,userId),member=this.conversationMembers.get(key);
     if(!member)throw Object.assign(new Error('Conversation member not found'),{code:'CONVERSATION_MEMBER_NOT_FOUND',statusCode:404});
     if(member.role==='owner'&&role!=='owner'){
@@ -205,6 +283,31 @@ export class MemoryStore {
     }
     member.role=role;
     return this.listConversationMembers(session, conversationId);
+  }
+
+  /** Recovery for a room whose owners are all gone. See the Postgres store. */
+  async claimOrphanedConversation(session, id) {
+    const conversation = this.conversations.get(id);
+    if (!conversation || conversation.workspaceId !== session.workspaceId) throw Object.assign(new Error('Conversation not found'), { code: 'NOT_FOUND', statusCode: 404 });
+    if (conversation.kind === 'direct') throw Object.assign(new Error('A direct conversation has no owner to restore'), { code: 'DIRECT_MEMBERSHIP_IMMUTABLE', statusCode: 409 });
+    const stillOwned = [...this.conversationMembers.values()].some((m) => m.conversationId === id && m.role === 'owner' && this.memberships.has(this.membershipKey(session.workspaceId, m.userId)));
+    if (stillOwned) throw Object.assign(new Error('This conversation still has an owner'), { code: 'CONVERSATION_HAS_OWNER', statusCode: 409 });
+    this.conversationMembers.set(this.conversationMemberKey(id, session.userId), { conversationId: id, workspaceId: session.workspaceId, userId: session.userId, role: 'owner' });
+    return { claimed: true, conversationId: id };
+  }
+
+  // A room's name, its purpose and whether it is announcement-only were fixed
+  // at creation and could never be corrected.
+  async updateConversation(session, conversationId, patch) {
+    const conversation = this.conversations.get(conversationId);
+    if (!conversation || conversation.workspaceId !== session.workspaceId || conversation.archivedAt) {
+      throw Object.assign(new Error('Conversation not found'), { code:'NOT_FOUND', statusCode:404 });
+    }
+    if (patch.title !== undefined) conversation.title = patch.title;
+    if (patch.purpose !== undefined) conversation.purpose = patch.purpose;
+    if (patch.announcementOnly !== undefined) conversation.announcementOnly = patch.announcementOnly;
+    conversation.updatedAt = nowIso();
+    return clone(conversation);
   }
 
   async removeConversationMember(session, conversationId, userId) {
@@ -231,7 +334,7 @@ export class MemoryStore {
   async conversationAudience(session, conversationId) {
     const conversation=this.conversations.get(conversationId);
     if(!conversation || conversation.workspaceId!==session.workspaceId) return [];
-    if(conversation.visibility==='workspace' || conversation.visibility==='organization') return [...new Set([...this.memberships.values()].filter((m)=>m.workspaceId===session.workspaceId).map((m)=>m.userId))];
+    if(conversation.visibility==='workspace' || conversation.visibility==='organization') return [...new Set([...this.memberships.values()].filter((m)=>m.workspaceId===session.workspaceId&&m.role!=='guest').map((m)=>m.userId))];
     return [...new Set([...this.conversationMembers.values()].filter((m)=>m.workspaceId===session.workspaceId && m.conversationId===conversationId).map((m)=>m.userId))];
   }
 
@@ -239,7 +342,7 @@ export class MemoryStore {
     for (const userId of new Set([session.userId,...participantIds])) this.assertConversationUser(session,userId);
     const row = { id: randomUUID(), organizationId: session.organizationId, workspaceId: session.workspaceId, kind, title, slug, visibility, purpose, announcementOnly:Boolean(announcementOnly), createdBy: session.userId, createdAt: nowIso(), archivedAt:null };
     this.conversations.set(row.id, row); this.messages.set(row.id, []);
-    const memberIds = visibility === 'workspace' && kind === 'channel' ? [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId).map((m) => m.userId) : [session.userId, ...participantIds];
+    const memberIds = visibility === 'workspace' && kind === 'channel' ? [...this.memberships.values()].filter((m) => m.workspaceId === session.workspaceId && m.role !== 'guest').map((m) => m.userId) : [session.userId, ...participantIds];
     for (const userId of new Set(memberIds)) this.conversationMembers.set(this.conversationMemberKey(row.id, userId), { conversationId: row.id, workspaceId: session.workspaceId, userId, role: userId === session.userId ? 'owner' : 'member', joinedAt:nowIso() });
     return clone(row);
   }
@@ -264,12 +367,46 @@ export class MemoryStore {
       pinned:this.messagePins.has(this.messagePinKey(session.workspaceId,message.id)),
       forwarded:Boolean(forward),
       forwardedFrom,
+      replyCount:(this.messages.get(message.conversationId)??[])
+        .filter(item=>item.threadRootId===message.id&&!item.deletedAt).length,
     });
   }
 
-  async listMessages(session, conversationId, limit = 100) {
+  // The cursor argument was missing entirely here, so without a database the
+  // endpoint answered the same newest page forever and the history behind it
+  // was unreachable. Mirrors the Postgres keyset: the newest `limit` messages
+  // strictly older than (createdAt, id), returned oldest-first.
+  /** См. PostgreSQL-хранилище: `around` — окно вокруг сообщения. */
+  async listMessages(session, conversationId, limit = 100, before = null, around = null, { threadRootId = null } = {}) {
     if (!(await this.canAccessConversation(session, conversationId))) throw Object.assign(new Error('Conversation not found'), { statusCode: 404, code: 'NOT_FOUND' });
-    return (this.messages.get(conversationId)??[]).slice(-Math.min(limit,200)).map((message)=>this.messageView(session,message));
+    const all = this.messages.get(conversationId) ?? [];
+    if (threadRootId) {
+      // Ветка ветки — не разговор, а лабиринт: корнем бывает только
+      // сообщение из самой ленты.
+      const root = all.find((message) => message.id === threadRootId && !message.threadRootId);
+      if (!root) throw Object.assign(new Error('Message not found'), { statusCode: 404, code: 'MESSAGE_NOT_FOUND' });
+      return all.filter((message) => message.id === threadRootId || message.threadRootId === threadRootId)
+        .slice(0, Math.min(limit, 200)).map((message) => this.messageView(session, message));
+    }
+    // В ленте только корни: иначе ответ в ветке падает в общий поток
+    // вперемешку с остальным, и заводить ветку незачем.
+    let rows = all.filter((message) => !message.threadRootId);
+    if (around) {
+      const index = rows.findIndex((message) => message.id === around);
+      if (index < 0) throw Object.assign(new Error('Message not found'), { statusCode: 404, code: 'MESSAGE_NOT_FOUND' });
+      const size = Math.min(limit, 200);
+      const half = Math.max(1, Math.floor(size / 2));
+      return rows.slice(Math.max(0, index - half + 1), index + (size - half) + 1)
+        .map((message) => this.messageView(session, message));
+    }
+    if (before?.at && before?.id) {
+      const at = new Date(before.at).toISOString();
+      rows = rows.filter((message) => {
+        const createdAt = new Date(message.createdAt).toISOString();
+        return createdAt < at || (createdAt === at && String(message.id) < String(before.id));
+      });
+    }
+    return rows.slice(-Math.min(limit, 200)).map((message) => this.messageView(session, message));
   }
 
   async createMessage(session, conversationId, { kind = 'text', body = null, replyToId = null, threadRootId = null, metadata = {}, mentionedUserIds = [], clientRequestId = null }) {
@@ -278,6 +415,8 @@ export class MemoryStore {
       if(!messageId)continue;
       const target=(this.messages.get(conversationId)??[]).find(item=>item.id===messageId);
       if(!target||target.deletedAt)throw Object.assign(new Error(`${label} target is not available in this conversation`),{code:'INVALID_MESSAGE_REFERENCE',statusCode:400});
+      // См. PostgreSQL-хранилище: ветка ветки — не разговор, а лабиринт.
+      if(label==='thread'&&target.threadRootId)throw Object.assign(new Error('A thread cannot start inside another thread'),{code:'NESTED_THREAD',statusCode:409,expose:true});
     }
     const message = { id: randomUUID(), organizationId: session.organizationId, workspaceId: session.workspaceId, conversationId, kind, authorId: session.userId, body, replyToId, threadRootId, metadata, mentionedUserIds: [...new Set(mentionedUserIds)], clientRequestId, createdAt: nowIso(), editedAt: null, deletedAt: null };
     this.messages.get(conversationId).push(message); return this.messageView(session,message);
@@ -406,11 +545,56 @@ export class MemoryStore {
       .map((row)=>this.taskView(session,row));
   }
 
+  // Same page as the Postgres store, over the same ordering, so the two
+  // backends answer /api/v1/tasks identically.
+  /** См. PostgreSQL-хранилище: отбор по состоянию и счётчики для вкладок. */
+  async listTasksPage(session,{limit=50,cursor=null,status=null,scope='mine'}={}){
+    const size=taskPageSize(limit);
+    const key=decodeTaskCursor(cursor);
+    const wanted=status==='active'||status==='overdue'
+      ? ACTIVE_TASK_STATUSES
+      : status?new Set(String(status).split(',').map(v=>v.trim()).filter(Boolean)):null;
+    const ordered=[...this.tasks.values()]
+      .filter((row)=>canViewTask(row,session))
+      .filter((row)=>!wanted||wanted.has(row.status))
+      .filter((row)=>status!=='overdue'||(row.promisedAt&&Date.parse(row.promisedAt)<Date.now()))
+      .filter((row)=>scope==='all'||[row.ownerId,row.requesterId,row.acceptorId].includes(session.userId))
+      .sort(compareTasks);
+    const start=key?ordered.findIndex((row)=>row.id===key.id)+1:0;
+    const slice=ordered.slice(start||0,(start||0)+size+1);
+    const page=slice.slice(0,size);
+    return{
+      items:page.map((row)=>this.taskView(session,row)),
+      nextCursor:slice.length>size&&page.length?encodeTaskCursor(page[page.length-1]):null,
+    };
+  }
+
+  async taskCounts(session,{scope='mine'}={}){
+    const mine=[...this.tasks.values()]
+      .filter((row)=>canViewTask(row,session))
+      .filter((row)=>scope==='all'||[row.ownerId,row.requesterId,row.acceptorId].includes(session.userId));
+    const active=mine.filter((row)=>ACTIVE_TASK_STATUSES.has(row.status));
+    return{
+      total:mine.length,
+      active:active.length,
+      overdue:active.filter((row)=>row.promisedAt&&Date.parse(row.promisedAt)<Date.now()).length,
+      proposed:mine.filter((row)=>row.status==='proposed').length,
+      done:mine.filter((row)=>['closed','accepted_result'].includes(row.status)).length,
+      dropped:mine.filter((row)=>['cancelled','rejected'].includes(row.status)).length,
+    };
+  }
+
   async getTask(session,id){return this.taskView(session,this.tasks.get(id))}
 
   async createTask(session,value) {
     const ownerId=value.ownerId??session.userId,acceptorId=value.acceptorId??session.userId;
-    for(const userId of new Set([ownerId,acceptorId,session.userId])) this.assertConversationUser(session,userId);
+    for(const userId of new Set([ownerId,acceptorId,session.userId])){
+      this.assertConversationUser(session,userId);
+      // See the Postgres store: a guest cannot see a task, so naming one
+      // as owner or acceptor creates a commitment nobody can act on.
+      const membership=this.memberships.get(this.membershipKey(session.workspaceId,userId));
+      if(membership?.role===GUEST_ROLE) throw Object.assign(new Error('A guest cannot carry a commitment'),{code:'GUEST_CANNOT_HOLD_TASK',statusCode:400});
+    }
     if(value.sourceMessageId){
       const conversationId=await this.messageConversation(session,value.sourceMessageId);
       if(!conversationId||!(await this.canAccessConversation(session,conversationId))) throw Object.assign(new Error('Task source message not found'),{code:'TASK_SOURCE_NOT_FOUND',statusCode:404});
@@ -447,6 +631,30 @@ export class MemoryStore {
       const acceptances=this.taskAcceptances.get(id)??[];acceptances.push(acceptance);this.taskAcceptances.set(id,acceptances);
     }
     this.taskAuditAppend(row,'commitment.transitioned',session.userId,{from:previous,to,reason:decision.reason});
+    return this.taskView(session,row);
+  }
+
+  /**
+   * Hand the commitment to somebody else. The cure used to be «cancel and
+   * make a new one», which threw away the evidence and the audit chain.
+   */
+  async reassignTask(session,id,{ownerId=null,acceptorId=null,reason,expectedVersion}){
+    const row=this.tasks.get(id);
+    if(!row||!canViewTask(row,session))throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});
+    for(const userId of [ownerId,acceptorId].filter(Boolean)){
+      this.assertConversationUser(session,userId);
+      const membership=this.memberships.get(this.membershipKey(session.workspaceId,userId));
+      if(membership?.role===GUEST_ROLE)throw Object.assign(new Error('A guest cannot carry a commitment'),{code:'GUEST_CANNOT_HOLD_TASK',statusCode:400});
+    }
+    const next=assertTaskReassignAuthority(row,session,{expectedVersion,reason,ownerId,acceptorId});
+    // Spreading the old values and then writing the new ones over the same
+    // keys recorded only the new ones: the journal lost who used to hold it,
+    // which is the one fact a reassignment entry exists to keep.
+    const previous={previousOwnerId:row.ownerId,previousAcceptorId:row.acceptorId,previousStatus:row.status};
+    row.ownerId=next.ownerId;row.acceptorId=next.acceptorId;
+    if(next.resetToProposed)row.status='proposed';
+    row.version+=1;row.updatedAt=nowIso();
+    this.taskAuditAppend(row,'commitment.reassigned',session.userId,{...previous,ownerId:row.ownerId,acceptorId:row.acceptorId,status:row.status,reason:next.reason});
     return this.taskView(session,row);
   }
 

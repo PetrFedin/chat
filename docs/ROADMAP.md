@@ -25,15 +25,24 @@ Status legend: DONE / IN PROGRESS / NEXT / PLANNED / DEFERRED.
 - DONE: database checks for calendar ranges, enums, non-empty values and idempotency-key uniqueness.
 - DONE: database smoke tests for cross-workspace reference rejection, invalid calendar ranges and duplicate idempotency keys.
 - DONE: CI PostgreSQL service applies migrations and runs constraint tests.
-- NEXT: permission matrix and database-enforced authorization boundary.
-- NEXT: optimistic concurrency command (`expectedVersion`).
-- NEXT: atomic Message -> Commitment command with audit + outbox in one transaction.
-- NEXT: atomic review accept/return command with evidence and designated-acceptor validation at persistence boundary.
-- NEXT: replay tests proving duplicate commands cannot duplicate messages/tasks/events.
+- DONE: permission matrix and server-enforced authorization boundary.
+- DONE: optimistic concurrency command (`expectedVersion`).
+- DONE: atomic Message -> Commitment command with audit + outbox in one transaction.
+- DONE: atomic review accept/return command with evidence and designated-acceptor validation at persistence boundary.
+- DONE: transactional outbox now has a consumer — events fan out to subscribed
+  endpoints in the same transaction that marks them published, and a duplicate
+  delivery for one (endpoint, event) pair is rejected by the schema.
+- NEXT: `Idempotency-Key` on mutating commands. The `idempotency_keys` table has
+  existed since 001 and is still unused, so replaying a POST still creates a
+  second task. This is the last open item of the P1 exit gate.
 
 Exit gate: replaying a command cannot duplicate a task/message/event; cross-workspace access is denied; unauthorized role actions are denied; all domain invariants survive direct persistence tests.
 
-## P2 — API + realtime — PLANNED
+## P2 — API + realtime — DONE
+
+Shipped ahead of the sequencing rule below: REST + `/openapi.json`, WebSocket
+presence/typing/workspace events, read cursors, mentions, threads and a
+notification projection are all in the running product.
 
 - REST/OpenAPI command/query surface.
 - WebSocket/SSE event stream with durable sequence/cursor.
@@ -61,7 +70,11 @@ Exit gate: offline/reconnect and duplicate-submit scenarios are deterministic.
 
 - overdue and stale commitments; blockers/dependencies; acceptance queue; workload; schedule drift; reopen rate; decisions requiring management action.
 
-## P6 — automation and AI — PLANNED
+## P6 — automation and AI — PARTIALLY DONE
+
+Meeting Intelligence (transcript, summary, proposed decisions and actions with
+mandatory human confirmation) is shipped. The rules engine with dry-run and an
+execution log is not.
 
 - rules engine with dry-run and execution log.
 - thread summaries; action-item proposals; unsaved-agreement detection; schedule proposals; risk detection.
@@ -74,4 +87,13 @@ Exit gate: offline/reconnect and duplicate-submit scenarios are deterministic.
 
 ## Current priority correction
 
-P1 authorization and transactional command safety remain ahead of UI and realtime. The schema review already found and closed one concrete cross-workspace reference path; this validates the red-team-first sequence. Realtime chat and calendar UI start only after tenant authorization, optimistic concurrency, idempotent replay and atomic audit/outbox behavior are proven.
+The original rule said realtime chat and calendar UI start only after tenant
+authorization, optimistic concurrency, idempotent replay and atomic
+audit/outbox behaviour are proven. Three of those four are now proven; UI,
+calls and Meeting Intelligence shipped before the fourth. Idempotent replay is
+therefore the outstanding debt, not a future nicety, and it is the next item.
+
+A second correction from the same review: the browser was never exercised. The
+suite was green while the running page froze on load, because every UI test
+parses source with regular expressions. A headless-browser smoke test belongs
+in CI ahead of further feature work.

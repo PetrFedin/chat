@@ -90,6 +90,20 @@ export class MemoryCallRepository {
     return this.get(session, callId);
   }
 
+  async decline(session, callId) {
+    const key = this.participantKey(callId, session.userId);
+    const participant = this.participants.get(key);
+    if (participant && !participant.joinedAt) participant.connectionState = 'declined';
+    const call = this.calls.get(callId);
+    const others = [...this.participants.values()].filter((p) => p.callId === callId
+      && p.userId !== call?.createdBy && p.connectionState !== 'declined' && !p.leftAt);
+    const joined = [...this.participants.values()].some((p) => p.callId === callId && p.joinedAt);
+    if (call && call.state === 'ringing' && !others.length && !joined) call.state = 'missed';
+    return this.get(session, callId);
+  }
+
+  async sweepUnanswered() { return []; }
+
   async leave(session, callId) {
     const key = this.participantKey(callId, session.userId);
     const participant = this.participants.get(key);
@@ -167,6 +181,9 @@ export class MemoryCallRepository {
   async end(session, callId) {
     const call = this.calls.get(callId);
     if (!call || call.workspaceId !== session.workspaceId) return null;
+    // Не начинался — значит, не закончился: «никто не пришёл». Времени
+    // окончания у такого звонка нет и быть не может.
+    if (!call.startedAt) { call.state = 'missed'; call.lastActivityAt = now(); return this.get(session, callId); }
     call.state = 'ended';
     call.endedAt ??= now();
     for (const participant of this.participants.values()) {
@@ -243,7 +260,8 @@ export class PostgresCallRepository {
         organization_id,workspace_id,call_id,user_id,joined_at,audio_enabled,video_enabled,connection_state,last_media_at
       ) VALUES($1,$2,$3,$4,now(),true,$5,'connected',now())
       ON CONFLICT(workspace_id,call_id,user_id) DO UPDATE SET
-        joined_at=COALESCE(call_participants.joined_at,now()),left_at=NULL,connection_state='connected',last_media_at=now()`,
+        joined_at=COALESCE(call_participants.joined_at,now()),left_at=NULL,connection_state='connected',last_media_at=now(),
+        recording_consented_at=CASE WHEN call_participants.left_at IS NOT NULL THEN NULL ELSE call_participants.recording_consented_at END`,
       [session.organizationId, session.workspaceId, callId, session.userId, call.mode !== 'audio']);
       await c.query(`UPDATE call_sessions SET state=CASE WHEN state IN('scheduled','ringing') THEN 'active' ELSE state END,
         started_at=CASE WHEN state IN('scheduled','ringing') THEN COALESCE(started_at,now()) ELSE started_at END,last_activity_at=now()
@@ -254,13 +272,70 @@ export class PostgresCallRepository {
 
   async leave(session, callId) {
     await this.tx(async (c) => {
-      await c.query(`UPDATE call_participants SET left_at=now(),connection_state='disconnected',last_media_at=now()
+      await c.query(`UPDATE call_participants
+        SET left_at=CASE WHEN joined_at IS NULL THEN left_at ELSE now() END,
+            connection_state='disconnected', last_media_at=now()
         WHERE workspace_id=$1 AND call_id=$2 AND user_id=$3`, [session.workspaceId, callId, session.userId]);
       const active = Number((await c.query(`SELECT count(*) n FROM call_participants WHERE workspace_id=$1 AND call_id=$2 AND joined_at IS NOT NULL AND left_at IS NULL`, [session.workspaceId, callId])).rows[0].n);
       if (!active) await c.query(`UPDATE call_sessions SET state=CASE WHEN state='active' THEN 'ended' ELSE state END,
         ended_at=CASE WHEN state='active' THEN COALESCE(ended_at,now()) ELSE ended_at END,last_activity_at=now() WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, callId]);
     });
     return this.get(session, callId);
+  }
+
+  /**
+   * «Не сейчас».
+   *
+   * Отклонить входящий было нечем: кнопка на экране просто убирала
+   * плашку у того, кто отказался, и звонящий продолжал смотреть на
+   * гудки. Обычный выход для этого не годится — после него человек
+   * неотличим от того, у кого оборвалась связь.
+   *
+   * Если отказались все, кого звали, и никто не взял трубку, звонок
+   * закрывается как пропущенный: звонить дальше некому.
+   */
+  async decline(session, callId) {
+    await this.tx(async (c) => {
+      // Времени выхода у отказавшегося нет: таблица требует, чтобы
+      // вышедший когда-то входил, а он и не входил. Сам отказ и есть
+      // ответ, его несёт `connection_state`.
+      await c.query(`UPDATE call_participants SET connection_state='declined', last_media_at=now()
+        WHERE workspace_id=$1 AND call_id=$2 AND user_id=$3 AND joined_at IS NULL`,
+      [session.workspaceId, callId, session.userId]);
+      const waiting = Number((await c.query(`SELECT count(*) n FROM call_participants
+        WHERE workspace_id=$1 AND call_id=$2 AND user_id<>(SELECT created_by FROM call_sessions WHERE workspace_id=$1 AND id=$2)
+          AND connection_state<>'declined' AND left_at IS NULL`, [session.workspaceId, callId])).rows[0].n);
+      const joined = Number((await c.query(`SELECT count(*) n FROM call_participants
+        WHERE workspace_id=$1 AND call_id=$2 AND joined_at IS NOT NULL`, [session.workspaceId, callId])).rows[0].n);
+      if (!waiting && !joined) {
+        await c.query(`UPDATE call_sessions SET state='missed',last_activity_at=now()
+          WHERE workspace_id=$1 AND id=$2 AND state='ringing'`, [session.workspaceId, callId]);
+      }
+    });
+    return this.get(session, callId);
+  }
+
+  /**
+   * Звонки, до которых никто не дошёл.
+   *
+   * У состояния «звонит» не было срока: звонок, который не взяли,
+   * оставался звонящим навсегда — в назначенных он не показывался, а
+   * завершить его мог только тот, кто звонил. Через пять минут гудков
+   * звонка уже нет, и списки должны говорить то же самое.
+   */
+  async sweepUnanswered({ after = '5 minutes' } = {}) {
+    const { rows } = await this.pool.query(`WITH closed AS (
+        UPDATE call_sessions SET state='missed', last_activity_at=now()
+         WHERE state='ringing' AND created_at < now() - $1::interval
+        RETURNING id, organization_id, workspace_id, conversation_id, created_by, title, mode)
+      SELECT c.id, c.organization_id "organizationId", c.workspace_id "workspaceId",
+             c.conversation_id "conversationId", c.created_by "createdBy", c.title, c.mode,
+             COALESCE(array_agg(p.user_id) FILTER (WHERE p.user_id IS NOT NULL AND p.user_id<>c.created_by), '{}') missed
+        FROM closed c
+        LEFT JOIN call_participants p ON p.workspace_id=c.workspace_id AND p.call_id=c.id
+             AND p.joined_at IS NULL AND p.connection_state<>'declined'
+       GROUP BY c.id, c.organization_id, c.workspace_id, c.conversation_id, c.created_by, c.title, c.mode`, [after]);
+    return rows;
   }
 
   async setMedia(session, callId, value) {
@@ -303,6 +378,9 @@ export class PostgresCallRepository {
   }
 
   async stopRecording(session, callId) {
+    // Consent is given for one recording, not for the whole call: the next
+    // one has to ask again.
+    await this.pool.query('UPDATE call_participants SET recording_consented_at=NULL WHERE workspace_id=$1 AND call_id=$2', [session.workspaceId, callId]);
     const { rows } = await this.pool.query(`UPDATE call_recordings SET status='processing',stopped_at=now(),updated_at=now(),
       transcription_source_status=CASE
         WHEN transcription_provider_recording_id IS NOT NULL AND transcription_source_status='recording' THEN 'processing'
@@ -317,10 +395,77 @@ export class PostgresCallRepository {
 
   async end(session, callId) {
     await this.tx(async (c) => {
-      await c.query(`UPDATE call_sessions SET state='ended',ended_at=COALESCE(ended_at,now()),last_activity_at=now() WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, callId]);
+      await c.query(`UPDATE call_sessions
+        -- Звонок, который никто не взял, — это «никто не пришёл», а не
+      -- «отменён». Отменяет тот, кто передумал; здесь же люди просто не
+      -- подошли, и в отчётности эти два случая смешивались.
+      SET state=CASE WHEN started_at IS NULL THEN 'missed' ELSE 'ended' END,
+            ended_at=CASE WHEN started_at IS NULL THEN ended_at ELSE COALESCE(ended_at,now()) END,
+            last_activity_at=now()
+        WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, callId]);
       await c.query(`UPDATE call_participants SET left_at=COALESCE(left_at,now()),connection_state='disconnected' WHERE workspace_id=$1 AND call_id=$2 AND joined_at IS NOT NULL`, [session.workspaceId, callId]);
     });
     return this.get(session, callId);
+  }
+
+  /**
+   * Назначенные звонки — мои.
+   *
+   * Столбец `scheduled_for` лежал в схеме с самого начала, и ни одна
+   * строка кода его не читала: назначить звонок было нельзя, а если бы
+   * и было — увидеть назначенное негде. Договориться о разговоре на
+   * четверг приходилось словами в переписке, и там же это терялось.
+   *
+   * Отдаём только те, где человек — участник: назначенный звонок это
+   * приглашение, а не объявление.
+   */
+  async listScheduled(session, { from = null, to = null, limit = 100 } = {}) {
+    const { rows } = await this.pool.query(`SELECT
+        s.id, s.conversation_id "conversationId", s.calendar_event_id "calendarEventId", s.created_by "createdBy",
+        s.title, s.mode, s.state, s.scheduled_for "scheduledFor", s.created_at "createdAt",
+        e.description, e.end_at "endsAt",
+        (SELECT json_agg(json_build_object('userId', p.user_id, 'connectionState', p.connection_state) ORDER BY p.user_id)
+           FROM call_participants p WHERE p.workspace_id = s.workspace_id AND p.call_id = s.id) participants,
+        (SELECT json_agg(json_build_object('id', f.id, 'name', f.name, 'mimeType', f.mime_type, 'sizeBytes', f.size_bytes) ORDER BY f.name)
+           FROM calendar_event_files ef
+           JOIN files f ON f.workspace_id = ef.workspace_id AND f.id = ef.file_id AND f.deleted_at IS NULL
+          WHERE ef.workspace_id = s.workspace_id AND ef.calendar_event_id = s.calendar_event_id) files
+      FROM call_sessions s
+      LEFT JOIN calendar_events e ON e.workspace_id = s.workspace_id AND e.id = s.calendar_event_id
+      WHERE s.workspace_id = $1
+        AND s.state = 'scheduled'
+        AND EXISTS (SELECT 1 FROM call_participants p
+                     WHERE p.workspace_id = s.workspace_id AND p.call_id = s.id AND p.user_id = $2)
+        AND ($3::timestamptz IS NULL OR s.scheduled_for >= $3::timestamptz)
+        AND ($4::timestamptz IS NULL OR s.scheduled_for <= $4::timestamptz)
+      ORDER BY s.scheduled_for
+      LIMIT $5`, [session.workspaceId, session.userId, from, to, Math.min(Number(limit) || 100, 500)]);
+    return rows.map((row) => ({
+      ...row,
+      participants: row.participants ?? [],
+      files: row.files ?? [],
+    }));
+  }
+
+  /**
+   * Отменить назначенный звонок.
+   *
+   * Только тот, кто назначил: отменять чужие договорённости в общем
+   * календаре — это не «удобно», это способ сорвать разговор чужими
+   * руками.
+   */
+  async cancelScheduled(session, callId) {
+    const { rows } = await this.pool.query(
+      // `ended_at` намеренно не трогаем: у назначенного звонка нет
+      // начала, а в таблице стоит проверка «есть окончание — должно
+      // быть и начало». Отменённый разговор не «закончился» — он не
+      // состоялся.
+      `UPDATE call_sessions SET state='cancelled', last_activity_at=now()
+        WHERE workspace_id=$1 AND id=$2 AND state='scheduled' AND created_by=$3
+        RETURNING id, calendar_event_id "calendarEventId"`,
+      [session.workspaceId, callId, session.userId],
+    );
+    return rows[0] ?? null;
   }
 }
 

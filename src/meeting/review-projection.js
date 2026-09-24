@@ -34,7 +34,7 @@ export function createMeetingReviewProjector({store,calls,hub=null,notifyUsers=n
       }
     }
     if(notifyUsers&&audience.length){
-      await notifyUsers(value.workspaceId,audience,{title,body:body.slice(0,180),url:`/#/meetings/${value.callId}`});
+      await notifyUsers(value.workspaceId,audience,{title,body:body.slice(0,180),url:`/#/meetings/${value.callId}`,kind:'meeting.review_ready'});
     }
     return {projected:true,audienceCount:audience.length,createdNotifications:created};
   };

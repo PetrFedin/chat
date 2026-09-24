@@ -24,7 +24,7 @@ function text(value, field) {
 
 function email(value) {
   const normalized = text(value, 'email').toLowerCase();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) throw new DomainError('INVALID_EMAIL', 'A valid email is required');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) throw new DomainError('INVALID_EMAIL', 'Это не похоже на адрес почты');
   return normalized;
 }
 

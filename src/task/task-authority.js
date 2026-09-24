@@ -1,3 +1,5 @@
+import { Permission, hasPermission } from '../rbac.js';
+
 const TRANSITIONS = new Map([
   ['inbox', new Set(['clarify','proposed','cancelled'])],
   ['clarify', new Set(['proposed','cancelled'])],
@@ -6,8 +8,8 @@ const TRANSITIONS = new Map([
   ['scheduled', new Set(['in_progress','blocked','deferred','cancelled'])],
   ['in_progress', new Set(['blocked','in_review','deferred','cancelled'])],
   ['blocked', new Set(['in_progress','deferred','cancelled'])],
-  ['in_review', new Set(['accepted_result','in_progress'])],
-  ['accepted_result', new Set(['closed','in_progress'])],
+  ['in_review', new Set(['accepted_result','in_progress','cancelled'])],
+  ['accepted_result', new Set(['closed','in_progress','cancelled'])],
   ['deferred', new Set(['accepted','scheduled','cancelled'])],
   ['closed', new Set()],
   ['rejected', new Set()],
@@ -15,8 +17,32 @@ const TRANSITIONS = new Map([
 ]);
 
 const TERMINAL = new Set(['closed','rejected','cancelled']);
-const TEAM_MANAGERS = new Set(['owner','admin','manager']);
-const REASON_REQUIRED = new Set(['blocked','deferred','cancelled']);
+
+/**
+ * Задачи, которые ещё в работе.
+ *
+ * Список жил копией в хранилище рабочего дня, хотя это свойство самого
+ * автомата состояний: добавили состояние — и копия молча отстала.
+ */
+export const ACTIVE_TASK_STATUSES = new Set(
+  [...TRANSITIONS.keys()].filter((status) => !TERMINAL.has(status) && status !== 'accepted_result'));
+/**
+ * «Ведёт чужие задачи» — это право, а не список ролей.
+ *
+ * Список ролей жил здесь отдельно от таблицы прав, и добавить роли право
+ * `task.manage.team` было мало: задачи о ней не знали. Теперь источник
+ * один — таблица в rbac.js.
+ */
+export const managesTeamTasks = (session) => hasPermission(session?.role, Permission.TASK_MANAGE_TEAM);
+// Отказ — самое обидное для просившего событие, и он единственный
+// проходил молча: «Задача отклонена» без единого слова почему. Причина
+// здесь не формальность, а единственное, что остаётся от договорённости:
+// по ней решают, переформулировать задачу, отдать её другому или снять
+// вовсе.
+const REASON_REQUIRED = new Set(['blocked','deferred','cancelled','rejected']);
+const STATUS_WORD = {
+  blocked:'заблокирована', deferred:'отложена', cancelled:'отменена', rejected:'отклонена',
+};
 
 export class TaskAuthorityError extends Error {
   constructor(code,message,statusCode=409){
@@ -28,11 +54,19 @@ export class TaskAuthorityError extends Error {
 }
 
 export function canViewTask(task,session){
+  // A guest is somebody else's employee. They may be talked to in the room
+  // they were invited into; they are not part of the company's accountability
+  // chain, and a commitment they can see is one they can act on.
+  if(session.role==='guest')return false;
   return Boolean(task && task.workspaceId===session.workspaceId && (
     task.ownerId===session.userId ||
     task.requesterId===session.userId ||
     task.acceptorId===session.userId ||
-    TEAM_MANAGERS.has(session.role)
+    // Соисполнитель — четвёртый участник обязательства. Без него помощь
+    // была бы формальной: человека вписали в задачу, а открыть её он не
+    // может.
+    (Array.isArray(task.collaboratorIds)&&task.collaboratorIds.includes(session.userId)) ||
+    managesTeamTasks(session)
   ));
 }
 
@@ -41,7 +75,7 @@ export function assertTaskVisible(task,session){
 }
 
 export function isTaskTeamManager(session){
-  return TEAM_MANAGERS.has(session.role);
+  return managesTeamTasks(session);
 }
 
 function assertExpectedVersion(task,expectedVersion){
@@ -51,7 +85,7 @@ function assertExpectedVersion(task,expectedVersion){
 }
 
 function mayCancel(task,session){
-  return task.ownerId===session.userId || task.requesterId===session.userId || TEAM_MANAGERS.has(session.role);
+  return task.ownerId===session.userId || task.requesterId===session.userId || managesTeamTasks(session);
 }
 
 function actorTransitions(task,session,evidenceCount=0){
@@ -59,7 +93,7 @@ function actorTransitions(task,session,evidenceCount=0){
   const actor=session.userId;
   switch(task.status){
     case 'inbox':
-      if(task.requesterId===actor||TEAM_MANAGERS.has(session.role)) result.add('cancelled');
+      if(task.requesterId===actor||managesTeamTasks(session)) result.add('cancelled');
       break;
     case 'clarify':
       if(task.requesterId===actor) result.add('proposed');
@@ -67,7 +101,7 @@ function actorTransitions(task,session,evidenceCount=0){
       break;
     case 'proposed':
       if(task.ownerId===actor){ result.add('accepted'); result.add('rejected'); result.add('clarify'); }
-      if(task.requesterId===actor||TEAM_MANAGERS.has(session.role)) result.add('cancelled');
+      if(task.requesterId===actor||managesTeamTasks(session)) result.add('cancelled');
       break;
     case 'accepted':
       if(task.ownerId===actor){ result.add('scheduled'); result.add('in_progress'); result.add('deferred'); }
@@ -87,10 +121,12 @@ function actorTransitions(task,session,evidenceCount=0){
       break;
     case 'in_review':
       if(task.acceptorId===actor){ result.add('accepted_result'); result.add('in_progress'); }
+      if(mayCancel(task,session)) result.add('cancelled');
       break;
     case 'accepted_result':
       if(task.requesterId===actor||task.acceptorId===actor) result.add('closed');
       if(task.acceptorId===actor) result.add('in_progress');
+      if(mayCancel(task,session)) result.add('cancelled');
       break;
     case 'deferred':
       if(task.ownerId===actor){ result.add('accepted'); result.add('scheduled'); }
@@ -112,9 +148,11 @@ export function assertTaskTransition(task,session,{to,reason=null,expectedVersio
   if(to==='in_review'&&task.ownerId===session.userId&&Number(evidenceCount)<1) throw new TaskAuthorityError('TASK_EVIDENCE_REQUIRED','Add execution evidence before requesting review',409);
   if(!actorTransitions(task,session,evidenceCount).includes(to)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot perform this task transition',403);
   const normalizedReason=typeof reason==='string'&&reason.trim()?reason.trim():null;
-  if(REASON_REQUIRED.has(to)&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED',`Reason is required for ${to}`,400);
-  if(task.status==='in_review'&&to==='in_progress'&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Return to work requires a review comment',400);
-  if(task.status==='accepted_result'&&to==='in_progress'&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Reopening an accepted result requires a reason',400);
+  if(REASON_REQUIRED.has(to)&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED',
+    to==='rejected'?'Откажитесь словами: без причины просивший не узнает, что делать дальше'
+      :`Без причины нельзя: напишите, почему задача ${STATUS_WORD[to]??'меняет состояние'}`,400);
+  if(task.status==='in_review'&&to==='in_progress'&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Возврат на доработку без замечаний бессмыслен: напишите, что не так',400);
+  if(task.status==='accepted_result'&&to==='in_progress'&&!normalizedReason) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Переоткрыть принятый результат можно, но объясните почему',400);
   if(to==='in_review'&&Number(evidenceCount)<1) throw new TaskAuthorityError('TASK_EVIDENCE_REQUIRED','Add execution evidence before requesting review',409);
   return {from:task.status,to,reason:normalizedReason};
 }
@@ -123,14 +161,85 @@ export function assertTaskEvidenceAuthority(task,session,{expectedVersion}){
   assertTaskVisible(task,session);
   assertExpectedVersion(task,expectedVersion);
   if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','Evidence cannot be added to a terminal task',409);
-  if(![task.ownerId,task.requesterId,task.acceptorId].includes(session.userId)&&!TEAM_MANAGERS.has(session.role)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot add evidence to this task',403);
+  if(![task.ownerId,task.requesterId,task.acceptorId].includes(session.userId)&&!managesTeamTasks(session)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot add evidence to this task',403);
+}
+
+/**
+ * Кто может трогать внутренности обязательства.
+ *
+ * Шаги, соисполнители и связи — это как обязательство устроено внутри, и
+ * распоряжается этим тот, кто его несёт, тот, кто просил, и тот, кто
+ * принимает результат. Посторонний сотрудник задачу видит, но
+ * перекраивать её не должен: чужое обещание — не его дело.
+ *
+ * У закрытого обязательства внутренности не правятся: запись о
+ * сделанном перестаёт быть правдой, если её можно дописать задним
+ * числом.
+ */
+export function assertTaskStructureAuthority(task,session){
+  assertTaskVisible(task,session);
+  if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','Закрытое обязательство не перекраивают',409);
+  if(![task.ownerId,task.requesterId,task.acceptorId].includes(session.userId)&&!managesTeamTasks(session)){
+    throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','Это чужое обязательство',403);
+  }
+}
+
+/**
+ * Отметить шаг сделанным может и соисполнитель.
+ *
+ * Иначе помощь превращается в переписку: «я сделал, отметь за меня».
+ * Список соисполнителей передаётся сюда, потому что он живёт в базе, а
+ * не в строке обязательства.
+ */
+export function assertChecklistAuthority(task,session,collaboratorIds=[]){
+  assertTaskVisible(task,session);
+  if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','Закрытое обязательство не перекраивают',409);
+  const allowed=[task.ownerId,task.requesterId,task.acceptorId,...collaboratorIds];
+  if(!allowed.includes(session.userId)&&!managesTeamTasks(session)){
+    throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','Это чужое обязательство',403);
+  }
+}
+
+/**
+ * Handing a commitment to somebody else.
+ *
+ * There was no way to do this: owner, requester and acceptor were fixed at
+ * creation, so the cure for «Нина ушла в отпуск» was to cancel the task and
+ * make a new one, losing the evidence and the audit chain that made the old
+ * one worth having.
+ *
+ * Who may: the person who asked for the work, and a team manager. Not the
+ * owner — handing your own obligation to a colleague is not yours to decide.
+ * A new owner has not accepted anything yet, so the task goes back to
+ * «proposed» and they get the same choice the first owner had.
+ */
+export function assertTaskReassignAuthority(task,session,{expectedVersion,reason,ownerId,acceptorId}){
+  assertTaskVisible(task,session);
+  assertExpectedVersion(task,expectedVersion);
+  if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','A terminal task cannot be reassigned',409);
+  if(task.requesterId!==session.userId&&!managesTeamTasks(session)) {
+    throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','Only the requester or a team manager can reassign this task',403);
+  }
+  if(!ownerId&&!acceptorId) throw new TaskAuthorityError('TASK_NOTHING_TO_CHANGE','Name a new owner or a new acceptor',400);
+  if(ownerId===task.ownerId&&(!acceptorId||acceptorId===task.acceptorId)) {
+    throw new TaskAuthorityError('TASK_NOTHING_TO_CHANGE','This is already the assignment',400);
+  }
+  if(typeof reason!=='string'||!reason.trim()) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Reassigning requires a reason',400);
+  return {
+    ownerId:ownerId??task.ownerId,
+    acceptorId:acceptorId??task.acceptorId,
+    reason:reason.trim(),
+    // Only a new owner resets the state; changing who signs the result off
+    // leaves the work where it stands.
+    resetToProposed:Boolean(ownerId&&ownerId!==task.ownerId),
+  };
 }
 
 export function assertTaskScheduleAuthority(task,session,{expectedVersion,reason}){
   assertTaskVisible(task,session);
   assertExpectedVersion(task,expectedVersion);
   if(TERMINAL.has(task.status)) throw new TaskAuthorityError('TASK_TERMINAL','A terminal task cannot be rescheduled',409);
-  if(![task.ownerId,task.requesterId].includes(session.userId)&&!TEAM_MANAGERS.has(session.role)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot reschedule this task',403);
+  if(![task.ownerId,task.requesterId].includes(session.userId)&&!managesTeamTasks(session)) throw new TaskAuthorityError('TASK_ACTION_FORBIDDEN','You cannot reschedule this task',403);
   if(typeof reason!=='string'||!reason.trim()) throw new TaskAuthorityError('TASK_REASON_REQUIRED','Rescheduling requires a reason',400);
   return reason.trim();
 }

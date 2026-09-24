@@ -24,6 +24,11 @@ async function readRaw(req, maxBytes = 1024 * 1024) {
 async function accessibleMeetingCall(ctx, session, callId) {
   const call = await ctx.calls.get(session, callId);
   if (!call || !(await ctx.store.canAccessConversation(session, call.conversationId))) throw notFound();
+  // Подрядчику — только те встречи, где он был. Доступ к беседе не
+  // означает доступ к каждому разговору, который в ней вели: иначе
+  // гость, позванный в комнату, получает и стенограмму встречи, на
+  // которую его не звали.
+  if (session.role === 'guest' && !(call.participants ?? []).some((p) => p.userId === session.userId)) throw notFound();
   return call;
 }
 
@@ -93,6 +98,31 @@ export function createMeetingIntelligenceHandler() {
       const url = new URL(req.url ?? '/api/v1/meetings', `http://${req.headers.host ?? 'localhost'}`);
       const items = await listAccessibleMeetings({ calls, meeting, store, session, limit:url.searchParams.get('limit') ?? 40 });
       json(res, 200, { items });
+      return true;
+    }
+
+    /**
+     * Решения компании сквозным списком.
+     *
+     * Принятое решение оставалось внутри карточки своей встречи: чтобы
+     * вспомнить, что решили по объекту, надо было помнить, на какой
+     * встрече это было. Через полгода этого не помнит никто.
+     */
+    if (path === '/api/v1/meetings/decisions' && method === 'GET') {
+      const session = await requireSession(req);
+      if (!meeting.decisions) {
+        throw Object.assign(new Error('Решения доступны в режиме с базой данных'),
+          { code: 'DECISIONS_UNAVAILABLE', statusCode: 503, expose: true });
+      }
+      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+      json(res, 200, {
+        items: await meeting.decisions(session, {
+          query: url.searchParams.get('q'),
+          from: url.searchParams.get('from'),
+          to: url.searchParams.get('to'),
+          limit: url.searchParams.get('limit'),
+        }),
+      });
       return true;
     }
 

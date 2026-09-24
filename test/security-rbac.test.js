@@ -23,5 +23,9 @@ test('RBAC gives managers operational control but reserves organization ownershi
   assert.equal(hasPermission('manager',Permission.MEMBER_INVITE),true);
   assert.equal(hasPermission('manager',Permission.ORGANIZATION_MANAGE),false);
   assert.equal(hasPermission('member',Permission.MESSAGE_SEND),true);
-  assert.throws(()=>requirePermission('guest',Permission.CHANNEL_CREATE),{code:'FORBIDDEN'});
+  // Сотруднику отказ называет право — ему с этим идти к руководителю.
+  assert.throws(()=>requirePermission('member',Permission.ORGANIZATION_MANAGE),{code:'FORBIDDEN'});
+  // Гостю — «не найдено»: посторонний не должен узнавать из отказа, какие
+  // права и какие разделы у компании вообще есть.
+  assert.throws(()=>requirePermission('guest',Permission.CHANNEL_CREATE),{code:'NOT_FOUND',statusCode:404});
 });

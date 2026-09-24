@@ -8,7 +8,7 @@ import { PostgresMeetingRepository } from '../src/meeting/meeting-repository.js'
 import { createProcessingAwareMeetingRepository } from '../src/meeting/processing-repository.js';
 import { hashPassword, hashToken } from '../src/security.js';
 
-const databaseUrl=process.env.DATABASE_URL;
+const databaseUrl=process.env.POSTGRES_TEST_URL||process.env.DATABASE_URL;
 
 async function ownerSession(store,suffix){
   const password=hashPassword('WorkspacePass42');
@@ -52,6 +52,19 @@ async function createRecordedCall({store,calls,owner,suffix}){
   return{call,recording};
 }
 
+
+// Очередь общая на всю базу, и рядом лежат задачи соседних тестов и прошлых
+// прогонов. Берём свою задачу по имени, а не первую попавшуюся: очерёдность
+// проверяется не здесь, а в тесте на честность очереди.
+async function claimOwn(meeting,jobId){
+  for(let attempt=0;attempt<50;attempt+=1){
+    const claimed=await meeting.claimJobById(jobId);
+    if(claimed)return claimed;
+    await new Promise((resolve)=>setTimeout(resolve,20));
+  }
+  return null;
+}
+
 test('Postgres processing repository waits for sidecar, selects it as evidence source and meters the claimed attempt', {skip:!databaseUrl}, async(t)=>{
   const pool=new pg.Pool({connectionString:databaseUrl});
   t.after(()=>pool.end());
@@ -81,7 +94,8 @@ test('Postgres processing repository waits for sidecar, selects it as evidence s
     WHERE workspace_id=$1 AND topic='meeting.recording.ready' AND aggregate_id=$2`,[owner.workspaceId,sidecar.run.id])).rows[0].count);
   assert.equal(readyCount,1);
 
-  const job=await meeting.claimJob('transcribe');
+  const job=await claimOwn(meeting,sidecar.job.id);
+  assert.ok(job,'своя задача на расшифровку должна найтись в очереди');
   assert.equal(job.id,sidecar.job.id);
   const context=await meeting.jobContext(job);
   assert.equal(context.sourceKind,'audio_sidecar');
@@ -134,7 +148,8 @@ test('Postgres processing repository falls back to archive if sidecar fails afte
   assert.equal(fallback.recording.transcriptionSourceStatus,'failed');
   assert.equal(fallback.recording.transcriptStatus,'queued');
 
-  const job=await meeting.claimJob('transcribe');
+  const job=await claimOwn(meeting,fallback.job.id);
+  assert.ok(job,'своя задача на расшифровку должна найтись в очереди');
   const context=await meeting.jobContext(job);
   assert.equal(context.sourceKind,'archive');
   assert.equal(context.storageKey,recording.storageKey);

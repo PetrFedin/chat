@@ -6,7 +6,7 @@ import { PostgresStore } from '../src/persistence/store.js';
 import { PostgresMeetingOperationsRepository } from '../src/meeting/operations-repository.js';
 import { hashPassword, hashToken } from '../src/security.js';
 
-const databaseUrl=process.env.DATABASE_URL;
+const databaseUrl=process.env.POSTGRES_TEST_URL||process.env.DATABASE_URL;
 
 async function ownerSession(store,suffix){
   const password=hashPassword('WorkspacePass42');

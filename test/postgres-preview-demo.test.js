@@ -9,7 +9,7 @@ import { LocalObjectStore } from '../src/storage/object-store.js';
 import { PostgresStore } from '../src/persistence/store.js';
 import { hashPassword } from '../src/security.js';
 
-const databaseUrl=process.env.DATABASE_URL;
+const databaseUrl=process.env.POSTGRES_TEST_URL||process.env.DATABASE_URL;
 
 async function request(base,path,{cookie,method='GET'}={}){
   const response=await fetch(`${base}${path}`,{method,headers:cookie?{cookie}:{}});
@@ -19,6 +19,7 @@ async function request(base,path,{cookie,method='GET'}={}){
 
 async function startDemo(objectStore){
   const app=await createChatServer({
+    databaseUrl,
     demoEnabled:true,
     objectStore,
     meetingWorkerEnabled:false,
@@ -53,6 +54,14 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   const objectStore=new LocalObjectStore(root);
   const probe=new pg.Pool({connectionString:databaseUrl});
   let firstApp=null,secondApp=null;
+
+  // Демонстрационное пространство заводится под одной и той же почтой, а
+  // тестовая база живёт между прогонами. Убираем прошлый прогон целиком —
+  // так же чисто, как на пустой базе в CI.
+  await probe.query(`DELETE FROM organizations WHERE id IN (
+    SELECT m.organization_id FROM memberships m
+    JOIN users u ON u.id=m.user_id WHERE u.email LIKE '%@northstar.example')`);
+  await probe.query("DELETE FROM users WHERE email LIKE '%@northstar.example'");
 
   const partialStore=new PostgresStore(probe);
   const partialPassword=hashPassword('DemoWorkspace2026');

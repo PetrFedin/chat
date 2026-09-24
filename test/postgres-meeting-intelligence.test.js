@@ -7,7 +7,7 @@ import { PostgresCallRepository } from '../src/media/call-repository.js';
 import { PostgresMeetingRepository } from '../src/meeting/meeting-repository.js';
 import { hashPassword, hashToken } from '../src/security.js';
 
-const databaseUrl = process.env.DATABASE_URL;
+const databaseUrl = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 
 async function sessionFor(store, userId, workspaceId, label) {
   const tokenHash = hashToken(`mi-session-${label}-${randomUUID()}`);
@@ -81,7 +81,21 @@ test('Postgres meeting intelligence preserves source evidence and human confirma
   await pool.query(`UPDATE meeting_intelligence_jobs
     SET status='processing',attempts=1,locked_at=now()-interval '10 minutes',lock_token=$2
     WHERE id=$1`, [first.job.id, staleToken]);
-  const transcriptionJob = await meeting.claimJob('transcribe', { leaseMs:1000 });
+  // Здесь проверяется именно то, что работник подбирает задачу с протухшей
+  // арендой, — значит, берём её общим claimJob, а не по имени. Очередь общая
+  // на всю базу, поэтому чужие задачи, попавшиеся по дороге, возвращаем на
+  // место нетронутыми: соседний тест не должен пострадать.
+  let transcriptionJob = null;
+  for (let attempt = 0; attempt < 50 && !transcriptionJob; attempt += 1) {
+    const claimed = await meeting.claimJob('transcribe', { leaseMs:1000 });
+    if (!claimed) break;
+    if (claimed.runId === first.run.id) transcriptionJob = claimed;
+    else {
+      await pool.query(`UPDATE meeting_intelligence_jobs
+        SET status='pending',attempts=attempts-1,locked_at=NULL,lock_token=NULL WHERE id=$1`, [claimed.id]);
+    }
+  }
+  assert.ok(transcriptionJob, 'своя задача на расшифровку должна найтись в очереди');
   assert.equal(transcriptionJob.runId, first.run.id);
   assert.equal(transcriptionJob.attempts, 2);
   assert.notEqual(transcriptionJob.lockToken, staleToken);

@@ -1,0 +1,81 @@
+# Рабочее пространство целиком: приложение, база и накат миграций.
+#
+#   cp .env.example .env   # и заполнить секреты
+#   docker compose up -d
+#
+# Миграции накатываются отдельным разовым контейнером, а не при старте
+# приложения. Так они не выполняются одновременно двумя копиями при
+# масштабировании, и падение наката не выглядит как падение сервиса.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-chat}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD в .env}
+      POSTGRES_DB: ${POSTGRES_DB:-chat}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      # Готовность именно нужной базы, а не сервера вообще: иначе
+      # миграции стартуют в момент, когда база ещё создаётся.
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chat} -d ${POSTGRES_DB:-chat}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build: .
+    command: ["node", "scripts/migrate.mjs"]
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-chat}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-chat}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-chat}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-chat}
+      # Без него сейф паролей отвечает 503 и честно объясняет почему.
+      VAULT_KEY: ${VAULT_KEY:?задайте VAULT_KEY в .env, 32 байта в base64}
+      # Только на время смены ключа: см. scripts/rotate-vault-key.mjs.
+      VAULT_KEY_PREVIOUS: ${VAULT_KEY_PREVIOUS:-}
+      # Адрес наружу — для ссылок в письмах.
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      # Почта: без MAIL_HOST приглашения и сброс пароля придётся
+      # передавать руками — приложение об этом прямо говорит.
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USER: ${MAIL_USER:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_FROM_NAME: ${MAIL_FROM_NAME:-ChatX}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      LIVEKIT_URL: ${LIVEKIT_URL:-}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+    volumes:
+      - uploads:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # Резервная копия по расписанию запускается не здесь: планировщик — дело
+  # хозяина машины. Снять копию тем же образом:
+  #   docker compose run --rm app node scripts/backup.mjs
+  # Проверить, что она разворачивается:
+  #   docker compose run --rm app node scripts/restore.mjs --from /data/backups/… --check
+
+volumes:
+  postgres:
+  uploads:

@@ -6,12 +6,17 @@
   <meta name="theme-color" content="#050505">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Chat">
-  <title>Chat — рабочее пространство компании</title>
-  <script>
-    (()=>{try{const t=localStorage.getItem('chat.theme'),l=localStorage.getItem('chat.locale');if(t==='light'||t==='dark'){document.documentElement.dataset.theme=t;document.documentElement.style.colorScheme=t==='light'?'light':'dark'}if(l==='ru'||l==='en')document.documentElement.lang=l;if(t==='light')document.querySelector('meta[name="theme-color"]')?.setAttribute('content','#f4f4f2')}catch{}})();
-  </script>
+  <meta name="apple-mobile-web-app-title" content="ChatX">
+  <title>ChatX — рабочее пространство компании</title>
+  <script src="/theme-boot.js"></script>
   <link rel="manifest" href="/manifest.webmanifest">
+  <!-- iOS манифест не читает: и значок на домашнем экране, и полноэкранный
+       режим он берёт из этих трёх строк. Без них после установки
+       получается пустой квадрат в рамке браузера. -->
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ChatX">
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/calls.css">
   <link rel="stylesheet" href="/preferences.css">
@@ -20,7 +25,7 @@
 </head>
 <body>
   <div id="auth-view" class="auth-view" hidden>
-    <div class="auth-brand"><span class="brand-orb">C</span><span>Chat</span></div>
+    <div class="auth-brand"><span class="brand-orb" aria-hidden="true"><svg viewBox="0 0 512 512" width="22" height="22"><path d="M146 104h220a62 62 0 0 1 62 62v140a62 62 0 0 1-62 62H240l-78 64v-64h-16a62 62 0 0 1-62-62V166a62 62 0 0 1 62-62Z" fill="currentColor"/><path d="M176 232l56 56 106-112" fill="none" stroke="#f0ede8" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>ChatX</span></div>
     <section class="auth-card">
       <p class="kicker">РАБОЧЕЕ ПРОСТРАНСТВО</p>
       <h1 id="auth-title">Войти в компанию</h1>
@@ -32,7 +37,25 @@
       <form id="login-form" class="form-stack">
         <label>Email<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
         <label>Пароль<input name="password" type="password" autocomplete="current-password" placeholder="••••••••••••" required></label>
+        <!-- Поле кода показывается, только когда сервер его попросил:
+             большинству входов второй множитель не нужен, и пустая
+             строка под паролем каждый раз — это вопрос «а это что». -->
+        <label id="login-code-row" hidden>Код из приложения<input name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456"></label>
         <button class="button primary pressable" type="submit">Войти в компанию</button>
+        <!--
+          Вход для тех, кого ещё не заводили. Компания объявляет свой
+          почтовый домен — и сотруднику хватает рабочего адреса: ссылка
+          придёт на почту. Кнопка здесь, а не среди «Создать компанию»,
+          потому что человек приходит сюда войти, а не заводить второе
+          пространство поверх своего.
+        -->
+        <button id="join-toggle" class="text-button pressable" type="button">Меня ещё не завели</button>
+      </form>
+      <form id="join-form" class="form-stack" hidden>
+        <p class="muted auth-copy" style="margin:0">Введите рабочую почту. Если ваша компания здесь и места есть, придёт письмо со ссылкой.</p>
+        <label>Рабочий email<input name="email" type="email" autocomplete="email" placeholder="name@company.ru" required></label>
+        <button class="button primary pressable" type="submit">Прислать ссылку</button>
+        <button id="join-back" class="text-button pressable" type="button">Назад ко входу</button>
       </form>
       <div id="demo-access" class="form-stack" hidden>
         <p class="muted auth-copy" style="margin:4px 0 0;text-align:center">или сразу посмотреть наполненное пространство</p>
@@ -44,7 +67,23 @@
         <label>Ваше имя<input name="ownerName" autocomplete="name" placeholder="Имя и фамилия" required></label>
         <label>Рабочий email<input name="email" type="email" autocomplete="email" placeholder="name@company.com" required></label>
         <label>Пароль<input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="Не менее 12 символов и цифра" required></label>
+        <!--
+          Реквизиты спрятаны за раскрытием намеренно. Компания регистрируется
+          на свои данные, и место для них должно быть здесь, а не в настройках
+          через неделю. Но обязательными они быть не могут: человек, который
+          пришёл попробовать, не должен искать ИНН, чтобы завести пространство.
+        -->
+        <details class="register-details">
+          <summary>Реквизиты компании — можно позже</summary>
+          <label>Юридическое лицо<input name="legalName" maxlength="200" placeholder="ООО «Гранит»"></label>
+          <label>ИНН<input name="taxId" maxlength="40" inputmode="numeric" placeholder="7701234567"></label>
+          <label>Почтовый домен<input name="emailDomain" maxlength="120" placeholder="granit.ru"></label>
+        </details>
         <button class="button primary pressable" type="submit">Создать пространство</button>
+      </form>
+      <form id="reset-password-form" class="form-stack" hidden>
+        <label>Новый пароль<input name="password" type="password" autocomplete="new-password" minlength="12" placeholder="Не менее 12 символов и цифра" required></label>
+        <button class="button primary pressable" type="submit">Задать новый пароль</button>
       </form>
       <form id="accept-invite-form" class="form-stack" hidden>
         <label>Ваше имя<input name="displayName" autocomplete="name" placeholder="Имя и фамилия" required></label>
@@ -52,28 +91,31 @@
         <button class="button primary pressable" type="submit">Присоединиться к компании</button>
       </form>
       <p id="auth-error" class="form-error" role="alert"></p>
+      <p id="auth-help" class="auth-help"><button type="button" class="text-button" data-forgot>Забыли пароль?</button></p>
     </section>
   </div>
 
   <div id="app-view" class="app-shell" hidden>
+    <!-- С клавиатуры до содержимого приходилось проходить всю боковую
+         панель — на каждом экране заново. -->
+    <a class="skip-link" href="#screen">К содержимому</a>
     <aside class="sidebar">
-      <div class="brand"><span class="brand-orb">C</span><strong>Chat</strong></div>
-      <button id="workspace-switcher" class="workspace-card pressable"></button>
+      <div class="brand"><span class="brand-orb" aria-hidden="true"><svg viewBox="0 0 512 512" width="22" height="22"><path d="M146 104h220a62 62 0 0 1 62 62v140a62 62 0 0 1-62 62H240l-78 64v-64h-16a62 62 0 0 1-62-62V166a62 62 0 0 1 62-62Z" fill="currentColor"/><path d="M176 232l56 56 106-112" fill="none" stroke="#f0ede8" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/></svg></span><strong>ChatX</strong></div>
       <nav id="desktop-nav" class="desktop-nav"></nav>
-      <div class="sidebar-heading"><span>Каналы</span><button data-action="new-channel" class="mini-button pressable">＋</button></div>
+      <div class="sidebar-heading"><span>Каналы</span><button data-action="catalogue" class="mini-button pressable" aria-label="Каталог каналов" title="Каналы компании">⌕</button><button data-action="new-channel" class="mini-button pressable" aria-label="Создать канал">＋</button></div>
       <div id="channel-list" class="sidebar-list"></div>
-      <div class="sidebar-heading"><span>Личные</span><button data-action="new-direct" class="mini-button pressable">＋</button></div>
+      <div class="sidebar-heading"><span>Личные</span><button data-action="new-direct" class="mini-button pressable" aria-label="Новый личный чат">＋</button></div>
       <div id="direct-list" class="sidebar-list"></div>
       <button id="profile-card" class="profile-card pressable"></button>
     </aside>
 
     <main class="main-area">
       <header class="topbar">
-        <div class="topbar-title"><p id="eyebrow" class="kicker">РАБОЧЕЕ ПРОСТРАНСТВО</p><h1 id="screen-title">Сегодня</h1></div>
+        <div class="topbar-title"><h1 id="screen-title">Сегодня</h1></div>
         <div class="top-actions">
-          <button data-action="search" class="round-button pressable" aria-label="Поиск">⌕</button>
-          <button data-action="quick-create" class="round-button pressable" aria-label="Создать">＋</button>
-          <button data-action="profile" id="top-avatar" class="avatar-button pressable">П</button>
+          <button data-action="search" id="top-search" class="round-button pressable" aria-label="Поиск">⌕</button>
+          <button data-action="quick" class="round-button pressable" aria-label="Создать">＋</button>
+          <button data-action="profile" id="top-avatar" class="avatar-button pressable" aria-label="Моя карточка">П</button>
         </div>
       </header>
       <section id="screen" class="screen" aria-live="polite"></section>
@@ -87,6 +129,8 @@
   <input id="file-picker" type="file" hidden multiple>
   <script src="/preferences.js"></script>
   <script src="/preferences-context.js"></script>
+  <!-- Общий кэш стартового ответа: четыре модуля просили его по отдельности. -->
+  <script src="/shared-bootstrap.js"></script>
   <script src="/vendor/livekit-client.js"></script>
   <script src="/calls-ui.js"></script>
   <script type="module" src="/app.js"></script>

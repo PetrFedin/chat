@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import { join, normalize } from 'node:path';
-import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { DeleteObjectCommand, GetObjectCommand, HeadBucketCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 function boolEnv(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value ?? '').toLowerCase());
@@ -26,6 +27,26 @@ export class LocalObjectStore {
     return { provider: 'local', enabled: true, durable: false };
   }
 
+  /**
+   * Пишется ли хранилище прямо сейчас.
+   *
+   * `enabled:true` в состоянии — это константа, а не проверка: при
+   * переполненном или недоступном на запись каталоге она оставалась
+   * правдивой, и монитор ничего не замечал, пока люди не переставали
+   * прикреплять файлы.
+   */
+  async probe() {
+    const key = `.probe/${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const started = Date.now();
+    try {
+      await this.put(key, Buffer.from('ok'), 'text/plain');
+      await this.delete(key);
+      return { ok: true, provider: 'local', latencyMs: Date.now() - started };
+    } catch (error) {
+      return { ok: false, provider: 'local', latencyMs: Date.now() - started, error: String(error.code ?? error.message) };
+    }
+  }
+
   path(key) {
     const candidate = normalize(join(this.root, safeKey(key)));
     if (!candidate.startsWith(this.root)) {
@@ -45,6 +66,17 @@ export class LocalObjectStore {
 
   async get(key) {
     return readFile(this.path(key));
+  }
+
+  /**
+   * Тот же файл, но кусками.
+   *
+   * Выгрузка пространства складывает в архив все вложения подряд, и
+   * читать двухгигабайтное целиком в память — ровно то, от чего
+   * потоковый ZIP и уходит.
+   */
+  readStream(key) {
+    return createReadStream(this.path(key));
   }
 
   async head(key) {
@@ -82,6 +114,17 @@ export class S3ObjectStore {
     return { provider: 's3', enabled: true, durable: true, bucketConfigured: Boolean(this.bucket) };
   }
 
+  /** См. локальное хранилище: состояние — это настройка, а не проверка. */
+  async probe() {
+    const started = Date.now();
+    try {
+      await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      return { ok: true, provider: 's3', latencyMs: Date.now() - started };
+    } catch (error) {
+      return { ok: false, provider: 's3', latencyMs: Date.now() - started, error: String(error.name ?? error.code ?? error.message) };
+    }
+  }
+
   async put(key, body, contentType = 'application/octet-stream') {
     await this.client.send(new PutObjectCommand({
       Bucket: this.bucket,
@@ -96,6 +139,13 @@ export class S3ObjectStore {
     const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: safeKey(key) }));
     if (!result.Body) return Buffer.alloc(0);
     return Buffer.from(await result.Body.transformToByteArray());
+  }
+
+  /** См. локальное хранилище: тело ответа S3 и так приходит потоком. */
+  async readStream(key) {
+    const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: safeKey(key) }));
+    if (!result.Body) return (async function* empty() {})();
+    return result.Body;
   }
 
   async head(key) {

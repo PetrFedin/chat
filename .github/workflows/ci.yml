@@ -18,7 +18,7 @@ jobs:
         with:
           node-version: 24
       - name: Install runtime dependencies
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm test
 
   database-tests:
@@ -46,22 +46,11 @@ jobs:
         with:
           node-version: 24
       - name: Install runtime dependencies
-        run: npm install --ignore-scripts --no-audit --no-fund
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Apply migrations
-        run: |
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/001_core.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/002_tenant_integrity.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/003_collaboration_primitives.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/004_application_platform.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/005_identity_realtime.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/006_realtime_media.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/007_daily_work_completion.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/008_meeting_intelligence.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/009_meeting_product_surface.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/010_meeting_processing_observability.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/011_meeting_ops_cost_control.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/012_task_execution_notifications.sql
-          psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/migrations/013_message_work_actions.sql
+        run: npm run migrate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
       - name: Verify core constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_core.sql
       - name: Verify collaboration constraints
@@ -82,35 +71,24 @@ jobs:
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_meeting_processing_observability.sql
       - name: Verify meeting operations and cost constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_meeting_ops_cost_control.sql
-      - name: Verify conversation authority Postgres runtime
+      - name: Verify integration delivery constraints
+        run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_integration_delivery.sql
+      - name: Verify org structure constraints
+        run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_org_structure.sql
+
+      # Весь набор целиком, а не выбранные файлы по именам.
+      #
+      # Раньше здесь перечислялись восемнадцать файлов из тридцати трёх, и
+      # список отставал от каталога: матрица «роль × маршрут» и проверка
+      # изоляции арендаторов — самые тщательные тесты в проекте — не
+      # запускались вообще ни в одном job. Зелёный CI о них не знал.
+      #
+      # VAULT_KEY здесь одноразовый: без него тесты сейфа вырождаются в
+      # «всем 503», то есть проверяют недоступность вместо доступа.
+      - name: Run the whole suite against PostgreSQL
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-conversation-authority.test.js
-      - name: Verify task lifecycle Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-task-lifecycle.test.js
-      - name: Verify message work actions Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-message-work-actions.test.js
-      - name: Verify daily work Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-daily-work.test.js
-      - name: Verify meeting intelligence Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-meeting-intelligence.test.js
-      - name: Verify meeting processing observability Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-meeting-processing-observability.test.js
-      - name: Verify meeting operations and cost Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-meeting-ops-cost-control.test.js
-      - name: Verify persistent preview Postgres runtime
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
-        run: node --test test/postgres-preview-demo.test.js
+          POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/chat_test
+        run: |
+          export VAULT_KEY="$(openssl rand -base64 32)"
+          node --test

@@ -1,1 +1,579 @@
-:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",Inter,"Segoe UI",sans-serif;--bg:#050505;--surface:#151719;--surface-2:#1b1e21;--surface-3:#222529;--line:#2b2e32;--text:#f4f4f2;--muted:#96999d;--muted-2:#686c71;--warm:#d4a28b;--warm-soft:#2a211d;--danger:#ff746f;--success:#77d496;--warning:#e4bd6a;--shadow:0 18px 50px rgba(0,0,0,.34);font-synthesis:none;text-rendering:optimizeLegibility}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{min-height:100dvh;overscroll-behavior:none}button,input,textarea,select{font:inherit;color:inherit}button{border:0}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #fff;outline-offset:2px}[hidden]{display:none!important}.pressable{transition:transform 90ms ease,opacity 90ms ease,background 140ms ease}.pressable:active{transform:scale(.968);opacity:.78}.muted{color:var(--muted)}.kicker{margin:0;color:var(--muted-2);font-size:11px;font-weight:750;letter-spacing:.18em}.mono{font-variant-numeric:tabular-nums}.auth-view{min-height:100dvh;padding:max(22px,env(safe-area-inset-top)) 18px max(28px,env(safe-area-inset-bottom));display:grid;place-items:center;background:radial-gradient(circle at 50% 8%,#17110f 0,transparent 34%),var(--bg)}.auth-brand{position:fixed;left:24px;top:max(22px,env(safe-area-inset-top));display:flex;align-items:center;gap:10px;font-weight:760;font-size:19px}.brand-orb{width:34px;height:34px;border-radius:11px;background:#f0ede8;color:#090909;display:grid;place-items:center;font-weight:850;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}.auth-card{width:min(100%,440px);background:var(--surface);border:1px solid var(--line);border-radius:30px;padding:26px;box-shadow:var(--shadow)}.auth-card h1{font-size:31px;letter-spacing:-.035em;margin:10px 0 8px}.auth-copy{line-height:1.48;margin:0 0 22px}.segmented{display:grid;grid-template-columns:1fr 1fr;padding:4px;border-radius:15px;background:#0d0e0f;margin-bottom:18px}.segment{padding:10px 12px;border-radius:12px;background:transparent;color:var(--muted);cursor:pointer}.segment.active{background:var(--surface-3);color:var(--text)}.form-stack{display:grid;gap:13px}.form-stack label{display:grid;gap:7px;color:var(--muted);font-size:13px}.form-stack input,.field{width:100%;border:1px solid var(--line);background:#0d0f10;border-radius:15px;padding:14px 15px;font-size:16px;min-height:50px}.form-stack input:focus,.field:focus{border-color:#5d6167}.form-error{min-height:18px;color:var(--danger);font-size:13px;margin:12px 2px 0}.button{min-height:48px;border-radius:15px;padding:11px 16px;cursor:pointer;font-weight:680}.button.primary{background:#f1eee9;color:#0b0b0b}.button.secondary{background:var(--surface-3);border:1px solid #33363a}.button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}.button.danger{background:#2a1717;color:#ff9c98;border:1px solid #51302e}.button.small{min-height:36px;padding:7px 11px;border-radius:11px;font-size:13px}.app-shell{min-height:100dvh;display:grid;grid-template-columns:274px minmax(0,1fr);background:var(--bg)}.sidebar{position:sticky;top:0;height:100dvh;padding:18px 13px 14px;border-right:1px solid #17191b;display:flex;flex-direction:column;background:#0a0b0c;overflow:auto}.brand{display:flex;align-items:center;gap:10px;padding:0 8px 16px;font-size:20px}.workspace-card,.profile-card{width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:17px;padding:11px;cursor:pointer}.workspace-card small,.profile-card small{display:block;color:var(--muted);margin-top:2px}.workspace-card .avatar,.profile-card .avatar{width:36px;height:36px}.desktop-nav{display:grid;gap:3px;margin:12px 0 4px}.nav-item{position:relative;display:flex;align-items:center;gap:12px;width:100%;padding:10px 11px;border-radius:13px;background:transparent;color:#b9bcc0;cursor:pointer;text-align:left}.nav-item.active{background:var(--surface-2);color:#fff}.nav-icon{width:24px;text-align:center;font-size:18px}.nav-badge{margin-left:auto;min-width:22px;padding:2px 7px;border-radius:99px;background:#eeeae5;color:#090909;text-align:center;font-size:11px;font-weight:750}.sidebar-heading{display:flex;align-items:center;justify-content:space-between;padding:17px 10px 7px;color:var(--muted-2);font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.mini-button{width:26px;height:26px;border-radius:9px;background:transparent;color:var(--muted);cursor:pointer;font-size:18px}.sidebar-list{display:grid;gap:2px}.sidebar-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:center;border-radius:12px;padding:8px 10px;background:transparent;color:#b8bbc0;cursor:pointer;text-align:left;min-width:0}.sidebar-row:hover,.sidebar-row.active{background:#151719;color:#fff}.sidebar-row .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.presence-dot{width:8px;height:8px;border-radius:99px;background:#50545a}.presence-dot.online{background:var(--success)}.presence-dot.busy,.presence-dot.do_not_disturb{background:var(--danger)}.presence-dot.away{background:var(--warning)}.profile-card{margin-top:auto;background:transparent;border-color:transparent}.profile-card:hover{background:var(--surface)}.main-area{min-width:0;min-height:100dvh}.topbar{position:sticky;top:0;z-index:20;height:78px;display:flex;align-items:center;justify-content:space-between;padding:12px 26px;background:rgba(5,5,5,.84);backdrop-filter:blur(22px) saturate(1.2);border-bottom:1px solid rgba(255,255,255,.05)}.topbar-title h1{margin:3px 0 0;font-size:24px;letter-spacing:-.025em}.top-actions{display:flex;gap:8px;align-items:center}.round-button,.avatar-button{width:42px;height:42px;border-radius:15px;background:var(--surface);color:var(--text);cursor:pointer;border:1px solid var(--line);font-size:21px}.avatar-button{border-radius:14px;background:#eeeae5;color:#090909;font-weight:800;font-size:14px}.screen{max-width:1280px;margin:0 auto;padding:24px 24px 110px}.mobile-nav{display:none}.page-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(300px,.9fr);gap:14px}.stack{display:grid;gap:12px}.surface{background:var(--surface);border:1px solid var(--line);border-radius:24px;padding:18px}.surface.soft{background:#101113}.surface h2,.surface h3{margin:0}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:15px}.section-head h2{font-size:21px;letter-spacing:-.025em}.section-head h3{font-size:17px}.section-head p{margin:4px 0 0}.row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)}.row:last-child{border-bottom:0}.row-title{font-weight:650}.row-sub{color:var(--muted);font-size:13px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.avatar{width:38px;height:38px;border-radius:13px;display:grid;place-items:center;background:#eeeae5;color:#111;font-weight:800;flex:none}.avatar.dark{background:#282b2f;color:#fff}.chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:5px 8px;border-radius:999px;background:var(--surface-3);color:#c7c9cc;font-size:11px;white-space:nowrap}.chip.warm{background:var(--warm-soft);color:#e8b9a4}.chip.danger{background:#2b1717;color:#ff9c98}.chip.good{background:#132319;color:#8de1a6}.metric-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.metric-card{background:var(--surface);border:1px solid var(--line);border-radius:21px;padding:16px}.metric-card strong{display:block;font-size:27px;letter-spacing:-.04em}.metric-card span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.empty{padding:38px 18px;text-align:center;color:var(--muted)}.empty .empty-icon{width:52px;height:52px;border-radius:18px;background:var(--surface-3);display:grid;place-items:center;margin:0 auto 12px;font-size:22px}.empty strong{display:block;color:var(--text);margin-bottom:5px}.inline-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.greeting{padding:22px}.greeting h2{font-size:29px;letter-spacing:-.04em;margin:6px 0 16px}.quick-bar{display:flex;align-items:center;gap:9px;background:#0d0e0f;border:1px solid var(--line);border-radius:17px;padding:7px}.quick-bar input{flex:1;min-width:0;border:0;background:transparent;outline:0;padding:8px;font-size:15px}.agenda-row{display:grid;grid-template-columns:55px minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)}.agenda-row:last-child{border-bottom:0}.agenda-time{font-size:13px;font-weight:750;color:#d9dadb}.chat-shell{height:calc(100dvh - 126px);min-height:620px;display:grid;grid-template-columns:340px minmax(0,1fr);background:#0c0d0e;border:1px solid var(--line);border-radius:26px;overflow:hidden}.conversation-pane{border-right:1px solid var(--line);padding:13px;overflow:auto}.conversation-pane-header{display:flex;justify-content:space-between;align-items:center;padding:4px 5px 12px}.conversation-pane h2{font-size:20px;margin:0}.conversation-card{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px;border-radius:16px;background:transparent;text-align:left;cursor:pointer;color:inherit}.conversation-card.active{background:var(--surface-2)}.conversation-card .preview{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}.conversation-card .time{font-size:10px;color:var(--muted-2);align-self:start;margin-top:4px}.message-pane{display:flex;flex-direction:column;min-width:0;min-height:0}.message-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);background:rgba(13,14,15,.92);backdrop-filter:blur(18px)}.message-header h2{font-size:17px;margin:0}.message-header p{margin:2px 0 0;font-size:12px;color:var(--muted)}.message-stream{flex:1;overflow:auto;padding:18px 19px 12px;display:flex;flex-direction:column;gap:7px;scroll-behavior:smooth}.message-item{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;padding:8px;border-radius:15px}.message-item:hover{background:#101214}.message-meta{display:flex;align-items:baseline;gap:7px}.message-author{font-weight:700;font-size:14px}.message-time{color:var(--muted-2);font-size:10px}.message-body{margin:4px 0 5px;line-height:1.43;font-size:15px;white-space:pre-wrap;overflow-wrap:anywhere}.message-actions{display:flex;gap:5px;opacity:0;transition:opacity 120ms}.message-item:hover .message-actions,.message-item:focus-within .message-actions{opacity:1}.reaction-button{min-height:27px;border-radius:9px;background:var(--surface-3);padding:4px 7px;color:#c9cbcf;cursor:pointer;font-size:12px}.voice-card{display:flex;align-items:center;gap:10px;max-width:390px;padding:9px 11px;border-radius:14px;background:var(--surface-2);border:1px solid var(--line)}.voice-play{width:32px;height:32px;border-radius:50%;background:#eeeae5;color:#080808}.waveform{height:24px;flex:1;background:repeating-linear-gradient(90deg,#7f8286 0 2px,transparent 2px 5px);mask-image:linear-gradient(to bottom,transparent 15%,#000 15% 85%,transparent 85%);opacity:.7}.typing{min-height:19px;padding:0 20px;color:var(--muted);font-size:11px}.composer-wrap{padding:8px 14px max(14px,env(safe-area-inset-bottom));background:linear-gradient(transparent,#0c0d0e 22%)}.reply-preview{display:none;margin:0 8px 6px;padding:8px 10px;border-left:2px solid var(--warm);border-radius:9px;background:var(--surface-2);font-size:12px;color:var(--muted)}.reply-preview.visible{display:flex;justify-content:space-between;gap:8px}.composer{display:flex;align-items:flex-end;gap:7px;border:1px solid var(--line);border-radius:20px;background:var(--surface);padding:7px}.composer textarea{flex:1;resize:none;max-height:124px;min-height:38px;border:0;background:transparent;outline:0;padding:9px 7px;font-size:15px;line-height:1.35}.composer-button{width:38px;height:38px;border-radius:13px;background:var(--surface-3);cursor:pointer;flex:none}.composer-button.send{background:#eeeae5;color:#090909}.composer-button.recording{background:#401a19;color:#ff9a96;animation:pulse 1s infinite}@keyframes pulse{50%{transform:scale(.94);opacity:.72}}.task-list{display:grid;gap:8px}.task-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:19px;padding:14px}.task-status{width:25px;height:25px;border-radius:50%;border:1.5px solid #676b70;background:transparent}.task-title{font-weight:680;line-height:1.35}.task-meta{display:flex;gap:7px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-top:7px}.calendar-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.week-strip{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}.day-chip{padding:10px 5px;border-radius:15px;background:var(--surface);border:1px solid var(--line);text-align:center;color:var(--muted);font-size:11px}.day-chip strong{display:block;color:var(--text);font-size:16px;margin-top:3px}.day-chip.today{background:#eeeae5;color:#3a3a3a}.day-chip.today strong{color:#070707}.calendar-list{display:grid;gap:8px}.calendar-event{display:grid;grid-template-columns:64px 3px minmax(0,1fr) auto;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:13px}.event-line{height:39px;border-radius:3px;background:var(--warm)}.module-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.module-card{min-height:142px;padding:17px;border-radius:22px;background:var(--surface);border:1px solid var(--line);cursor:pointer;text-align:left}.module-icon{width:40px;height:40px;border-radius:14px;background:var(--surface-3);display:grid;place-items:center;margin-bottom:19px}.module-card strong{display:block;font-size:15px}.module-card span{display:block;color:var(--muted);font-size:12px;line-height:1.35;margin-top:4px}.modal-backdrop{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.66);backdrop-filter:blur(8px);display:grid;place-items:center;padding:20px}.modal{width:min(100%,480px);max-height:min(780px,90dvh);overflow:auto;background:var(--surface);border:1px solid #34373c;border-radius:28px;padding:20px;box-shadow:var(--shadow)}.modal h2{font-size:22px;margin:4px 0 18px}.modal-head{display:flex;justify-content:space-between;align-items:center}.close-button{width:34px;height:34px;border-radius:12px;background:var(--surface-3);cursor:pointer}.modal .form-stack textarea{min-height:100px;resize:vertical}.toast-root{position:fixed;z-index:100;right:18px;bottom:22px;display:grid;gap:8px}.toast{max-width:340px;padding:11px 14px;border-radius:14px;background:#eeeae5;color:#111;box-shadow:var(--shadow);font-size:13px;animation:toast-in .2s ease}@keyframes toast-in{from{transform:translateY(8px);opacity:0}}@media(max-width:980px){.app-shell{display:block;padding-bottom:calc(84px + env(safe-area-inset-bottom))}.sidebar{display:none}.main-area{min-height:100dvh}.topbar{height:auto;min-height:68px;padding:max(10px,env(safe-area-inset-top)) 15px 10px;background:rgba(5,5,5,.91)}.topbar-title h1{font-size:22px}.top-actions .round-button:first-child{display:none}.screen{padding:10px 10px 110px}.page-grid{grid-template-columns:1fr}.metric-grid{grid-template-columns:repeat(3,1fr)}.mobile-nav{position:fixed;left:0;right:0;bottom:0;z-index:50;display:grid;grid-template-columns:repeat(5,1fr);padding:8px 6px calc(7px + env(safe-area-inset-bottom));background:#171a1d;border-top:1px solid #2a2d31;border-radius:28px 28px 0 0;box-shadow:0 -10px 36px rgba(0,0,0,.35)}.mobile-nav .nav-item{display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;padding:5px 2px;border-radius:12px;font-size:10px;color:#777b80}.mobile-nav .nav-item.active{background:transparent;color:#fff}.mobile-nav .nav-icon{font-size:20px;height:23px}.mobile-nav .nav-badge{position:absolute;top:0;right:18%;min-width:16px;padding:1px 4px;font-size:9px}.chat-shell{height:calc(100dvh - 150px);min-height:0;display:block;border:0;border-radius:0;background:var(--bg);margin:-10px}.conversation-pane{border:0;padding:10px}.conversation-pane.hidden-mobile{display:none}.message-pane{height:100%;min-height:calc(100dvh - 150px)}.message-pane.hidden-mobile{display:none}.message-header{padding:11px 12px;border-radius:0}.message-stream{padding:12px 10px}.message-actions{opacity:1}.composer-wrap{padding:7px 9px max(8px,env(safe-area-inset-bottom))}.composer{border-radius:18px}.mobile-back{display:inline-flex!important}.surface{border-radius:21px}.greeting{padding:18px}.greeting h2{font-size:27px}.module-grid{grid-template-columns:repeat(2,1fr)}.week-strip{overflow:auto;grid-template-columns:repeat(7,64px);padding-bottom:3px}.calendar-event{grid-template-columns:55px 3px minmax(0,1fr)}.calendar-event>:last-child{display:none}.auth-brand{position:absolute}}@media(min-width:981px){.mobile-back{display:none!important}}@media(max-width:560px){.metric-grid{grid-template-columns:1fr 1fr}.metric-card:last-child{grid-column:1/-1}.top-actions{gap:6px}.round-button,.avatar-button{width:39px;height:39px;border-radius:13px}.page-grid{gap:10px}.surface{padding:15px}.quick-bar{padding:6px}.quick-bar .button{display:none}.agenda-row{grid-template-columns:50px minmax(0,1fr) auto}.module-card{min-height:130px}.auth-card{padding:21px;border-radius:26px}.auth-card h1{font-size:28px}.modal-backdrop{align-items:end;padding:0}.modal{width:100%;border-radius:30px 30px 0 0;padding:20px 18px calc(22px + env(safe-area-inset-bottom));max-height:88dvh}.toast-root{left:12px;right:12px;bottom:calc(90px + env(safe-area-inset-bottom))}.toast{max-width:none;text-align:center}}
+:root{color-scheme:dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","SF Pro Text",Inter,"Segoe UI",sans-serif;--bg:#050505;--surface:#151719;--surface-2:#1b1e21;--surface-3:#222529;--line:#2b2e32;--text:#f4f4f2;--muted:#9da0a4;--muted-2:#888c91;--warm:#d4a28b;--warm-soft:#2a211d;--danger:#ff746f;--room-channel:#6f9fe0;--room-group:#7bbf9a;--room-direct:#c9a06a;--room-team:#a98fd4;--room-project:#d4926f;--room-external:#d4736f;--success:#77d496;--warning:#e4bd6a;--shadow:0 18px 50px rgba(0,0,0,.34);--focus:#ffffff;font-synthesis:none;text-rendering:optimizeLegibility}*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{min-height:100dvh;overscroll-behavior:none}button,input,textarea,select{font:inherit;color:inherit}/* Кнопка без своего фона брала системный: строки «Команды» и «Контактов»
+   выезжали серыми плашками посреди тёмного списка. */
+button{border:0;background:transparent;color:inherit}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:inherit}[hidden]{display:none!important}
+/* Ссылка к содержимому не мешает глазу и появляется, когда до неё дошли
+   клавиатурой. */
+.skip-link{position:absolute;left:-9999px;top:8px;z-index:100;padding:10px 14px;border-radius:var(--r-2);background:var(--surface);color:var(--text);border:1px solid var(--line)}
+.skip-link:focus{left:8px}.muted{color:var(--muted)}.kicker{margin:0;color:var(--muted-2);font-size:11px;font-weight:700;letter-spacing:.18em}.mono{font-variant-numeric:tabular-nums}.auth-view{min-height:100dvh;padding:max(22px,env(safe-area-inset-top)) 18px max(28px,env(safe-area-inset-bottom));display:flex;flex-direction:column;align-items:center;gap:20px;background:radial-gradient(circle at 50% 8%,#17110f 0,transparent 34%),var(--bg)}.auth-brand{align-self:flex-start;display:flex;align-items:center;gap:10px;font-weight:800;font-size:17px}.brand-orb{width:34px;height:34px;border-radius:var(--r-1);background:#f0ede8;color:#090909;display:grid;place-items:center;font-weight:800;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08)}.auth-card{width:min(100%,440px);margin-block:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-4);padding:26px;box-shadow:var(--shadow)}.auth-card h1{font-size:27px;letter-spacing:-.035em;margin:10px 0 8px}.auth-copy{line-height:1.48;margin:0 0 22px}.segmented{display:grid;grid-template-columns:1fr 1fr;padding:4px;border-radius:var(--r-2);background:#0d0e0f;margin-bottom:18px}.segment{padding:10px 12px;border-radius:var(--r-1);background:transparent;color:var(--muted);cursor:pointer}.segment.active{background:var(--surface-3);color:var(--text)}.form-stack{display:grid;gap:13px}.form-stack label{display:grid;gap:7px;color:var(--muted);font-size:13px}.form-stack input:not([type=checkbox]):not([type=radio]),.form-stack select,.form-stack textarea,.field{width:100%;border:1px solid var(--line);background:#0d0f10;border-radius:var(--r-2);padding:14px 15px;font-size:16px;min-height:48px;color:var(--text)}.form-stack input:focus,.field:focus{border-color:#5d6167}.form-error{min-height:18px;color:var(--danger);font-size:13px;margin:12px 2px 0}.button{min-height:48px;border-radius:var(--r-2);padding:11px 16px;cursor:pointer;font-weight:700}.button.primary{background:#f1eee9;color:#0b0b0b}.button.secondary{background:var(--surface-3);border:1px solid #33363a}.button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line)}.button.danger{background:#2a1717;color:#ff9c98;border:1px solid #51302e}.button.small{min-height:36px;padding:7px 11px;border-radius:var(--r-1);font-size:13px}/* Ссылка в роли кнопки: выгрузка — это обычная ссылка на скачивание, чтобы архив шёл потоком мимо памяти вкладки. */.recovery-codes{margin:12px 0;padding:14px;border-radius:var(--r-2);background:#0d0f10;border:1px solid var(--line);line-height:1.9;letter-spacing:.06em;white-space:pre-wrap;word-break:break-all}a.button{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;color:inherit}a.button.ghost{color:var(--muted)}.app-shell{min-height:100dvh;display:grid;grid-template-columns:274px minmax(0,1fr);background:var(--bg)}.sidebar{position:sticky;top:0;height:100dvh;padding:18px 13px 14px;border-right:1px solid #17191b;display:flex;flex-direction:column;background:#0a0b0c;overflow:auto}.brand{display:flex;align-items:center;gap:10px;padding:0 8px 16px;font-size:21px}.workspace-card,.profile-card{width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;text-align:left;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-2);padding:11px;cursor:pointer}.workspace-card small,.profile-card small{display:block;color:var(--muted);margin-top:2px}.workspace-card .avatar,.profile-card .avatar{width:36px;height:36px}.desktop-nav{display:grid;gap:3px;margin:12px 0 4px}.nav-item{position:relative;display:flex;align-items:center;gap:12px;width:100%;padding:10px 11px;border-radius:var(--r-1);background:transparent;color:#b9bcc0;cursor:pointer;text-align:left}.nav-item.active{background:var(--surface-2);color:#fff}.nav-icon{width:24px;text-align:center;font-size:17px}.nav-badge{margin-left:auto;min-width:22px;padding:2px 7px;border-radius:99px;background:#eeeae5;color:#090909;text-align:center;font-size:11px;font-weight:700}.sidebar-heading{display:flex;align-items:center;justify-content:space-between;padding:17px 10px 7px;color:var(--muted-2);font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase}.mini-button{width:26px;height:26px;border-radius:var(--r-1);background:transparent;color:var(--muted);cursor:pointer;font-size:17px}.sidebar-list{display:grid;gap:2px}.sidebar-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:center;border-radius:var(--r-1);padding:8px 10px;background:transparent;color:#b8bbc0;cursor:pointer;text-align:left;min-width:0}.sidebar-row:hover,.sidebar-row.active{background:#151719;color:#fff}.sidebar-row .label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.presence-dot{width:8px;height:8px;border-radius:99px;background:#50545a}.presence-dot.online{background:var(--success)}.presence-dot.busy,.presence-dot.do_not_disturb{background:var(--danger)}.presence-dot.away{background:var(--warning)}.profile-card{margin-top:auto;background:transparent;border-color:transparent}.profile-card:hover{background:var(--surface)}.main-area{min-width:0;min-height:100dvh}.topbar{position:sticky;top:0;z-index:20;height:78px;display:flex;align-items:center;justify-content:space-between;padding:12px 26px;background:rgba(5,5,5,.84);backdrop-filter:blur(22px) saturate(1.2);border-bottom:1px solid rgba(255,255,255,.05)}.topbar-title h1{margin:3px 0 0;font-size:21px;letter-spacing:-.025em}.top-actions{display:flex;gap:8px;align-items:center}.round-button,.avatar-button{width:42px;height:42px;border-radius:var(--r-2);background:var(--surface);color:var(--text);cursor:pointer;border:1px solid var(--line);font-size:21px}.avatar-button{border-radius:var(--r-1);background:#eeeae5;color:#090909;font-weight:800;font-size:13px}.avatar-button{position:relative;overflow:hidden}.avatar-button>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}.screen{max-width:1280px;margin:0 auto;padding:24px 24px 110px}.mobile-nav{display:none}.page-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(300px,.9fr);gap:14px}/* Колонка minmax(0,1fr), а не auto: колонка размера auto растягивается
+   до самого широкого ребёнка, и длинная строка внутри .row распирала
+   карточку до 594 точек при экране в 375 — содержимое уезжало за край. */
+.stack{display:grid;grid-template-columns:minmax(0,1fr);gap:12px}.surface{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:18px}.surface.soft{background:#101113}.surface h2,.surface h3{margin:0}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:15px}.section-head h2{font-size:21px;letter-spacing:-.025em}.section-head h3{font-size:17px}.section-head p{margin:4px 0 0}.row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line)}/* Без min-width:0 колонка размера auto растягивается до полной ширины
+   содержимого, а `.row-sub` не переносится — одна длинная строка в
+   журнале распирала строку до 387 точек при экране в 375. Значки и
+   кнопки при этом не сжимаются: у них ширина задана явно. */
+.row>*{min-width:0}.row:last-child{border-bottom:0}.row-title{font-weight:700}.row-sub{color:var(--muted);font-size:13px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}/* Сетка .row рассчитана на «значок, текст, действие». Строка без
+   значка сдвигалась на колонку, текст попадал в неавтоматическую
+   колонку без min-width, и длинное описание выталкивало кнопку за
+   край экрана. .flow не считает колонки: текст занимает, сколько
+   осталось, действие прижато вправо. */
+.row.flow{display:flex;align-items:center;gap:12px}.row.flow>span:first-child{flex:1;min-width:0}.row.flow>button,.row.flow>time,.row.flow>.chip{flex:none}.row-sub.wrap{white-space:normal}.avatar{width:38px;height:38px;border-radius:var(--r-1);display:grid;place-items:center;background:#eeeae5;color:#111;font-weight:800;flex:none}.avatar.dark{background:#282b2f;color:#fff}/* Ветка под сообщением: заметная строка, а не ещё одна серая подпись —   по ней решают, идти ли в отдельный разговор. */.thread-chip{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:5px 11px;border-radius:99px;background:var(--surface-3);border:1px solid var(--line);color:var(--text);font-size:13px;font-weight:600;cursor:pointer}.thread-chip svg{width:15px;height:15px}.thread-root{border-left:2px solid var(--warm);padding-left:12px;margin-bottom:4px}/* Человека нет на месте: строка перед действием, а не значок,   который замечают уже после. */.away-notice{margin:0 0 8px;padding:9px 12px;border-radius:var(--r-2);background:var(--warm-soft);color:var(--warm);font-size:13px;line-height:1.4}/* Сторис: снимок крупно, подпись под ним. Сетка в две колонки на   телефоне помещается без боковой прокрутки. */.story-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-top:14px}.story-card{border:1px solid var(--line);border-radius:var(--r-2);overflow:hidden;background:var(--surface)}.story-card.unseen{border-color:var(--warm)}.story-card img{display:block;width:100%;aspect-ratio:3/4;object-fit:cover;background:#0d0f10}.story-meta{padding:10px}.story-meta .inline-actions{margin-top:8px}/* Перенос из чужого мессенджера: без отметки он читается как слова того, кто его вставил. */.msg-forward.outside{color:var(--warm);font-weight:600}/* Фотография закрывает кружок целиком; если файл не открылся, скрипт её   убирает и остаются инициалы под ней. */.avatar{position:relative;overflow:hidden}.avatar>img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}/* Вид беседы — цвет рамки. Перепутать канал компании с комнатой   подрядчика дорого: это показанная не тем смета или зарплата. *//* Рамка отдельным слоем поверх снимка: внутренняя тень рисуется под   содержимым, и у беседы с фотографией цвет вида пропадал — то есть   исчезал ровно там, где различать и надо. */.avatar.room::after{content:'';position:absolute;inset:0;border:2px solid var(--room,transparent);border-radius:inherit;pointer-events:none}.avatar.room-channel{--room:var(--room-channel)}.avatar.room-group{--room:var(--room-group)}.avatar.room-direct{--room:var(--room-direct)}.avatar.room-team{--room:var(--room-team)}.avatar.room-project{--room:var(--room-project)}.avatar.room-external{--room:var(--room-external)}.chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;padding:5px 8px;border-radius:999px;background:var(--surface-3);color:#c7c9cc;font-size:11px;white-space:nowrap}.chip.warm{background:var(--warm-soft);color:#e8b9a4}.chip.danger{background:#2b1717;color:#ff9c98}.chip.good{background:#132319;color:#8de1a6}.metric-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.metric-card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:16px;width:100%;text-align:left;font:inherit;color:inherit;cursor:pointer}.metric-card strong{display:block;font-size:27px;letter-spacing:-.04em}.late{color:var(--danger)}/* Предупреждение в тексте: не ошибка, но и не проходная подпись —   строка, которую надо прочесть, прежде чем верить соседним словам. */.warn-text{color:var(--warm);font-size:13px;line-height:1.4}.draft-mark{color:var(--warm);font-weight:700}.calendar-event.layer{opacity:.85;cursor:default}.calendar-event.layer strong{font-size:17px}.calendar-event.birthday .row-title{color:var(--warm)}.away-chip{display:inline-block;margin-top:6px;padding:3px 9px;border-radius:999px;background:var(--surface-3);color:var(--muted);font-size:11px;white-space:nowrap}.switch-row{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;cursor:pointer;padding:4px 0}.switch-row input{margin-top:3px;width:18px;height:18px;flex:none}.switch-row .row-title{display:block;font-size:15px}.switch-row .row-sub{display:block;margin-top:2px}.switch-row[hidden]{display:none}.quiet-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}.quiet-row[hidden]{display:none}.checkline{display:flex;align-items:flex-start;gap:9px;cursor:pointer}.checkline input{margin-top:2px;flex:none}.step-done{color:var(--muted);text-decoration:line-through}.onboarding-step{align-items:flex-start}.onboarding-mark{width:22px;height:22px;flex:none;margin-top:2px;border-radius:999px;border:1px solid var(--line);display:grid;place-items:center;font-size:11px;color:var(--muted)}.onboarding-step.done .onboarding-mark{background:var(--text);color:var(--bg);border-color:var(--text)}.onboarding-step.done .row-title{color:var(--muted)}.metric-card span{display:block;color:var(--muted);font-size:13px;margin-top:4px}.empty{padding:38px 18px;text-align:center;color:var(--muted)}.empty .empty-icon{width:52px;height:52px;border-radius:var(--r-3);background:var(--surface-3);display:grid;place-items:center;margin:0 auto 12px;font-size:21px}.empty strong{display:block;color:var(--text);margin-bottom:5px}.inline-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.greeting{padding:22px}.greeting h2{font-size:27px;letter-spacing:-.04em;margin:6px 0 16px}.quick-bar{display:flex;align-items:center;gap:9px;background:#0d0e0f;border:1px solid var(--line);border-radius:var(--r-2);padding:7px}.quick-bar input{flex:1;min-width:0;border:0;background:transparent;outline:0;padding:8px;font-size:15px}.agenda-row{display:grid;grid-template-columns:55px minmax(0,1fr) auto;gap:12px;align-items:center;padding:13px 0;border-bottom:1px solid var(--line);background:transparent;color:inherit;cursor:pointer;font:inherit}.agenda-row:last-child{border-bottom:0}.agenda-time{font-size:13px;font-weight:700;color:#d9dadb}.chat-shell{height:calc(100dvh - 126px);min-height:620px;display:grid;grid-template-columns:340px minmax(0,1fr);background:#0c0d0e;border:1px solid var(--line);border-radius:var(--r-4);overflow:hidden}.conversation-pane{border-right:1px solid var(--line);padding:13px;overflow:auto}.conversation-pane-header{display:flex;justify-content:space-between;align-items:center;padding:4px 5px 12px}.conversation-pane h2{font-size:21px;margin:0}.conversation-card{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:11px;border-radius:var(--r-2);background:transparent;text-align:left;cursor:pointer;color:inherit}.conversation-card.active{background:var(--surface-2)}.conversation-card .preview{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}.conversation-card .time{font-size:11px;color:var(--muted-2);align-self:start;margin-top:4px}.message-pane{display:flex;flex-direction:column;min-width:0;min-height:0}.message-header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);background:rgba(13,14,15,.92);backdrop-filter:blur(18px)}.message-header h2{font-size:17px;margin:0}.message-header p{margin:2px 0 0;font-size:13px;color:var(--muted)}.message-stream{flex:1;overflow:auto;padding:18px 19px 12px;display:flex;flex-direction:column;gap:7px;scroll-behavior:smooth}.message-item{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;padding:8px;border-radius:var(--r-2)}.message-meta{display:flex;align-items:baseline;gap:7px}.message-author{font-weight:700;font-size:13px}.message-time{color:var(--muted-2);font-size:11px}.message-body{margin:4px 0 5px;line-height:1.43;font-size:15px;white-space:pre-wrap;overflow-wrap:anywhere}
+
+.message-item{position:relative}
+.reaction-button{min-height:27px;border-radius:var(--r-1);background:var(--surface-3);padding:4px 7px;color:#c9cbcf;cursor:pointer;font-size:13px}.voice-card{display:flex;align-items:center;gap:10px;max-width:390px;padding:9px 11px;border-radius:var(--r-1);background:var(--surface-2);border:1px solid var(--line)}.voice-play{width:32px;height:32px;border-radius:50%;background:#eeeae5;color:#080808}.waveform{height:24px;flex:1;background:repeating-linear-gradient(90deg,#7f8286 0 2px,transparent 2px 5px);mask-image:linear-gradient(to bottom,transparent 15%,#000 15% 85%,transparent 85%);opacity:.7}.typing{min-height:19px;padding:0 20px;color:var(--muted);font-size:11px}.composer-wrap{padding:8px 14px max(14px,env(safe-area-inset-bottom));background:linear-gradient(transparent,#0c0d0e 22%)}.reply-preview{display:none;margin:0 8px 6px;padding:8px 10px;border-left:2px solid var(--warm);border-radius:var(--r-1);background:var(--surface-2);font-size:13px;color:var(--muted)}.reply-preview.visible{display:flex;justify-content:space-between;gap:8px}.composer{display:flex;align-items:flex-end;gap:7px;border:1px solid var(--line);border-radius:var(--r-3);background:var(--surface);padding:7px}.composer textarea{flex:1;resize:none;max-height:124px;min-height:38px;border:0;background:transparent;outline:0;padding:9px 7px;font-size:15px;line-height:1.35}.composer-button{width:38px;height:38px;border-radius:var(--r-1);background:var(--surface-3);cursor:pointer;flex:none}.composer-button.send{background:#eeeae5;color:#090909}.composer-button.recording{background:#401a19;color:#ff9a96;animation:pulse 1s infinite}@keyframes pulse{50%{transform:scale(.94);opacity:.72}}.task-list{display:grid;gap:8px}.task-card{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:start;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:14px}/* Просрочка должна быть видна, не прочитана. */
+.task-card.overdue{box-shadow:inset 3px 0 0 var(--danger)}
+.task-late{color:var(--danger);font-weight:700}
+.task-soon{color:var(--warning);font-weight:700}
+.task-status{width:25px;height:25px;border-radius:50%;border:1.5px solid #676b70;background:transparent}.task-title{font-weight:700;line-height:1.35}.task-meta{display:flex;gap:7px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:13px;margin-top:7px}.calendar-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:12px}.week-strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}.day-chip{padding:10px 5px;border-radius:var(--r-2);background:var(--surface);border:1px solid var(--line);text-align:center;color:var(--muted);font-size:11px}.day-chip strong{display:block;color:var(--text);font-size:16px;margin-top:3px}.day-chip.today{background:#eeeae5;color:#3a3a3a}.day-chip.today strong{color:#070707}.calendar-list{display:grid;gap:8px}.calendar-event{display:grid;grid-template-columns:64px 3px minmax(0,1fr) auto;gap:12px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:13px}.event-line{height:39px;border-radius:var(--r-1);background:var(--kind,var(--warm))}.module-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.module-card{min-height:142px;padding:17px;overflow-wrap:anywhere;border-radius:var(--r-3);background:var(--surface);border:1px solid var(--line);cursor:pointer;text-align:left}.module-icon{width:40px;height:40px;border-radius:var(--r-1);background:var(--surface-3);display:grid;place-items:center;margin-bottom:19px}.module-card strong{display:block;font-size:15px}.module-card span{display:block;color:var(--muted);font-size:13px;line-height:1.35;margin-top:4px}.modal-backdrop{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.66);backdrop-filter:blur(8px);display:grid;place-items:center;padding:20px}.modal{width:min(100%,480px);max-height:min(780px,90dvh);overflow-y:auto;overflow-x:hidden;background:var(--surface);border:1px solid #34373c;border-radius:var(--r-4);padding:20px;box-shadow:var(--shadow)}.modal h2{font-size:21px;margin:4px 0 18px}.modal-head{display:flex;justify-content:space-between;align-items:center}.close-button{width:34px;height:34px;border-radius:var(--r-1);background:var(--surface-3);cursor:pointer}.modal .form-stack textarea{min-height:96px;resize:vertical;line-height:1.45}.toast-root{position:fixed;z-index:100;right:18px;bottom:22px;display:grid;gap:8px}.toast{max-width:340px;padding:11px 14px;border-radius:var(--r-1);background:#eeeae5;color:#111;box-shadow:var(--shadow);font-size:13px;animation:toast-in .2s ease}@keyframes toast-in{from{transform:translateY(8px);opacity:0}}/* labels, personal planning and the editable org chart */
+.label-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap;border:1px solid transparent;background:var(--label-wash,var(--surface-3));color:var(--label-ink,var(--text))}
+.label-chip i{font-style:normal;opacity:.65;font-size:11px}
+.label-chip[data-colour="neutral"]{--label-wash:var(--surface-3);--label-ink:#d6d9dd}
+.label-chip[data-colour="red"]{--label-wash:#3a1f1d;--label-ink:#f0a79c}
+.label-chip[data-colour="amber"]{--label-wash:#33291a;--label-ink:#e8c07a}
+.label-chip[data-colour="green"]{--label-wash:#1b2e22;--label-ink:#8ed8a8}
+.label-chip[data-colour="teal"]{--label-wash:#172e2f;--label-ink:#84d2d1}
+.label-chip[data-colour="blue"]{--label-wash:#1a2739;--label-ink:#9dbfe8}
+.label-chip[data-colour="violet"]{--label-wash:#272238;--label-ink:#c0aae8}
+.label-chip[data-colour="grey"]{--label-wash:#25282c;--label-ink:#b3b8be}
+.label-chip[data-kind="folder"]{border-radius:var(--r-1)}
+.label-chip[data-kind="priority"]{text-transform:uppercase;letter-spacing:.05em;font-size:10.5px}
+.label-grid{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.label-option{background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px;cursor:pointer;opacity:.62}
+.label-option.on{opacity:1;border-color:var(--text)}
+.label-option:disabled{cursor:progress}
+.label-list{display:grid;gap:7px;margin-top:8px}
+.label-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface)}
+.row[data-member-row]>span:last-child{display:flex;gap:6px;align-items:center;justify-content:flex-end}
+.row[data-member-row] select{min-width:0;width:auto;padding:7px 8px;font-size:13px;border-radius:var(--r-1)}
+.row[data-member-row]{gap:8px}
+.row.candidate-row{grid-template-columns:auto auto minmax(0,1fr)}
+.row.candidate-row>:last-child{text-align:left}
+.auth-help{margin:10px 0 0;text-align:center}
+.conversation-pane-header{align-items:center;gap:8px}
+.conversation-pane-header .chip-row{margin-bottom:0;flex:1;min-width:0;flex-wrap:wrap}
+.conversation-pane-header .chip-row::-webkit-scrollbar{display:none}
+.conversation-pane-header .chipbtn{flex:none;display:inline-flex;align-items:center;gap:5px}
+.chipbtn i{font-style:normal;font-size:10.5px;font-weight:700;min-width:16px;padding:1px 4px;border-radius:999px;background:var(--warm);color:#1b1512}
+.chipbtn.on i{background:var(--bg);color:var(--text)}
+/* games */
+.game-mark{width:34px;height:34px;border-radius:var(--r-1);background:var(--surface-3);display:grid;place-items:center;font-size:17px}
+.game-status{padding:9px 12px;border-radius:var(--r-1);background:var(--surface-2);color:var(--muted);font-size:13px;font-weight:600;margin-bottom:12px}
+.game-status.yours{background:var(--warm-soft);color:var(--warm)}
+.game-status.done{background:var(--surface-3);color:var(--text)}
+.game-board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));aspect-ratio:1;border-radius:var(--r-1);overflow:hidden;border:1px solid var(--line);max-width:min(100%,420px);margin:0 auto}
+.game-cell{display:grid;place-items:center;background:#e9e3d6;color:#141210;font-size:clamp(18px,5.4vw,30px);line-height:1;cursor:pointer;padding:0;border:0;aspect-ratio:1}
+.game-cell.dark{background:#8a7a63}
+.game-cell.picked{outline:3px solid var(--warning);outline-offset:-3px}
+.game-cell:disabled{cursor:default}
+.draught{display:block;width:66%;aspect-ratio:1;border-radius:50%;box-shadow:inset 0 -2px 0 rgba(0,0,0,.25)}
+.draught.light{background:#f4f1ea;border:1px solid #b9b2a3}
+.draught.dark{background:#2c2925;border:1px solid #14120f}
+.draught.king{box-shadow:inset 0 -2px 0 rgba(0,0,0,.25),0 0 0 3px var(--warning) inset}
+.sea-wrap{overflow-x:auto;padding-bottom:4px}
+.sea{display:grid;grid-template-columns:repeat(10,1fr);gap:2px;min-width:260px;max-width:min(100%,420px);margin:0 auto}
+.sea-cell{aspect-ratio:1;border-radius:var(--r-1);background:var(--surface-3);border:1px solid var(--line);padding:0;cursor:pointer}
+.sea-cell:disabled{cursor:default}
+.sea-cell.ship{background:#4a5a6b}
+.sea-cell.hit{background:var(--danger)}
+.sea-cell.miss{background:var(--surface);position:relative}
+.sea-cell.miss::after{content:'';position:absolute;inset:38%;border-radius:50%;background:var(--muted)}
+/* The notification centre appends its badge as a fourth child of a card
+   whose grid has three columns, so it started a second row: first under
+   the avatar, then under the time, and either way the card grew a strip
+   of empty space. It sits in the corner instead, the way every message
+   list puts a count, and the card keeps its own height. */
+.conversation-card{position:relative}
+.conversation-card .dwc-inline-badge{position:absolute;right:11px;bottom:9px;margin:0}
+.conversation-card .time{align-self:start}
+.chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.chipbtn{padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:13px;font-weight:600;cursor:pointer}
+.chipbtn.on{background:var(--text);color:var(--bg);border-color:var(--text)}
+.plan-list{display:grid;gap:7px}
+.plan-row{display:grid;grid-template-columns:26px minmax(0,1fr);gap:10px;align-items:start;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface)}
+.plan-row.is-done{opacity:.6}
+.plan-row.is-done .row-title{text-decoration:line-through}
+.plan-check{width:22px;height:22px;margin-top:2px;border-radius:var(--r-1);border:1.5px solid var(--firm,#4a4e54);background:transparent;color:var(--text);display:grid;place-items:center;font-size:13px;cursor:pointer}
+.plan-row.is-done .plan-check{background:var(--success);border-color:var(--success);color:#08130c}
+.plan-body{background:transparent;text-align:left;cursor:pointer;min-width:0;padding:0}
+.plan-labels{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.org-edit{margin-left:auto}
+@media(max-width:980px){.app-shell{display:block;padding-bottom:calc(84px + env(safe-area-inset-bottom))}.sidebar{display:none}.main-area{min-height:100dvh}.topbar{height:auto;min-height:68px;padding:max(10px,env(safe-area-inset-top)) 15px 10px;background:rgba(5,5,5,.91)}.topbar-title h1{font-size:21px}.screen{padding:10px 10px 110px}.page-grid{grid-template-columns:1fr}.metric-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.mobile-nav{position:fixed;left:0;right:0;bottom:0;z-index:50;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:8px 6px calc(7px + env(safe-area-inset-bottom));background:#171a1d;border-top:1px solid #2a2d31;border-radius:var(--r-4) 28px 0 0;box-shadow:0 -10px 36px rgba(0,0,0,.35)}.mobile-nav .nav-item{display:flex;flex-direction:column;gap:3px;align-items:center;justify-content:center;padding:5px 2px;border-radius:var(--r-1);font-size:11px;color:#777b80}.mobile-nav .nav-item.active{background:transparent;color:#fff}.mobile-nav .nav-icon{font-size:21px;height:23px}.mobile-nav .nav-badge{position:absolute;top:0;right:18%;min-width:16px;padding:1px 4px;font-size:11px}.chat-shell{height:calc(100dvh - 150px);min-height:0;display:block;border:0;border-radius:0;background:var(--bg);margin:-10px}.conversation-pane{border:0;padding:10px}.conversation-pane.hidden-mobile{display:none}.message-pane{height:100%;min-height:calc(100dvh - 150px)}.message-pane.hidden-mobile{display:none}.message-header{padding:11px 12px;border-radius:0;position:sticky;top:0;z-index:6;display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 10px;align-items:center}
+.message-header>.inline-actions:first-child{display:contents}
+.message-header>.inline-actions:first-child>div{min-width:0}
+.message-header h2{font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.message-header h2+p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.message-header>.inline-actions:last-child{grid-column:1/-1;flex-wrap:wrap}
+.message-header>.inline-actions:last-child::-webkit-scrollbar{display:none}
+.message-header>.inline-actions:last-child>*{flex:none}.message-stream{padding:12px 10px}.composer-wrap{padding:7px 9px max(8px,env(safe-area-inset-bottom))}.composer{border-radius:var(--r-3)}.mobile-back{display:inline-flex!important}.surface{border-radius:var(--r-3)}.greeting{padding:18px}.greeting h2{font-size:27px}.module-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.week-strip{grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;padding-bottom:3px}.calendar-event{grid-template-columns:55px 3px minmax(0,1fr)}.calendar-event>:last-child{display:none}}@media(min-width:981px){.mobile-back{display:none!important}}@media(max-width:560px){/* На 375 точках строка «значок, текст, кнопки» не помещается в одну
+   линию: колонка действий сжималась, и кнопки вылезали за край экрана —
+   вместе с ними появлялась горизонтальная прокрутка всей страницы.
+   Действия переносим под текст, а не режем. */
+.row{row-gap:8px}.row>.inline-actions{grid-column:1/-1;justify-content:flex-start}
+.row.flow{flex-wrap:wrap}.row.flow>span:first-child{flex:1 1 100%}
+/* Подпись строки на широком экране обрезается многоточием — там она
+   короткая и вторая строка ни к чему. На телефоне так теряется половина
+   записи журнала: «21 сент., 17:54 · Человек вошёл…». Две строки вместо
+   одной, и только потом многоточие. */
+.row-sub{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* На узком экране фильтры бесед занимают отдельную строку целиком:
+   рядом с заголовком им места нет. Сам перенос — в основных правилах,
+   боковой прокрутки нет нигде и ни при какой ширине. */
+.conversation-pane-header{flex-wrap:wrap}
+.conversation-pane-header .chip-row{flex:1 1 100%}
+.metric-grid{grid-template-columns:1fr 1fr}.metric-card:last-child{grid-column:1/-1}.top-actions{gap:6px}.round-button,.avatar-button{width:39px;height:39px;border-radius:var(--r-1)}.page-grid{gap:10px}.surface{padding:15px}.quick-bar{padding:6px}/* Кнопка в строке ввода на телефоне пряталась совсем, и строка выглядела
+   нерабочей: человек печатал и не понимал, чем отправить, — про Enter не
+   догадываются. Оставляем её, только ужимаем, чтобы помещалась рядом с
+   полем. */
+.quick-bar .button{padding:7px 10px;font-size:13px;white-space:nowrap}/* Две колонки, а не три: три кнопки ответа на приглашение забирали   всю ширину, колонка с названием схлопывалась в ноль, и название   вылезало из своей ячейки прямо под кнопки — прочитать, на какую   встречу отвечаешь, было нельзя. Действия уходят на свою строку. */.agenda-row{grid-template-columns:50px minmax(0,1fr)}.agenda-row .inline-actions{grid-column:1/-1}.module-card{min-height:130px}.auth-card{padding:21px;border-radius:var(--r-4)}.auth-card h1{font-size:27px}.modal-backdrop{align-items:end;padding:0}.modal{width:100%;border-radius:var(--r-4) 30px 0 0;padding:20px 18px calc(22px + env(safe-area-inset-bottom));max-height:88dvh}.toast-root{left:12px;right:12px;bottom:calc(90px + env(safe-area-inset-bottom))}.toast{max-width:none;text-align:center}}
+/* Navigation icons and the unread badge.
+   The bottom bar used to hardcode its own dark palette, so it stayed dark in
+   the light theme; it now reads the same tokens as every other surface. */
+.nav-icon{display:grid;place-items:center}
+.nav-icon svg{width:21px;height:21px;display:block}
+.mobile-nav{background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -10px 36px rgba(0,0,0,.28)}
+.mobile-nav .nav-item{color:var(--muted);position:relative}
+.mobile-nav .nav-item.active{color:var(--text)}
+.mobile-nav .nav-icon{height:22px}
+.mobile-nav .nav-icon svg{width:22px;height:22px}
+/* The badge is a count on the icon, not a third row under the label: in this
+   column layout margin-left:auto pushed it below the caption and out of the bar. */
+.mobile-nav .nav-item .dwc-inline-badge{
+  position:absolute;top:1px;left:50%;margin:0 0 0 5px;
+  min-width:17px;height:17px;padding:0 4px;font-size:11px;line-height:1;
+  border:2px solid var(--surface);
+}
+
+/* Organisational chart. Depth is drawn with an indent and a rail rather than
+   nested boxes: a six-level tree in nested cards is unreadable on a phone. */
+.org-tree{display:flex;flex-direction:column;gap:2px}
+.org-node{padding:9px 0 9px calc(var(--org-depth) * 16px + 10px);position:relative}
+.org-node::before{content:"";position:absolute;left:calc(var(--org-depth) * 16px);top:0;bottom:0;width:1px;background:var(--line)}
+.org-node:first-child::before{top:12px}
+.org-line{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.org-line strong{font-size:13px}
+.org-kind{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2);border:1px solid var(--line);border-radius:999px;padding:1px 7px}
+.org-kind.own{color:var(--warm);border-color:var(--warm-soft)}
+.org-meta{display:flex;gap:12px;margin-top:3px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.org-meta .org-full{color:var(--warning)}
+
+/* Employee card. Facts first, then where they sit, then what they have done. */
+.person-head{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+.person-head .avatar{width:48px;height:48px;font-size:17px}
+.person-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.person-field{display:flex;flex-direction:column;gap:2px;min-width:0}
+.person-field span{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2)}
+.person-field strong{font-size:13px;font-weight:600;overflow-wrap:anywhere}
+.person-about{margin:14px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
+.person-section{margin:18px 0 8px;font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-2);font-weight:600}
+.person-chips{display:flex;flex-wrap:wrap;gap:6px;font-size:13px;color:var(--muted)}
+.person-chip{border:1px solid var(--line);border-radius:999px;padding:3px 9px;background:var(--surface-2);color:var(--text);font-size:11px}
+.person-feed{display:flex;flex-direction:column;gap:1px;max-height:260px;overflow:auto}
+.person-event{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:13px}
+.person-event:first-child{border-top:0}
+.person-event time{color:var(--muted-2);font-size:11px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.field-group{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.field-group input,.field-group textarea{border:1px solid var(--line);border-radius:var(--r-1);background:var(--surface-2);color:var(--text);padding:9px 11px;font:inherit;font-size:13px;outline:0}
+.field input:focus-visible,.field textarea:focus-visible{border-color:var(--warm)}
+
+/* Calendar: day, week and month over the same data. A pulsing mark means the
+   organiser is waiting on this viewer — the one calendar signal that costs
+   something when it is missed. */
+.cal-controls{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:12px 0 4px}
+.cal-switch{display:flex;gap:4px;padding:3px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-1)}
+.cal-tab{min-height:30px;padding:4px 12px;border:0;border-radius:var(--r-1);background:transparent;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer}
+.cal-tab.active{background:var(--surface-3);color:var(--text)}
+.cal-nav{display:flex;align-items:center;gap:6px}
+.cal-month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:3px;margin-top:12px}
+.cal-weekday{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2);text-align:center;padding-bottom:4px}
+.cal-cell{min-height:52px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:6px 2px;border:1px solid transparent;border-radius:var(--r-1);background:var(--surface-2);color:var(--text);cursor:pointer}
+.cal-cell.muted-cell{background:transparent;color:var(--muted-2)}
+.cal-cell.today{border-color:var(--warm)}
+/* Выбранный день. Серым по серому его было не отличить от соседнего, а у
+   сегодняшнего выбор ещё и гасил тёплое кольцо: нажатие делало день менее
+   заметным, а не более. Светлая заливка тёмным по светлому — как у
+   выбранной вкладки; кольцо «сегодня» остаётся снаружи. */
+.cal-cell.chosen{background:var(--text);border-color:var(--text);color:var(--bg);font-weight:700}
+.cal-cell.today.chosen{box-shadow:0 0 0 2px var(--warm)}
+.cal-cell.chosen .cal-daynum{color:var(--bg)}
+.cal-daynum{font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.cal-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin-top:12px}
+.cal-daycol{display:flex;flex-direction:column;align-items:center;gap:3px;padding:9px 2px;border:1px solid transparent;border-radius:var(--r-1);background:var(--surface-2);color:var(--text);cursor:pointer}
+.cal-daycol.today{border-color:var(--warm)}
+.cal-daycol.chosen{background:var(--text);border-color:var(--text);color:var(--bg)}
+.cal-daycol.today.chosen{box-shadow:0 0 0 2px var(--warm)}
+.cal-daycol.chosen .cal-wd{color:var(--bg);opacity:.72}
+.cal-wd{font-size:11px;text-transform:uppercase;color:var(--muted-2)}
+.cal-daycol strong{font-size:15px;font-variant-numeric:tabular-nums}
+.cal-dots{display:flex;align-items:center;gap:3px;min-height:8px;flex-wrap:wrap;justify-content:center}
+/* Цвет по виду события — один и тот же у точки в сетке и у полоски в
+   карточке. Раньше полоска у всех была тёплой, и по ней нельзя было
+   отличить дедлайн от планёрки, не читая подпись. Виды перечислены все:
+   пропущенный оставался серым, то есть «какой-то». */
+.cal-dot{width:5px;height:5px;border-radius:50%;background:var(--kind,var(--muted))}
+.cal-dot.meeting,.calendar-event.meeting,.agenda-row.meeting{--kind:var(--warm)}
+.cal-dot.deadline,.calendar-event.deadline,.agenda-row.deadline{--kind:var(--danger)}
+.cal-dot.focus,.calendar-event.focus,.agenda-row.focus{--kind:var(--success)}
+.cal-dot.task_block,.calendar-event.task_block,.agenda-row.task_block{--kind:var(--room-project)}
+.cal-dot.reminder,.calendar-event.reminder,.agenda-row.reminder{--kind:var(--warning)}
+.cal-dot.milestone,.calendar-event.milestone,.agenda-row.milestone{--kind:var(--room-team)}
+.cal-dot.birthday,.calendar-event.birthday,.agenda-row.birthday{--kind:var(--room-direct)}
+.cal-dot.holiday,.calendar-event.holiday,.agenda-row.holiday{--kind:var(--room-channel)}
+.cal-dot.other,.calendar-event.other,.agenda-row.other{--kind:var(--muted)}
+/* На выбранном дне заливка светлая: тёмная точка на ней видна, цветная — нет. */
+.chosen .cal-dot{box-shadow:0 0 0 1px rgba(0,0,0,.45)}
+/* Тот же цвет в расписании дня — полоской слева. Праздник и день
+   рождения там не кнопки: открывать у них нечего, и рука не должна
+   тянуться. */
+.agenda-row{border-left:3px solid var(--kind,transparent);padding-left:10px}
+.agenda-row.holiday,.agenda-row.birthday{cursor:default}
+.cal-more{font-size:11px;color:var(--muted-2);font-style:normal}
+.cal-dot.pending,.chip.pulse{background:var(--warning)}
+.chip.pulse{color:#141210;font-weight:700}
+.calendar-event.needs-answer{border-color:var(--warning)}
+.cal-callout{margin:12px 0 0;padding:9px 12px;border-radius:var(--r-1);background:var(--warm-soft);color:var(--text);font-size:13px}
+.cal-answer{display:flex;gap:6px;flex-wrap:wrap}
+@media (prefers-reduced-motion: no-preference){
+  .cal-dot.pending,.chip.pulse{animation:cal-pulse 1.8s ease-in-out infinite}
+  @keyframes cal-pulse{0%,100%{opacity:1}50%{opacity:.45}}
+}
+
+/* A pinned message must be releasable from the list of pins — the message
+   itself is the thing you were trying to find. */
+.pin-row{display:flex;align-items:center;gap:8px}
+.pin-row .conversation-card{flex:1;min-width:0}
+.text-button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;padding:6px 8px;border-radius:var(--r-1);cursor:pointer;white-space:nowrap}
+.text-button:hover,.text-button:focus-visible{background:var(--surface-2);color:var(--text)}
+.text-button.danger{color:var(--danger)}
+.text-button[disabled]{opacity:.5;cursor:default}
+
+/* The mobile rule hides a calendar row's trailing chip to save width, but that
+   slot also carries «нужен ответ» — the one marker a person must not miss. */
+@media (max-width: 980px) {
+  .calendar-event > .chip.pulse{display:inline-flex;grid-column:3;justify-self:start;margin-top:4px}
+}
+
+/* Icon-only controls in the composer and sidebar had no accessible name and
+   no focus ring of their own beyond the global one. */
+select:focus-visible { outline: 2px solid var(--warm); outline-offset: 2px; }
+
+/* The server records every move; the board now shows the game's history. */
+.game-record{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.game-moves{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px}
+.game-moves li{white-space:nowrap}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Единое оформление органов управления.
+
+   Разбор экранов показал три расхождения. Первое: отклик на нажатие был
+   только у элементов с классом .pressable — главные кнопки форм, крестики
+   листов, реакции, вкладки календаря и клетки досок не отвечали ничем, а
+   нажатие подтверждалось лишь тем, что экран потом менялся. Второе: радиусы
+   шли россыпью от 9 до 30 пикселей, в одном и том же листе соседние кнопки
+   скруглялись по-разному. Третье: цели в 26–28 пикселей меньше пальца.
+
+   Нажатие отрабатывает почти мгновенно (40 мс), отпускание — плавно: так
+   палец чувствует, что его услышали сразу, а не после анимации.
+   ───────────────────────────────────────────────────────────────────────── */
+:root{
+  --r-1:12px;   /* мелкие органы: крестик, вкладка, реакция */
+  --r-2:16px;   /* кнопки, поля, строки списка */
+  --r-3:22px;   /* карточки */
+  --r-4:28px;   /* листы и крупные поверхности */
+  --press:cubic-bezier(.2,.8,.2,1);
+}
+
+button,[role="button"],.pressable,summary{
+  transition:transform 140ms var(--press),background 140ms ease,opacity 140ms ease,border-color 140ms ease;
+}
+button:active:not([disabled]):not(.game-cell):not(.sea-cell),
+[role="button"]:active,.pressable:active,summary:active{
+  transform:scale(.97);
+  opacity:.85;
+  transition-duration:40ms;
+}
+/* Клетка доски не должна прыгать под пальцем: она отзывается заливкой. */
+.game-cell:active,.sea-cell:active{transition-duration:40ms;filter:brightness(1.35)}
+.button[disabled]:active,.text-button[disabled]:active{transform:none;opacity:.5}
+
+/* Шкала радиусов: четыре ступени вместо полутора десятков значений. */
+.mini-button,.close-button,.msg-tool,.reaction-button,.button.small,.segment,
+.nav-item,.sidebar-row,.cal-tab,.text-button{border-radius:var(--r-1)}
+.button,.field,.form-stack input,.composer-button,.round-button,.avatar-button,
+.quick-bar,.conversation-card,.profile-card,.day-chip,.cal-callout{border-radius:var(--r-2)}
+.surface,.metric-card,.task-card,.calendar-event,.module-card,.voice-card,
+.dwc-attention-card,.empty .empty-icon{border-radius:var(--r-3)}
+.modal,.auth-card,.chat-shell,.composer{border-radius:var(--r-4)}
+.chip,.nav-badge,.presence-dot{border-radius:999px}
+
+/* Палец шире курсора: невидимая зона захвата вокруг мелких органов. По
+   горизонтали она уже, чтобы соседние кнопки в ряду не перехватывали нажатие
+   друг у друга. */
+@media (pointer:coarse){
+  .mini-button,.close-button,.msg-tool,.reaction-button,.text-button,.cal-tab,.chipbtn,.chip-row .chipbtn{position:relative}
+  .mini-button::after,.close-button::after,.msg-tool::after,.reaction-button::after,
+  .text-button::after,.cal-tab::after,.chipbtn::after{content:'';position:absolute;inset:-9px -2px}
+}
+
+/* Кому движение мешает — тому его нет. */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}
+  .button:active,.pressable:active,.reaction-button:active,.close-button:active{transform:none}
+}
+
+/* Ответ теперь виден как ответ: строка с тем, на что отвечают, ведёт
+   к исходному сообщению и подсвечивает его в потоке. */
+.reply-quote{display:block;width:100%;max-width:520px;margin:2px 0 6px;padding:6px 10px;border-radius:var(--r-1);
+  border-left:2px solid var(--warm);background:var(--surface-2);color:var(--muted);
+  font-size:13px;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.reply-quote b{color:var(--text);font-weight:700;margin-right:6px}
+.reply-quote:hover,.reply-quote:focus-visible{background:var(--surface-3);color:var(--text)}
+.message-item.flash{animation:msg-flash 1.2s ease}
+@keyframes msg-flash{0%{background:var(--warm-soft)}100%{background:transparent}}
+
+/* В списке недели и месяца строка должна называть день, иначе две встречи
+   на разные дни различаются только временем. */
+.event-day{display:block;margin-top:2px;font-style:normal;font-weight:600;font-size:11px;color:var(--muted-2);white-space:nowrap}
+
+/* Показанный пароль: моноширинный, чтобы его можно было прочесть вслух
+   без ошибок, и с переносом — длинный не обрежется. */
+.vault-secret{margin-top:6px;padding:7px 9px;border-radius:var(--r-1);background:var(--surface-3);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;letter-spacing:.02em;
+  overflow-wrap:anywhere;user-select:all}
+
+/* Плитка «Ещё»: правило .module-card span перебивало .module-icon по
+   специфичности, поэтому знак сидел в левом верхнем углу плашки кеглем
+   подписи, а сама плашка оставалась пустой. */
+.module-card .module-icon{display:grid;place-items:center;font-size:21px;line-height:1;color:var(--text)}
+.module-card .module-icon svg{width:22px;height:22px;display:block;color:var(--text)}
+.round-button svg,.close-button svg{width:19px;height:19px;display:block;margin:auto}
+
+
+/* Действия над сообщением.
+
+   Раньше ряд кнопок раскрывался под сообщением и раздвигал поток: при
+   наведении соседние сообщения уезжали вниз, а текст — из-под курсора.
+   Панель стала плавающей: она вынута из потока (position:absolute),
+   поэтому её появление ничего не двигает — ни вверх, ни вниз. Место под
+   неё зарезервировано отступом справа, так что и текст не прыгает.
+
+   На экране три частых действия — реакция, ответ, «ещё»; остальное в
+   листе, чтобы ряд не разрастался поперёк сообщения. */
+
+.msg-toolbar{position:absolute;top:4px;right:6px;display:flex;gap:2px;padding:2px;
+  border-radius:var(--r-1);background:var(--surface-2);border:1px solid var(--line);
+  opacity:0;pointer-events:none;transition:opacity 120ms ease}
+.message-item:hover .msg-toolbar,.message-item:focus-within .msg-toolbar{opacity:1;pointer-events:auto}
+.msg-tool{width:30px;height:30px;display:grid;place-items:center;border-radius:var(--r-1);
+  background:transparent;color:var(--muted);cursor:pointer}
+.msg-tool svg{width:17px;height:17px;display:block}
+.msg-tool:hover,.msg-tool:focus-visible{background:var(--surface-3);color:var(--text)}
+.msg-reactions{margin-top:6px}
+/* Пальцем не наводят: на сенсорном экране панель видна всегда. */
+@media (hover:none){
+  .msg-toolbar{opacity:1;pointer-events:auto;background:transparent;border-color:transparent}
+}
+/* Строка листа действий: иконка, название, ничего лишнего. */
+.menu-row{width:100%;text-align:left;background:transparent;cursor:pointer}
+.menu-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:var(--r-1);background:var(--surface-3);color:var(--text)}
+.menu-icon svg{width:18px;height:18px;display:block}
+
+/* На узком экране три кнопки съедали бы треть строки: там остаётся одна,
+   а реакция и ответ живут в том же листе, что и остальное. */
+@media (max-width: 700px){
+  .msg-toolbar [data-react-pick],.msg-toolbar [data-reply]{display:none}
+}
+.menu-row.danger .row-title{color:var(--danger)}
+.menu-row.danger .menu-icon{color:var(--danger)}
+
+/* Полоса прокрутки, появляясь, отнимает у содержимого свои пятнадцать
+   пикселей и сдвигает всё влево. На macOS её не видно, на Windows и Linux
+   видно сразу: место под неё резервируется заранее. */
+.modal,.message-stream,.conversation-pane,.sidebar,.screen{scrollbar-gutter:stable}
+
+
+/* ─── Лента переписки ─────────────────────────────────────────────────
+   Своё справа, чужое слева: принадлежность реплики читается по стороне
+   раньше, чем по имени. Имя печатается только у чужих и только у первой
+   реплики в связке — своё имя человек знает, а повторять чужое у каждой
+   строки значит засорять колонку.
+
+   Время живёт в самом пузыре: оно нужно почти всегда и не должно занимать
+   отдельную строку. Дата — разделителем, один раз на день. */
+.message-item{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;padding:2px 0;position:relative}
+.message-item.mine{grid-template-columns:minmax(0,1fr);justify-items:end}
+.message-item.grouped{margin-top:-4px}
+.msg-column{min-width:0;max-width:min(640px,78%);display:flex;flex-direction:column;align-items:flex-start}
+.message-item.mine .msg-column{align-items:flex-end;margin-left:auto}
+.message-meta{display:flex;align-items:baseline;gap:7px;margin:0 0 2px 10px}
+.message-author{font-weight:700;font-size:13px;color:var(--muted)}
+
+.msg-bubble{position:relative;padding:8px 12px 6px;border-radius:var(--r-3);
+  background:var(--surface-2);border:1px solid var(--line);min-width:96px;max-width:100%}
+.message-item.mine .msg-bubble{background:var(--warm-soft);border-color:transparent}
+.message-item.grouped .msg-bubble{border-top-left-radius:var(--r-1)}
+.message-item.mine.grouped .msg-bubble{border-top-left-radius:var(--r-3);border-top-right-radius:var(--r-1)}
+.msg-bubble .message-body{margin:0;line-height:1.45;font-size:15px;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg-bubble .voice-card{margin:2px 0;background:transparent;border:0;padding:0}
+
+/* Время и пометки — в нижней строке пузыря, мелко и не мешая тексту. */
+.msg-stamp{display:flex;align-items:center;justify-content:flex-end;gap:5px;margin-top:2px;
+  font-size:11px;color:var(--muted-2);font-variant-numeric:tabular-nums}
+.msg-stamp i{font-style:normal}
+/* Пометка «изменено» стала кнопкой: вопрос «что там было» возникает у
+   того же, кто её видит, а подсказку на наведение мыши на телефоне не
+   увидеть вовсе. */
+.msg-edited{opacity:.85;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-decoration:underline dotted}
+
+/* Где человек остановился в прошлый раз. */
+.unread-divider{display:flex;align-items:center;gap:10px;margin:10px 0 4px;color:var(--warm);font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.unread-divider::before,.unread-divider::after{content:'';flex:1;height:1px;background:var(--warm);opacity:.45}
+.day-divider{display:flex;align-items:center;justify-content:center;margin:12px 0 8px}
+.day-divider span{padding:4px 12px;border-radius:999px;background:var(--surface-2);
+  border:1px solid var(--line);color:var(--muted);font-size:11px;font-weight:700}
+
+.msg-forward{display:block;margin:0 0 4px;padding:0;background:transparent;border:0;
+  color:var(--warm);font-size:11px;font-weight:700;text-align:left;cursor:pointer}
+.msg-labels,.msg-reactions{margin-top:4px}
+.message-item.mine .msg-labels,.message-item.mine .msg-reactions{justify-content:flex-end}
+
+/* Панель действий висит у внешнего края пузыря: у чужих справа, у своих
+   слева — иначе она закрывала бы текст. */
+.msg-toolbar{position:absolute;top:0;right:auto;left:calc(100% + 6px)}
+.message-item.mine .msg-toolbar{left:auto;right:calc(100% + 6px)}
+@media (max-width: 860px){
+  .msg-column{max-width:88%}
+  .msg-toolbar{left:auto;right:4px;top:-14px}
+  .message-item.mine .msg-toolbar{left:4px;right:auto}
+}
+
+/* ─── Личные пометки ──────────────────────────────────────────────────
+   Выделение маркером, заметка и звезда видны только тому, кто их
+   поставил, поэтому и выглядят как пометки на полях, а не как часть
+   сообщения: приглушённый фон, тонкая рамка, ничего кричащего. */
+.hl{border-radius:var(--r-1);padding:0 3px;color:inherit;cursor:pointer}
+.hl-yellow{background:rgba(228,189,106,.34)}
+.hl-green{background:rgba(119,212,150,.30)}
+.hl-pink{background:rgba(212,130,162,.32)}
+.hl-blue{background:rgba(122,166,224,.32)}
+.chipbtn.hl-yellow,.chipbtn.hl-green,.chipbtn.hl-pink,.chipbtn.hl-blue{color:var(--text)}
+.highlight-preview{margin:6px 0 0;padding:9px 11px;border-radius:var(--r-1);background:var(--surface-3);
+  border-left:2px solid var(--warm);font-size:13px;line-height:1.45}
+
+.msg-notes{display:grid;gap:4px;margin-top:5px;width:100%}
+.msg-note{display:block;width:100%;text-align:left;padding:6px 9px;border-radius:var(--r-1);
+  background:var(--surface-3);border-left:2px solid var(--muted-2);color:var(--muted);
+  font-size:13px;line-height:1.4;cursor:pointer;overflow-wrap:anywhere}
+.msg-note b{color:var(--text);text-transform:uppercase;font-size:11px;letter-spacing:.06em;margin-right:6px}
+.msg-note.kind-important{border-left-color:var(--danger)}
+.msg-note.kind-remember{border-left-color:var(--warning)}
+.msg-note.kind-question{border-left-color:var(--warm)}
+
+/* Компактное меню сообщения: сетка иконок вместо колонки во весь экран. */
+.menu-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:12px}
+.menu-tile{display:grid;justify-items:center;gap:6px;padding:11px 4px;border-radius:var(--r-2);
+  background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+  font-size:11px;line-height:1.2;text-align:center;cursor:pointer}
+.menu-tile .menu-icon{width:32px;height:32px;background:transparent}
+.menu-tile.danger{color:var(--danger)}
+.menu-tile.danger .menu-icon{color:var(--danger)}
+.msg-menu-quote{margin:0;padding:8px 10px;border-radius:var(--r-1);background:var(--surface-2);
+  font-size:13px;overflow-wrap:anywhere}
+
+/* Панель маркера встаёт над выделенным текстом и живёт, пока живёт
+   выделение: цвет выбирают сразу, не теряя того, что выделили. */
+.hl-bar{position:fixed;z-index:80;display:flex;align-items:center;gap:6px;padding:6px 9px;
+  border-radius:999px;background:var(--surface-3);border:1px solid var(--line);box-shadow:var(--shadow)}
+.hl-bar-label{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.04em}
+.hl-dot{width:20px;height:20px;border-radius:999px;border:1px solid rgba(255,255,255,.18);cursor:pointer}
+.hl-dot.hl-yellow{background:rgba(228,189,106,.9)}
+.hl-dot.hl-green{background:rgba(119,212,150,.9)}
+.hl-dot.hl-pink{background:rgba(212,130,162,.9)}
+.hl-dot.hl-blue{background:rgba(122,166,224,.9)}
+/* Зажжённая звезда: беседа в избранном. */
+.round-button.on{background:var(--warm-soft);color:var(--warm);border-color:transparent}
+
+/* Заголовок без своего класса брал кегль у браузера (24px) и выпадал из
+   шкалы. Основание для всех уровней — из неё же; правила экранов, где
+   заголовку нужен другой размер, перекрывают это как и раньше. */
+h1,h2,h3,h4{margin:0;line-height:1.25;letter-spacing:-.02em}
+h1{font-size:27px;font-weight:800}
+h2{font-size:21px;font-weight:700}
+h3{font-size:17px;font-weight:700}
+h4{font-size:15px;font-weight:700}
+
+
+/* Поля внутри контейнеров глушили обводку и ничего не давали взамен:
+   с клавиатуры было не видно, где ты находишься. */
+.quick-bar input:focus-visible,.composer textarea:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/* Отмена движения проигрывала по весу правилу нажатия и не работала для
+   кнопок без класса .pressable. */
+@media (prefers-reduced-motion: reduce){
+  button:active:not([disabled]),[role="button"]:active,.pressable:active,summary:active{transform:none!important}
+}
+
+/* Список и поле ввода в одной форме должны быть одной высоты: у select
+   своя внутренняя высота строки, поэтому задаём её явно. */
+.form-stack input:not([type=checkbox]):not([type=radio]),.form-stack select,.field{height:48px;padding-block:0}
+.form-stack textarea{height:auto;padding-block:12px}
+
+/* Вложение — это ссылка: нажатие открывает картинку и PDF в окне,
+   остальное отдаёт на скачивание. Голосовое играет на месте. */
+.file-card{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;
+  text-decoration:none;color:inherit;cursor:pointer}
+.file-card strong{display:block}
+.file-mark{width:34px;height:34px;display:grid;place-items:center;border-radius:var(--r-1);
+  background:var(--surface-3);color:var(--text)}
+.file-mark svg{width:18px;height:18px;display:block}
+.voice-card-play.playing .waveform{opacity:1}
+.voice-card-play.playing .voice-play{background:var(--warm);color:var(--bg)}
+
+/* Звонок — не служебный значок. Трубка и камера стояли последними в ряду
+   из одиннадцати одинаковых кружков без подписей, и их попросту не
+   находили. Теперь они первые в группе и помечены цветом. */
+.call-button{border-color:var(--warm);color:var(--warm)}
+.call-button:hover,.call-button:focus-visible{background:var(--warm-soft)}
+
+/* Имя продукта на главной: знак и слово в одну строку, одного роста с
+   заголовком раздела на прочих экранах — чтобы шапка не прыгала. */
+.brand{display:inline-flex;align-items:center;gap:9px}
+.brand-mark{display:block;border-radius:var(--r-1);flex:none}
+.brand>span{font-weight:700;letter-spacing:-.02em}
+
+/* Закрытое подразделение в схеме: замок и приглушённая рамка. Видно, что
+   оно есть и сколько в нём людей, но внутрь не заглянуть. */
+.org-node.closed{border-left:2px solid var(--warm);padding-left:10px}
+.org-lock{color:var(--warm);font-weight:700}
+.org-kind.shut{background:var(--warm-soft);color:#e8b9a4}
+
+/* Строка своего подразделения: счётчик непрочитанного должен стоять
+   справа от названия, а не под ним — иначе список едет вдвое длиннее и
+   число читается как отдельная строка. */
+/* Две метки в селекторе не для красоты: узкий экран задаёт строкам
+   `.row.flow` перенос и основу в сто процентов, и одной метки не хватает,
+   чтобы это перебить. */
+.row.flow.unit-row{flex-wrap:nowrap}
+.row.flow.unit-row>span:first-child{flex:1 1 auto;min-width:0}
+.row.flow.unit-row>.chip{flex:none}
+
+/* Реквизиты при регистрации: раскрывающийся блок, чтобы быстрый старт
+   остался быстрым, а место для данных компании было на своём экране. */
+.register-details>summary{cursor:pointer;color:var(--muted);font-size:13px;padding:6px 0;list-style:none}
+.register-details>summary::-webkit-details-marker{display:none}
+.register-details>summary::before{content:"＋ ";color:var(--warm)}
+.register-details[open]>summary::before{content:"− "}
+.register-details[open]{display:grid;gap:10px}
+
+/* Тот же уголок под формой говорит и об отказе, и об успехе: «письмо
+   придёт» красным читается как поломка. */
+#auth-error.notice{color:var(--muted)}
+
+/* Свёрнутая история действий в карточке человека. Заголовок выглядит и
+   ведёт себя как соседние `.person-section`, чтобы карточка не
+   расслаивалась на «обычные разделы» и «вот этот, особенный». */
+.person-history{margin-top:18px}
+.person-history>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;
+  font-size:13px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted-2);font-weight:600;padding:8px 0}
+.person-history>summary::-webkit-details-marker{display:none}
+.person-history>summary::after{content:'▾';font-size:13px;color:var(--muted);transition:transform .15s ease}
+.person-history[open]>summary::after{transform:rotate(180deg)}
+.person-history>summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:var(--r-1)}

@@ -1,0 +1,12 @@
+node_modules/
+data/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+coverage/
+
+# local port override, not a project default
+.claude/launch.json
+.secrets/

@@ -2,11 +2,12 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypt
 
 const PASSWORD_BYTES = 64;
 const MIN_PASSWORD_LENGTH = 12;
+const TIMING_PROBE_SALT = 'chat-timing-probe-salt';
 
 export function normalizeEmail(value) {
   const email = String(value ?? '').trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    const error = new Error('A valid email is required');
+    const error = new Error('Это не похоже на адрес почты');
     error.code = 'INVALID_EMAIL';
     throw error;
   }
@@ -15,12 +16,12 @@ export function normalizeEmail(value) {
 
 export function validatePassword(password) {
   if (typeof password !== 'string' || password.length < MIN_PASSWORD_LENGTH) {
-    const error = new Error(`Password must contain at least ${MIN_PASSWORD_LENGTH} characters`);
+    const error = new Error(`Пароль должен быть не короче ${MIN_PASSWORD_LENGTH} символов`);
     error.code = 'WEAK_PASSWORD';
     throw error;
   }
   if (!/[A-Za-zА-Яа-яЁё]/.test(password) || !/\d/.test(password)) {
-    const error = new Error('Password must contain letters and a number');
+    const error = new Error('В пароле должны быть буквы и хотя бы одна цифра');
     error.code = 'WEAK_PASSWORD';
     throw error;
   }
@@ -38,6 +39,17 @@ export function verifyPassword(password, salt, expectedHash) {
   const actual = Buffer.from(scryptSync(password, salt, PASSWORD_BYTES).toString('hex'), 'hex');
   const expected = Buffer.from(expectedHash, 'hex');
   return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+/**
+ * Burns the same work verifyPassword would, so a login against an unknown
+ * email costs what a login against a known one costs. Without this the
+ * response time alone enumerates which accounts exist.
+ */
+export function equalizePasswordTiming(password) {
+  const probe = typeof password === 'string' ? password : '';
+  scryptSync(probe, TIMING_PROBE_SALT, PASSWORD_BYTES);
+  return false;
 }
 
 export function createOpaqueToken(bytes = 32) {
