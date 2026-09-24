@@ -11,7 +11,7 @@ button{border:0;background:transparent;color:inherit}button:focus-visible,input:
    содержимого, а `.row-sub` не переносится — одна длинная строка в
    журнале распирала строку до 387 точек при экране в 375. Значки и
    кнопки при этом не сжимаются: у них ширина задана явно. */
-.row>*{min-width:0}.row:last-child{border-bottom:0}.row-title{font-weight:700}.row-sub{color:var(--muted);font-size:13px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}/* Сетка .row рассчитана на «значок, текст, действие». Строка без
+.row>*{min-width:0}.row:last-child{border-bottom:0}.row-title{font-weight:700}.section-title{font-weight:700}.row-sub{color:var(--muted);font-size:13px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}/* Сетка .row рассчитана на «значок, текст, действие». Строка без
    значка сдвигалась на колонку, текст попадал в неавтоматическую
    колонку без min-width, и длинное описание выталкивало кнопку за
    край экрана. .flow не считает колонки: текст занимает, сколько
