@@ -386,6 +386,18 @@ export const openapi = Object.freeze({
     '/api/v1/games': {
       get: { tags: ['Games'], summary: 'Own games with colleagues', responses: { '200': { description: 'Games' } } },
       post: { tags: ['Games'], summary: 'Invite a colleague to chess, draughts or battleship', responses: { '201': { description: 'Invited' } } },
+    },
+    '/api/v1/knowledge': {
+      get: { tags: ['Knowledge'], summary: 'Company knowledge base articles, optionally full-text searched', responses: { '200': { description: 'Articles' }, '503': { description: 'Needs a PostgreSQL deployment' } } },
+      post: { tags: ['Knowledge'], summary: 'Write a new article', description: 'Owner, admin or manager only — a wrong HR answer costs more than a wrong file tag.', responses: { '201': { description: 'Created' }, '403': { description: 'Knowledge-manage permission required' } } },
+    },
+    '/api/v1/knowledge/ask': {
+      post: { tags: ['Knowledge'], summary: 'Ask the HR bot a question', description: 'No generation: full-text search over articles, ranked, with a highlighted excerpt via ts_headline. Never invents an answer that is not in an article.', responses: { '200': { description: 'Ranked matches, possibly empty' } } },
+    },
+    '/api/v1/knowledge/{id}': {
+      get: { tags: ['Knowledge'], summary: 'Read one article', responses: { '200': { description: 'Article' }, '404': { description: 'Not found' } } },
+      patch: { tags: ['Knowledge'], summary: 'Edit an article', responses: { '200': { description: 'Updated' } } },
+      delete: { tags: ['Knowledge'], summary: 'Remove an article', responses: { '200': { description: 'Removed' } } },
     }
   }
 });

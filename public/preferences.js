@@ -15,6 +15,20 @@
   let locale = LOCALES.has(safeGet(LOCALE_KEY, 'ru')) ? safeGet(LOCALE_KEY, 'ru') : 'ru';
 
   const translations = new Map(Object.entries({
+    'База знаний недоступна': ['База знаний недоступна', 'Knowledge base is unavailable'],
+    'Спросите HR-бота': ['Спросите HR-бота', 'Ask the HR bot'],
+    'Спросить': ['Спросить', 'Ask'],
+    'Статьи компании': ['Статьи компании', 'Company articles'],
+    'Ищем в статьях…': ['Ищем в статьях…', 'Searching articles…'],
+    'В базе знаний нет ответа на этот вопрос': ['В базе знаний нет ответа на этот вопрос', 'The knowledge base has no answer to this question'],
+    'Спросите HR напрямую — и, может быть, стоит завести новую статью.': ['Спросите HR напрямую — и, может быть, стоит завести новую статью.', 'Ask HR directly — and maybe a new article is worth writing.'],
+    'Статья пропадёт безвозвратно.': ['Статья пропадёт безвозвратно.', 'The article will be gone for good.'],
+    'Заголовок': ['Заголовок', 'Title'],
+    'Категория': ['Категория', 'Category'],
+    'Текст статьи': ['Текст статьи', 'Article text'],
+    'Например: сколько дней отпуска мне положено': ['Например: сколько дней отпуска мне положено', 'Example: how many vacation days am I entitled to'],
+    'Например: Отпуск': ['Например: Отпуск', 'Example: Vacation'],
+    'Ответ, который увидит сотрудник и найдёт HR-бот': ['Ответ, который увидит сотрудник и найдёт HR-бот', 'The answer an employee will see and the HR bot will find'],
     'ChatX — рабочее пространство компании': ['ChatX — рабочее пространство компании', 'ChatX — company workspace'],
     'позвать заново': ['позвать заново', 'invite again'],
     'мест не осталось': ['мест не осталось', 'no seats left'],

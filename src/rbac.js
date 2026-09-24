@@ -41,7 +41,17 @@ export const Permission = Object.freeze({
    * бы её мог создать только владелец, закрывать было бы не от кого.
    * Поэтому право идёт и руководителю — тому, кто и так ведёт людей.
    */
-  ORG_UNIT_PRIVATE_CREATE: 'org.unit.private.create'
+  ORG_UNIT_PRIVATE_CREATE: 'org.unit.private.create',
+  /**
+   * База знаний и HR-бот над ней.
+   *
+   * Читает любой сотрудник компании — вопрос про отпуск задаёт и
+   * рядовой участник, не только руководитель. Пишет и правит тот, кому
+   * доверено говорить от лица компании: неверный ответ про больничный
+   * стоит дороже, чем неверный тег на файле.
+   */
+  KNOWLEDGE_READ: 'knowledge.read',
+  KNOWLEDGE_MANAGE: 'knowledge.manage'
 });
 
 const all = new Set(Object.values(Permission));
@@ -68,7 +78,9 @@ export const ROLE_PERMISSIONS = Object.freeze({
     Permission.PUSH_SUBSCRIBE,
     Permission.AUDIT_READ,
     Permission.AI_USE,
-    Permission.VAULT_USE
+    Permission.VAULT_USE,
+    Permission.KNOWLEDGE_READ,
+    Permission.KNOWLEDGE_MANAGE
   ]),
   member: new Set([
     Permission.MESSAGE_SEND,
@@ -78,6 +90,7 @@ export const ROLE_PERMISSIONS = Object.freeze({
     Permission.CALL_START,
     Permission.FILE_UPLOAD,
     Permission.PUSH_SUBSCRIBE,
+    Permission.KNOWLEDGE_READ,
     Permission.AI_USE,
     Permission.VAULT_USE
   ]),
@@ -120,6 +133,7 @@ const WHAT_FOR = {
   'integration.manage': 'Вести интеграции и подписки на события',
   'org.structure.manage': 'Менять оргструктуру компании',
   'org.unit.private.create': 'Заводить закрытые подразделения',
+  'knowledge.manage': 'Писать и править статьи базы знаний',
 };
 const WHO_CAN = {
   'member.invite': 'владелец, администратор или руководитель',
@@ -140,6 +154,7 @@ const WHO_CAN = {
   'call.record': 'владелец, администратор или руководитель',
   'channel.create': 'сотрудник компании, но не внешний участник',
   'org.structure.manage': 'владелец или администратор',
+  'knowledge.manage': 'владелец, администратор или руководитель',
 };
 
 export function requirePermission(role, permission) {

@@ -108,6 +108,8 @@ jobs:
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_integration_delivery.sql
       - name: Verify org structure constraints
         run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_org_structure.sql
+      - name: Verify knowledge base constraints
+        run: psql -h localhost -U postgres -d chat_test -v ON_ERROR_STOP=1 -f db/test_knowledge_base.sql
 
       # Весь набор целиком, а не выбранные файлы по именам.
       #

@@ -53,6 +53,7 @@ const tileIcon={
   digest:svg('<path d="M4.6 5.6h14.8v12.8H4.6z"/><path d="M7.6 9.2h8.8M7.6 12.4h8.8M7.6 15.6h5.4"/>'),
   report:svg('<path d="M5 19.4V9.2M12 19.4V4.6M19 19.4v-6.6"/><path d="M3.4 19.4h17.2"/>'),
   costs:svg('<rect x="3.4" y="6.4" width="17.2" height="11.2" rx="1.8"/><circle cx="12" cy="12" r="2.6"/><path d="M6.6 12h.01M17.4 12h.01"/>'),
+  knowledge:svg('<path d="M12 5.4c-1.6-1.4-4-2-6.6-1.4v13.2c2.6-.6 5 0 6.6 1.4c1.6-1.4 4-2 6.6-1.4V4c-2.6-.6-5 0-6.6 1.4Z"/><path d="M12 5.4v13.2"/>'),
   settings:svg('<circle cx="12" cy="12" r="3"/><path d="M19.2 14.2a1.4 1.4 0 0 0 .3 1.5l.1.1a1.7 1.7 0 1 1-2.4 2.4l-.1-.1a1.4 1.4 0 0 0-2.4 1v.3a1.7 1.7 0 1 1-3.4 0v-.2a1.4 1.4 0 0 0-2.4-1l-.1.1a1.7 1.7 0 1 1-2.4-2.4l.1-.1a1.4 1.4 0 0 0-1-2.4h-.3a1.7 1.7 0 1 1 0-3.4h.2a1.4 1.4 0 0 0 1-2.4l-.1-.1a1.7 1.7 0 1 1 2.4-2.4l.1.1a1.4 1.4 0 0 0 2.4-1v-.3a1.7 1.7 0 1 1 3.4 0v.2a1.4 1.4 0 0 0 2.4 1l.1-.1a1.7 1.7 0 1 1 2.4 2.4l-.1.1a1.4 1.4 0 0 0 1 2.4h.2a1.7 1.7 0 1 1 0 3.4h-.3a1.4 1.4 0 0 0-1.3.9Z"/>'),
 };
 const nav=[['today',navIcon.today,'Сегодня'],['chats',navIcon.chats,'Сообщения'],['tasks',navIcon.tasks,'Задачи'],['calendar',navIcon.calendar,'Календарь'],['more',navIcon.more,'Ещё']];
@@ -1183,7 +1184,7 @@ function eventCancelModal(event){
   });
 }
 
-function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} ${plural(S.people.length,'сотрудник','сотрудника','сотрудников')}, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.settings')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>${can('organization.manage')?'Название, реквизиты, места и передача владения':'Реквизиты, места и почтовый домен'}</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button><button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
+function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} ${plural(S.people.length,'сотрудник','сотрудника','сотрудников')}, роли и статусы</span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.settings')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>${can('organization.manage')?'Название, реквизиты, места и передача владения':'Реквизиты, места и почтовый домен'}</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button>${can('knowledge.read')?`<button class="module-card pressable" data-action="knowledge"><span class="module-icon">${tileIcon.knowledge}</span><strong>База знаний</strong><span>HR-бот отвечает по статьям компании</span></button>`:''}<button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
 function bind(){
   // Строка встречи в расписании дня выглядела нажимаемой и не открывала
   // ничего: карточку встречи знал только календарь.
@@ -1427,7 +1428,7 @@ async function openChatAtMessage(id,messageId=null){
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
   },60);
 }
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),knowledge:()=>knowledgeModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 /**
  * Роль по-русски.
@@ -1976,6 +1977,104 @@ function vaultFormModal(entry,after){
         else await api('/api/v1/vault',{method:'POST',body:JSON.stringify(body)});
         history.back();setTimeout(()=>after?.(),250);
         toast(editing?'Запись изменена':'Пароль записан');
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+
+/**
+ * База знаний и HR-бот над ней.
+ *
+ * Бот не сочиняет: он полнотекстовым поиском находит лучшую статью и
+ * показывает её фрагмент с подсветкой совпавших слов (см. ask() на
+ * сервере). Не нашлось ничего похожего — так и написано, а не выдуман
+ * правдоподобный, но неверный ответ на вопрос про отпуск или больничный.
+ */
+async function knowledgeModal(){
+  const build=async()=>{
+    let items=[];
+    try{items=(await api('/api/v1/knowledge')).items||[]}
+    catch(error){
+      return {title:'База знаний',body:`<div class="empty"><strong>База знаний недоступна</strong>${esc(error.message)}</div>`,after:()=>{}};
+    }
+    return {
+      title:'База знаний',
+      body:`<form id="kb-ask-form" class="form-stack"><label>Спросите HR-бота<textarea name="question" rows="2" placeholder="Например: сколько дней отпуска мне положено"></textarea></label><button class="button primary" type="submit">Спросить</button></form>
+      <div id="kb-ask-answer"></div>
+      <p class="muted" style="margin-top:16px">Статьи компании</p>
+      <div class="stack">${items.length?items.map(knowledgeRow).join(''):'<div class="empty"><strong>Пока пусто</strong>Здесь появятся написанные HR ответы на частые вопросы.</div>'}</div>
+      ${can('knowledge.manage')?'<button data-kb-new class="button primary" style="width:100%;margin-top:14px">＋ Новая статья</button>':''}`,
+      after:()=>{
+        $('[data-kb-new]')?.addEventListener('click',()=>knowledgeFormModal(null,refresh));
+        $$('[data-kb-open]').forEach(b=>b.onclick=()=>knowledgeArticleModal(items.find(x=>x.id===b.dataset.kbOpen),refresh));
+        $('#kb-ask-form').onsubmit=async(event)=>{
+          event.preventDefault();
+          const question=new FormData(event.currentTarget).get('question');
+          const answerBox=$('#kb-ask-answer');
+          if(!String(question||'').trim()){toast('Напишите вопрос');return}
+          answerBox.innerHTML='<div class="empty">Ищем в статьях…</div>';
+          try{
+            const{matches}=await api('/api/v1/knowledge/ask',{method:'POST',body:JSON.stringify({question})});
+            answerBox.innerHTML=matches.length
+              ? matches.map(m=>`<button class="surface pressable" style="width:100%;text-align:left;display:block;margin-top:10px" data-kb-answer-open="${m.id}"><strong>${esc(m.title)}</strong><p class="muted" style="margin:6px 0 0">${m.snippet}</p></button>`).join('')
+              : '<div class="empty"><strong>В базе знаний нет ответа на этот вопрос</strong>Спросите HR напрямую — и, может быть, стоит завести новую статью.</div>';
+            $$('[data-kb-answer-open]').forEach(el=>el.onclick=()=>knowledgeArticleModal(items.find(x=>x.id===el.dataset.kbAnswerOpen),refresh));
+          }catch(error){toast(error.message)}
+        };
+      },
+    };
+  };
+  const refresh=async()=>{
+    const next=await build();
+    const top=overlayStack[overlayStack.length-1];
+    if(top){Object.assign(top,next);renderOverlay()}
+  };
+  const first=await build();
+  modal(first.title,first.body,first.after,build);
+}
+function knowledgeRow(article){
+  return `<button class="row flow pressable" style="width:100%;background:transparent" data-kb-open="${article.id}"><span><div class="row-title">${esc(article.title)}${article.category?`<span class="chip" style="margin-left:8px">${esc(article.category)}</span>`:''}</div></span><time class="muted">${new Date(article.updatedAt).toLocaleDateString('ru')}</time></button>`;
+}
+async function knowledgeArticleModal(article,after){
+  if(!article)return;
+  modal(article.title,`<p class="muted">${article.category?esc(article.category)+' · ':''}обновлено ${new Date(article.updatedAt).toLocaleString('ru')}</p>
+    <div class="message-body" style="white-space:pre-wrap;margin-top:12px">${esc(article.body)}</div>
+    ${can('knowledge.manage')?`<div class="chip-row" style="margin-top:16px"><button data-kb-edit class="chipbtn pressable">Изменить</button><button data-kb-delete class="chipbtn pressable">Удалить</button></div>`:''}`,
+  ()=>{
+    $('[data-kb-edit]')?.addEventListener('click',()=>knowledgeFormModal(article,after));
+    $('[data-kb-delete]')?.addEventListener('click',()=>{
+      modal(`Удалить «${article.title}»?`,`<p class="muted">Статья пропадёт безвозвратно.</p><button id="confirm-kb-delete" class="button danger" style="width:100%">Удалить</button>`,()=>{
+        $('#confirm-kb-delete').onclick=async()=>{
+          try{
+            await api(`/api/v1/knowledge/${article.id}`,{method:'DELETE'});
+            // Два уровня назад — подтверждение и карточку статьи, — не
+            // закрывая весь список целиком, как делает closeModal().
+            const depth=2;overlayStack.splice(-depth);renderOverlay();unwinding+=depth;try{history.go(-depth)}catch{unwinding-=depth}
+            setTimeout(()=>after?.(),250);toast('Статья удалена')
+          }
+          catch(error){toast(error.message)}
+        };
+      });
+    });
+  });
+}
+function knowledgeFormModal(article,after){
+  const editing=Boolean(article);
+  modal(editing?'Изменить статью':'Новая статья',`<form id="kb-form" class="form-stack">
+    <label>Заголовок<input name="title" maxlength="200" required value="${esc(article?.title??'')}" placeholder="Например: Отпуск"></label>
+    <label>Категория<input name="category" maxlength="100" value="${esc(article?.category??'')}" placeholder="HR"></label>
+    <label>Текст статьи<textarea name="body" rows="10" required placeholder="Ответ, который увидит сотрудник и найдёт HR-бот">${esc(article?.body??'')}</textarea></label>
+    <button class="button primary">${editing?'Сохранить':'Опубликовать'}</button>
+  </form>`,()=>{
+    $('#kb-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      const form=new FormData(event.currentTarget);
+      const body={title:form.get('title'),category:form.get('category')||null,body:form.get('body')};
+      try{
+        if(editing)await api(`/api/v1/knowledge/${article.id}`,{method:'PATCH',body:JSON.stringify(body)});
+        else await api('/api/v1/knowledge',{method:'POST',body:JSON.stringify(body)});
+        history.back();setTimeout(()=>after?.(),250);
+        toast(editing?'Статья изменена':'Статья опубликована');
       }catch(error){toast(error.message)}
     };
   });
