@@ -26,7 +26,11 @@ jobs:
     timeout-minutes: 8
     services:
       postgres:
-        image: postgres:16
+        # Продукт требует 17: миграция 047 меняет выражение генерируемого
+        # столбца через `ALTER COLUMN ... SET EXPRESSION`, а это умеет
+        # только PostgreSQL 17+. CI с образом 16 был красным с самого
+        # слияния — версия здесь обязана совпадать с docker-compose.yml.
+        image: postgres:17-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
