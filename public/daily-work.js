@@ -65,8 +65,12 @@ function decorate(){ensureBell();applyUnreadBadges();ensureAttentionStrip()}
 
 function closeOverlay(){document.querySelector('.dwc-overlay')?.remove();hideMentionPicker()}
 
-function notificationTitle(n){if(n.type==='message.mentioned')return tr(`Упоминание${n.actorName?` · ${n.actorName}`:''}`,`Mention${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='message.created')return tr(`Новое сообщение${n.actorName?` · ${n.actorName}`:''}`,`New message${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.assigned')return tr(`Новая задача${n.actorName?` · ${n.actorName}`:''}`,`New task${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.due')return tr('Срок задачи','Task due');if(n.type==='calendar.invited')return tr('Приглашение на встречу','Meeting invitation');if(n.type==='calendar.reminder')return n.title||tr('Напоминание','Reminder');return n.title||tr('Уведомление','Notification')}
-function notificationIcon(n){return n.type==='message.mentioned'?'@':n.type.startsWith('message.')?'●':n.type.startsWith('task.')?'✓':n.type==='calendar.reminder'?'◔':n.type.startsWith('calendar.')?'□':'◎'}
+function notificationTitle(n){if(n.type==='message.mentioned')return tr(`Упоминание${n.actorName?` · ${n.actorName}`:''}`,`Mention${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='message.created')return tr(`Новое сообщение${n.actorName?` · ${n.actorName}`:''}`,`New message${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.assigned')return tr(`Новая задача${n.actorName?` · ${n.actorName}`:''}`,`New task${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.due')return tr('Срок задачи','Task due');// Название встречи и приглашение звонившего доходят от сервера в
+// `n.title`/`n.actorName` с первого дня, но заголовок был захардкожен
+// как общая фраза — карточка читалась одинаково для любой встречи, а
+// пропущенный звонок не называл, кто звонил, хотя знает.
+if(n.type==='calendar.invited')return tr(`${n.title||'Встреча'}${n.actorName?` · ${n.actorName}`:''}`,`${n.title||'Meeting'}${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='calendar.reminder')return n.title||tr('Напоминание','Reminder');if(n.type==='call.missed')return n.actorName?tr(`Пропущенный звонок · ${n.actorName}`,`Missed call · ${n.actorName}`):(n.title||tr('Пропущенный звонок','Missed call'));return n.title||tr('Уведомление','Notification')}
+function notificationIcon(n){return n.type==='message.mentioned'?'@':n.type.startsWith('message.')?'●':n.type.startsWith('task.')?'✓':n.type==='calendar.reminder'?'◔':n.type.startsWith('calendar.')?'□':n.type.startsWith('call.')?'☎':'◎'}
 
 async function loadNotifications(){
   const type=D.notificationFilter==='mentions'?'mentions':null;
