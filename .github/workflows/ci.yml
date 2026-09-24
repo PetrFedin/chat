@@ -19,6 +19,12 @@ jobs:
           node-version: 24
       - name: Install runtime dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      # `--ignore-scripts` above means Playwright's own postinstall (which
+      # would normally fetch its browser) never ran — install the browser
+      # explicitly instead, same principle as the Dockerfile comment: no
+      # package runs its own code as a side effect of being installed.
+      - name: Install the headless browser for the smoke test
+        run: npx playwright install --with-deps chromium
       - run: npm test
 
   database-tests:
