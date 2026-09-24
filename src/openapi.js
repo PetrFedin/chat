@@ -185,6 +185,14 @@ export const openapi = Object.freeze({
         responses: { '200': { description: 'Job requeued' }, '403': { description: 'Meeting operations permission required' }, '404': { description: 'Job not found' }, '409': { description: 'Job is not retryable' } }
       }
     },
+    '/api/v1/admin/meeting-jobs/{jobId}/cancel': {
+      post: {
+        tags: ['Meeting Operations'],
+        summary: 'Explicitly cancel a queued, failed or dead-letter meeting job',
+        description: 'Requires a human reason. A job already being processed cannot be cancelled this way, to avoid racing the worker holding its lease. Marks the job and its meeting run cancelled and writes audit/outbox evidence.',
+        responses: { '200': { description: 'Job cancelled' }, '403': { description: 'Meeting operations permission required' }, '404': { description: 'Job not found' }, '409': { description: 'Job is not cancellable' } }
+      }
+    },
     '/api/v1/admin/meeting-jobs/{jobId}/audit': {
       get: {
         tags: ['Meeting Operations'],

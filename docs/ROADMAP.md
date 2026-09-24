@@ -48,9 +48,8 @@ optimistic concurrency (`expectedVersion`) on tasks and conversations.
 **Meeting Intelligence**
 Transcript ingestion, AI summary, proposed decisions/actions with
 mandatory human confirmation, a cost-tracked processing queue with
-retry (bounded budget, audited) — but no cancel path once a job is
-queued, and no dry-run rules engine sits on top of any of it yet (see
-Gaps).
+retry and cancel (both bounded/reasoned and audited) — but no dry-run
+rules engine sits on top of any of it yet (see Gaps).
 
 **Search, files, personal tools**
 Full-text search in Russian (`to_tsvector('russian', …)`) across
@@ -94,9 +93,6 @@ hard it is to build.
   loop that froze the UI"). This is being closed next (tracked
   separately, not in this file, since it's infrastructure rather than a
   product feature).
-- **No cancel path for a meeting-processing job.** `cancelled` exists in
-  the schema and is checked against, but nothing transitions a job into
-  it — a stuck job only clears by lease expiry.
 - **External calendar sync (Google/Outlook/ICS) does not exist.** No
   import, no export, no loop-prevention logic to build it against yet.
 - **No live chat-platform adapters** (Slack/Teams/Telegram as bots or

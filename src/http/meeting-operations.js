@@ -48,6 +48,16 @@ export function createMeetingOperationsHandler(){
       return true;
     }
 
+    match=path.match(new RegExp(`^/api/v1/admin/meeting-jobs/${UUID}/cancel$`,'i'));
+    if(match&&method==='POST'){
+      const session=await requireSession(req);
+      requirePermission(session.role,Permission.MEETING_OPS_MANAGE);
+      const body=await readJson(req);
+      const job=await meetingOps.cancelJob(session,match[1],{reason:body.reason});
+      json(res,200,{job});
+      return true;
+    }
+
     match=path.match(new RegExp(`^/api/v1/admin/meeting-jobs/${UUID}/audit$`,'i'));
     if(match&&method==='GET'){
       const session=await requireSession(req);

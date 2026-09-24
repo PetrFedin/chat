@@ -36,6 +36,14 @@ test('manual recovery requires a reason and preserves bounded retry controls',()
   assert.match(js,/Прошлые попытки сохраняются/);
 });
 
+test('manual cancel requires a reason, hits the cancel endpoint and never silently drops data',()=>{
+  assert.match(js,/Укажите причину отмены/);
+  assert.match(js,/\/api\/v1\/admin\/meeting-jobs\/\$\{jobId\}\/cancel/);
+  assert.match(js,/data-mio-cancel="/);
+  assert.match(js,/data-mio-cancel-confirm="/);
+  assert.match(js,/данные не удаляются/);
+});
+
 test('cost surface distinguishes full rollup from limited details and explicit unpriced states',()=>{
   assert.match(js,/Итог считается по всему выбранному периоду/);
   assert.match(js,/usage_unavailable/);

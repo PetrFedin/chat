@@ -33,7 +33,7 @@ function clearOpsHash(){if(location.hash==='#/meeting-operations')history.pushSt
 function closeOps(clearHash=true){removeOverlay();if(clearHash)clearOpsHash()}
 function availableTabs(){const tabs=[];if(has(PERM.ops))tabs.push('jobs');if(has(PERM.costRead)){tabs.push('costs','prices')}return tabs}
 function tabLabel(tab){return({jobs:tr('Обработка','Processing'),costs:tr('Стоимость','Cost'),prices:tr('Тарифы','Pricing')})[tab]||tab}
-function statusLabel(status){return({failed:tr('Ошибка','Failed'),dead_letter:tr('Остановлено','Dead letter'),pending:tr('В очереди','Queued'),processing:tr('В работе','Processing'),succeeded:tr('Готово','Succeeded')})[status]||status}
+function statusLabel(status){return({failed:tr('Ошибка','Failed'),dead_letter:tr('Остановлено','Dead letter'),pending:tr('В очереди','Queued'),processing:tr('В работе','Processing'),succeeded:tr('Готово','Succeeded'),cancelled:tr('Отменено','Cancelled')})[status]||status}
 function kindLabel(kind){return kind==='transcribe'?tr('Стенограмма','Transcription'):tr('Итоги','Summary')}
 function unpricedLabel(reason){return({no_price_version:tr('Нет тарифа на дату вызова','No price version for call date'),usage_schema_mismatch:tr('Тариф не совпадает со схемой usage','Pricing does not match usage schema'),usage_unavailable:tr('Провайдер не вернул usage','Provider returned no usage')})[reason]||tr('Не рассчитано','Not priced')}
 function workerCopy(worker){
@@ -110,6 +110,7 @@ function jobCard(job){
       ${job.callId?`<button class="mi-button secondary" data-mio-call="${job.callId}">${tr('Открыть встречу','Open meeting')}</button>`:''}
       <button class="mi-button secondary" data-mio-audit="${job.id}">${tr('История','Audit')}</button>
       ${retryable?`<button class="mi-button" data-mio-retry="${job.id}">${tr('Повторить обработку','Retry processing')}</button>`:''}
+      ${retryable?`<button class="mi-button secondary" data-mio-cancel="${job.id}">${tr('Отменить обработку','Cancel processing')}</button>`:''}
     </div>
   </article>`;
 }
@@ -150,6 +151,28 @@ async function retryJob(jobId){
     await api(`/api/v1/admin/meeting-jobs/${jobId}/retry`,{method:'POST',body:JSON.stringify({reason,extraAttempts})});
     $('.mi-sheet-wrap')?.remove();
     toast(tr('Обработка возвращена в очередь','Job returned to the queue'));
+    await renderJobs();
+  }catch(error){toast(error.message);if(button)button.disabled=false}
+}
+function cancelSheet(jobId){
+  const panel=$('.mio-panel');if(!panel)return;
+  $('.mi-sheet-wrap')?.remove();
+  const wrap=document.createElement('div');wrap.className='mi-sheet-wrap';
+  wrap.innerHTML=`<div class="mi-sheet">
+    <div><p class="mi-kicker">${tr('РУЧНАЯ ОСТАНОВКА','MANUAL STOP')}</p><h3>${tr('Отменить обработку','Cancel processing')}</h3><p class="mio-note">${tr('Причина обязательна. Встреча останется без стенограммы или итогов от этой попытки; данные не удаляются.','A reason is required. The meeting keeps no transcript or summary from this attempt; no data is deleted.')}</p></div>
+    <label class="mi-field">${tr('Причина','Reason')}<textarea id="mio-cancel-reason" rows="4" maxlength="1000" placeholder="${tr('Например: обработка больше не нужна','Example: processing is no longer needed')}"></textarea></label>
+    <div class="mi-sheet-actions"><button class="mi-button secondary" data-mio-sheet-close>${tr('Назад','Back')}</button><button class="mi-button" data-mio-cancel-confirm="${jobId}">${tr('Отменить','Cancel job')}</button></div>
+  </div>`;
+  panel.append(wrap);$('#mio-cancel-reason')?.focus();
+}
+async function cancelJob(jobId){
+  const reason=$('#mio-cancel-reason')?.value.trim()||'';
+  if(!reason){toast(tr('Укажите причину отмены','Enter a reason for the cancellation'));return}
+  const button=$('[data-mio-cancel-confirm]');if(button)button.disabled=true;
+  try{
+    await api(`/api/v1/admin/meeting-jobs/${jobId}/cancel`,{method:'POST',body:JSON.stringify({reason})});
+    $('.mi-sheet-wrap')?.remove();
+    toast(tr('Обработка отменена','Processing cancelled'));
     await renderJobs();
   }catch(error){toast(error.message);if(button)button.disabled=false}
 }
@@ -254,6 +277,8 @@ document.addEventListener('click',event=>{
   const tab=target.closest('[data-mio-tab]');if(tab){renderTab(tab.dataset.mioTab);return}
   const retry=target.closest('[data-mio-retry]');if(retry){retrySheet(retry.dataset.mioRetry);return}
   const confirm=target.closest('[data-mio-retry-confirm]');if(confirm){retryJob(confirm.dataset.mioRetryConfirm);return}
+  const cancel=target.closest('[data-mio-cancel]');if(cancel){cancelSheet(cancel.dataset.mioCancel);return}
+  const cancelConfirm=target.closest('[data-mio-cancel-confirm]');if(cancelConfirm){cancelJob(cancelConfirm.dataset.mioCancelConfirm);return}
   const audit=target.closest('[data-mio-audit]');if(audit){auditSheet(audit.dataset.mioAudit);return}
   if(target.closest('[data-mio-sheet-close]')){$('.mi-sheet-wrap')?.remove();return}
   const call=target.closest('[data-mio-call]');if(call){closeOps(false);window.ChatMeetingIntelligence?.openMeeting?.(call.dataset.mioCall,{updateHash:true});return}

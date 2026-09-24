@@ -131,6 +131,39 @@ test('manual dead-letter retry preserves attempt history and monotonically seque
   assert.equal(audit[1].payload.previous.attempts,5);
 });
 
+test('manual cancel stops a queued job without touching an in-progress one',async()=>{
+  const actor=session();
+  const base=new MemoryMeetingRepository();
+  const meeting=createProcessingAwareMeetingRepository(base);
+  const ops=new MemoryMeetingOperationsRepository(meeting);
+  const runId=randomUUID(),jobId=randomUUID(),recordingId=randomUUID(),callId=randomUUID();
+  base.runs.set(runId,{id:runId,organizationId:actor.organizationId,workspaceId:actor.workspaceId,callId,recordingId,status:'failed',errorCode:'MEETING_JOB_DEAD_LETTER',errorMessage:'provider failed',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+  base.jobs.set(jobId,{id:jobId,organizationId:actor.organizationId,workspaceId:actor.workspaceId,runId,kind:'transcribe',status:'dead_letter',attempts:5,maxAttempts:5,availableAt:new Date().toISOString(),lastError:'provider failed',finishedAt:new Date().toISOString(),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+  base.recordings.set('provider-id',{id:recordingId,organizationId:actor.organizationId,workspaceId:actor.workspaceId,callId,providerRecordingId:'provider-id',storageKey:'recordings/test.mp4',status:'ready',transcriptStatus:'failed',summaryStatus:'not_requested'});
+
+  await assert.rejects(()=>ops.cancelJob(actor,jobId,{reason:''}),(err)=>err.code==='CANCEL_REASON_REQUIRED');
+
+  const cancelled=await ops.cancelJob(actor,jobId,{reason:'No longer needed, meeting was rescheduled'});
+  assert.equal(cancelled.status,'cancelled');
+  assert.equal(cancelled.attempts,5,'attempt history is never reset by a cancel');
+  assert.equal(base.runs.get(runId).status,'cancelled');
+  assert.equal(base.recordings.get('provider-id').transcriptStatus,'failed');
+
+  await assert.rejects(()=>ops.cancelJob(actor,jobId,{reason:'double click'}),(err)=>err.code==='JOB_NOT_CANCELLABLE'&&err.statusCode===409);
+
+  const audit=await ops.jobAudit(actor,jobId);
+  assert.equal(audit.length,1);
+  assert.equal(audit[0].eventType,'meeting.job.cancelled');
+  assert.equal(audit[0].payload.reason,'No longer needed, meeting was rescheduled');
+  assert.equal(audit[0].payload.previous.status,'dead_letter');
+
+  const processingJobId=randomUUID(),processingRunId=randomUUID();
+  base.runs.set(processingRunId,{id:processingRunId,organizationId:actor.organizationId,workspaceId:actor.workspaceId,callId:randomUUID(),recordingId:randomUUID(),status:'transcribing',createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+  base.jobs.set(processingJobId,{id:processingJobId,organizationId:actor.organizationId,workspaceId:actor.workspaceId,runId:processingRunId,kind:'transcribe',status:'processing',attempts:1,maxAttempts:5,availableAt:new Date().toISOString(),lockedAt:new Date().toISOString(),createdAt:new Date().toISOString(),updatedAt:new Date().toISOString()});
+  await assert.rejects(()=>ops.cancelJob(actor,processingJobId,{reason:'stop it'}),(err)=>err.code==='JOB_NOT_CANCELLABLE',
+    'a job currently held by a worker lease must not be cancelled out from under it');
+});
+
 test('meeting operations and cost permissions stay owner/admin only',()=>{
   for(const permission of [Permission.MEETING_OPS_MANAGE,Permission.MEETING_COST_READ,Permission.MEETING_COST_MANAGE]){
     assert.equal(hasPermission('owner',permission),true);

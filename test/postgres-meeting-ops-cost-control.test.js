@@ -127,3 +127,52 @@ test('Postgres manual retry preserves attempt sequence and monotonically audits 
   const outboxCount=Number((await pool.query(`SELECT count(*) FROM outbox_events WHERE workspace_id=$1 AND topic='meeting.job.retried' AND aggregate_id=$2`,[owner.workspaceId,jobId])).rows[0].count);
   assert.equal(outboxCount,2);
 });
+
+test('Postgres manual cancel stops a dead-letter job and refuses a job a worker is holding', {skip:!databaseUrl}, async(t)=>{
+  const pool=new pg.Pool({connectionString:databaseUrl});t.after(()=>pool.end());
+  const store=new PostgresStore(pool),ops=new PostgresMeetingOperationsRepository(pool),suffix=randomUUID().slice(0,8);
+  const owner=await ownerSession(store,suffix);
+  const general=(await store.listConversations(owner)).find((item)=>item.slug==='general');
+  const callId=randomUUID(),recordingId=randomUUID(),runId=randomUUID(),jobId=randomUUID();
+  await pool.query(`INSERT INTO call_sessions(id,organization_id,workspace_id,conversation_id,created_by,title,mode,state,provider,provider_room_name)
+    VALUES($1,$2,$3,$4,$5,'Cancel test','video','ended','livekit',$6)`,[callId,owner.organizationId,owner.workspaceId,general.id,owner.userId,`cancel-${suffix}`]);
+  await pool.query(`INSERT INTO call_recordings(id,organization_id,workspace_id,call_id,provider,provider_recording_id,storage_key,status,started_by,transcript_status)
+    VALUES($1,$2,$3,$4,'livekit',$5,$6,'ready',$7,'failed')`,[recordingId,owner.organizationId,owner.workspaceId,callId,`EG_CANCEL_${suffix}`,`recordings/${suffix}.mp4`,owner.userId]);
+  await pool.query(`INSERT INTO meeting_intelligence_runs(id,organization_id,workspace_id,call_id,recording_id,status,error_code,error_message)
+    VALUES($1,$2,$3,$4,$5,'failed','MEETING_JOB_DEAD_LETTER','provider failed')`,[runId,owner.organizationId,owner.workspaceId,callId,recordingId]);
+  await pool.query(`INSERT INTO meeting_intelligence_jobs(id,organization_id,workspace_id,run_id,kind,status,attempts,max_attempts,last_error,finished_at)
+    VALUES($1,$2,$3,$4,'transcribe','dead_letter',5,5,'provider failed',now())`,[jobId,owner.organizationId,owner.workspaceId,runId]);
+
+  await assert.rejects(()=>ops.cancelJob(owner,jobId,{reason:''}),(err)=>err.code==='CANCEL_REASON_REQUIRED');
+
+  const cancelled=await ops.cancelJob(owner,jobId,{reason:'No longer needed, meeting was rescheduled'});
+  assert.equal(cancelled.status,'cancelled');
+  assert.equal(cancelled.attempts,5,'attempt history is never reset by a cancel');
+  const persisted=(await pool.query(`SELECT j.status,r.status run_status,cr.transcript_status
+    FROM meeting_intelligence_jobs j JOIN meeting_intelligence_runs r ON r.workspace_id=j.workspace_id AND r.id=j.run_id
+    JOIN call_recordings cr ON cr.workspace_id=r.workspace_id AND cr.id=r.recording_id WHERE j.id=$1`,[jobId])).rows[0];
+  assert.equal(persisted.status,'cancelled');
+  assert.equal(persisted.run_status,'cancelled');
+  assert.equal(persisted.transcript_status,'failed');
+
+  await assert.rejects(()=>ops.cancelJob(owner,jobId,{reason:'double click'}),(err)=>err.code==='JOB_NOT_CANCELLABLE'&&err.statusCode===409);
+
+  const audit=await ops.jobAudit(owner,jobId);
+  assert.equal(audit.length,1);
+  assert.equal(audit[0].eventType,'meeting.job.cancelled');
+  assert.equal(audit[0].payload.reason,'No longer needed, meeting was rescheduled');
+  const outboxCount=Number((await pool.query(`SELECT count(*) FROM outbox_events WHERE workspace_id=$1 AND topic='meeting.job.cancelled' AND aggregate_id=$2`,[owner.workspaceId,jobId])).rows[0].count);
+  assert.equal(outboxCount,1);
+
+  const processingRunId=randomUUID(),processingJobId=randomUUID(),processingCallId=randomUUID(),processingRecordingId=randomUUID();
+  await pool.query(`INSERT INTO call_sessions(id,organization_id,workspace_id,conversation_id,created_by,title,mode,state,provider,provider_room_name)
+    VALUES($1,$2,$3,$4,$5,'Cancel test 2','video','ended','livekit',$6)`,[processingCallId,owner.organizationId,owner.workspaceId,general.id,owner.userId,`cancel2-${suffix}`]);
+  await pool.query(`INSERT INTO call_recordings(id,organization_id,workspace_id,call_id,provider,provider_recording_id,storage_key,status,started_by)
+    VALUES($1,$2,$3,$4,'livekit',$5,$6,'ready',$7)`,[processingRecordingId,owner.organizationId,owner.workspaceId,processingCallId,`EG_CANCEL2_${suffix}`,`recordings/2-${suffix}.mp4`,owner.userId]);
+  await pool.query(`INSERT INTO meeting_intelligence_runs(id,organization_id,workspace_id,call_id,recording_id,status)
+    VALUES($1,$2,$3,$4,$5,'transcribing')`,[processingRunId,owner.organizationId,owner.workspaceId,processingCallId,processingRecordingId]);
+  await pool.query(`INSERT INTO meeting_intelligence_jobs(id,organization_id,workspace_id,run_id,kind,status,attempts,max_attempts,locked_at,lock_token)
+    VALUES($1,$2,$3,$4,'transcribe','processing',1,5,now(),$5)`,[processingJobId,owner.organizationId,owner.workspaceId,processingRunId,randomUUID()]);
+  await assert.rejects(()=>ops.cancelJob(owner,processingJobId,{reason:'stop it'}),(err)=>err.code==='JOB_NOT_CANCELLABLE',
+    'a job currently held by a worker lease must not be cancelled out from under it');
+});

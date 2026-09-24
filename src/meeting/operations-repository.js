@@ -190,6 +190,22 @@ export class MemoryMeetingOperationsRepository{
     return clone({id:job.id,runId:job.runId,kind:job.kind,status:job.status,attempts:job.attempts,maxAttempts:job.maxAttempts,availableAt:job.availableAt,lastError:job.lastError??null});
   }
 
+  async cancelJob(session,jobId,{reason}={}){
+    const text=String(reason??'').trim();if(!text)throw error('CANCEL_REASON_REQUIRED','Cancel reason is required');
+    const job=this.meeting.jobs?.get?.(jobId);
+    if(!job||job.workspaceId!==session.workspaceId)throw error('NOT_FOUND','Meeting processing job not found',404);
+    if(!['pending','failed','dead_letter'].includes(job.status))throw error('JOB_NOT_CANCELLABLE','Only queued, failed or dead-letter jobs can be cancelled',409);
+    const previous={status:job.status,attempts:job.attempts,maxAttempts:job.maxAttempts,lastError:job.lastError??null};
+    job.status='cancelled';job.finishedAt=now();job.lockedAt=null;job.lockToken=null;job.updatedAt=now();
+    const run=this.meeting.runs?.get?.(job.runId);if(run){run.status='cancelled';run.updatedAt=now()}
+    const recording=[...(this.meeting.recordings?.values?.()??[])].find((value)=>value.id===run?.recordingId);
+    if(recording){if(job.kind==='transcribe')recording.transcriptStatus='failed';else recording.summaryStatus='failed'}
+    const prior=this.audit.filter((item)=>item.workspaceId===session.workspaceId&&item.aggregateType==='meeting_job'&&item.aggregateId===job.id);
+    const sequence=prior.reduce((max,item)=>Math.max(max,Number(item.sequence)||0),0)+1;
+    this.audit.push({id:randomUUID(),workspaceId:session.workspaceId,aggregateType:'meeting_job',aggregateId:job.id,eventType:'meeting.job.cancelled',actorId:session.userId,sequence,payload:{reason:text.slice(0,1000),previous},createdAt:now()});
+    return clone({id:job.id,runId:job.runId,kind:job.kind,status:job.status,attempts:job.attempts,maxAttempts:job.maxAttempts,availableAt:job.availableAt,lastError:job.lastError??null});
+  }
+
   async jobAudit(session,jobId,limit=50){
     return clone(this.audit.filter((item)=>item.workspaceId===session.workspaceId&&item.aggregateType==='meeting_job'&&item.aggregateId===jobId)
       .sort((a,b)=>(Number(b.sequence)||0)-(Number(a.sequence)||0)).slice(0,boundedLimit(limit)));
@@ -324,6 +340,31 @@ export class PostgresMeetingOperationsRepository{
         VALUES($1,$2,'meeting_job',$3,'meeting.job.retried',$4,$5)`,[session.organizationId,session.workspaceId,jobId,session.userId,payload]);
       await client.query(`INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload)
         VALUES($1,$2,'meeting.job.retried',$3,$4)`,[session.organizationId,session.workspaceId,jobId,payload]);
+      return job;
+    });
+  }
+
+  async cancelJob(session,jobId,{reason}={}){
+    const text=String(reason??'').trim();if(!text)throw error('CANCEL_REASON_REQUIRED','Cancel reason is required');
+    return this.tx(async(client)=>{
+      const current=(await client.query(`SELECT j.*,r.call_id,r.recording_id,r.status run_status
+        FROM meeting_intelligence_jobs j JOIN meeting_intelligence_runs r ON r.workspace_id=j.workspace_id AND r.id=j.run_id
+        WHERE j.workspace_id=$1 AND j.id=$2 FOR UPDATE OF j,r`,[session.workspaceId,jobId])).rows[0];
+      if(!current)throw error('NOT_FOUND','Meeting processing job not found',404);
+      if(!['pending','failed','dead_letter'].includes(current.status))throw error('JOB_NOT_CANCELLABLE','Only queued, failed or dead-letter jobs can be cancelled',409);
+      const previous={status:current.status,attempts:current.attempts,maxAttempts:current.max_attempts,lastError:current.last_error};
+      const job=(await client.query(`UPDATE meeting_intelligence_jobs SET status='cancelled',finished_at=now(),locked_at=NULL,lock_token=NULL,updated_at=now()
+        WHERE workspace_id=$1 AND id=$2
+        RETURNING id,run_id "runId",kind,status,attempts,max_attempts "maxAttempts",available_at "availableAt",last_error "lastError",updated_at "updatedAt"`,
+      [session.workspaceId,jobId])).rows[0];
+      await client.query(`UPDATE meeting_intelligence_runs SET status='cancelled',updated_at=now() WHERE workspace_id=$1 AND id=$2`,[session.workspaceId,current.run_id]);
+      if(current.kind==='transcribe')await client.query(`UPDATE call_recordings SET transcript_status='failed',updated_at=now() WHERE workspace_id=$1 AND id=$2`,[session.workspaceId,current.recording_id]);
+      else await client.query(`UPDATE call_recordings SET summary_status='failed',updated_at=now() WHERE workspace_id=$1 AND id=$2`,[session.workspaceId,current.recording_id]);
+      const payload={reason:text.slice(0,1000),previous,kind:current.kind,runId:current.run_id,callId:current.call_id};
+      await client.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+        VALUES($1,$2,'meeting_job',$3,'meeting.job.cancelled',$4,$5)`,[session.organizationId,session.workspaceId,jobId,session.userId,payload]);
+      await client.query(`INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload)
+        VALUES($1,$2,'meeting.job.cancelled',$3,$4)`,[session.organizationId,session.workspaceId,jobId,payload]);
       return job;
     });
   }
