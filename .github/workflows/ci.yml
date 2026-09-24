@@ -57,6 +57,13 @@ jobs:
           node-version: 24
       - name: Install runtime dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
+      # The full suite below includes browser-smoke.test.js, and this job
+      # sets DATABASE_URL — so it runs that test against real PostgreSQL,
+      # not the memory store domain-tests already exercised. Needs its own
+      # copy of the browser install for the same reason as domain-tests:
+      # `--ignore-scripts` skipped Playwright's postinstall download.
+      - name: Install the headless browser for the smoke test
+        run: npx playwright install --with-deps chromium
       # Ubuntu's own apt repo ships one postgresql-client version tied to
       # the Ubuntu release, while the service above and the shipped
       # Dockerfile are both on 17 — `pg_dump` refuses to dump a server
