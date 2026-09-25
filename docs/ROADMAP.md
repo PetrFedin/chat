@@ -83,6 +83,19 @@ reachable by direct link and in history. PostgreSQL-only, like the
 other recent modules; a guest sees the section as simply not existing
 (`404`, not `403`), the same rule audit/vault/AI already follow.
 
+**Time tracking**
+A start/stop timer on any commitment (`time_entries`), visible right
+on the task card. No new permission was added: whoever can already
+see the task (owner, requester, acceptor, collaborator, or a team
+manager — the same rule as everywhere else in task-authority.js) can
+track time on it. One running timer per person across the whole
+workspace, enforced by a partial unique index in the database, not
+just a code check — starting a second one is a clean `409`, not a
+silently stolen first timer. A "Time report" screen under More sums
+tracked seconds per task (and, for a team manager, per person too)
+over a week/month/year, with `scope=team` silently falling back to the
+caller's own hours for anyone without `task.manage.team`.
+
 **Search, files, personal tools**
 Full-text search in Russian (`to_tsvector('russian', …)`) across
 messages, tasks, files, people, calendar events and personal notes,

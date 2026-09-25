@@ -24,7 +24,8 @@ export const openapi = Object.freeze({
     { name: 'Games' },
     { name: 'API Keys' },
     { name: 'Chat Assistant' },
-    { name: 'Wiki' }
+    { name: 'Wiki' },
+    { name: 'Time Tracking' }
   ],
   components: {
     securitySchemes: {
@@ -454,6 +455,21 @@ export const openapi = Object.freeze({
     },
     '/api/v1/wiki/search': {
       get: { tags: ['Wiki'], summary: 'Full-text search across non-archived pages', responses: { '200': { description: 'Matching pages with a highlighted snippet' } } }
+    },
+    '/api/v1/tasks/{taskId}/time-entries/start': {
+      post: { tags: ['Time Tracking'], summary: 'Start a running timer on a task', description: 'Anyone who can already see the task (owner, requester, acceptor, collaborator, or a team manager) can track time on it — no separate permission. One running timer per person across the whole workspace, enforced by a database constraint.', responses: { '201': { description: 'Timer started' }, '404': { description: 'Task not visible' }, '409': { description: 'This person already has a running timer elsewhere' } } }
+    },
+    '/api/v1/tasks/{taskId}/time-entries': {
+      get: { tags: ['Time Tracking'], summary: 'List time entries logged against a task, with the running total', responses: { '200': { description: 'Entries and totalSeconds' }, '404': { description: 'Task not visible' } } }
+    },
+    '/api/v1/time-entries/{entryId}/stop': {
+      post: { tags: ['Time Tracking'], summary: 'Stop your own running timer', responses: { '200': { description: 'Stopped entry with its duration' }, '404': { description: 'No such running timer' } } }
+    },
+    '/api/v1/time-entries/current': {
+      get: { tags: ['Time Tracking'], summary: 'Get the caller’s own running timer, if any, across every task', responses: { '200': { description: '{ entry: null | entry }' } } }
+    },
+    '/api/v1/time-entries/report': {
+      get: { tags: ['Time Tracking'], summary: 'Summed tracked time per person and task over a period', description: 'scope=team is honoured only for someone with task.manage.team; otherwise it silently falls back to the caller’s own entries.', responses: { '200': { description: 'Grouped totals' } } }
     }
   }
 });
