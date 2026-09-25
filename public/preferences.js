@@ -1578,6 +1578,25 @@
     updateLauncher(button);
   }
 
+  /**
+   * Тот же переключатель, но в самом рабочем пространстве, а не только
+   * на экране входа. Спрятанным в «Настройках» его находили не с
+   * первого раза — человек должен видеть, на каком языке работает
+   * интерфейс, и переключить его в один клик, не открывая профиль.
+   */
+  function ensureAppLauncher() {
+    const actions = document.querySelector('.top-actions');
+    if (!actions || actions.querySelector('[data-prefs-launcher]')) return;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'round-button pressable prefs-app-launcher';
+    button.dataset.prefsLauncher = '1';
+    button.dataset.prefsOwned = '1';
+    const avatar = actions.querySelector('#top-avatar');
+    actions.insertBefore(button, avatar || null);
+    updateLauncher(button);
+  }
+
   // Every writer below compares before it writes. These run from the mutation
   // observer, so an unconditional write is a childList mutation that calls the
   // observer again — the page then never reaches idle.
@@ -1658,12 +1677,14 @@
       for (const added of mutation.addedNodes || []) translateSubtree(added);
     }
     ensureAuthLauncher();
+    ensureAppLauncher();
     ensureProfileSettings();
   });
 
   function init() {
     applyTheme();
     ensureAuthLauncher();
+    ensureAppLauncher();
     translateSubtree(document);
     observer.observe(document.documentElement, { subtree:true, childList:true, characterData:true });
   }
