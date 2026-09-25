@@ -46,7 +46,7 @@ test('история действий в карточке человека св�
   const app = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
   assert.match(app, /<details class="person-history"\$\{activity\.length\?'':' open'\}>/,
     'история действий снова развёрнута сразу');
-  assert.match(app, /<summary>История действий/);
+  assert.match(app, /<summary><span>История действий<\/span>/);
 });
 
 /**

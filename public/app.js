@@ -471,7 +471,7 @@ function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','ca
   const later=S.calendar.filter(e=>Date.parse(e.startAt)>=dayEnd.getTime()).sort(byStart);
   const events=(todays.length?todays:later).slice(0,4);
   const agendaTitle=todays.length||!later.length?'Расписание дня':'Ближайшие встречи';
-  const agendaHint=todays.length?'Встречи и рабочее время':later.length?'Сегодня встреч нет':'Встречи и рабочее время';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2></section>${onboardingSection()}${S.invitations.length?`<section class="surface"><div class="section-head"><div><h2>Ждут вашего ответа</h2><p class="muted">${S.invitations.length} ${plural(S.invitations.length,'приглашение','приглашения','приглашений')} на встречу</p></div></div>${S.invitations.map(i=>`<div class="agenda-row"><span class="agenda-time">${time(i.startAt)}</span><span><div class="row-title">${esc(i.title)}</div><div class="row-sub">${esc(new Date(i.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'long'}))}${i.organiser?` · ${esc(i.organiser)}`:''}</div></span><span class="inline-actions">${[['accepted','Приду'],['tentative','Под вопросом'],['declined','Не приду']].map(([value,caption])=>`<button class="button small ${value==='accepted'?'primary':'secondary'} pressable" data-invite-answer="${value}" data-invite-event="${esc(i.id)}">${caption}</button>`).join('')}</span></div>`).join('')}</section>`:''}${agendaSection(events,agendaTitle,agendaHint,dayEnd)}${answerNeededSection()}${myTasksSection(active)}${planSection()}</div><div class="stack"><div class="metric-grid">${tasksVisible()?`<button type="button" class="metric-card pressable" data-nav="tasks"><strong>${active.length}</strong><span>${plural(active.length,'активная задача','активные задачи','активных задач')}</span></button>`:''}${guestShell()?'':`<button type="button" class="metric-card pressable" data-action="team"><strong>${S.people.length}</strong><span>${plural(S.people.length,'сотрудник','сотрудника','сотрудников')}</span></button>`}<button type="button" class="metric-card pressable" data-nav="chats"><strong>${S.conversations.length}</strong><span>${plural(S.conversations.length,'диалог','диалога','диалогов')}</span></button></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
+  const agendaHint=todays.length?'Встречи и рабочее время':later.length?'Сегодня встреч нет':'Встречи и рабочее время';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2></section>${onboardingSection()}${S.invitations.length?`<section class="surface"><div class="section-head"><div><h2>Ждут вашего ответа</h2><p class="muted">${S.invitations.length} ${pluralIn(S.invitations.length,['приглашение','приглашения','приглашений'],['invitation','invitations'])} на встречу</p></div></div>${S.invitations.map(i=>`<div class="agenda-row"><span class="agenda-time">${time(i.startAt)}</span><span><div class="row-title">${esc(i.title)}</div><div class="row-sub">${esc(new Date(i.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'long'}))}${i.organiser?` · ${esc(i.organiser)}`:''}</div></span><span class="inline-actions">${[['accepted','Приду'],['tentative','Под вопросом'],['declined','Не приду']].map(([value,caption])=>`<button class="button small ${value==='accepted'?'primary':'secondary'} pressable" data-invite-answer="${value}" data-invite-event="${esc(i.id)}">${caption}</button>`).join('')}</span></div>`).join('')}</section>`:''}${agendaSection(events,agendaTitle,agendaHint,dayEnd)}${answerNeededSection()}${myTasksSection(active)}${planSection()}</div><div class="stack"><div class="metric-grid">${tasksVisible()?`<button type="button" class="metric-card pressable" data-nav="tasks"><strong>${active.length}</strong><span>${pluralIn(active.length,['активная задача','активные задачи','активных задач'],['active task','active tasks'])}</span></button>`:''}${guestShell()?'':`<button type="button" class="metric-card pressable" data-action="team"><strong>${S.people.length}</strong><span>${pluralIn(S.people.length,['сотрудник','сотрудника','сотрудников'],['employee','employees'])}</span></button>`}<button type="button" class="metric-card pressable" data-nav="chats"><strong>${S.conversations.length}</strong><span>${pluralIn(S.conversations.length,['диалог','диалога','диалогов'],['conversation','conversations'])}</span></button></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
 /**
  * The personal list, on the screen where the day is planned. A commitment
  * belongs to «Мои задачи» above; this is the work nobody promised to anybody.
@@ -533,7 +533,7 @@ function answerNeededSection(){
   const invitations=S.invitations?.length??0;
   if(!waiting.length)return '';
   return `<section class="surface"><div class="section-head"><div><h2>Требуется ваш ответ</h2>
-      <p class="muted">${waiting.length} ${plural(waiting.length,'задача ждёт','задачи ждут','задач ждут')} вашего решения${invitations?' · и приглашения на встречи выше':''}</p></div></div>
+      <p class="muted">${waiting.length} ${pluralIn(waiting.length,['задача ждёт','задачи ждут','задач ждут'],['task is waiting','tasks are waiting'])} <span>вашего решения</span>${invitations?' <span>· и приглашения на встречи выше</span>':''}</p></div></div>
     ${waiting.map(t=>`<div class="row"><span><div class="row-title">${esc(t.title)}</div>
       <div class="row-sub">${esc(name(t.requesterId))}${t.promisedAt?` · до ${esc(dateTime(t.promisedAt))}`:''}</div></span>
       <span class="inline-actions">
@@ -1187,7 +1187,7 @@ function eventCancelModal(event){
   });
 }
 
-function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} ${plural(S.people.length,'сотрудник','сотрудника','сотрудников')}<span>, роли и статусы</span></span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.settings')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>${can('organization.manage')?'Название, реквизиты, места и передача владения':'Реквизиты, места и почтовый домен'}</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button>${can('knowledge.read')?`<button class="module-card pressable" data-action="knowledge"><span class="module-icon">${tileIcon.knowledge}</span><strong>База знаний</strong><span>HR-бот отвечает по статьям компании</span></button>`:''}<button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
+function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} ${pluralIn(S.people.length,['сотрудник','сотрудника','сотрудников'],['employee','employees'])}<span>, роли и статусы</span></span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.settings')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>${can('organization.manage')?'Название, реквизиты, места и передача владения':'Реквизиты, места и почтовый домен'}</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button>${can('knowledge.read')?`<button class="module-card pressable" data-action="knowledge"><span class="module-icon">${tileIcon.knowledge}</span><strong>База знаний</strong><span>HR-бот отвечает по статьям компании</span></button>`:''}<button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Push, упоминания и сроки</span></button><button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
 function bind(){
   // Строка встречи в расписании дня выглядела нажимаемой и не открывала
   // ничего: карточку встречи знал только календарь.
@@ -2780,9 +2780,9 @@ function presenceModal(){
   const kind=mine.availability||'available';
   const backAt=mine.backAt?toLocalInput(mine.backAt):'';
   modal('Ваш статус',`<form id="presence-form" class="form-stack">
-    <div><div class="row-title">Я сейчас</div>
+    <div><div class="section-title">Я сейчас</div>
       <div class="chip-row" style="margin-top:8px">${AVAILABILITY.map(([value,caption,mark])=>
-        `<button type="button" class="chipbtn pressable${kind===value?' on':''}" data-availability="${value}">${mark?esc(mark)+' ':''}${esc(caption)}</button>`).join('')}</div>
+        `<button type="button" class="chipbtn pressable${kind===value?' on':''}" data-availability="${value}">${mark?esc(mark)+' ':''}<span>${esc(caption)}</span></button>`).join('')}</div>
       <p class="muted" id="availability-hint" style="margin:8px 0 0">${esc(AVAILABILITY_BY[kind]?.hint||'')}</p></div>
     <label id="back-at-field" ${kind==='available'?'hidden':''}>Вернусь
       <input name="backAt" type="datetime-local" value="${esc(backAt)}"></label>
@@ -2847,9 +2847,9 @@ function companyModal(){
       <label>Телефон<input name="phone" maxlength="40" inputmode="tel" value="${esc(S.boot?.company?.phone||'')}"></label>
       <label>Почтовый домен<input name="emailDomain" maxlength="120" placeholder="granit.ru" value="${esc(S.boot?.company?.emailDomain||'')}"></label>
       <label>Мест в компании<input name="seatLimit" type="number" min="1" step="1" placeholder="без ограничения" value="${S.boot?.company?.seatLimit??''}"></label>
-      <p class="muted" style="margin:-4px 0 0;font-size:12px">Занято ${(S.boot?.company?.seatsUsed??0)+(S.boot?.company?.seatsInvited??0)}${S.boot?.company?.seatLimit?` из ${S.boot.company.seatLimit}`:''}: ${S.boot?.company?.seatsUsed??0} ${plural(S.boot?.company?.seatsUsed??0,'человек','человека','человек')} и ${S.boot?.company?.seatsInvited??0} ${plural(S.boot?.company?.seatsInvited??0,'неотвеченное приглашение','неотвеченных приглашения','неотвеченных приглашений')}. Гости мест не занимают.</p>
+      <p class="muted" style="margin:-4px 0 0;font-size:12px"><span>Занято</span> ${(S.boot?.company?.seatsUsed??0)+(S.boot?.company?.seatsInvited??0)}${S.boot?.company?.seatLimit?` <span>из</span> ${S.boot.company.seatLimit}`:''}: ${S.boot?.company?.seatsUsed??0} ${pluralIn(S.boot?.company?.seatsUsed??0,['человек','человека','человек'],['person','people'])} <span>и</span> ${S.boot?.company?.seatsInvited??0} ${pluralIn(S.boot?.company?.seatsInvited??0,['неотвеченное приглашение','неотвеченных приглашения','неотвеченных приглашений'],['unanswered invitation','unanswered invitations'])}. <span>Гости мест не занимают.</span></p>
       <label class="switch-row"><input type="checkbox" name="domainJoin" ${S.boot?.company?.domainJoin?'checked':''}>
-        <span><span class="row-title">Сотрудники заводятся сами</span>
+        <span><span class="section-title">Сотрудники заводятся сами</span>
         <span class="row-sub">Человек с адресом на вашем домене вводит рабочую почту и получает ссылку-подтверждение — заводить каждого руками не нужно. Пока мест хватает; когда кончатся, письмо придёт вам.</span></span></label>
       <button class="button primary">Сохранить</button>
     </form>
@@ -2857,10 +2857,10 @@ function companyModal(){
       <p class="muted">Нерабочий день одинаков для всех, кто здесь работает, поэтому слои включаются на всю компанию.</p></div></div>
     <form id="company-layers" class="form-stack">
       <label class="switch-row"><input type="checkbox" name="showHolidays" ${S.boot?.workspace?.showHolidays===false?'':'checked'}>
-        <span><span class="row-title">Праздники и переносы</span>
+        <span><span class="section-title">Праздники и переносы</span>
           <span class="row-sub">Официальные нерабочие и сокращённые дни в сетке календаря.</span></span></label>
       <label class="switch-row"><input type="checkbox" name="showBirthdays" ${S.boot?.workspace?.showBirthdays===false?'':'checked'}>
-        <span><span class="row-title">Дни рождения коллег</span>
+        <span><span class="section-title">Дни рождения коллег</span>
           <span class="row-sub">Из карточек сотрудников — только день и месяц, без года.</span></span></label>
       <button class="button secondary pressable">Сохранить слои</button>
     </form>
@@ -2982,8 +2982,8 @@ function journalRow(event){
   const[caption,detail]=JOURNAL_EVENT[event.eventType]??[event.eventType,()=>''];
   const extra=detail(event);
   return `<div class="row" style="width:100%">
-    <span><div class="row-title">${esc(caption)}</div>
-    <div class="row-sub">${esc(when(event.createdAt))} · ${esc(event.actorName||'—')}${extra?` · ${esc(extra)}`:''}</div></span>
+    <span><div class="section-title">${esc(caption)}</div>
+    <div class="row-sub">${esc(when(event.createdAt))} · ${esc(event.actorName||'—')}${extra?` · <span>${esc(extra)}</span>`:''}</div></span>
   </div>`;
 }
 
@@ -3004,8 +3004,8 @@ async function catalogueModal(){
     const row=(c)=>{
       const quiet=!c.recentMessages;
       return `<div class="row flow">
-        <span><div class="row-title">${esc(c.title||c.slug||'Канал')}${c.announcementOnly?' · только объявления':''}</div>
-          <div class="row-sub">${c.purpose?`${esc(c.purpose)} · `:''}${c.memberCount} ${plural(c.memberCount,'участник','участника','участников')} · ${quiet?'за месяц тихо':`${c.recentMessages} ${plural(c.recentMessages,'сообщение','сообщения','сообщений')} за месяц`}</div></span>
+        <span><div class="row-title">${esc(c.title||c.slug||'Канал')}</div>
+          <div class="row-sub">${c.announcementOnly?'<span>только объявления</span> · ':''}${c.purpose?`${esc(c.purpose)} · `:''}${c.memberCount} ${pluralIn(c.memberCount,['участник','участника','участников'],['member','members'])} · ${quiet?'<span>за месяц тихо</span>':`${c.recentMessages} ${pluralIn(c.recentMessages,['сообщение','сообщения','сообщений'],['message','messages'])} <span>за месяц</span>`}</div></span>
         ${c.member
           ?`<button type="button" class="button small secondary pressable" data-catalogue-open="${esc(c.id)}">Открыть</button>`
           :`<button type="button" class="button small primary pressable" data-catalogue-join="${esc(c.id)}">Войти</button>`}
@@ -3114,13 +3114,13 @@ async function digestModal(){
     // Раздел показывает три разных «ждут вас», и подпись обязана их
     // различать: предложенное обязательство, сданная вам работа и
     // принятый результат, который некому закрыть.
-    const awaitingWhy=(t)=>t.status==='in_review'?`${t.ownerName??'исполнитель'} сдал(а) работу — нужна приёмка`
+    const awaitingWhy=(t)=>t.status==='in_review'?`${esc(t.ownerName??'исполнитель')} сдал(а) работу — нужна приёмка`
       :t.status==='accepted_result'?'результат принят — осталось закрыть'
-      :`просит ${t.requesterName}`;
+      :`<span>просит</span> ${esc(t.requesterName)}`;
     const awaiting=block('Ждут вашего ответа','Пока вы не ответите, не движется никто.',data.awaitingYourAnswer.map(t=>
       `<button type="button" class="row flow pressable" data-task-open="${esc(t.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(t.title)}</div>
-          <div class="row-sub">${esc(awaitingWhy(t))}${t.promisedAt?` · срок ${esc(dateTime(t.promisedAt))}`:''}</div></span></button>`));
+          <div class="row-sub">${awaitingWhy(t)}${t.promisedAt?` · срок ${esc(dateTime(t.promisedAt))}`:''}</div></span></button>`));
     const invitations=block('Приглашения на встречи','',data.invitations.map(i=>
       `<button type="button" class="row flow pressable" data-cal-event="${esc(i.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(i.title)}</div>
@@ -3149,9 +3149,9 @@ async function digestModal(){
       `<button type="button" class="row flow pressable" data-digest-conversation="${esc(c.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(c.title||'Личная переписка')}</div>
           <div class="row-sub">${c.newMessages
-            ?`${c.newMessages} ${plural(c.newMessages,'новое сообщение','новых сообщения','новых сообщений')}`
+            ?`${c.newMessages} ${pluralIn(c.newMessages,['новое сообщение','новых сообщения','новых сообщений'],['new message','new messages'])}`
             :'в ленте ничего нового'}${c.newInThreads
-            ?` · ${c.newInThreads} ${plural(c.newInThreads,'ответ в ветке','ответа в ветках','ответов в ветках')}`
+            ?` · ${c.newInThreads} ${pluralIn(c.newInThreads,['ответ в ветке','ответа в ветках','ответов в ветках'],['thread reply','thread replies'])}`
             :''} · последнее ${esc(dateTime(c.lastAt))}</div></span></button>`));
     const joined=block('Появились в компании','',data.joined.map(p=>
       `<button type="button" class="row pressable" data-digest-person="${esc(p.userId)}" style="width:100%;text-align:left">
@@ -3162,7 +3162,7 @@ async function digestModal(){
       title:'Что я пропустил',
       body:`<div class="chip-row">${DIGEST_PERIODS.map(([value,caption])=>
           `<button class="chipbtn pressable${S.digestDays===value?' on':''}" data-digest-days="${value}">${caption}</button>`).join('')}</div>
-        <p class="muted" style="margin:10px 0 0">${data.guessedSince?'С вашего прошлого визита':'За выбранный период'} — с ${esc(dateTime(data.since))}.</p>
+        <p class="muted" style="margin:10px 0 0"><span>${data.guessedSince?'С вашего прошлого визита':'За выбранный период'}</span> — <span>с</span> ${esc(dateTime(data.since))}.</p>
         ${body||'<div class="empty"><strong>Ничего не пропустили</strong>За это время вас не упоминали, сроки не подходили и решений без вас не принимали.</div>'}`,
       after:()=>{
         $$('[data-digest-days]').forEach(b=>b.onclick=async()=>{S.digestDays=b.dataset.digestDays;await refresh()});
@@ -3193,7 +3193,7 @@ async function digestModal(){
  * закрытых в обещанный срок; всё остальное объясняет её.
  */
 const REPORT_PERIODS=[['30','30 дней'],['90','90 дней'],['365','Год']];
-const hoursWord=(hours)=>hours>=48?`${Math.round(hours/24)} ${plural(Math.round(hours/24),'день','дня','дней')}`:`${hours} ${plural(hours,'час','часа','часов')}`;
+const hoursWord=(hours)=>hours>=48?`${Math.round(hours/24)} ${pluralIn(Math.round(hours/24),['день','дня','дней'],['day','days'])}`:`${hours} ${pluralIn(hours,['час','часа','часов'],['hour','hours'])}`;
 const REPORT_STATUS={blocked:'заблокировано',deferred:'отложено',clarify:'уточняется',proposed:'ждёт ответа'};
 async function reportModal(){
   S.reportDays=S.reportDays??'30';
@@ -3209,19 +3209,19 @@ async function reportModal(){
     // ноль процентов здесь читался бы как «все опоздали».
     const kept=t.keptPromises===null
       ?`<div class="metric-card"><strong>—</strong><span>сроков никто не обещал</span></div>`
-      :`<div class="metric-card"><strong class="${t.keptPromises>=80?'':'late'}">${t.keptPromises}%</strong><span>обещаний закрыто в срок (${t.onTime} из ${t.promised})</span></div>`;
+      :`<div class="metric-card"><strong class="${t.keptPromises>=80?'':'late'}">${t.keptPromises}%</strong><span><span>обещаний закрыто в срок (</span>${t.onTime}<span> из </span>${t.promised}<span>)</span></span></div>`;
     const canSwitch=can('task.manage.team');
     const people=data.people.map(p=>`<div class="row" data-report-person="${esc(p.userId)}" style="cursor:pointer">
         ${personAvatar(p)}
         <span><div class="row-title">${esc(p.displayName)}</div>
-          <div class="row-sub">${p.open} ${plural(p.open,'обязательство','обязательства','обязательств')}${p.overdue?` · <span class="late">${p.overdue} просрочено</span>`:''}${p.dueSoon?` · ${p.dueSoon} в ближайшие сутки`:''}${p.awaitingAnswer?` · ${p.awaitingAnswer} ждёт ответа`:''}</div></span>
+          <div class="row-sub">${p.open} ${pluralIn(p.open,['обязательство','обязательства','обязательств'],['commitment','commitments'])}${p.overdue?` · <span class="late">${p.overdue} <span>просрочено</span></span>`:''}${p.dueSoon?` · ${p.dueSoon} <span>в ближайшие сутки</span>`:''}${p.awaitingAnswer?` · ${p.awaitingAnswer} <span>ждёт ответа</span>`:''}</div></span>
         <span class="chip">${p.keptPromises===null?'—':`${p.keptPromises}%`}</span>
-      </div>${p.avgLateHours?`<div class="row-sub" style="margin:-4px 0 8px 46px">когда опаздывает — в среднем на ${esc(hoursWord(p.avgLateHours))}</div>`:''}`).join('');
+      </div>${p.avgLateHours?`<div class="row-sub" style="margin:-4px 0 8px 46px"><span>когда опаздывает — в среднем на</span> ${esc(hoursWord(p.avgLateHours))}</div>`:''}`).join('');
     const stuck=data.stuck.length?`<div class="section-head" style="margin-top:16px"><div><h3>Застряло</h3><p class="muted">Не просрочено, но и не двигается — именно это чаще всего оказывается забытым.</p></div></div>
       ${data.stuck.map(s=>`<button type="button" class="row flow pressable" data-task-open="${esc(s.id)}" style="width:100%;text-align:left">
-        <span><div class="row-title">${esc(s.title)}</div><div class="row-sub">${esc(REPORT_STATUS[s.status]??s.status)} · ${esc(s.ownerName)} · без движения ${s.stillDays} ${plural(s.stillDays,'день','дня','дней')}</div></span></button>`).join('')}`:'';
+        <span><div class="row-title">${esc(s.title)}</div><div class="row-sub">${esc(REPORT_STATUS[s.status]??s.status)} · ${esc(s.ownerName)} · <span>без движения</span> ${s.stillDays} ${pluralIn(s.stillDays,['день','дня','дней'],['day','days'])}</div></span></button>`).join('')}`:'';
     const pairs=data.pairs.length?`<div class="section-head" style="margin-top:16px"><div><h3>Кто кого просит</h3><p class="muted">Обычно человек перегружен не задачами вообще, а просьбами одного и того же коллеги.</p></div></div>
-      ${data.pairs.map(pair=>`<div class="row flow"><span><div class="row-title">${esc(pair.requesterName)} → ${esc(pair.ownerName)}</div><div class="row-sub">${pair.count} ${plural(pair.count,'обязательство','обязательства','обязательств')} за период</div></span></div>`).join('')}`:'';
+      ${data.pairs.map(pair=>`<div class="row flow"><span><div class="row-title">${esc(pair.requesterName)} → ${esc(pair.ownerName)}</div><div class="row-sub">${pair.count} ${pluralIn(pair.count,['обязательство','обязательства','обязательств'],['commitment','commitments'])} <span>за период</span></div></span></div>`).join('')}`:'';
     return{
       title:'Отчёт по обязательствам',
       body:`<div class="chip-row">${REPORT_PERIODS.map(([value,caption])=>
@@ -3229,10 +3229,10 @@ async function reportModal(){
         ${canSwitch?['team','mine'].map(value=>`<button class="chipbtn pressable${S.reportScope===value?' on':''}" data-report-scope="${value}">${value==='team'?'Вся компания':'Только я'}</button>`).join(''):''}</div>
       <div class="metric-grid" style="margin-top:12px">
         ${kept}
-        <div class="metric-card"><strong class="${t.overdue?'late':''}">${t.overdue}</strong><span>просрочено сейчас${t.oldestOverdueSec?`, старшему ${esc(hoursWord(Math.round(t.oldestOverdueSec/3600)))}`:''}</span></div>
-        <div class="metric-card"><strong>${t.awaitingAnswer}</strong><span>${plural(t.awaitingAnswer,'ждёт','ждут','ждут')} ответа — им ещё не пообещали</span></div>
+        <div class="metric-card"><strong class="${t.overdue?'late':''}">${t.overdue}</strong><span><span>просрочено сейчас</span>${t.oldestOverdueSec?`<span>, старшему</span> ${esc(hoursWord(Math.round(t.oldestOverdueSec/3600)))}`:''}</span></div>
+        <div class="metric-card"><strong>${t.awaitingAnswer}</strong><span>${pluralIn(t.awaitingAnswer,['ждёт','ждут','ждут'],['is waiting','are waiting'])} <span>ответа — им ещё не пообещали</span></span></div>
       </div>
-      <p class="muted" style="margin:12px 0 0">За период взяли ${t.created} ${plural(t.created,'обязательство','обязательства','обязательств')}, закрыли ${t.closed}${t.dropped?`, сняли ${t.dropped}`:''}. Сейчас в работе ${t.open}${t.undated?`, из них без срока ${t.undated}`:''}.</p>
+      <p class="muted" style="margin:12px 0 0"><span>За период взяли</span> ${t.created} ${pluralIn(t.created,['обязательство','обязательства','обязательств'],['commitment','commitments'])}<span>, закрыли</span> ${t.closed}${t.dropped?`<span>, сняли</span> ${t.dropped}`:''}<span>. Сейчас в работе</span> ${t.open}${t.undated?`<span>, из них без срока</span> ${t.undated}`:''}<span>.</span></p>
       <div class="section-head" style="margin-top:16px"><div><h3>Люди</h3><p class="muted">Справа — доля обещаний, закрытых в срок.</p></div></div>
       <div class="stack">${people||'<div class="empty"><strong>Пока не на ком</strong>В компании ещё нет обязательств.</div>'}</div>
       ${stuck}${pairs}`,
@@ -3327,17 +3327,17 @@ async function integrationsModal(){
     </span>
   </div>`;
   const deliveryRow=(d)=>`<div class="person-event">
-    <span><span>${esc(DELIVERY_STATUS[d.status]||d.status)}</span> · ${esc(d.topic||d.eventType||'')}${d.attempts?` · ${d.attempts} попыт.`:''}</span>
+    <span><span>${esc(DELIVERY_STATUS[d.status]||d.status)}</span> · ${esc(d.topic||d.eventType||'')}${d.attempts?` · ${d.attempts} <span>попыт.</span>`:''}</span>
     <time>${esc(when(d.updatedAt||d.createdAt))}</time></div>`;
 
   modal('Интеграции',`
     <p class="muted">Каждое событие уходит подписанным запросом. Недоставленное повторяется с нарастающей паузой и не теряется.</p>
-    <h3 class="person-section">Подписки — ${endpoints.length}</h3>
+    <h3 class="person-section"><span>Подписки</span> — ${endpoints.length}</h3>
     ${endpoints.length?`<div class="label-list">${endpoints.map(endpointRow).join('')}</div>`:'<p class="muted">Подписок пока нет.</p>'}
     <h3 class="person-section">Последние доставки</h3>
     <div class="person-feed">${deliveries.length?deliveries.map(deliveryRow).join(''):'<p class="muted">Ничего ещё не отправлялось.</p>'}</div>
     <div class="stack" style="margin-top:16px"><button data-new-endpoint class="button secondary">Добавить подписку</button></div>
-    <h3 class="person-section">Мосты с Telegram — ${bridges.length}</h3>
+    <h3 class="person-section"><span>Мосты с Telegram</span> — ${bridges.length}</h3>
     <p class="muted">Беседа ChatX и чат в Telegram становятся одной перепиской через бота, которого вы туда добавите.</p>
     ${bridges.length?`<div class="label-list">${bridges.map(bridgeRow).join('')}</div>`:'<p class="muted">Мостов пока нет.</p>'}
     <div class="stack" style="margin-top:16px"><button data-new-bridge class="button secondary">Подключить Telegram</button></div>`,()=>{
@@ -3457,7 +3457,7 @@ async function contactsModal(){
   const shared=(p)=>{
     const parts=[];
     if(p.hasDirect)parts.push('<span>личный чат</span>');
-    parts.push(`${p.sharedCount} <span>${plural(p.sharedCount,'общая беседа','общие беседы','общих бесед')}</span>`);
+    parts.push(`${p.sharedCount} <span>${pluralIn(p.sharedCount,['общая беседа','общие беседы','общих бесед'],['shared conversation','shared conversations'])}</span>`);
     return parts.join(' · ');
   };
 
@@ -3534,7 +3534,7 @@ async function personPage(userId){
       история отодвигала всё это за край экрана.
     -->
     <details class="person-history"${activity.length?'':' open'}>
-      <summary>История действий${activity.length?` — ${activity.length}`:''}</summary>
+      <summary><span>История действий</span>${activity.length?` — ${activity.length}`:''}</summary>
       <div class="person-feed">${feed}</div>
     </details>
     ${person.disabledAt?`<p class="person-about">Сотрудник уволен ${esc(when(person.disabledAt))}. Доступ закрыт, история работы сохранена.</p>`:''}
@@ -5261,7 +5261,7 @@ async function renderPendingInvites(){
   try{
     const{items}=await api('/api/v1/invitations');
     const seats=S.boot?.company?.seatLimit
-      ?`<p class="muted" style="margin:10px 0 0;font-size:12px">Мест ${S.boot.company.seatLimit}, занято ${S.boot.company.seatsUsed} людьми и ${items.length} неотвеченными приглашениями. Гости мест не занимают.</p>`
+      ?`<p class="muted" style="margin:10px 0 0;font-size:12px"><span>Мест</span> ${S.boot.company.seatLimit}, <span>занято</span> ${S.boot.company.seatsUsed} <span>людьми и</span> ${items.length} <span>неотвеченными приглашениями.</span> <span>Гости мест не занимают.</span></p>`
       :'';
     if(!items.length){box.innerHTML=seats;return}
     box.innerHTML=`<h3 class="person-section">Ждут ответа — ${items.length}</h3>
@@ -5551,7 +5551,7 @@ async function profileModal(){
       title:'Профиль и безопасность',
       body:`<div class="row">${personAvatar(me().userId,me().displayName)}
         <span><div class="row-title">${esc(me().displayName)}</div>
-          <div class="row-sub">${esc(me().email)} · ${esc(roleWord(me().role))}</div></span></div>
+          <div class="row-sub">${esc(me().email)} · <span>${esc(roleWord(me().role))}</span></div></span></div>
 
       <div class="section-head" style="margin-top:16px"><div><h3>Фотография</h3>
         <p class="muted">В списке сотрудников стояли две буквы инициалов, и «Анна Дроздова» с «Андреем Демидовым» были одним и тем же серым кружком.</p></div></div>
@@ -5574,7 +5574,7 @@ async function profileModal(){
           ?'Код из приложения-аутентификатора в дополнение к паролю. Подсмотренного или подобранного пароля тогда мало, чтобы войти в переписку компании и сейф паролей.'
           :'Недоступен: на сервере не настроен ключ шифрования, а хранить секрет второго множителя в открытом виде нельзя.'}</p></div></div>
       ${second.available?(second.enabled
-        ?`<div class="row flow"><span><div class="row-title">Включён</div>
+        ?`<div class="row flow"><span><div class="section-title">Включён</div>
             <div class="row-sub">Запасных кодов осталось: ${second.recoveryCodesLeft}${second.lastUsedAt?` · последний раз ${esc(dateTime(second.lastUsedAt))}`:''}</div></span>
             <button type="button" class="button small secondary pressable" data-2fa-codes>Новые запасные коды</button>
             <button type="button" class="button small danger pressable" data-2fa-off>Выключить</button></div>`
@@ -5586,8 +5586,8 @@ async function profileModal(){
         ${sessions.length>1?'<button class="button small secondary pressable" data-revoke-others>Выйти везде</button>':''}</div>
       ${sessionsError?`<div class="empty"><strong>Список входов недоступен</strong>${esc(sessionsError)}</div>`
         :sessions.map(x=>`<div class="row flow">
-          <span><div class="row-title">${esc(deviceName(x.userAgent))}${x.current?' · это устройство':''}</div>
-            <div class="row-sub">${esc(x.ipAddress||'адрес неизвестен')} · заходили ${esc(dateTime(x.lastSeenAt))}</div></span>
+          <span><div class="row-title">${esc(deviceName(x.userAgent))}</div>
+            <div class="row-sub">${x.current?'<span>это устройство</span> · ':''}${esc(x.ipAddress||'адрес неизвестен')} · <span>заходили</span> ${esc(dateTime(x.lastSeenAt))}</div></span>
           ${x.current?'':`<button type="button" class="button small secondary pressable" data-revoke="${esc(x.id)}">Выйти</button>`}
         </div>`).join('')}
 
@@ -5597,23 +5597,23 @@ async function profileModal(){
       <form id="notify-form" class="form-stack">
         ${NOTIFY_SWITCHES.map(([name,caption,hint])=>`<label class="switch-row">
           <input type="checkbox" name="${name}" ${settings[name]===false?'':'checked'}>
-          <span><span class="row-title">${caption}</span><span class="row-sub">${hint}</span></span></label>`).join('')}
+          <span><span class="section-title">${caption}</span><span class="row-sub">${hint}</span></span></label>`).join('')}
         <label class="switch-row"><input type="checkbox" name="quiet" ${settings.quietFrom===null||settings.quietFrom===undefined?'':'checked'}>
-          <span><span class="row-title">Тихие часы</span><span class="row-sub">В выбранные часы push не приходит. Одинаковые «с» и «до» означают, что тихих часов нет.</span></span></label>
+          <span><span class="section-title">Тихие часы</span><span class="row-sub">В выбранные часы push не приходит. Одинаковые «с» и «до» означают, что тихих часов нет.</span></span></label>
         <div class="quiet-row" ${settings.quietFrom===null||settings.quietFrom===undefined?'hidden':''}>
           <label>С<select name="quietFrom" class="field">${HOURS.map(h=>`<option value="${h}" ${(settings.quietFrom??22)===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('')}</select></label>
           <label>До<select name="quietTo" class="field">${HOURS.map(h=>`<option value="${h}" ${(settings.quietTo??8)===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('')}</select></label>
         </div>
         <label class="switch-row" ${settings.quietFrom===null||settings.quietFrom===undefined?'hidden':''} data-quiet-exception>
           <input type="checkbox" name="quietAllowMentions" ${settings.quietAllowMentions===false?'':'checked'}>
-          <span><span class="row-title">Кроме личных обращений</span><span class="row-sub">Если вас позвали по имени, уведомление придёт и в тихий час.</span></span></label>
+          <span><span class="section-title">Кроме личных обращений</span><span class="row-sub">Если вас позвали по имени, уведомление придёт и в тихий час.</span></span></label>
         <label class="switch-row"><input type="checkbox" name="dailyDigest" ${settings.dailyDigest?'checked':''}>
-          <span><span class="row-title">Сводка письмом раз в день</span>
+          <span><span class="section-title">Сводка письмом раз в день</span>
             <span class="row-sub">Что случилось без вас — на почту. Полезно тем, кто днями на объекте и в приложение не заходит.</span></span></label>
         <div class="quiet-row" ${settings.dailyDigest?'':'hidden'} data-digest-hour>
           <label>Присылать в<select name="digestHour" class="field">${HOURS.map(h=>`<option value="${h}" ${Number(settings.digestHour??8)===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('')}</select></label>
         </div>
-        <p class="muted" style="font-size:12px">Время считается по вашему поясу: ${esc(settings.timezone||'UTC')}.</p>
+        <p class="muted" style="font-size:12px"><span>Время считается по вашему поясу:</span> ${esc(settings.timezone||'UTC')}.</p>
         <button class="button primary pressable" type="submit">Сохранить</button>
       </form>
 

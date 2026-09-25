@@ -24,10 +24,12 @@ test('Russian counts agree with their number', async () => {
   assert.equal(form(22), 'активные задачи');
   assert.equal(form(101), 'активная задача');
 
-  // The three tiles on the day screen were the visible case.
-  assert.match(app, /plural\(active\.length,'активная задача'/);
-  assert.match(app, /plural\(S\.people\.length,'сотрудник'/);
-  assert.match(app, /plural\(S\.conversations\.length,'диалог'/);
+  // The three tiles on the day screen were the visible case. They now go
+  // through pluralIn (locale-aware: English needs its own two forms, not
+  // the Russian three), not the bare Russian-only plural().
+  assert.match(app, /pluralIn\(active\.length,\['активная задача'/);
+  assert.match(app, /pluralIn\(S\.people\.length,\['сотрудник'/);
+  assert.match(app, /pluralIn\(S\.conversations\.length,\['диалог'/);
 
   const prefs = await read('public/preferences.js');
   for (const word of ['активная задача', 'активные задачи', 'активных задач', 'сотрудника', 'диалога']) {
