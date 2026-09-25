@@ -21,8 +21,16 @@ export const openapi = Object.freeze({
     { name: 'People' },
     { name: 'Personal' },
     { name: 'Labels' },
-    { name: 'Games' }
+    { name: 'Games' },
+    { name: 'API Keys' }
   ],
+  components: {
+    securitySchemes: {
+      sessionCookie: { type: 'apiKey', in: 'cookie', name: 'chat_session' },
+      apiKey: { type: 'http', scheme: 'bearer', description: 'A personal API key created under /api/v1/api-keys, acting with its owner’s own permissions.' }
+    }
+  },
+  security: [{ sessionCookie: [] }, { apiKey: [] }],
   paths: {
     '/api/v1/auth/register-company': { post: { tags: ['Auth'], summary: 'Register a company and owner', responses: { '201': { description: 'Company created' } } } },
     '/api/v1/invitations/accept': { post: { tags: ['Auth', 'Workspace'], summary: 'Accept an employee invitation and create the invited account', responses: { '201': { description: 'Invitation accepted and session created' } } } },
@@ -416,6 +424,13 @@ export const openapi = Object.freeze({
     },
     '/api/v1/calendar/ics/{token}': {
       get: { tags: ['Calendar'], summary: 'The .ics feed itself — what a calendar app subscribes to', description: 'No session: authenticated by the token in the URL. Emits RRULE/EXDATE/RECURRENCE-ID directly — recurrence is described, not pre-expanded, so the calendar app can expand it indefinitely.', responses: { '200': { description: 'text/calendar body' }, '404': { description: 'Unknown token' } } },
+    },
+    '/api/v1/api-keys': {
+      get: { tags: ['API Keys'], summary: 'List this person’s own API keys', description: 'Never returns the secret itself, only its prefix, name, scope and use timestamps.', responses: { '200': { description: 'Key list' } } },
+      post: { tags: ['API Keys'], summary: 'Create a new API key acting with the caller’s own permissions', description: 'The full secret is returned exactly once, in this response, and never again. Set readOnly to restrict the key to GET/HEAD requests only.', responses: { '201': { description: 'Key created; body includes the one-time secret' }, '400': { description: 'Name required' } } }
+    },
+    '/api/v1/api-keys/{id}': {
+      delete: { tags: ['API Keys'], summary: 'Revoke an API key immediately', responses: { '200': { description: 'Revoked' }, '404': { description: 'Key not found' } } }
     }
   }
 });

@@ -87,6 +87,19 @@ per-notification archive keep the inbox from growing forever. An
 OpenAPI document whose own test (`openapi-sync.test.js`) fails if it
 drifts from the routes the server actually serves, in either direction.
 
+**Public API access**
+Personal API keys (`POST /api/v1/api-keys`), each acting with its own
+owner's exact permissions — no separate integration role, `rbac.js`
+stays the single source of truth. The raw secret is shown once, at
+creation, and only its hash is stored; a request authenticates with
+`Authorization: Bearer <key>` as an alternative to the cookie session,
+enforced in the same `requireSession` funnel every route already goes
+through. A key can be marked read-only, rejecting anything but
+GET/HEAD before it reaches a route handler. Revocation is immediate
+(checked on every request, not cached). PostgreSQL-only, like the other
+recent integrations (Telegram, the .ics feed): honest `503` in memory
+mode rather than a second, untested code path.
+
 ## Gaps — real, scoped, not yet done
 
 Ordered by how much it costs the product that it's missing, not by how
@@ -112,9 +125,6 @@ hard it is to build.
   full round-trip including the honest-failure path), but never against
   a real bot token or a real Telegram chat — nobody has created one to
   test with yet. Slack/Teams remain unbuilt.
-- **No public API surface for external integrators.** The whole REST
-  API is cookie-session auth; outbound webhooks exist and are signed,
-  but there is no API-key/OAuth path for a third party to call in.
 - **No structured data import** (CSV/Excel with deduplication and
   provenance tracking). Office files are *searchable* once uploaded as
   attachments; there is no bulk-import pipeline that creates records

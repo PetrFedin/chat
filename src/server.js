@@ -53,6 +53,8 @@ import { createTelegramBridgeRepository } from './integrations/telegram-bridge-r
 import { createTelegramHandler } from './http/telegram.js';
 import { createIcsFeedRepository } from './calendar/ics-feed-repository.js';
 import { createIcsFeedHandler } from './http/ics-feed.js';
+import { createApiKeyRepository } from './api-keys/api-key-repository.js';
+import { createApiKeysHandler } from './http/api-keys.js';
 import { createCalendarRepository } from './calendar/calendar-repository.js';
 import { createPeopleRepository } from './people/people-repository.js';
 import { createOrgRepository } from './org/org-repository.js';
@@ -173,6 +175,7 @@ export async function createChatServer(options={}){
   const knowledge=options.knowledge??createKnowledgeRepository(pool);
   const telegram=options.telegram??createTelegramBridgeRepository(pool,store);
   const icsFeed=options.icsFeed??createIcsFeedRepository(pool);
+  const apiKeys=options.apiKeys??createApiKeyRepository(pool);
   const personal=options.personal??createPersonalRepository(pool,store,labels);
   // Без базы работникам нечего делать, поэтому 'custom' глушит их жёстко.
   // В остальных случаях решение остаётся за переменными окружения: иначе
@@ -225,15 +228,31 @@ export async function createChatServer(options={}){
    * каждое обращение — то есть удвоение самой частой операции ради
    * проверки, которая должна быть дешёвой.
    */
+  const bearerToken=(req)=>{const header=req.headers['authorization'];if(!header)return null;const match=/^Bearer\s+(.+)$/i.exec(String(header).trim());return match?match[1]:null};
   const authenticate=async(req)=>{
     if(req.sessionResolved)return req.session??null;
     const token=cookieToken(req);
-    const session=token?await store.getSession(hashToken(token)):null;
+    let session=token?await store.getSession(hashToken(token)):null;
+    // Ключ проверяется только когда нет cookie: у вошедшего в браузере
+    // человека уже есть сессия, и лишний поход в таблицу ключей на
+    // каждый запрос — это работа впустую.
+    if(!session){
+      const bearer=bearerToken(req);
+      if(bearer)session=await apiKeys.resolve(bearer).catch(()=>null);
+    }
     req.sessionResolved=true;
     if(session)req.session=session;
     return session;
   };
-  const requireSession=async(req)=>{const s=await authenticate(req);if(!s)throw Object.assign(new Error('Authentication required'),{code:'UNAUTHENTICATED',statusCode:401});return s};
+  const requireSession=async(req)=>{
+    const s=await authenticate(req);
+    if(!s)throw Object.assign(new Error('Authentication required'),{code:'UNAUTHENTICATED',statusCode:401});
+    // Ключ «только чтение» не должен доходить до маршрута, который
+    // собирается что-то менять: отказ на входе честнее, чем маршрут,
+    // который сам решает, уважать ли чужой флаг.
+    if(s.readOnly&&!['GET','HEAD'].includes(req.method))throw Object.assign(new Error('Этот ключ доступен только для чтения'),{code:'API_KEY_READ_ONLY',statusCode:403,expose:true});
+    return s;
+  };
   const openSession=async(res,req,userId,workspaceId,status=200)=>{const token=createOpaqueToken(),tokenHash=hashToken(token),expiresAt=createSessionExpiry();await store.createSession({userId,workspaceId,tokenHash,expiresAt,userAgent:req.headers['user-agent']??null,ipAddress:clientAddress(req)});const s=await store.getSession(tokenHash);if(!s)throw Object.assign(new Error('Доступ к рабочему пространству закрыт. Если это ошибка, обратитесь к администратору компании.'),{code:'WORKSPACE_ACCESS_CLOSED',statusCode:401,expose:true});json(res,status,{session:{...s,permissions:visiblePermissions(s.role)},storageMode:mode,push,media:mediaProvider.status(),objectStorage:objectStore.status()},{'set-cookie':sessionCookie(token)})};
   /**
    * Единственная воронка push-уведомлений.
@@ -290,8 +309,8 @@ export async function createChatServer(options={}){
 
   if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.();mailWorker.start?.();digestMailer?.start?.();reminderWorker.start?.();retention.start?.()}
 
-  const ctx={store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,telegram,icsFeed,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleKnowledge=createKnowledgeHandler(),handleTelegram=createTelegramHandler(),handleIcsFeed=createIcsFeedHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const ctx={store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,telegram,icsFeed,apiKeys,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleKnowledge=createKnowledgeHandler(),handleTelegram=createTelegramHandler(),handleIcsFeed=createIcsFeedHandler(),handleApiKeys=createApiKeysHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{
     // Запись о запросе — то, чего в журнале не было вовсе: двадцать
@@ -439,6 +458,7 @@ export async function createChatServer(options={}){
     if(await handleCalls(req,res,ctx,path,method))return;
     if(await handleTelegram(req,res,ctx,url,path,method))return;
     if(await handleIcsFeed(req,res,ctx,path,method))return;
+    if(await handleApiKeys(req,res,ctx,path,method))return;
     if(await handleIntegrations(req,res,ctx,url,path,method))return;
     if(await handleOrg(req,res,ctx,url,path,method))return;
     if(await handleExport(req,res,ctx,url,path,method))return;
