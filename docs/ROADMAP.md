@@ -54,6 +54,19 @@ mandatory human confirmation, a cost-tracked processing queue with
 retry and cancel (both bounded/reasoned and audited) — but no dry-run
 rules engine sits on top of any of it yet (see Gaps).
 
+**Chat assistant**
+A "Conversation overview" button (recent thread → grounded summary plus
+short highlights) and a "Suggest a reply" button (up to three drafts
+for the last message) inside every conversation. Same discipline as
+Meeting Intelligence: the model is instructed not to invent facts,
+dates or commitments beyond what the fetched messages contain, and a
+suggested reply only fills the composer — it is never sent on the
+person's behalf. Reuses the same OpenAI Responses API integration
+(`OPENAI_API_KEY`/`OPENAI_BASE_URL`, structured JSON output) as meeting
+summaries, gated by its own `CHAT_ASSISTANT_PROVIDER` so it can be
+enabled independently; honest `503` with the real reason when it
+is not configured.
+
 **Search, files, personal tools**
 Full-text search in Russian (`to_tsvector('russian', …)`) across
 messages, tasks, files, people, calendar events and personal notes,

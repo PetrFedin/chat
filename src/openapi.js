@@ -22,7 +22,8 @@ export const openapi = Object.freeze({
     { name: 'Personal' },
     { name: 'Labels' },
     { name: 'Games' },
-    { name: 'API Keys' }
+    { name: 'API Keys' },
+    { name: 'Chat Assistant' }
   ],
   components: {
     securitySchemes: {
@@ -431,6 +432,12 @@ export const openapi = Object.freeze({
     },
     '/api/v1/api-keys/{id}': {
       delete: { tags: ['API Keys'], summary: 'Revoke an API key immediately', responses: { '200': { description: 'Revoked' }, '404': { description: 'Key not found' } } }
+    },
+    '/api/v1/conversations/{conversationId}/assistant/summarize': {
+      post: { tags: ['Chat Assistant'], summary: 'Summarize the recent thread of a conversation', description: 'Grounded only in the fetched messages; never invents facts. Returns a short paragraph plus optional highlights. Requires a configured CHAT_ASSISTANT_PROVIDER.', responses: { '200': { description: 'Summary' }, '400': { description: 'Nothing to summarize yet' }, '404': { description: 'Conversation not visible' }, '503': { description: 'Assistant not configured' } } }
+    },
+    '/api/v1/conversations/{conversationId}/assistant/suggest-replies': {
+      post: { tags: ['Chat Assistant'], summary: 'Draft up to three candidate replies to the last message', description: 'A suggestion only fills the composer — it is never sent on the person’s behalf. Grounded only in the fetched messages.', responses: { '200': { description: 'Reply drafts' }, '400': { description: 'Nothing to reply to yet' }, '404': { description: 'Conversation not visible' }, '503': { description: 'Assistant not configured' } } }
     }
   }
 });
