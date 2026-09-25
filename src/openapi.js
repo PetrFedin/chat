@@ -23,7 +23,8 @@ export const openapi = Object.freeze({
     { name: 'Labels' },
     { name: 'Games' },
     { name: 'API Keys' },
-    { name: 'Chat Assistant' }
+    { name: 'Chat Assistant' },
+    { name: 'Wiki' }
   ],
   components: {
     securitySchemes: {
@@ -438,6 +439,21 @@ export const openapi = Object.freeze({
     },
     '/api/v1/conversations/{conversationId}/assistant/suggest-replies': {
       post: { tags: ['Chat Assistant'], summary: 'Draft up to three candidate replies to the last message', description: 'A suggestion only fills the composer — it is never sent on the person’s behalf. Grounded only in the fetched messages.', responses: { '200': { description: 'Reply drafts' }, '400': { description: 'Nothing to reply to yet' }, '404': { description: 'Conversation not visible' }, '503': { description: 'Assistant not configured' } } }
+    },
+    '/api/v1/wiki/pages': {
+      get: { tags: ['Wiki'], summary: 'List child pages of a page, or top-level pages with no parentId', responses: { '200': { description: 'Page list' } } },
+      post: { tags: ['Wiki'], summary: 'Create a page, optionally under a parent', responses: { '201': { description: 'Page created at version 1' }, '404': { description: 'Parent page not found' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}': {
+      get: { tags: ['Wiki'], summary: 'Get a page with its content and immediate children', responses: { '200': { description: 'Page detail' }, '404': { description: 'Page not found' } } },
+      patch: { tags: ['Wiki'], summary: 'Edit title and/or content with optimistic concurrency', description: 'expectedVersion is required. A prior snapshot is written to page history in the same transaction before the edit is applied.', responses: { '200': { description: 'Updated page' }, '400': { description: 'expectedVersion missing or nothing to change' }, '404': { description: 'Page not found' }, '409': { description: 'Stale version — someone else edited it first' } } },
+      delete: { tags: ['Wiki'], summary: 'Archive a page (soft — history and direct links still work)', responses: { '200': { description: 'Archived' }, '404': { description: 'Page not found' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/history': {
+      get: { tags: ['Wiki'], summary: 'List prior snapshots of a page, newest first', responses: { '200': { description: 'Version history' } } }
+    },
+    '/api/v1/wiki/search': {
+      get: { tags: ['Wiki'], summary: 'Full-text search across non-archived pages', responses: { '200': { description: 'Matching pages with a highlighted snippet' } } }
     }
   }
 });

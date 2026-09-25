@@ -67,6 +67,22 @@ summaries, gated by its own `CHAT_ASSISTANT_PROVIDER` so it can be
 enabled independently; honest `503` with the real reason when it
 is not configured.
 
+**Wiki**
+A tree of shared pages (`wiki_pages`, unlimited parent/child nesting)
+that any staff member can create and edit — the opposite division of
+labour from the knowledge base, where one curator writes and the whole
+company reads. Editing is optimistic-concurrency protected the same
+way tasks and conversations are (`expectedVersion`, `409` on a stale
+save), and every edit writes the prior title/content into
+`wiki_page_versions` in the same transaction before applying the
+change, so a page's history can never drift from what was actually
+saved. Full-text search in Russian across titles and content
+(`to_tsvector('russian', …)`, `ts_headline` snippets), and archiving is
+soft — an archived page drops out of the tree and search but stays
+reachable by direct link and in history. PostgreSQL-only, like the
+other recent modules; a guest sees the section as simply not existing
+(`404`, not `403`), the same rule audit/vault/AI already follow.
+
 **Search, files, personal tools**
 Full-text search in Russian (`to_tsvector('russian', …)`) across
 messages, tasks, files, people, calendar events and personal notes,

@@ -51,7 +51,16 @@ export const Permission = Object.freeze({
    * стоит дороже, чем неверный тег на файле.
    */
   KNOWLEDGE_READ: 'knowledge.read',
-  KNOWLEDGE_MANAGE: 'knowledge.manage'
+  KNOWLEDGE_MANAGE: 'knowledge.manage',
+  /**
+   * Вики — наоборот базе знаний: не один куратор, а любой сотрудник.
+   *
+   * Регламент, план онбординга, заметки по проекту обычно пишет тот,
+   * кто ближе к делу, а не тот, кому доверено говорить от лица
+   * компании. Читать и писать здесь — одно и то же право: разделять их
+   * означало бы завести вторую базу знаний под другим именем.
+   */
+  WIKI_USE: 'wiki.use'
 });
 
 const all = new Set(Object.values(Permission));
@@ -80,7 +89,8 @@ export const ROLE_PERMISSIONS = Object.freeze({
     Permission.AI_USE,
     Permission.VAULT_USE,
     Permission.KNOWLEDGE_READ,
-    Permission.KNOWLEDGE_MANAGE
+    Permission.KNOWLEDGE_MANAGE,
+    Permission.WIKI_USE
   ]),
   member: new Set([
     Permission.MESSAGE_SEND,
@@ -92,7 +102,8 @@ export const ROLE_PERMISSIONS = Object.freeze({
     Permission.PUSH_SUBSCRIBE,
     Permission.KNOWLEDGE_READ,
     Permission.AI_USE,
-    Permission.VAULT_USE
+    Permission.VAULT_USE,
+    Permission.WIKI_USE
   ]),
   guest: new Set([
     Permission.MESSAGE_SEND,
@@ -134,6 +145,7 @@ const WHAT_FOR = {
   'org.structure.manage': 'Менять оргструктуру компании',
   'org.unit.private.create': 'Заводить закрытые подразделения',
   'knowledge.manage': 'Писать и править статьи базы знаний',
+  'wiki.use': 'Читать и писать страницы вики',
 };
 const WHO_CAN = {
   'member.invite': 'владелец, администратор или руководитель',
@@ -155,6 +167,7 @@ const WHO_CAN = {
   'channel.create': 'сотрудник компании, но не внешний участник',
   'org.structure.manage': 'владелец или администратор',
   'knowledge.manage': 'владелец, администратор или руководитель',
+  'wiki.use': 'сотрудник компании, но не внешний участник',
 };
 
 export function requirePermission(role, permission) {
