@@ -636,7 +636,7 @@ function countIn(key){
   return total>99?'99+':total;
 }
 
-function convRow(c){return `<button class="conversation-card pressable" data-open="${c.id}">${roomAvatar(c)}<span><strong>${esc(c.title||'Диалог')}</strong><div class="preview">${previewOf(c,c.lastMessage?esc(c.lastMessage.body||kindLabel(c.lastMessage.kind)):esc(c.purpose||''))}</div>${c.lastMessage||c.purpose?'':'<div class="preview preview-empty">Открыть разговор</div>'}</span><span class="time">${time(c.lastMessage?.createdAt)}</span></button>`}
+function convRow(c){return `<button class="conversation-card pressable" data-open="${c.id}">${roomAvatar(c)}<span><strong>${esc(c.title||'Диалог')}</strong><div class="preview">${previewOf(c,c.lastMessage?(c.lastMessage.body?escWithMentions(c.lastMessage.body):esc(kindLabel(c.lastMessage.kind))):esc(c.purpose||''))}</div>${c.lastMessage||c.purpose?'':'<div class="preview preview-empty">Открыть разговор</div>'}</span><span class="time">${time(c.lastMessage?.createdAt)}</span></button>`}
 const TASK_STATUS={proposed:'Ожидает принятия',accepted:'Принята',scheduled:'Запланирована',in_progress:'В работе',blocked:'Заблокирована',in_review:'На проверке',accepted_result:'Результат принят',closed:'Закрыта',rejected:'Отклонена',cancelled:'Отменена',deferred:'Отложена',clarify:'Нужно уточнение',inbox:'Входящая'};
 const TASK_EVENT={
   'commitment.created':'задача поставлена',
@@ -662,10 +662,11 @@ const taskDueSoon=(t)=>Boolean(t.promisedAt)&&!taskOverdue(t)
 function taskRow(t){
   const late=taskOverdue(t),soon=taskDueSoon(t);
   const when=t.promisedAt?esc(dateTime(t.promisedAt)):'без срока';
-  return `<button class="task-card pressable${late?' overdue':''}" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span class="${late?'task-late':soon?'task-soon':''}">${late?'просрочено — ':soon?'сегодня — ':''}${when}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div></span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`;
+  const labels=S.labelTargets?.get('task:'+t.id)||[];
+  return `<button class="task-card pressable${late?' overdue':''}" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span class="${late?'task-late':soon?'task-soon':''}">${late?'просрочено — ':soon?'сегодня — ':''}${when}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div>${labels.length?`<div class="chip-row msg-labels">${labels.map(labelChip).join('')}</div>`:''}</span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`;
 }
 function kindLabel(k){return({voice:'Голосовое сообщение',file:'Файл',call:'Звонок',task:'Задача',calendar:'Событие'})[k]||''}
-function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}">${roomAvatar(x)}<span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${previewOf(x,x.lastMessage?esc(x.lastMessage.body||kindLabel(x.lastMessage.kind)):'')}</div>${x.lastMessage?'':'<div class="preview preview-empty">Нет сообщений</div>'}</span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?'<span> · уведомления выключены</span>':''}</p></div></div><div class="inline-actions"><button data-action="audio" class="round-button pressable call-button" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable call-button" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="materials" class="round-button pressable" title="Материалы беседы" aria-label="Фото, видео, ссылки и переносы">${tileIcon.files}</button><button data-action="import" class="round-button pressable" title="Перенести из мессенджера" aria-label="Перенести переписку из WhatsApp или Telegram">⇥</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button>${guestShell()?'':`<button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button>`}<button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}</div></header><div id="message-stream" class="message-stream">${S.messageCursor.get(c.id)?'<button id="load-older" class="button secondary pressable" style="margin:0 auto 10px;display:block">Показать более ранние</button>':''}${messageStream(messages)}</div><div id="typing" class="typing"></div><div class="composer-wrap">${awayNotice(c)}${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${esc(S.reply.body||kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
+function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}">${roomAvatar(x)}<span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${previewOf(x,x.lastMessage?(x.lastMessage.body?escWithMentions(x.lastMessage.body):esc(kindLabel(x.lastMessage.kind))):'')}</div>${x.lastMessage?'':'<div class="preview preview-empty">Нет сообщений</div>'}</span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?'<span> · уведомления выключены</span>':''}</p></div></div><div class="inline-actions"><button data-action="audio" class="round-button pressable call-button" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable call-button" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="materials" class="round-button pressable" title="Материалы беседы" aria-label="Фото, видео, ссылки и переносы">${tileIcon.files}</button><button data-action="import" class="round-button pressable" title="Перенести из мессенджера" aria-label="Перенести переписку из WhatsApp или Telegram">⇥</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button>${guestShell()?'':`<button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button>`}<button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}</div></header><div id="message-stream" class="message-stream">${S.messageCursor.get(c.id)?'<button id="load-older" class="button secondary pressable" style="margin:0 auto 10px;display:block">Показать более ранние</button>':''}${messageStream(messages)}</div><div id="typing" class="typing"></div><div class="composer-wrap">${awayNotice(c)}${S.reply?`<div class="reply-preview visible"><span>Ответ на: ${S.reply.body?escWithMentions(S.reply.body):esc(kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><textarea id="message-input" rows="1" placeholder="Сообщение"></textarea><button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
 /**
  * Лента переписки.
  *
@@ -807,7 +808,7 @@ const TASK_TABS=[
   // принимающий видел одну строчку в колокольчике, уходившую вниз за
   // полдня.
   ['mine','Ждут меня'],
-  ['active','В работе'],
+  ['active','Открытые'],
   ['overdue','Просрочено'],
   ['proposed','Ждут ответа'],
   ['done','Сделано'],
@@ -1737,7 +1738,7 @@ async function labelPicker(targetType,targetId,{title='Метки',onChange}={})
       try{
         await toggleLabelOn(id,targetType,targetId,was);
         await loadLabelTargets();
-        if(S.view==='chats')render();
+        if(S.view==='chats'||S.view==='tasks')render();
         // Importance is exclusive, so one click can clear another chip: the
         // sheet is re-read rather than patched in place.
         replaceModal(()=>labelPicker(targetType,targetId,{title,onChange}));
@@ -1800,7 +1801,7 @@ function labelFormModal(existing,kind,after){
     <label>Цвет<select name="colour" class="field">${LABEL_COLOURS.map(([value,caption])=>
       `<option value="${value}" ${(existing?.colour??'neutral')===value?'selected':''}>${esc(caption)}</option>`).join('')}</select></label>
     ${existing?'':`<label class="row" style="cursor:pointer"><input type="checkbox" name="personal">
-      <span><div class="row-title">Личная метка</div><div class="row-sub">Видна только вам и не попадает в общий словарь компании</div></span></label>`}
+      <span><div class="section-title">Личная метка</div><div class="row-sub">Видна только вам и не попадает в общий словарь компании</div></span></label>`}
     <button class="button primary">${existing?'Сохранить':'Создать'}</button>
   </form>`,()=>{
     $('#label-form').onsubmit=async(event)=>{
@@ -3915,20 +3916,34 @@ async function loadMarks(){
  * подсветка не рисуется — лучше её отсутствие, чем цветное пятно
  * посреди чужой фразы.
  */
+/**
+ * Упоминание набирается как «@handle» — техническая часть почты, а не
+ * имя человека. Без замены на отображаемое имя переписка читалась как
+ * набор логинов: «@cancelui-yg7qwk» вместо «Иван Партнёр».
+ */
+const mentionHandleOf=(person)=>String(person.email||'').split('@')[0].replace(/[^\p{L}\p{N}._-]/gu,'').toLowerCase()||String(person.displayName||'').toLowerCase().replace(/\s+/g,'.');
+function escWithMentions(text){
+  const escaped=esc(text);
+  if(!S.people?.length)return escaped;
+  return escaped.replace(/@([\p{L}\p{N}._-]{1,40})/gu,(full,handle)=>{
+    const person=S.people.find(p=>mentionHandleOf(p)===handle.toLowerCase());
+    return person?`<span class="mention-chip">@${esc(person.displayName||person.email)}</span>`:full;
+  });
+}
 function bodyWithHighlights(m){
   const text=m.body||kindLabel(m.kind)||'';
   const marks=(S.highlights?.get(m.id)||[])
     .filter(h=>text.slice(h.startOffset,h.endOffset)===h.quote)
     .sort((a,b)=>a.startOffset-b.startOffset);
-  if(!marks.length)return esc(text);
+  if(!marks.length)return escWithMentions(text);
   let out='',cursor=0;
   for(const h of marks){
     if(h.startOffset<cursor)continue;
-    out+=esc(text.slice(cursor,h.startOffset));
-    out+=`<mark class="hl hl-${esc(h.colour)}" data-highlight="${esc(h.id)}" title="Выделено вами — нажмите, чтобы снять">${esc(text.slice(h.startOffset,h.endOffset))}</mark>`;
+    out+=escWithMentions(text.slice(cursor,h.startOffset));
+    out+=`<mark class="hl hl-${esc(h.colour)}" data-highlight="${esc(h.id)}" title="Выделено вами — нажмите, чтобы снять">${escWithMentions(text.slice(h.startOffset,h.endOffset))}</mark>`;
     cursor=h.endOffset;
   }
-  return out+esc(text.slice(cursor));
+  return out+escWithMentions(text.slice(cursor));
 }
 
 function messageMenu(messageId){
@@ -4369,7 +4384,7 @@ async function pinsModal(){
   const conversationId=S.selected;
   const draw=(items)=>{
     modal('Закреплённые сообщения',items.length?items.map(m=>`<div class="pin-row">
-      <button class="conversation-card" data-jump-message="${esc(m.id)}">${personAvatar(m.authorId,name(m.authorId))}<span><strong>${esc(name(m.authorId))}</strong><div class="preview">${esc(m.body||kindLabel(m.kind)||'Вложение')}</div></span><span class="time">${esc(time(m.createdAt))}</span></button>
+      <button class="conversation-card" data-jump-message="${esc(m.id)}">${personAvatar(m.authorId,name(m.authorId))}<span><strong>${esc(name(m.authorId))}</strong><div class="preview">${m.body?escWithMentions(m.body):esc(kindLabel(m.kind)||'Вложение')}</div></span><span class="time">${esc(time(m.createdAt))}</span></button>
       <button class="text-button danger" data-unpin="${esc(m.id)}">Открепить</button>
     </div>`).join(''):'<div class="empty">Закреплённых сообщений пока нет.</div>',()=>{
       $$('[data-jump-message]').forEach(b=>b.onclick=()=>{closeModal();document.querySelector(`[data-message-row="${b.dataset.jumpMessage}"]`)?.scrollIntoView({behavior:'smooth',block:'center'})});
