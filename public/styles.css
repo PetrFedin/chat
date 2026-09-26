@@ -293,6 +293,11 @@ button:active:not([disabled]):not(.game-cell):not(.sea-cell),
 /* Клетка доски не должна прыгать под пальцем: она отзывается заливкой. */
 .game-cell:active,.sea-cell:active{transition-duration:40ms;filter:brightness(1.35)}
 .button[disabled]:active,.text-button[disabled]:active{transform:none;opacity:.5}
+/* Раньше неактивная кнопка ничем не отличалась от обычной, пока по ней
+   не нажмут: клик тихо ничего не делал, а глазами это было не отличить
+   от «сломалось». Отключённая кнопка должна выглядеть отключённой
+   всегда, а не только в момент нажатия. */
+.button[disabled],.text-button[disabled],.chipbtn[disabled]{opacity:.5;cursor:not-allowed}
 
 /* Шкала радиусов: четыре ступени вместо полутора десятков значений. */
 .mini-button,.close-button,.msg-tool,.reaction-button,.button.small,.segment,

@@ -2126,16 +2126,34 @@ async function wikiModal(pageId=null){
             $('#confirm-wiki-archive').onclick=async()=>{
               try{
                 await api(`/api/v1/wiki/pages/${page.id}`,{method:'DELETE'});
+                // Прыжок на два уровня назад глотает свои popstate через
+                // unwinding, а с ними и resumeTop() — родительский список
+                // подстраниц иначе остаётся с уже неверными данными до
+                // следующего собственного действия. Зовём его сами.
                 const depth=2;overlayStack.splice(-depth);renderOverlay();unwinding+=depth;try{history.go(-depth)}catch{unwinding-=depth}
+                await resumeTop();
                 toast('Страница архивирована');
               }catch(error){toast(error.message)}
             };
           });
         });
-        $('#wiki-search-form')?.addEventListener('submit',async(event)=>{
-          event.preventDefault();
-          const q=new FormData(event.currentTarget).get('q');
+        // Форма без видимой кнопки отправки — раньше поиск ждал Enter,
+        // которого ничто на экране не обещало, и печатать в поле не делало
+        // вообще ничего. Теперь ищем по вводу, тем же приёмом (debounce),
+        // что и остальной поиск в приложении.
+        $('#wiki-search-form')?.addEventListener('submit',(event)=>event.preventDefault());
+        let wikiSearchTimer;
+        $('#wiki-search-form [name="q"]')?.addEventListener('input',(event)=>{
+          // currentTarget перестаёт существовать сразу после того, как
+          // событие отгремело: к моменту, когда сработает таймер, читать
+          // его — читать null. Значение берём сразу, пока элемент ещё жив.
+          const value=event.currentTarget.value;
+          clearTimeout(wikiSearchTimer);
+          wikiSearchTimer=setTimeout(()=>runWikiSearch(value),220);
+        });
+        const runWikiSearch=async(q)=>{
           const box=$('#wiki-search-results');
+          if(!box)return;
           if(!String(q||'').trim()){box.innerHTML='';return}
           box.innerHTML='<div class="empty">Ищем…</div>';
           try{
@@ -2145,7 +2163,7 @@ async function wikiModal(pageId=null){
               :'<div class="empty"><strong>Ничего не найдено</strong>Попробуйте другое слово.</div>';
             $$('[data-wiki-found]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiFound));
           }catch(error){toast(error.message)}
-        });
+        };
       },
     };
   };
@@ -2630,7 +2648,13 @@ function planScheduleModal(item,after){
 // The board is drawn here; every rule is the server's. A move is sent and the
 // position that comes back is the truth — this screen never decides what is
 // legal, which is why two people cannot disagree about a position.
-const GAME_NAME={chess:'Шахматы',checkers:'Шашки',battleship:'Морской бой'};
+// Заголовок партии — динамическая строка («Шахматы · Имя»), а заголовок
+// модалки вставляется как экранированный текст (esc()), а не HTML: там
+// не работает span-изоляция, на которой держится остальной перевод.
+// Название игры выбирается по языку прямо здесь, а не через словарь.
+const GAME_NAME_BY_LOCALE={ru:{chess:'Шахматы',checkers:'Шашки',battleship:'Морской бой'},en:{chess:'Chess',checkers:'Checkers',battleship:'Battleship'}};
+const GAME_NAME=GAME_NAME_BY_LOCALE.ru;
+const gameName=(kind)=>GAME_NAME_BY_LOCALE[locale()]?.[kind]??GAME_NAME_BY_LOCALE.ru[kind]??kind;
 const GAME_ICON={chess:'♞',checkers:'⛂',battleship:'⚓'};
 const CHESS_GLYPH={K:'♔',Q:'♕',R:'♖',B:'♗',N:'♘',P:'♙',k:'♚',q:'♛',r:'♜',b:'♝',n:'♞',p:'♟'};
 const GAME_RESULT={checkmate:'мат',stalemate:'пат',resigned:'партия сдана',draw:'ничья','no-pieces':'все фигуры побиты','no-moves':'ходов не осталось','fleet-destroyed':'флот потоплен','insufficient-material':'ничья: нечем матовать','fifty-move':'ничья по правилу 50 ходов'};
@@ -2675,7 +2699,7 @@ function gamesBody(items,conversationId){
       : g.yourTurn?'ваш ход':'ход соперника');
     return `<button class="row pressable" data-game="${esc(g.id)}">
       <span class="game-mark">${GAME_ICON[g.kind]||'●'}</span>
-      <span><div class="row-title">${esc(GAME_NAME[g.kind]||g.kind)} · ${esc(mine?name(opponent):`${name(g.challengerId)} и ${name(g.opponentId)}`)}</div><div class="row-sub">${esc(state)}</div></span>
+      <span><div class="row-title">${esc(gameName(g.kind))} · ${esc(mine?name(opponent):`${name(g.challengerId)} и ${name(g.opponentId)}`)}</div><div class="row-sub">${esc(state)}</div></span>
       ${g.yourTurn&&g.status==='active'&&mine?'<span class="chip warm">ваш ход</span>':waiting?'<span class="chip warm">ответьте</span>':'<span class="chip"></span>'}
     </button>`;
   };
@@ -2726,7 +2750,7 @@ async function gamePage(id){
     const opponent=game.challengerId===me().userId?game.opponentId:game.challengerId;
     const record=(played.items||[]);
     const recordBlock=record.length?`<div class="game-record"><div class="row-title">Ходы</div><ol class="game-moves">${record.slice(-16).map(mv=>`<li><span class="muted">${mv.ordinal}.</span> ${esc(mv.notation)} <span class="muted">— ${esc(mv.actorId===me().userId?'вы':name(mv.actorId))}</span></li>`).join('')}</ol>${record.length>16?`<div class="row-sub">Показаны последние 16 из ${record.length}.</div>`:''}</div>`:'';
-    const heading=`${GAME_NAME[game.kind]||game.kind} · ${name(opponent)}`;
+    const heading=`${gameName(game.kind)} · ${name(opponent)}`;
     const status=game.status==='finished'
       ? `<div class="game-status done">${game.winnerId?(game.winnerId===me().userId?'Вы выиграли':'Вы проиграли'):'Ничья'} — ${esc(GAME_RESULT[game.result]||game.result)}</div>`
       : game.status==='invited'
@@ -4977,13 +5001,19 @@ async function renderTaskTimeSlot(task){
   }
   const runningHere=current.entry&&current.entry.taskId===task.id;
   const runningElsewhere=current.entry&&current.entry.taskId!==task.id;
+  // entries.totalSeconds уже включает текущий бегущий интервал, посчитанный
+  // на момент этого запроса (listForTask сам оценивает running-строку как
+  // «сейчас минус старт»). Тикать поверх него — значит считать этот
+  // отрезок дважды: раз в total на момент фетча, второй раз в `live`
+  // каждую секунду. Складывать нужно с базой без бегущей строки.
+  const baseSeconds=entries.items.filter(e=>!e.running).reduce((sum,e)=>sum+e.durationSeconds,0);
   const draw=()=>{
     if(!document.body.contains(slot)){clearInterval(taskTimeTicker);return}
     const live=runningHere?Math.max(0,(Date.now()-new Date(current.entry.startedAt))/1000):0;
-    slot.innerHTML=`<div class="row-sub"><span>Всего:</span> <strong class="mono">${formatDuration(entries.totalSeconds+live)}</strong>${runningElsewhere?' · <span class="warn-text">Таймер идёт на другой задаче</span>':''}</div>
+    slot.innerHTML=`<div class="row-sub"><span>Всего:</span> <strong class="mono">${formatDuration(baseSeconds+live)}</strong>${runningElsewhere?' · <span class="warn-text">Таймер идёт на другой задаче</span>':''}</div>
       <div class="inline-actions" style="margin-top:8px">${runningHere
         ?`<button class="button danger small" data-time-stop>Остановить</button>`
-        :`<button class="button secondary small" data-time-start${runningElsewhere?' disabled':''}>Запустить таймер</button>`}</div>`;
+        :`<button class="button secondary small" data-time-start${runningElsewhere?' disabled title="Сначала остановите таймер на другой задаче"':''}>Запустить таймер</button>`}</div>`;
     $('[data-time-stop]')?.addEventListener('click',async()=>{
       try{await api(`/api/v1/time-entries/${current.entry.id}/stop`,{method:'POST'});toast('Таймер остановлен');await renderTaskTimeSlot(task)}
       catch(error){toast(error.message)}
