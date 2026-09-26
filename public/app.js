@@ -5602,11 +5602,28 @@ const BULK_STATUS={invited:'приглашён',already:'уже здесь',dupl
 
 function bulkInviteModal(){
   modal('Пригласить списком',`<form id="bulk-form" class="form-stack">
+    <label>Файл CSV из HR/Excel<input type="file" name="csvFile" accept=".csv,text/csv"></label>
     <label>Список сотрудников<textarea name="list" rows="8" required
-      placeholder="ivanov@granit.ru, руководитель, Отдел аналитики&#10;petrova@granit.ru, сотрудник, Снабжение&#10;sidorov@granit.ru"</textarea></label>
-    <p class="muted" style="margin:-4px 0 0;font-size:12px">По строке на человека: адрес, через запятую роль и подразделение. Роль — владелец, админ, руководитель, сотрудник или гость; нет роли — значит сотрудник. Подразделение по названию, как в схеме; в закрытое можно звать, только если вы в нём состоите. За раз до 200 строк.</p>
+      placeholder="ivanov@granit.ru, руководитель, Отдел аналитики&#10;petrova@granit.ru, сотрудник, Снабжение&#10;sidorov@granit.ru"></textarea></label>
+    <p class="muted" style="margin:-4px 0 0;font-size:12px">По строке на человека: адрес, через запятую роль и подразделение. Роль — владелец, админ, руководитель, сотрудник или гость; нет роли — значит сотрудник. Подразделение по названию, как в схеме; в закрытое можно звать, только если вы в нём состоите. За раз до 200 строк. <span>Файл CSV подставит строки в поле ниже — можно поправить перед отправкой.</span></p>
     <button class="button primary">Разослать приглашения</button>
   </form><div id="bulk-result"></div>`,()=>{
+    // Файл только подставляет текст в то же поле — человек видит, что
+    // на самом деле уйдёт на сервер, и может поправить строку до
+    // отправки, а не отправляет файл вслепую.
+    $('#bulk-form [name="csvFile"]').onchange=async(event)=>{
+      const file=event.currentTarget.files?.[0];
+      if(!file)return;
+      try{
+        const text=await file.text();
+        const lines=String(text||'').replace(/^﻿/,'').split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+        // Первая строка часто заголовок («email,role,department») —
+        // без слова с «@» это не человек, а подпись столбца.
+        const body=lines.length&&!lines[0].includes('@')?lines.slice(1):lines;
+        $('#bulk-form [name="list"]').value=body.join('\n');
+        toast(body.length?'Строки из файла подставлены — проверьте и отправьте':'В файле не нашлось ни одной строки с почтой');
+      }catch(error){toast('Не удалось прочитать файл')}
+    };
     $('#bulk-form').onsubmit=async(event)=>{
       event.preventDefault();
       const items=parseStaffList(new FormData(event.currentTarget).get('list'));
@@ -5615,7 +5632,7 @@ function bulkInviteModal(){
         const answer=await api('/api/v1/invitations/bulk',{method:'POST',body:JSON.stringify({items})});
         // Показываем построчно и в том же порядке: человек сверяет ответ
         // со своей таблицей глазами, а не ищет в ней адреса.
-        $('#bulk-result').innerHTML=`<h3 class="person-section">Разослано ${answer.invited} из ${answer.total}</h3>
+        $('#bulk-result').innerHTML=`<h3 class="person-section"><span>Разослано</span> ${answer.invited} <span>из</span> ${answer.total}</h3>
           <div class="person-feed">${answer.results.map(row=>`<div class="person-event">
             <span>${esc(row.email)}${row.unit?`<span class="row-sub">${esc(row.unit)}</span>`:''}</span>
             <span class="inline-actions">${row.foreignDomain?'<span class="chip warm">чужой домен</span>':''}<span class="chip ${row.status==='invited'?'good':row.status==='already'?'':'warm'}">${esc(BULK_STATUS[row.status]||row.status)}</span></span>

@@ -109,6 +109,19 @@ new `dailyTotals`) — a test asserts the numbers agree exactly with
 those two existing reports for the same range, so the three screens
 can't quietly drift apart.
 
+**Structured data import (CSV)**
+The bulk-invite screen ("Invite in bulk" under Invite) now accepts an
+actual `.csv` file exported from HR or Excel, not only hand-typed
+lines: the file is read client-side and fills the same reviewable
+textarea the paste flow already used, so nothing is sent unseen. This
+reuses the existing `/api/v1/invitations/bulk` endpoint and all its
+deduplication/provenance logic (per-row invited/duplicate/already-here/
+role-too-high/etc. status) unchanged — the gap was the file upload
+step, not the dedup logic, which already existed. Fixing this also
+turned up and fixed a pre-existing markup bug (an unclosed `<textarea>`
+tag) that had silently broken the whole bulk-invite form's rendering,
+plus several untranslated English-mode strings in the same screen.
+
 **Search, files, personal tools**
 Full-text search in Russian (`to_tsvector('russian', …)`) across
 messages, tasks, files, people, calendar events and personal notes,
@@ -180,10 +193,6 @@ hard it is to build.
   full round-trip including the honest-failure path), but never against
   a real bot token or a real Telegram chat — nobody has created one to
   test with yet. Slack/Teams remain unbuilt.
-- **No structured data import** (CSV/Excel with deduplication and
-  provenance tracking). Office files are *searchable* once uploaded as
-  attachments; there is no bulk-import pipeline that creates records
-  from rows.
 - **No automation/rules engine.** Meeting Intelligence proposes
   decisions and actions for a human to confirm; there is no dry-run
   rule ("when X, propose Y") layer above individual meetings, and no
