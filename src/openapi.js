@@ -25,7 +25,8 @@ export const openapi = Object.freeze({
     { name: 'API Keys' },
     { name: 'Chat Assistant' },
     { name: 'Wiki' },
-    { name: 'Time Tracking' }
+    { name: 'Time Tracking' },
+    { name: 'Dashboard' }
   ],
   components: {
     securitySchemes: {
@@ -470,6 +471,9 @@ export const openapi = Object.freeze({
     },
     '/api/v1/time-entries/report': {
       get: { tags: ['Time Tracking'], summary: 'Summed tracked time per person and task over a period', description: 'scope=team is honoured only for someone with task.manage.team; otherwise it silently falls back to the caller’s own entries.', responses: { '200': { description: 'Grouped totals' } } }
+    },
+    '/api/v1/dashboard': {
+      get: { tags: ['Dashboard'], summary: 'Daily trend for tasks (created/closed) and tracked time, plus the same totals as the task and time reports', description: 'Not a third source of truth: the totals are exactly task-report’s and time-entries-report’s own numbers, this endpoint only adds the day-by-day series a chart needs.', responses: { '200': { description: 'Range, scope, task totals+daily series, time daily series+total' } } }
     }
   }
 });

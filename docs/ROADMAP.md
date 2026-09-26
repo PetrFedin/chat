@@ -96,6 +96,19 @@ tracked seconds per task (and, for a team manager, per person too)
 over a week/month/year, with `scope=team` silently falling back to the
 caller's own hours for anyone without `task.manage.team`.
 
+**Dashboard**
+A "Dashboard" screen under More: KPI tiles (open, overdue, closed in
+period, promises kept %) plus two day-by-day charts (created vs.
+closed tasks, hours tracked), rendered as small dependency-free inline
+SVG bar charts. Deliberately not a third source of truth: `GET
+/api/v1/dashboard` computes its totals by calling the *same*
+`task-report.js`/`time-entry-repository.js` code the standalone Task
+report and Time report screens already use, and only adds the daily
+series a chart needs (`task-report`'s new `daily` field, `time-entry`'s
+new `dailyTotals`) — a test asserts the numbers agree exactly with
+those two existing reports for the same range, so the three screens
+can't quietly drift apart.
+
 **Search, files, personal tools**
 Full-text search in Russian (`to_tsvector('russian', …)`) across
 messages, tasks, files, people, calendar events and personal notes,

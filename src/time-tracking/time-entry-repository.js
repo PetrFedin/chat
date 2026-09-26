@@ -34,7 +34,7 @@ const withDuration = (row) => ({
 export function createTimeEntryRepository(pool) {
   if (!pool) {
     const stop = () => { throw fail('Тайм-трекинг работает только с базой данных PostgreSQL', 'TIME_TRACKING_UNAVAILABLE', 503); };
-    return { enabled: false, start: stop, stop, current: stop, listForTask: stop, report: stop };
+    return { enabled: false, start: stop, stop, current: stop, listForTask: stop, report: stop, dailyTotals: stop };
   }
 
   async function loadVisibleTask(session, taskId) {
@@ -117,6 +117,22 @@ export function createTimeEntryRepository(pool) {
         params,
       );
       return { items: rows, totalSeconds: rows.reduce((sum, r) => sum + Number(r.totalSeconds), 0) };
+    },
+
+    /** Дневной ряд трекнутого времени — материал для графика, не для таблицы. */
+    async dailyTotals(session, { from, to, scope = 'mine' } = {}) {
+      const wantsTeam = scope === 'team' && managesTeamTasks(session);
+      const params = [session.workspaceId, from, to];
+      const mine = wantsTeam ? '' : (params.push(session.userId), ` AND t.user_id=$${params.length}`);
+      const { rows } = await pool.query(
+        `WITH scoped AS (SELECT t.started_at,t.ended_at FROM time_entries t WHERE t.workspace_id=$1 AND t.ended_at IS NOT NULL${mine})
+         SELECT d::date "date", COALESCE(sum(extract(epoch FROM (LEAST(scoped.ended_at,d+interval '1 day')-GREATEST(scoped.started_at,d)))) FILTER (WHERE scoped.started_at<d+interval '1 day' AND scoped.ended_at>d),0)::bigint "totalSeconds"
+           FROM generate_series($2::date,$3::date,interval '1 day') d
+           LEFT JOIN scoped ON scoped.started_at<d+interval '1 day' AND scoped.ended_at>d
+          GROUP BY d ORDER BY d`,
+        params,
+      );
+      return rows.map((row) => ({ date: row.date, totalSeconds: Number(row.totalSeconds) }));
     },
   };
 }

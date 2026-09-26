@@ -68,7 +68,7 @@ export function createTaskReport(pool) {
         ` AND ($${teamAt} OR ${alias}.owner_id=$${userAt} OR ${alias}.requester_id=$${userAt} OR ${alias}.acceptor_id=$${userAt})`;
       const mine = onlyMine(5, 6);
 
-      const [totals, people, stuck, pairs] = await Promise.all([
+      const [totals, people, stuck, pairs, daily] = await Promise.all([
         pool.query(
           `SELECT
              count(*) FILTER (WHERE c.created_at BETWEEN $2 AND $3)::int created,
@@ -152,6 +152,23 @@ export function createTaskReport(pool) {
               AND c.requester_id <> c.owner_id
             GROUP BY c.requester_id, c.owner_id, rp.display_name, ru.email, op.display_name, ou.email
             ORDER BY n DESC LIMIT 10`, dated),
+
+        // Дневной ряд для графика: не «сколько всего», а «как менялось».
+        // Число само по себе не говорит, был ли завал вчера или он копится
+        // третью неделю — это видно только на ряде по дням.
+        //
+        // Свой набор параметров: $4 (набор активных статусов) в этом
+        // запросе не звучит нигде, а Postgres отказывается готовить
+        // запрос, если тип параметра не выводится ни из одного его
+        // употребления, — тот же приём, что и с dated/plain выше.
+        pool.query(
+          `WITH scoped AS (SELECT c.created_at,c.closed_at,c.status FROM commitments c WHERE c.workspace_id=$1${onlyMine(4,5)})
+           SELECT d::date "date",
+                  count(*) FILTER (WHERE scoped.created_at::date=d)::int created,
+                  count(*) FILTER (WHERE scoped.closed_at::date=d AND scoped.status IN('closed','accepted_result'))::int closed
+             FROM generate_series($2::date,$3::date,interval '1 day') d
+             LEFT JOIN scoped ON scoped.created_at::date=d OR scoped.closed_at::date=d
+            GROUP BY d ORDER BY d`, [session.workspaceId, range.from, range.to, session.userId, wholeTeam]),
       ]);
 
       const t = totals.rows[0] ?? {};
@@ -204,6 +221,7 @@ export function createTaskReport(pool) {
           ownerName: row.ownerName,
           count: number(row.n),
         })),
+        daily: daily.rows.map((row) => ({ date: row.date, created: number(row.created), closed: number(row.closed) })),
       };
     },
   };
