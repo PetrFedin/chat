@@ -2133,9 +2133,11 @@ async function wikiModal(pageId=null){
                 // может разойтись с тем, сколько popstate браузер реально
                 // пришлёт, и тогда следующий клик «‹»/«×» ведёт не туда. Два
                 // настоящих history.back() — это два настоящих popstate,
-                // каждый с собственным штатным resumeTop().
+                // каждый с собственным штатным resumeTop(). Второй back()
+                // ждёт реального popstate от первого, а не setTimeout(0) —
+                // порядок между навигацией и таймером ничем не гарантирован.
+                window.addEventListener('popstate',()=>history.back(),{once:true});
                 history.back();
-                setTimeout(()=>history.back(),0);
               }catch(error){toast(error.message)}
             };
           });
