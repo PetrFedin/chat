@@ -702,7 +702,7 @@ const fileSize=(bytes)=>{
   if(bytes<1024*1024)return `${Math.round(bytes/1024)} КБ`;
   return `${(bytes/1048576).toFixed(1)} МБ`;
 };
-const fileMeta=(meta)=>[fileSize(meta?.size),filePreviewable(meta)?'открыть':'скачать'].filter(Boolean).join(' · ');
+const fileMeta=(meta)=>[esc(fileSize(meta?.size)),`<span>${filePreviewable(meta)?'открыть':'скачать'}</span>`].filter(Boolean).join(' · ');
 
 function dayLabel(value){
   const d=new Date(value), now=new Date();
@@ -766,7 +766,7 @@ function message(m,grouped=false){
     :m.kind==='file'?`<a class="voice-card file-card" href="${esc(fileHref(m.metadata))}"${filePreviewable(m.metadata)?' target="_blank" rel="noopener"':' download'} title="${filePreviewable(m.metadata)?'Открыть':'Скачать'}">
       <span class="file-mark" aria-hidden="true">${tileIcon.files}</span>
       <span><strong>${esc(m.metadata?.name||'Файл')}</strong>
-        <span class="row-sub">${esc(fileMeta(m.metadata))}</span></span>
+        <span class="row-sub">${fileMeta(m.metadata)}</span></span>
     </a>`
     :`<p class="message-body">${bodyWithHighlights(m)}</p>`;
   const notes=(S.notes?.get(m.id)||[]);
@@ -4499,13 +4499,12 @@ async function decisionsModal(query=''){
   try{items=(await api(`/api/v1/meetings/decisions${query?`?q=${encodeURIComponent(query)}`:''}`)).items||[]}
   catch(error){failed=ERROR_MESSAGE[error.code]||error.message}
 
-  modal('Решения',`
+  modal('Решения',failed?`<div class="empty"><strong>Решения недоступны</strong>${esc(failed)}</div>`:`
     <p class="muted">Только принятые решения со встреч, где вы были. Предложенное — ещё не решение, отклонённое им не стало.</p>
     <form id="decisions-search" class="form-stack">
       <label>Найти<input name="q" value="${esc(query)}" placeholder="Например: СГ-114"></label>
     </form>
-    ${failed?`<div class="empty"><strong>Решения недоступны</strong>${esc(failed)}</div>`
-      :items.length?items.map(d=>`<div class="row">
+    ${items.length?items.map(d=>`<div class="row">
         <span><div class="row-title">${esc(d.title)}</div>
           ${d.body?`<div class="row-sub">${esc(d.body)}</div>`:''}
           <div class="row-sub">${esc(dateTime(d.acceptedAt))}${d.acceptedByName?` · записал(а) ${esc(d.acceptedByName)}`:''}${
@@ -4514,6 +4513,7 @@ async function decisionsModal(query=''){
       </div>`).join('')
       :`<p class="muted">${query?'По этому слову решений нет.':'Принятых решений пока нет. Они появляются, когда на разборе встречи отмечают «Зафиксировать».'}</p>`}
   `,()=>{
+    if(failed)return;
     const form=$('#decisions-search');
     form.onsubmit=(event)=>{event.preventDefault();closeModal();decisionsModal(new FormData(form).get('q')||'')};
     $$('[data-decision-room]').forEach(button=>button.onclick=()=>openChatFromSheet(button.dataset.decisionRoom));
@@ -4539,7 +4539,7 @@ async function storiesModal(tab='live'){
       </div>
     </div></div>`;
 
-  modal('Сторис',`
+  modal('Сторис',failed?`<div class="empty"><strong>Сторис недоступны</strong>${esc(failed)}</div>`:`
     <div class="chip-row">
       <button class="chipbtn pressable${tab==='live'?' active':''}" data-story-tab="live">Сейчас</button>
       <button class="chipbtn pressable${tab==='archive'?' active':''}" data-story-tab="archive">Мой архив</button>
@@ -4549,10 +4549,10 @@ async function storiesModal(tab='live'){
       <label>Подпись<input name="caption" maxlength="300" placeholder="Залили плиту на СГ-114"></label>
       <button class="button primary pressable" type="submit">Опубликовать на сутки</button>
     </form>
-    ${failed?`<div class="empty"><strong>Сторис недоступны</strong>${esc(failed)}</div>`
-      :items.length?`<div class="story-grid">${items.map(card).join('')}</div>`
+    ${items.length?`<div class="story-grid">${items.map(card).join('')}</div>`
       :`<p class="muted">${tab==='live'?'Сейчас никто ничего не показывает.':'Вы пока ничего не публиковали. Снятое остаётся здесь и после того, как сторис погасла.'}</p>`}
   `,()=>{
+    if(failed)return;
     $$('[data-story-tab]').forEach(button=>button.onclick=()=>{closeModal();storiesModal(button.dataset.storyTab)});
     $$('[data-story-remove]').forEach(button=>button.onclick=async()=>{
       button.disabled=true;
@@ -4618,7 +4618,7 @@ async function materialsModal(kind='all',conversationId=S.selected){
       ?`<span class="chip warm">из ${esc(SOURCE_WORD[m.externalOrigin.source]||'мессенджера')}${m.externalOrigin.authorName?` · ${esc(m.externalOrigin.authorName)}`:''}</span>`
       :m.forwardedInside?'<span class="chip">переслано внутри</span>':'';
     const what=m.fileId
-      ?`<a href="/api/v1/files/${esc(m.fileId)}/content">${esc(m.fileName||'файл')}</a> <span class="row-sub">${esc(fileMeta({mimeType:m.mimeType,size:m.sizeBytes}))}</span>`
+      ?`<a href="/api/v1/files/${esc(m.fileId)}/content">${esc(m.fileName||'файл')}</a> <span class="row-sub">${fileMeta({mimeType:m.mimeType,size:m.sizeBytes})}</span>`
       :esc((m.body||kindLabel(m.kind)||'').slice(0,200));
     return `<button type="button" class="row pressable" data-material="${esc(m.id)}">
       <span><div class="row-title">${what}</div>
