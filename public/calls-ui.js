@@ -285,6 +285,12 @@
       // провайдер связи не настроен) — не бросаем запись «идёт вызов»
       // висеть навсегда без единого участника.
       if (created?.call?.id) await api(`/api/v1/calls/${created.call.id}/end`, { method:'POST', body:'{}' }).catch(() => {});
+      // connectCall может успеть открыть оверлей и создать room до того,
+      // как оборвётся сама попытка подключения — не оставляем их висеть:
+      // иначе следующий вызов молча блокируется проверкой state.room.
+      try { await state.room?.disconnect(); } catch {}
+      document.querySelector('.call-overlay')?.remove();
+      state.room = null; state.call = null;
       throw error;
     } finally { state.joining = false; }
   }
