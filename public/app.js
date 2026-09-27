@@ -2126,13 +2126,16 @@ async function wikiModal(pageId=null){
             $('#confirm-wiki-archive').onclick=async()=>{
               try{
                 await api(`/api/v1/wiki/pages/${page.id}`,{method:'DELETE'});
-                // Прыжок на два уровня назад глотает свои popstate через
-                // unwinding, а с ними и resumeTop() — родительский список
-                // подстраниц иначе остаётся с уже неверными данными до
-                // следующего собственного действия. Зовём его сами.
-                const depth=2;overlayStack.splice(-depth);renderOverlay();unwinding+=depth;try{history.go(-depth)}catch{unwinding-=depth}
-                await resumeTop();
                 toast('Страница архивирована');
+                // Два обычных «назад» вместо прыжка через overlayStack.splice
+                // и глушения popstate счётчиком unwinding: тот приём экономит
+                // один кадр отрисовки, но при частых действиях подряд счётчик
+                // может разойтись с тем, сколько popstate браузер реально
+                // пришлёт, и тогда следующий клик «‹»/«×» ведёт не туда. Два
+                // настоящих history.back() — это два настоящих popstate,
+                // каждый с собственным штатным resumeTop().
+                history.back();
+                setTimeout(()=>history.back(),0);
               }catch(error){toast(error.message)}
             };
           });
@@ -2256,9 +2259,13 @@ function barChartSvg(rows,keys,{width=320,height=64,colors=['var(--warm)','var(-
   rows.forEach((row,i)=>{
     keys.forEach((k,ki)=>{
       const v=Number(row[k]||0);
-      const h=v>0?Math.max(2,(v/max)*(height-4)):0;
+      // Нулевой день рисуется тоже — тонкой чертой у нуля, а не пустым
+      // местом. Без неё график с активностью в один день из тридцати
+      // выглядел как ничего не отрисовавшийся, а не как «в остальные дни
+      // было тихо»: не отличить одно от другого, если не видно оси.
+      const h=v>0?Math.max(2,(v/max)*(height-4)):1;
       const x=i*groupW+gap+ki*(barW+gap);
-      bars+=`<rect x="${x.toFixed(1)}" y="${(height-h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${colors[ki]}"><title>${esc(String(row.date||''))}: ${esc(String(v))}</title></rect>`;
+      bars+=`<rect x="${x.toFixed(1)}" y="${(height-h).toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="1.5" fill="${colors[ki]}" opacity="${v>0?'1':'.25'}"><title>${esc(String(row.date||''))}: ${esc(String(v))}</title></rect>`;
     });
   });
   return `<svg viewBox="0 0 ${width} ${height}" width="100%" height="${height}" preserveAspectRatio="none">${bars}</svg>`;
@@ -2687,9 +2694,11 @@ function gamesBody(items,conversationId){
     const opponent=g.challengerId===me().userId?g.opponentId:g.challengerId;
     const waiting=g.status==='invited'&&g.opponentId===me().userId;
     const finished=g.status==='finished'
-      ? (mine
-          ? `${g.winnerId?(g.winnerId===me().userId?'вы выиграли':'вы проиграли'):'ничья'} · ${GAME_RESULT[g.result]||g.result}`
-          : `${g.winnerId?`выиграл(а) ${name(g.winnerId)}`:'ничья'} · ${GAME_RESULT[g.result]||g.result}`)
+      ? (g.result==='invite_cancelled'
+          ? `<span>приглашение отменено</span>`
+          : mine
+            ? `<span>${g.winnerId?(g.winnerId===me().userId?'вы выиграли':'вы проиграли'):'ничья'}</span> · <span>${esc(GAME_RESULT[g.result]||g.result)}</span>`
+            : `${g.winnerId?`<span>выиграл(а)</span> ${esc(name(g.winnerId))}`:'<span>ничья</span>'} · <span>${esc(GAME_RESULT[g.result]||g.result)}</span>`)
       : null;
     const state=finished
       ?? (g.status==='declined'?(mine&&g.challengerId===me().userId?'соперник отказался':'вы отказались')
@@ -2699,7 +2708,7 @@ function gamesBody(items,conversationId){
       : g.yourTurn?'ваш ход':'ход соперника');
     return `<button class="row pressable" data-game="${esc(g.id)}">
       <span class="game-mark">${GAME_ICON[g.kind]||'●'}</span>
-      <span><div class="row-title">${esc(gameName(g.kind))} · ${esc(mine?name(opponent):`${name(g.challengerId)} и ${name(g.opponentId)}`)}</div><div class="row-sub">${esc(state)}</div></span>
+      <span><div class="row-title"><span data-game-kind="${esc(g.kind)}">${esc(gameName(g.kind))}</span> · ${esc(mine?name(opponent):`${name(g.challengerId)} и ${name(g.opponentId)}`)}</div><div class="row-sub">${state}</div></span>
       ${g.yourTurn&&g.status==='active'&&mine?'<span class="chip warm">ваш ход</span>':waiting?'<span class="chip warm">ответьте</span>':'<span class="chip"></span>'}
     </button>`;
   };
@@ -2752,10 +2761,12 @@ async function gamePage(id){
     const recordBlock=record.length?`<div class="game-record"><div class="row-title">Ходы</div><ol class="game-moves">${record.slice(-16).map(mv=>`<li><span class="muted">${mv.ordinal}.</span> ${esc(mv.notation)} <span class="muted">— ${esc(mv.actorId===me().userId?'вы':name(mv.actorId))}</span></li>`).join('')}</ol>${record.length>16?`<div class="row-sub">Показаны последние 16 из ${record.length}.</div>`:''}</div>`:'';
     const heading=`${gameName(game.kind)} · ${name(opponent)}`;
     const status=game.status==='finished'
-      ? `<div class="game-status done">${game.winnerId?(game.winnerId===me().userId?'Вы выиграли':'Вы проиграли'):'Ничья'} — ${esc(GAME_RESULT[game.result]||game.result)}</div>`
+      ? (game.result==='invite_cancelled'
+        ? `<div class="game-status"><span>Приглашение отменено</span></div>`
+        : `<div class="game-status done"><span>${game.winnerId?(game.winnerId===me().userId?'Вы выиграли':'Вы проиграли'):'Ничья'}</span> — <span>${esc(GAME_RESULT[game.result]||game.result)}</span></div>`)
       : game.status==='invited'
-        ? `<div class="game-status">${game.opponentId===me().userId?'Вас зовут сыграть':'Ждём ответа соперника'}</div>`
-        : `<div class="game-status${game.yourTurn?' yours':''}">${game.yourTurn?'Ваш ход':'Ход соперника'}</div>`;
+        ? `<div class="game-status"><span>${game.opponentId===me().userId?'Вас зовут сыграть':'Ждём ответа соперника'}</span></div>`
+        : `<div class="game-status${game.yourTurn?' yours':''}"><span>${game.yourTurn?'Ваш ход':'Ход соперника'}</span></div>`;
 
     const board=game.status==='invited'?'' :
       game.kind==='battleship'?battleshipBoards(game):squareBoard(game);
@@ -2765,6 +2776,11 @@ async function gamePage(id){
       actions.push('<button data-accept class="button primary">Играть</button>');
       actions.push('<button data-decline class="button secondary">Отказаться</button>');
     }
+    // Позвавший ждал ответа и не мог ничего сделать с приглашением,
+    // кроме как ждать: ни отменить, ни отозвать. Та же кнопка «сдаться»
+    // технически закрывает и неотвеченное приглашение — только с другой
+    // подписью и последствием, которые человек здесь и увидит.
+    if(game.status==='invited'&&game.challengerId===me().userId)actions.push('<button data-cancel-invite class="button secondary">Отменить приглашение</button>');
     if(game.status==='active')actions.push('<button data-resign class="button danger">Сдаться</button>');
     if(game.kind==='battleship'&&game.status==='active'&&game.state.phase==='placing'&&!game.state.myFleet.length){
       actions.unshift('<button data-fleet class="button primary">Расставить корабли</button>');
@@ -2774,6 +2790,14 @@ async function gamePage(id){
       <div class="stack" style="margin-top:14px">${actions.join('')}</div>`,after:()=>{
       $('[data-accept]')?.addEventListener('click',()=>respondGame(id,true,refresh));
       $('[data-decline]')?.addEventListener('click',()=>respondGame(id,false,refresh));
+      $('[data-cancel-invite]')?.addEventListener('click',()=>{
+        modal('Отменить приглашение?','<p class="muted">Соперник больше не увидит это приглашение.</p><button id="confirm-cancel-invite" class="button danger" style="width:100%">Отменить приглашение</button>',()=>{
+          $('#confirm-cancel-invite').onclick=async()=>{
+            try{await api(`/api/v1/games/${id}/resign`,{method:'POST'});toast('Приглашение отменено');history.back();setTimeout(refresh,300)}
+            catch(error){toast(error.message)}
+          };
+        });
+      });
       $('[data-resign]')?.addEventListener('click',()=>{
         modal('Сдаться?','<p class="muted">Партия завершится, победа засчитается сопернику.</p><button id="confirm-resign" class="button danger" style="width:100%">Сдаюсь</button>',()=>{
           $('#confirm-resign').onclick=async()=>{
@@ -4821,6 +4845,15 @@ async function resumeTop(){
     renderOverlay();
   }catch(error){toast(error.message)}
 }
+// Название игры — не пара «русский текст → словарь», а прямой выбор по
+// языку (gameName()), потому что стоит внутри .row-title, который
+// словарь и его MutationObserver нарочно не трогают (там обычно имя
+// человека, а не системная надпись). За это приходится расплачиваться
+// самим: переключение языка, пока список открыт, не подхватывает его
+// само собой — обновляем эти несколько элементов вручную.
+window.addEventListener('chat:localechange',()=>{
+  $$('[data-game-kind]').forEach(node=>{node.textContent=gameName(node.dataset.gameKind)});
+});
 window.addEventListener('popstate',()=>{
   if(unwinding>0){unwinding-=1;return}
   if(overlayStack.length){overlayStack.pop();renderOverlay();resumeTop();return}

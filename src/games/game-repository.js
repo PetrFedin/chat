@@ -278,12 +278,24 @@ export function createGameRepository(pool, store = null) {
       return view({ ...row, state: played.state, turnUserId: played.state.turn, version: row.version + 1 }, session.userId);
     },
 
-    /** Giving up is a legitimate move and is recorded as one. */
+    /**
+     * Giving up is a legitimate move and is recorded as one — but only
+     * once there is a match to give up. Withdrawing an invitation nobody
+     * has answered yet is a different thing: nobody has played a single
+     * move, so crediting the other side with a win (the same table row
+     * an actual resignation produces) would score a match that never
+     * started. No winner, no loser, just withdrawn.
+     */
     async resign(session, id) {
       return this.tx(async (client) => {
         const row = await loadRow(client, session, id);
         assertPlayer(row, session);
         if (!['invited', 'active'].includes(row.status)) throw fail('This game is already over', 'WRONG_STATUS', 409);
+        if (row.status === 'invited') {
+          if (row.challengerId !== session.userId) throw fail('Only the person who sent the invitation can cancel it', 'NOT_CHALLENGER', 403);
+          await finish(client, session, row, { winnerId: null, result: 'invite_cancelled' });
+          return view({ ...row, status: 'finished', turnUserId: null, winnerId: null, result: 'invite_cancelled', version: row.version + 1 }, session.userId);
+        }
         const winnerId = row.challengerId === session.userId ? row.opponentId : row.challengerId;
         await finish(client, session, row, { winnerId, result: 'resigned' });
         return view({ ...row, status: 'finished', turnUserId: null, winnerId, result: 'resigned', version: row.version + 1 }, session.userId);
