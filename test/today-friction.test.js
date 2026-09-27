@@ -25,7 +25,7 @@ test('просрочка видна в строке задачи', () => {
   assert.equal(fn.taskDueSoon({ promisedAt: new Date(Date.now() + 3600e3).toISOString(), status: 'accepted' }), true);
   assert.equal(fn.taskDueSoon({ promisedAt: new Date(Date.now() - day).toISOString(), status: 'accepted' }), false);
 
-  assert.match(app, /просрочено — /, 'слово «просрочено» снова исчезло из интерфейса');
+  assert.match(app, /просрочено<\/span> — /, 'слово «просрочено» снова исчезло из интерфейса');
   assert.match(app, /class="task-card pressable\$\{late\?' overdue':''\}/);
 });
 

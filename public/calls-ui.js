@@ -274,11 +274,18 @@
       || document.querySelector('.sidebar-row.active[data-conversation]')?.dataset.conversation;
     if (!selected) throw new Error('Сначала откройте диалог или канал');
     state.joining = true;
+    let created;
     try {
-      const created = await api(`/api/v1/conversations/${selected}/calls`, { method:'POST', body:JSON.stringify({ mode }) });
+      created = await api(`/api/v1/conversations/${selected}/calls`, { method:'POST', body:JSON.stringify({ mode }) });
       const joined = await api(`/api/v1/calls/${created.call.id}/join`, { method:'POST', body:'{}' });
       await connectCall(joined.call, joined.credentials);
       history.replaceState(null, '', `/#/calls/${joined.call.id}`);
+    } catch (error) {
+      // Дошли до создания звонка, но не смогли подключиться (например,
+      // провайдер связи не настроен) — не бросаем запись «идёт вызов»
+      // висеть навсегда без единого участника.
+      if (created?.call?.id) await api(`/api/v1/calls/${created.call.id}/end`, { method:'POST', body:'{}' }).catch(() => {});
+      throw error;
     } finally { state.joining = false; }
   }
 
