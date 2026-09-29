@@ -1596,7 +1596,7 @@ async function unitSheet(unit,{wide,units}){
       }catch(error){toast(error.message)}
     });
     if(wide)$('[data-delete]').onclick=()=>{
-      modal(`Удалить «${unit.name}»?`,`<p class="muted">Подразделение с вложенными в него удалить нельзя — сначала перенесите или удалите их. Сотрудники останутся в компании.</p>
+      modal(T(`Удалить «${unit.name}»?`,`Delete "${unit.name}"?`),`<p class="muted">Подразделение с вложенными в него удалить нельзя — сначала перенесите или удалите их. Сотрудники останутся в компании.</p>
         <button id="confirm-unit-delete" class="button danger" style="width:100%">Удалить</button>`,()=>{
         $('#confirm-unit-delete').onclick=async()=>{
           try{await api(`/api/v1/org/units/${unit.id}`,{method:'DELETE'});toast('Подразделение удалено');orgModal()}
@@ -1789,7 +1789,7 @@ async function labelsModal(){
     $$('[data-drop-label]').forEach(b=>b.onclick=async()=>{
       const label=S.labels.find(l=>l.id===b.dataset.dropLabel);
       if(!label)return;
-      modal(`Удалить «${label.name}»?`,`<p class="muted">Метка снимется со всех объектов, на которых стоит. Сами объекты останутся.</p>
+      modal(T(`Удалить «${label.name}»?`,`Delete "${label.name}"?`),`<p class="muted">Метка снимется со всех объектов, на которых стоит. Сами объекты останутся.</p>
         <button id="confirm-label-delete" class="button danger" style="width:100%">Удалить метку</button>`,()=>{
         $('#confirm-label-delete').onclick=async()=>{
           try{
@@ -1933,7 +1933,7 @@ async function vaultModal(){
         $$('[data-vault-edit]').forEach(b=>b.onclick=()=>vaultFormModal(items.find(x=>x.id===b.dataset.vaultEdit),refresh));
         $$('[data-vault-delete]').forEach(b=>b.onclick=()=>{
           const entry=items.find(x=>x.id===b.dataset.vaultDelete);
-          modal(`Удалить «${entry?.title??'запись'}»?`,`<p class="muted">Пароль пропадёт безвозвратно: расшифровать его потом будет нечем.</p>
+          modal(T(`Удалить «${entry?.title??'запись'}»?`,`Delete "${entry?.title??'entry'}"?`),`<p class="muted">Пароль пропадёт безвозвратно: расшифровать его потом будет нечем.</p>
             <button id="confirm-vault-delete" class="button danger" style="width:100%">Удалить</button>`,()=>{
             $('#confirm-vault-delete').onclick=async()=>{
               try{await api(`/api/v1/vault/${b.dataset.vaultDelete}`,{method:'DELETE'});history.back();setTimeout(refresh,250);toast('Запись удалена')}
@@ -2058,7 +2058,7 @@ async function knowledgeArticleModal(article,after){
   ()=>{
     $('[data-kb-edit]')?.addEventListener('click',()=>knowledgeFormModal(article,after));
     $('[data-kb-delete]')?.addEventListener('click',()=>{
-      modal(`Удалить «${article.title}»?`,`<p class="muted">Статья пропадёт безвозвратно.</p><button id="confirm-kb-delete" class="button danger" style="width:100%">Удалить</button>`,()=>{
+      modal(T(`Удалить «${article.title}»?`,`Delete "${article.title}"?`),`<p class="muted">Статья пропадёт безвозвратно.</p><button id="confirm-kb-delete" class="button danger" style="width:100%">Удалить</button>`,()=>{
         $('#confirm-kb-delete').onclick=async()=>{
           try{
             await api(`/api/v1/knowledge/${article.id}`,{method:'DELETE'});
@@ -2075,7 +2075,7 @@ async function knowledgeArticleModal(article,after){
 }
 function knowledgeFormModal(article,after){
   const editing=Boolean(article);
-  modal(editing?'Изменить статью':'Новая статья',`<form id="kb-form" class="form-stack">
+  modal(editing?T('Изменить статью','Edit article'):T('Новая статья','New article'),`<form id="kb-form" class="form-stack">
     <label>Заголовок<input name="title" maxlength="200" required value="${esc(article?.title??'')}" placeholder="Например: Отпуск"></label>
     <label>Категория<input name="category" maxlength="100" value="${esc(article?.category??'')}" placeholder="HR"></label>
     <label>Текст статьи<textarea name="body" rows="10" required placeholder="Ответ, который увидит сотрудник и найдёт HR-бот">${esc(article?.body??'')}</textarea></label>
