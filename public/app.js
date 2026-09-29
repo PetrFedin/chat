@@ -488,6 +488,12 @@ function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','ca
  */
 /** Какой язык выбран сейчас. Русский — умолчание. */
 const locale=()=>window.ChatPreferences?.locale==='en'?'en':'ru';
+/**
+ * Для строк, которые словарь-наблюдатель не достанет — модальный
+ * заголовок вставляется как текст, а не HTML, поэтому <span>-изоляция
+ * там не работает (см. gameName выше для того же приёма).
+ */
+const T=(ru,en)=>locale()==='en'?en:ru;
 
 /**
  * Короткие названия дней для месячной сетки.
@@ -3464,7 +3470,7 @@ async function reportModal(){
     const from=new Date(Date.now()-Number(S.reportDays)*86400000).toISOString();
     const query=new URLSearchParams({from,scope:S.reportScope});
     try{data=await api(`/api/v1/tasks/report?${query}`)}
-    catch(error){return{title:'Отчёт',body:`<div class="empty"><strong>Отчёт недоступен</strong>${esc(error.message)}</div>`,after:()=>{}}}
+    catch(error){return{title:T('Отчёт','Report'),body:`<div class="empty"><strong>Отчёт недоступен</strong>${esc(error.message)}</div>`,after:()=>{}}}
     const t=data.totals;
     // Доля «в срок» не показывается, когда сроков никто не обещал:
     // ноль процентов здесь читался бы как «все опоздали».
@@ -3484,7 +3490,7 @@ async function reportModal(){
     const pairs=data.pairs.length?`<div class="section-head" style="margin-top:16px"><div><h3>Кто кого просит</h3><p class="muted">Обычно человек перегружен не задачами вообще, а просьбами одного и того же коллеги.</p></div></div>
       ${data.pairs.map(pair=>`<div class="row flow"><span><div class="row-title">${esc(pair.requesterName)} → ${esc(pair.ownerName)}</div><div class="row-sub">${pair.count} ${pluralIn(pair.count,['обязательство','обязательства','обязательств'],['commitment','commitments'])} <span>за период</span></div></span></div>`).join('')}`:'';
     return{
-      title:'Отчёт по обязательствам',
+      title:T('Отчёт по обязательствам','Commitment report'),
       body:`<div class="chip-row">${REPORT_PERIODS.map(([value,caption])=>
           `<button class="chipbtn pressable${S.reportDays===value?' on':''}" data-report-days="${value}">${caption}</button>`).join('')}
         ${canSwitch?['team','mine'].map(value=>`<button class="chipbtn pressable${S.reportScope===value?' on':''}" data-report-scope="${value}">${value==='team'?'Вся компания':'Только я'}</button>`).join(''):''}</div>
@@ -5091,7 +5097,7 @@ function taskStructureSection(task){
     </form></div>
 
   <div><div class="section-title"><span>Кто помогает</span>${helpers.length?` · ${helpers.length}`:''}</div>
-    <div class="row-sub">Отвечает всё равно ${esc(name(task.ownerId))} — помощник видит задачу и отмечает шаги.</div>
+    <div class="row-sub"><span>Отвечает всё равно</span> ${esc(name(task.ownerId))} <span>— помощник видит задачу и отмечает шаги.</span></div>
     ${helpers.map(p=>`<div class="row flow"><span><div class="row-title">${esc(p.displayName)}</div>
       <div class="row-sub">${esc(p.title||'')}</div></span>
       <button type="button" class="close-button" data-helper-remove="${esc(p.userId)}" title="Убрать">×</button></div>`).join('')}
