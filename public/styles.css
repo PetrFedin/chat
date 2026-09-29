@@ -447,7 +447,12 @@ button:active:not([disabled]):not(.game-cell):not(.sea-cell),
 @media (max-width: 860px){
   .msg-column{max-width:88%}
   .msg-toolbar{left:auto;right:4px;top:-14px}
-  .message-item.mine .msg-toolbar{left:4px;right:auto}
+  /* «Своё» сообщение не печатает строку с именем над пузырём (её и
+     печатать нечего — своё имя человек знает), поэтому верх колонки —
+     это сразу верх пузыря. top:-14px рассчитан на высоту той строки:
+     без неё панель на 700–860px проваливается на текст. Поднимаем её
+     целиком над колонкой через bottom, а не гадаем со смещением. */
+  .message-item.mine .msg-toolbar{left:4px;right:auto;top:auto;bottom:calc(100% + 4px)}
 }
 
 /* ─── Личные пометки ──────────────────────────────────────────────────
