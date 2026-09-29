@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { seal, open, readVaultKey } from '../vault/vault-repository.js';
 
 /**
@@ -126,7 +126,10 @@ export function createTelegramBridgeRepository(pool, store, { request = fetch, e
     async receiveUpdate(webhookSecret, secretHeader, update) {
       const { rows } = await pool.query(`SELECT * FROM telegram_bridges WHERE webhook_secret=$1 AND status='active'`, [webhookSecret]);
       const bridge = rows[0];
-      if (!bridge || !secretHeader || secretHeader !== bridge.webhook_secret) {
+      const headerBuf = Buffer.from(String(secretHeader ?? ''));
+      const secretBuf = Buffer.from(String(bridge?.webhook_secret ?? ''));
+      const headerMatches = bridge && secretHeader && headerBuf.length === secretBuf.length && timingSafeEqual(headerBuf, secretBuf);
+      if (!bridge || !headerMatches) {
         throw fail('Неизвестный или неактивный мост', 'TELEGRAM_BRIDGE_NOT_FOUND', 404);
       }
       const message = update?.message;
