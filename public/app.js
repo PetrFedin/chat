@@ -4803,7 +4803,7 @@ function renderOverlay(){
   // Move focus into the dialog: the first thing a person types belongs to the
   // sheet they just opened, not to the page behind it.
   const dialog=$('.modal');
-  const first=dialog?.querySelector('input,textarea,select,button:not([data-close]):not([data-back])');
+  const first=dialog?.querySelector('input,textarea,select,button:not([data-close]):not([data-back]):not([data-skip-autofocus])');
   (first||dialog)?.focus?.({preventScroll:true});
 }
 
@@ -5120,12 +5120,12 @@ function taskDetailModal(task){
   });
   modal(task.title,`<div class="stack">
     <div class="row"><span class="task-status"></span><span><div class="section-title">${esc(TASK_STATUS[task.status]||task.status)}</div><div class="row-sub"><span>Версия</span> ${Number(task.version||1)} · <span>${esc(TASK_PRIORITY[task.priority]||task.priority||'обычный')}</span></div></span><span class="chip">${esc(dateTime(task.promisedAt))}</span></div>
-    <div><div class="section-title">Метки <button class="text-button" data-task-labels>изменить</button></div>
+    <div><div class="section-title">Метки <button class="text-button" data-task-labels data-skip-autofocus>изменить</button></div>
       <div class="person-chips" data-task-label-slot><span class="muted">загружаем…</span></div></div>
     ${task.sourceMessageId?`<div class="row"><span><div class="section-title">Из сообщения</div><div class="row-sub">Обсуждение, из которого выросла эта задача</div></span><button class="button small secondary pressable" data-task-source="${esc(task.sourceMessageId)}">Открыть</button></div>`:''}
     <div class="surface"><div class="section-title">Ожидаемый результат</div><p class="muted">${task.outcome?esc(task.outcome):'Не задан. Пока его нет, «сделано» решается спором, а не проверкой.'}</p><div class="row-sub"><span>Ответственный:</span> ${esc(name(task.ownerId))} <span>· Принимает:</span> ${esc(name(task.acceptorId))} <span>· Поставил:</span> ${esc(name(task.requesterId))}</div></div>
     <div><div class="section-title">Время</div><div id="task-time-slot"><span class="muted">загружаем…</span></div></div>
-    <div><div class="section-title">Следующее действие</div>${task.status==='in_progress'&&!evidence.length?'<p class="muted" style="margin:6px 0 0">Чтобы сдать работу на проверку, приложите хотя бы одно доказательство — форма ниже.</p>':''}<div class="inline-actions" style="margin-top:8px">${(task.allowedTransitions||[]).map(to=>`<button class="button ${to==='accepted_result'||to==='closed'?'primary':'secondary'} small" data-task-transition="${esc(to)}">${esc(taskActionLabel(task,to))}</button>`).join('')||'<span class="muted">Доступных переходов сейчас нет.</span>'}</div></div>
+    <div><div class="section-title">Следующее действие</div>${task.status==='in_progress'&&!evidence.length?'<p class="muted" style="margin:6px 0 0">Чтобы сдать работу на проверку, приложите хотя бы одно доказательство — форма ниже.</p>':''}<div class="inline-actions" style="margin-top:8px">${(task.allowedTransitions||[]).map(to=>`<button class="button ${to==='accepted_result'||to==='closed'?'primary':'secondary'} small" data-task-transition="${esc(to)}" data-skip-autofocus>${esc(taskActionLabel(task,to))}</button>`).join('')||'<span class="muted">Доступных переходов сейчас нет.</span>'}</div></div>
     <form id="task-evidence-form" class="form-stack"><div class="section-title">Добавить результат / доказательство</div><label>Тип<select name="type" class="field"><option value="note">Комментарий / результат</option><option value="url">Ссылка</option><option value="metric">Метрика</option><option value="message">Ссылка на сообщение</option><option value="file">Идентификатор файла</option></select></label><label>Данные<textarea name="value" rows="3" required placeholder="Что сделано, где результат или чем это подтверждается"></textarea></label><button class="button secondary">Добавить доказательство</button></form>
     <button data-task-favour class="button secondary">${S.favourites?.has('task:'+task.id)?'Убрать из избранного':'В избранное'}</button><button data-task-remind class="button secondary">Напомнить о задаче</button>${canReassignTask(task)?'<button data-task-reassign class="button secondary">Передать задачу</button>':''}${canRescheduleTask(task)?'<button class="button secondary" data-task-reschedule>Изменить срок / прогноз</button>':''}
     ${taskStructureSection(task)}
