@@ -5112,7 +5112,12 @@ function taskDetailModal(task){
   api(`/api/v1/labelled/task/${task.id}`).then(({items})=>{
     const slot=$('[data-task-label-slot]');
     if(slot)slot.innerHTML=labelChips(items);
-  }).catch(()=>{});
+  }).catch(()=>{
+    // Без Postgres запрос за метками не дойдёт до сервера вовсе — не
+    // оставляем «загружаем…» висеть так, будто оно ещё в пути.
+    const slot=$('[data-task-label-slot]');
+    if(slot)slot.innerHTML='<span class="muted">Метки доступны в режиме с базой данных</span>';
+  });
   modal(task.title,`<div class="stack">
     <div class="row"><span class="task-status"></span><span><div class="section-title">${esc(TASK_STATUS[task.status]||task.status)}</div><div class="row-sub"><span>Версия</span> ${Number(task.version||1)} · <span>${esc(TASK_PRIORITY[task.priority]||task.priority||'обычный')}</span></div></span><span class="chip">${esc(dateTime(task.promisedAt))}</span></div>
     <div><div class="section-title">Метки <button class="text-button" data-task-labels>изменить</button></div>
