@@ -78,7 +78,13 @@ async function rejectProposal(id){try{await api(`/api/v1/meeting-proposals/${id}
 function openTask(){closeMeetingOverlay();document.querySelector('[data-nav="tasks"]')?.click()}
 function openConversation(id){closeMeetingOverlay();document.querySelector('[data-nav="chats"]')?.click();setTimeout(()=>document.querySelector(`[data-conversation="${CSS.escape(id)}"]`)?.click(),80)}
 
-function injectModuleCard(){const grid=$('#screen .module-grid');if(!grid||$('#mi-module-card'))return;const review=M.items.filter(item=>item.intelligenceStatus==='review_ready'&&item.needsReview).length;const card=document.createElement('button');card.id='mi-module-card';card.className='module-card pressable';card.type='button';card.innerHTML=`<span class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.6V12l2.8 1.8"/></svg></span><strong>${tr('Итоги встреч','Meeting intelligence')}${review?`<span class="mi-module-badge">${review}</span>`:''}</strong><span>${tr('Стенограммы, решения, действия и источники','Transcripts, decisions, actions and evidence')}</span>`;card.addEventListener('click',()=>openMeetingCenter(review?'review':'all'));grid.prepend(card)}
+function injectModuleCard(){const grid=$('#screen .module-grid');if(!grid)return;const review=M.items.filter(item=>item.intelligenceStatus==='review_ready'&&item.needsReview).length;
+  const text=`<span class="module-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.6V12l2.8 1.8"/></svg></span><strong>${tr('Итоги встреч','Meeting intelligence')}${review?`<span class="mi-module-badge">${review}</span>`:''}</strong><span>${tr('Стенограммы, решения, действия и источники','Transcripts, decisions, actions and evidence')}</span>`;
+  let card=$('#mi-module-card');
+  if(card){card.innerHTML=text;return}
+  // Смена языка чинится обновлением уже вставленной карточки — этот
+  // блок ставит саму карточку только один раз, при первом заходе.
+  card=document.createElement('button');card.id='mi-module-card';card.className='module-card pressable';card.type='button';card.innerHTML=text;card.addEventListener('click',()=>openMeetingCenter(review?'review':'all'));grid.prepend(card)}
 // Runs from a body-wide MutationObserver, so it must be idempotent: removing
 // and re-inserting the card on every pass is itself a childList mutation, which
 // re-enters the observer and pins the main thread.

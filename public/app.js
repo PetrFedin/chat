@@ -3384,13 +3384,13 @@ async function digestModal(){
     // Раздел показывает три разных «ждут вас», и подпись обязана их
     // различать: предложенное обязательство, сданная вам работа и
     // принятый результат, который некому закрыть.
-    const awaitingWhy=(t)=>t.status==='in_review'?`${esc(t.ownerName??'исполнитель')} сдал(а) работу — нужна приёмка`
-      :t.status==='accepted_result'?'результат принят — осталось закрыть'
+    const awaitingWhy=(t)=>t.status==='in_review'?`${esc(t.ownerName??'исполнитель')} <span>сдал(а) работу — нужна приёмка</span>`
+      :t.status==='accepted_result'?'<span>результат принят — осталось закрыть</span>'
       :`<span>просит</span> ${esc(t.requesterName)}`;
     const awaiting=block('Ждут вашего ответа','Пока вы не ответите, не движется никто.',data.awaitingYourAnswer.map(t=>
       `<button type="button" class="row flow pressable" data-task-open="${esc(t.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(t.title)}</div>
-          <div class="row-sub">${awaitingWhy(t)}${t.promisedAt?` · срок ${esc(dateTime(t.promisedAt))}`:''}</div></span></button>`));
+          <div class="row-sub">${awaitingWhy(t)}${t.promisedAt?` · <span>срок</span> ${esc(dateTime(t.promisedAt))}`:''}</div></span></button>`));
     const invitations=block('Приглашения на встречи','',data.invitations.map(i=>
       `<button type="button" class="row flow pressable" data-cal-event="${esc(i.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(i.title)}</div>
@@ -3398,20 +3398,20 @@ async function digestModal(){
     const slipped=block('Сроки прошли, пока вас не было','',data.slippedDeadlines.map(t=>
       `<button type="button" class="row flow pressable" data-task-open="${esc(t.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(t.title)}</div>
-          <div class="row-sub"><span class="late">срок ${esc(dateTime(t.promisedAt))}</span> · ${esc(t.ownerName)} · ${esc(digestStatus[t.status]??t.status)}</div></span></button>`));
+          <div class="row-sub"><span class="late"><span>срок</span> ${esc(dateTime(t.promisedAt))}</span> · ${esc(t.ownerName)} · <span>${esc(digestStatus[t.status]??t.status)}</span></div></span></button>`));
     // Сюда приходят три вида движения, а не один: переход по
     // состояниям, передача задачи другому и перенос срока. У последних
     // двух нет «из» и «в», и подпись «undefined → undefined» была бы
     // хуже молчания.
     const movedWhat=(m)=>{
-      if(m.eventType==='commitment.reassigned')return 'передал(а) задачу другому';
-      if(m.eventType==='commitment.rescheduled')return `перенёс(ла) срок${m.promisedAt?` на ${dateTime(m.promisedAt)}`:''}`;
-      return `${digestStatus[m.from]??m.from} → ${digestStatus[m.to]??m.to}`;
+      if(m.eventType==='commitment.reassigned')return '<span>передал(а) задачу другому</span>';
+      if(m.eventType==='commitment.rescheduled')return `<span>перенёс(ла) срок</span>${m.promisedAt?` на ${esc(dateTime(m.promisedAt))}`:''}`;
+      return `<span>${esc(digestStatus[m.from]??m.from)}</span> → <span>${esc(digestStatus[m.to]??m.to)}</span>`;
     };
     const moved=block('Двигалось без вас','',data.movedWithoutYou.map(m=>
       `<button type="button" class="row flow pressable" data-task-open="${esc(m.id)}" style="width:100%;text-align:left">
         <span><div class="row-title">${esc(m.title)}</div>
-          <div class="row-sub">${esc(m.actorName)}: ${esc(movedWhat(m))} · ${esc(dateTime(m.at))}${m.reason?`<br>${esc(m.reason)}`:''}</div></span></button>`));
+          <div class="row-sub">${esc(m.actorName)}: ${movedWhat(m)} · ${esc(dateTime(m.at))}${m.reason?`<br>${esc(m.reason)}`:''}</div></span></button>`));
     const meetings=block('Встречи прошли','',data.meetingsHeld.map(m=>
       `<div class="row flow"><span><div class="row-title">${esc(m.title)}</div>
         <div class="row-sub">${esc(m.organiserName)} · ${esc(dateTime(m.startAt))}${m.attended?'':' · вы не подтверждали участие'}</div></span></div>`));
@@ -3422,7 +3422,7 @@ async function digestModal(){
             ?`${c.newMessages} ${pluralIn(c.newMessages,['новое сообщение','новых сообщения','новых сообщений'],['new message','new messages'])}`
             :'в ленте ничего нового'}${c.newInThreads
             ?` · ${c.newInThreads} ${pluralIn(c.newInThreads,['ответ в ветке','ответа в ветках','ответов в ветках'],['thread reply','thread replies'])}`
-            :''} · последнее ${esc(dateTime(c.lastAt))}</div></span></button>`));
+            :''} · <span>последнее</span> ${esc(dateTime(c.lastAt))}</div></span></button>`));
     const joined=block('Появились в компании','',data.joined.map(p=>
       `<button type="button" class="row pressable" data-digest-person="${esc(p.userId)}" style="width:100%;text-align:left">
         ${personAvatar(p)}
@@ -3981,7 +3981,7 @@ function dismissModal(person){
 /** The administrator's half of recovery: make the link, hand it over. */
 function issueResetModal(person){
   modal('Смена пароля',`
-    <p class="muted">Ссылка позволит ${esc(person.displayName||person.email)} задать новый пароль. Она живёт сутки, срабатывает один раз и обрывает все открытые сессии этого человека.</p>
+    <p class="muted"><span>Ссылка позволит</span> ${esc(person.displayName||person.email)} <span>задать новый пароль. Она живёт сутки, срабатывает один раз и обрывает все открытые сессии этого человека.</span></p>
     <p class="muted" style="margin-top:10px">Передайте её лично: тот, у кого она окажется, войдёт в рабочее пространство.</p>
     <button id="issue-reset" class="button primary" style="width:100%;margin-top:14px">Выписать ссылку</button>`,()=>{
     $('#issue-reset').onclick=async()=>{
