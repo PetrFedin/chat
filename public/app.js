@@ -2303,7 +2303,10 @@ async function dashboardModal(){
       ['Закрыто за период',t.closed],
       ['Сдержано обещаний',t.keptPromises==null?'—':`${t.keptPromises}%`],
     ];
-    const timeRows=(data.time?.daily||[]).map(d=>({date:d.date,hours:Math.round((d.totalSeconds/3600)*10)/10}));
+    // Округление до десятой доли часа превращало любую трекнутую секунду
+    // короче шести минут в ровный ноль — и полоска гасла целиком, будто
+    // в этот день вообще не работали, хотя таймер точно шёл.
+    const timeRows=(data.time?.daily||[]).map(d=>({date:d.date,hours:d.totalSeconds>0?Math.max(0.1,Math.round((d.totalSeconds/3600)*10)/10):0}));
     return{
       title:'Дашборд',
       body:`<div class="chip-row">${TIME_REPORT_PERIODS.map(([value,caption])=>`<button class="chipbtn pressable${S.dashboardDays===value?' on':''}" data-dashboard-period="${value}">${caption}</button>`).join('')}
