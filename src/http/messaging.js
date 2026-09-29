@@ -11,7 +11,12 @@ const USER_ID='([0-9a-f-]+)';
 const MESSAGE_ID='([0-9a-f-]+)';
 const MEMBER_ROLES=new Set(['owner','moderator','member','guest']);
 
-function httpError(message,code,statusCode){return Object.assign(new Error(message),{code,statusCode})}
+// expose:true всегда — сообщение здесь всякий раз пишет разработчик для
+// человека на другом конце, а не случайная ошибка ниже по стеку; без этого
+// errorJson прячет любой текст за общим «Internal server error», как только
+// код статуса 5xx (ровно это случилось с CATALOGUE_UNAVAILABLE и другими
+// «доступно в режиме с базой данных»).
+function httpError(message,code,statusCode){return Object.assign(new Error(message),{code,statusCode,expose:true})}
 
 async function policyOr404(store,session,conversationId){
   const policy=await store.conversationPolicy(session,conversationId);
