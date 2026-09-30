@@ -4295,8 +4295,15 @@ function noteModal(message,existing=null){
       `<button type="button" class="chipbtn pressable${(existing?.kind??'note')===value?' on':''}" data-kind="${value}">${esc(caption)}</button>`).join('')}</div>
     <label>Заметка<textarea name="body" rows="3" maxlength="2000" required>${esc(existing?.body??'')}</textarea></label>
     <button class="button primary">${existing?'Сохранить':'Записать'}</button>
+    ${existing?'<button type="button" class="button danger" id="note-delete">Удалить заметку</button>':''}
   </form>`,()=>{
     let kind=existing?.kind??'note';
+    const del=$('#note-delete');
+    if(del)del.onclick=async()=>{
+      del.disabled=true;
+      try{await api(`/api/v1/message-notes/${existing.id}`,{method:'DELETE'});await loadMarks();closeModal();render();toast(T('Заметка удалена','Note deleted'))}
+      catch(error){del.disabled=false;toast(error.message)}
+    };
     $$('[data-kind]').forEach(b=>b.onclick=()=>{kind=b.dataset.kind;$$('[data-kind]').forEach(x=>x.classList.toggle('on',x===b))});
     $('#note-form').onsubmit=async(event)=>{
       event.preventDefault();
