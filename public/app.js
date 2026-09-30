@@ -330,6 +330,8 @@ async function routeFromHash(){
   if(parts[0]==='calendar'&&parts[1]){S.view='calendar';render();await eventPage(parts[1]);return}
   if(parts[0]&&VIEWS.has(parts[0])){if(S.view!==parts[0])go(parts[0],{silent:true});return}
   if(!parts.length&&S.view!=='today')go('today',{silent:true});
+  // Неизвестный раздел: остаёмся, где были, а адрес приводим в порядок.
+  if(parts.length&&!VIEWS.has(parts[0])&&!['meetings','meeting-operations'].includes(parts[0]))history.replaceState(null,'',`#/${S.view||'today'}`);
 }
 window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
 // The task list is paged now. The screen still shows one backlog, so it walks
@@ -1075,7 +1077,7 @@ async function eventPage(id){
   const [seriesId,occurrenceAt]=String(id).split('@');
   let event;
   try{event=(await api(`/api/v1/calendar-events/${seriesId}`)).event}
-  catch(error){toast(error.code==='CALENDAR_UNAVAILABLE'?'Детали встречи доступны в режиме с базой данных':error.message);return}
+  catch(error){toast(error.code==='CALENDAR_UNAVAILABLE'?'Детали встречи доступны в режиме с базой данных':[400,404].includes(error.status)?T('Встреча не найдена или недоступна','Event not found or unavailable'):error.message);return}
   // Сервер отдаёт саму серию — то есть её первую встречу. Человек же
   // нажал на пятницу: карточка обязана показать пятницу, вместе с её
   // собственным временем и названием, если вхождение переносили.
@@ -1452,6 +1454,7 @@ async function markConversationRead(id){
  * грузится окном вокруг искомого.
  */
 async function openChatAtMessage(id,messageId=null){
+  if(!S.conversations.some(c=>c.id===id)){toast(T('Беседа не найдена или недоступна','Conversation not found or unavailable'));if(S.view!=='chats')go('chats',{silent:true});history.replaceState(null,'','#/chats');return}
   if(messageId){
     const known=(S.messages.get(id)||[]).some(m=>m.id===messageId);
     if(!known){
@@ -5119,7 +5122,7 @@ async function renderTaskTimeSlot(task){
 function taskActionLabel(task,to){if(to==='in_progress'&&task.status==='in_review')return'Вернуть на доработку';if(to==='in_progress'&&task.status==='accepted_result')return'Переоткрыть';return TASK_ACTION[to]||to}
 function toLocalInput(v){if(!v)return'';const d=new Date(v),pad=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`}
 function canRescheduleTask(t){return !['closed','rejected','cancelled'].includes(t.status)&&([t.ownerId,t.requesterId].includes(me().userId)||['owner','admin','manager'].includes(me().role))}
-async function openTask(id){try{const{task}=await api(`/api/v1/tasks/${id}`);upsertTask(task);taskDetailModal(task)}catch(e){toast(e.message)}}
+async function openTask(id){try{const{task}=await api(`/api/v1/tasks/${id}`);upsertTask(task);taskDetailModal(task)}catch(e){toast([400,404].includes(e.status)?T('Задача не найдена или недоступна','Task not found or unavailable'):e.message)}}
 /**
  * Внутренности обязательства: шаги, помощники и связи.
  *
