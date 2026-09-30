@@ -67,7 +67,7 @@ export function createOrgRepository(pool) {
 
   const loadUnit = async (client, session, id) => {
     const { rows } = await client.query('SELECT * FROM org_units WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [session.workspaceId, id]);
-    if (!rows[0]) throw fail('Unit not found', 'ORG_UNIT_NOT_FOUND', 404);
+    if (!rows[0]) throw fail('Подразделение не найдено', 'ORG_UNIT_NOT_FOUND', 404);
     return rows[0];
   };
 
@@ -115,7 +115,7 @@ export function createOrgRepository(pool) {
      */
     async mayReadUnit(session, unitId) {
       const { rows } = await pool.query('SELECT visibility FROM org_units WHERE workspace_id=$1 AND id=$2', [session.workspaceId, unitId]);
-      if (!rows.length) throw fail('Unit not found', 'ORG_UNIT_NOT_FOUND', 404);
+      if (!rows.length) throw fail('Подразделение не найдено', 'ORG_UNIT_NOT_FOUND', 404);
       if (rows[0].visibility !== 'closed') return true;
       return repository.isInsideUnit(session, unitId);
     },
@@ -183,7 +183,7 @@ export function createOrgRepository(pool) {
      */
     async canManageMembers(session, unitId, { workspaceWide = false } = {}) {
       const { rows } = await pool.query('SELECT visibility FROM org_units WHERE workspace_id=$1 AND id=$2', [session.workspaceId, unitId]);
-      if (!rows.length) throw fail('Unit not found', 'ORG_UNIT_NOT_FOUND', 404);
+      if (!rows.length) throw fail('Подразделение не найдено', 'ORG_UNIT_NOT_FOUND', 404);
       if (rows[0].visibility !== 'closed') return repository.canManageUnit(session, unitId, { workspaceWide });
       const { rowCount } = await pool.query(
         "SELECT 1 FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id=$3 AND role IN ('head','admin')",
@@ -193,17 +193,17 @@ export function createOrgRepository(pool) {
     },
 
     async createUnit(session, { parentId = null, kind = 'department', name, purpose = null, seatLimit = null, visibility = 'open' }) {
-      if (!String(name ?? '').trim()) throw fail('Unit name is required', 'INVALID_UNIT_NAME');
-      if (!['open', 'closed'].includes(visibility)) throw fail('Unknown unit visibility', 'INVALID_UNIT_VISIBILITY');
+      if (!String(name ?? '').trim()) throw fail('Укажите название подразделения', 'INVALID_UNIT_NAME');
+      if (!['open', 'closed'].includes(visibility)) throw fail('Неизвестная видимость подразделения', 'INVALID_UNIT_VISIBILITY');
       if (seatLimit !== null && seatLimit !== undefined && (!Number.isInteger(seatLimit) || seatLimit < 1)) {
-        throw fail('Seat limit must be a positive whole number', 'INVALID_SEAT_LIMIT');
+        throw fail('Лимит мест должен быть положительным целым числом', 'INVALID_SEAT_LIMIT');
       }
       return tx(async (client) => {
         let depth = 0;
         if (parentId) {
           const parent = await loadUnit(client, session, parentId);
           depth = parent.depth + 1;
-          if (depth > MAX_DEPTH) throw fail(`A unit cannot sit deeper than ${MAX_DEPTH} levels`, 'ORG_DEPTH_EXCEEDED', 409);
+          if (depth > MAX_DEPTH) throw fail(`Подразделение не может быть вложено глубже ${MAX_DEPTH} уровней`, 'ORG_DEPTH_EXCEEDED', 409);
         }
         const id = randomUUID();
         const { rows } = await client.query(
@@ -255,7 +255,7 @@ export function createOrgRepository(pool) {
             // Moving a unit under its own descendant would detach the branch
             // from the tree and orphan everyone in it.
             const descendants = await subtreeIds(client, session.workspaceId, id);
-            if (descendants.includes(patch.parentId)) throw fail('A unit cannot be moved under itself', 'ORG_CYCLE', 409);
+            if (descendants.includes(patch.parentId)) throw fail('Подразделение нельзя перенести само в себя', 'ORG_CYCLE', 409);
             await loadUnit(client, session, patch.parentId);
           }
           const { rows: depthRows } = await client.query(
@@ -265,18 +265,18 @@ export function createOrgRepository(pool) {
           const shift = depthRows[0].new_depth - unit.depth;
           const branch = await subtreeIds(client, session.workspaceId, id);
           const { rows: deepest } = await client.query('SELECT max(depth) d FROM org_units WHERE workspace_id=$1 AND id=ANY($2::uuid[])', [session.workspaceId, branch]);
-          if (Number(deepest[0].d) + shift > MAX_DEPTH) throw fail(`The branch would sit deeper than ${MAX_DEPTH} levels`, 'ORG_DEPTH_EXCEEDED', 409);
+          if (Number(deepest[0].d) + shift > MAX_DEPTH) throw fail(`Ветка окажется глубже ${MAX_DEPTH} уровней`, 'ORG_DEPTH_EXCEEDED', 409);
           await client.query('UPDATE org_units SET parent_id=$3, updated_at=now() WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id, patch.parentId ?? null]);
           await client.query('UPDATE org_units SET depth=depth+$3, updated_at=now() WHERE workspace_id=$1 AND id=ANY($2::uuid[])', [session.workspaceId, branch, shift]);
         }
 
         if (patch.seatLimit !== undefined) {
-          if (patch.seatLimit !== null && (!Number.isInteger(patch.seatLimit) || patch.seatLimit < 1)) throw fail('Seat limit must be a positive whole number', 'INVALID_SEAT_LIMIT');
+          if (patch.seatLimit !== null && (!Number.isInteger(patch.seatLimit) || patch.seatLimit < 1)) throw fail('Лимит мест должен быть положительным целым числом', 'INVALID_SEAT_LIMIT');
           if (patch.seatLimit !== null) {
             const { rows: used } = await client.query('SELECT count(*)::int c FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2', [session.workspaceId, id]);
             // Lowering the plan below the people already in the unit would
             // record a number nobody can act on; say so instead.
-            if (used[0].c > patch.seatLimit) throw fail(`The unit already holds ${used[0].c} people`, 'SEAT_LIMIT_BELOW_HEADCOUNT', 409);
+            if (used[0].c > patch.seatLimit) throw fail(`В подразделении уже ${used[0].c} человек`, 'SEAT_LIMIT_BELOW_HEADCOUNT', 409);
           }
           await client.query('UPDATE org_units SET seat_limit=$3, updated_at=now() WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id, patch.seatLimit]);
         }
@@ -284,7 +284,7 @@ export function createOrgRepository(pool) {
         if (patch.headUserId !== undefined) {
           if (patch.headUserId) {
             const { rowCount } = await client.query('SELECT 1 FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id=$3', [session.workspaceId, id, patch.headUserId]);
-            if (!rowCount) throw fail('The head must be a member of the unit', 'HEAD_NOT_IN_UNIT', 409);
+            if (!rowCount) throw fail('Руководитель должен быть участником подразделения', 'HEAD_NOT_IN_UNIT', 409);
             await client.query("UPDATE org_unit_members SET role='member' WHERE workspace_id=$1 AND unit_id=$2 AND role='head'", [session.workspaceId, id]);
             await client.query("UPDATE org_unit_members SET role='head' WHERE workspace_id=$1 AND unit_id=$2 AND user_id=$3", [session.workspaceId, id, patch.headUserId]);
           } else {
@@ -295,7 +295,7 @@ export function createOrgRepository(pool) {
 
         for (const [field, column] of [['name', 'name'], ['purpose', 'purpose'], ['kind', 'kind']]) {
           if (patch[field] === undefined) continue;
-          if (field === 'name' && !String(patch.name ?? '').trim()) throw fail('Unit name is required', 'INVALID_UNIT_NAME');
+          if (field === 'name' && !String(patch.name ?? '').trim()) throw fail('Укажите название подразделения', 'INVALID_UNIT_NAME');
           await client.query(`UPDATE org_units SET ${column}=$3, updated_at=now() WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, id, field === 'name' ? String(patch.name).trim() : patch[field]]);
         }
 
@@ -326,7 +326,7 @@ export function createOrgRepository(pool) {
       return tx(async (client) => {
         const unit = await loadUnit(client, session, id);
         const { rows: children } = await client.query('SELECT count(*)::int c FROM org_units WHERE workspace_id=$1 AND parent_id=$2', [session.workspaceId, id]);
-        if (children[0].c) throw fail('Move or remove the sub-units first', 'ORG_UNIT_HAS_CHILDREN', 409);
+        if (children[0].c) throw fail('Сначала перенесите или удалите вложенные подразделения', 'ORG_UNIT_HAS_CHILDREN', 409);
         const { rows: members } = await client.query('SELECT count(*)::int c FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2', [session.workspaceId, id]);
         // У открытого требуем сначала вывести людей: иначе подразделение
         // исчезает вместе с тем, кто где работал, и это легко сделать по
@@ -335,7 +335,7 @@ export function createOrgRepository(pool) {
         // бы закрытый отдел в неразрушимый, а места в нём — в навсегда
         // занятые. Поэтому роспуск закрытого уносит и состав, а в журнале
         // остаётся число — не имена.
-        if (members[0].c && unit.visibility !== 'closed') throw fail('Move the people out of the unit first', 'ORG_UNIT_HAS_MEMBERS', 409);
+        if (members[0].c && unit.visibility !== 'closed') throw fail('Сначала переместите людей из подразделения', 'ORG_UNIT_HAS_MEMBERS', 409);
         if (members[0].c) await client.query('DELETE FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2', [session.workspaceId, id]);
         await client.query('DELETE FROM org_units WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id]);
         await repository.note(client, session, id, 'org.unit.deleted',
@@ -348,7 +348,7 @@ export function createOrgRepository(pool) {
       // Не 403, а 404: «доступ запрещён» — это уже ответ на вопрос, кто
       // там состоит. Закрытое подразделение для постороннего просто не
       // имеет состава.
-      if (!(await repository.mayReadUnit(session, unitId))) throw fail('Unit not found', 'ORG_UNIT_NOT_FOUND', 404);
+      if (!(await repository.mayReadUnit(session, unitId))) throw fail('Подразделение не найдено', 'ORG_UNIT_NOT_FOUND', 404);
       const { rows } = await pool.query(
         `SELECT m.user_id "userId", m.role, m.created_at "createdAt", p.display_name "displayName", p.title, ms.role "workspaceRole"
          FROM org_unit_members m
@@ -362,19 +362,19 @@ export function createOrgRepository(pool) {
     },
 
     async addMember(session, unitId, { userId, role = 'member' }) {
-      if (!['head', 'admin', 'member'].includes(role)) throw fail('Unknown unit role', 'INVALID_UNIT_ROLE');
+      if (!['head', 'admin', 'member'].includes(role)) throw fail('Неизвестная роль в подразделении', 'INVALID_UNIT_ROLE');
       return tx(async (client) => {
         const unit = await loadUnit(client, session, unitId);
         const { rowCount: isMember } = await client.query("SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2 AND role<>'guest'", [session.workspaceId, userId]);
         // A guest is somebody else's employee; placing them on the org chart
         // would make the chart lie about who works here.
-        if (!isMember) throw fail('Only workspace staff can be placed in a unit', 'NOT_WORKSPACE_STAFF', 409);
+        if (!isMember) throw fail('В подразделение можно добавить только сотрудника компании', 'NOT_WORKSPACE_STAFF', 409);
 
         if (unit.seat_limit !== null) {
           // Counted under the unit's row lock taken above, so two concurrent
           // adds cannot both see the last free seat.
           const { rows: used } = await client.query('SELECT count(*)::int c FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id<>$3', [session.workspaceId, unitId, userId]);
-          if (used[0].c >= unit.seat_limit) throw fail(`No free seats: the plan is ${unit.seat_limit}`, 'SEAT_LIMIT_REACHED', 409);
+          if (used[0].c >= unit.seat_limit) throw fail(`Нет свободных мест: лимит ${unit.seat_limit}`, 'SEAT_LIMIT_REACHED', 409);
         }
         if (role === 'head') await client.query("UPDATE org_unit_members SET role='member' WHERE workspace_id=$1 AND unit_id=$2 AND role='head'", [session.workspaceId, unitId]);
         await client.query(
@@ -427,7 +427,7 @@ export function createOrgRepository(pool) {
           }
         }
         const { rowCount } = await client.query('DELETE FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2 AND user_id=$3', [session.workspaceId, unitId, userId]);
-        if (!rowCount) throw fail('That person is not in this unit', 'NOT_A_UNIT_MEMBER', 404);
+        if (!rowCount) throw fail('Этого человека нет в подразделении', 'NOT_A_UNIT_MEMBER', 404);
         if (unit.conversation_id) {
           await client.query('DELETE FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3',
             [session.workspaceId, unit.conversation_id, userId]);

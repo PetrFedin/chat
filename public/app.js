@@ -1596,7 +1596,7 @@ async function unitSheet(unit,{wide,units}){
       }catch(error){toast(error.message)}
     });
     if(wide)$('[data-delete]').onclick=()=>{
-      modal(T(`Удалить «${unit.name}»?`,`Delete "${unit.name}"?`),`<p class="muted">Подразделение с вложенными в него удалить нельзя — сначала перенесите или удалите их. Сотрудники останутся в компании.</p>
+      modal(T(`Удалить «${unit.name}»?`,`Delete "${unit.name}"?`),`<p class="muted">Подразделение с вложенными подразделениями или людьми удалить нельзя — сначала перенесите или удалите их.</p>
         <button id="confirm-unit-delete" class="button danger" style="width:100%">Удалить</button>`,()=>{
         $('#confirm-unit-delete').onclick=async()=>{
           try{await api(`/api/v1/org/units/${unit.id}`,{method:'DELETE'});toast('Подразделение удалено');orgModal()}
@@ -3010,8 +3010,15 @@ function availabilityNote(presence){
   return `${meta.mark?meta.mark+' ':''}${meta.caption}${back?` ${back}`:''}`;
 }
 const availabilityChip=(presence)=>{
-  const note=availabilityNote(presence);
-  return note?`<span class="away-chip">${esc(note)}</span>`:'';
+  const kind=presence?.availability;
+  if(!kind||kind==='available')return '';
+  const meta=AVAILABILITY_BY[kind];
+  if(!meta)return '';
+  const back=backAtWord(presence.backAt);
+  // Тот же фрагмент, что availabilityNote(), но подпись — в своём <span>:
+  // единой текстовой строкой словарь-наблюдатель не переводит слово
+  // внутри чужой фразы, даже если для самого слова запись уже есть.
+  return `<span class="away-chip">${meta.mark?esc(meta.mark)+' ':''}<span>${esc(meta.caption)}</span>${back?` ${esc(back)}`:''}</span>`;
 };
 
 /**
@@ -3790,6 +3797,11 @@ function endpointFormModal(after){
         const{endpoint}=await api('/api/v1/integrations/webhooks',{method:'POST',body:JSON.stringify({
           label:form.get('label'),url:form.get('url'),topics,
         })});
+        // Вызванный сразу же, `after` (обновление списка подписок)
+        // стирал только что показанный секрет тем же кадром — раньше, чем
+        // человек успевал его увидеть, не то что скопировать. Список сам
+        // освежится штатно: «‹» назад к списку — обычный popstate, и
+        // resumeTop() вызовет refresh, который уже хранит integrationsModal.
         replaceModal(()=>modal('Подписка создана',`
           <p class="muted">Секрет показывают один раз. Он подписывает каждый запрос — сохраните его сейчас.</p>
           <input id="endpoint-secret" class="field" readonly value="${esc(endpoint.secret||'')}">
@@ -3799,7 +3811,6 @@ function endpointFormModal(after){
             catch{$('#endpoint-secret').select()}
           };
         }));
-        after?.();
       }catch(error){toast(error.message)}
     };
   });
