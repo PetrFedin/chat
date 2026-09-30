@@ -755,6 +755,8 @@ function messageStream(items){
 }
 
 function message(m,grouped=false){
+  const mineReact=(msg,e)=>(msg.reactions||[]).some(x=>x.reaction===e&&x.userId===me().userId);
+  const reactorNames=(msg,e)=>(msg.reactions||[]).filter(x=>x.reaction===e).map(x=>x.userId===me().userId?T('Вы','You'):name(x.userId)).join(', ');
   const reactions=(m.reactions||[]).reduce((a,r)=>(a[r.reaction]=(a[r.reaction]||0)+1,a),{});
   const deleted=Boolean(m.deletedAt);
   const mine=m.authorId===me().userId;
@@ -765,7 +767,7 @@ function message(m,grouped=false){
   const forwarded=m.forwardedFrom
     ?(m.forwardedFrom.restricted
       ?'<div class="msg-forward">Пересланное сообщение</div>'
-      :`<button class="msg-forward" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}">Переслано · ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`)
+      :`<button class="msg-forward" data-forward-origin-conversation="${m.forwardedFrom.conversationId}" data-forward-origin-message="${m.forwardedFrom.messageId}"><span>Переслано</span> · ${esc(name(m.forwardedFrom.authorId))}${m.forwardedFrom.conversationTitle?' · '+esc(m.forwardedFrom.conversationTitle):''}</button>`)
     :'';
   // Откуда это пришло: без отметки перенос из мессенджера выглядит как
   // собственные слова того, кто его вставил.
@@ -800,7 +802,7 @@ function message(m,grouped=false){
       ${(S.tasksFromMessage?.get(m.id)||[]).length?`<div class="chip-row msg-labels">${(S.tasksFromMessage.get(m.id)||[]).map(t=>`<button class="chip warm pressable" data-task-open="${esc(t.id)}" title="Открыть задачу">${msgIcon.task} ${esc(t.title.slice(0,40))}</button>`).join('')}</div>`:''}
       ${m.replyCount?`<div class="chip-row"><button class="thread-chip pressable" data-thread-open="${esc(m.id)}">${msgIcon.reply} ${m.replyCount} ${pluralIn(m.replyCount,['ответ','ответа','ответов'],['reply','replies'])}${m.lastReplyAt?` · ${esc(time(m.lastReplyAt))}`:''}</button></div>`:''}
       ${(S.labelTargets?.get('message:'+m.id)||[]).length?`<div class="chip-row msg-labels">${(S.labelTargets.get('message:'+m.id)||[]).map(labelChip).join('')}</div>`:''}
-      ${Object.keys(reactions).length?`<div class="chip-row msg-reactions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button" data-react="${esc(e)}" data-message="${m.id}">${esc(e)} ${n}</button>`).join('')}</div>`:''}
+      ${Object.keys(reactions).length?`<div class="chip-row msg-reactions">${Object.entries(reactions).map(([e,n])=>`<button class="reaction-button${mineReact(m,e)?' mine':''}" data-react="${esc(e)}" data-message="${m.id}" aria-pressed="${mineReact(m,e)}" title="${esc(reactorNames(m,e))}">${esc(e)} ${n}</button>`).join('')}</div>`:''}
       ${deleted?'':`<div class="msg-toolbar">
         <button class="msg-tool pressable" data-react-pick="${m.id}" title="Реакция" aria-label="Поставить реакцию">${msgIcon.react}</button>
         <button class="msg-tool pressable" data-reply="${m.id}" title="Ответить" aria-label="Ответить на сообщение">${msgIcon.reply}</button>
@@ -1329,7 +1331,7 @@ function bind(){
   const note=[...(S.notes?.values()||[])].flat().find(n=>n.id===el.dataset.note);
   const message=(S.messages.get(S.selected)||[]).find(m=>m.id===note?.messageId);
   if(note&&message)noteModal(message,note);
-});$$('[data-message-label]').forEach(b=>b.onclick=()=>labelPicker('message',b.dataset.messageLabel,{title:'Метки сообщения'}));$$('[data-message-remind]').forEach(b=>b.onclick=()=>{
+});$$('[data-message-label]').forEach(b=>b.onclick=()=>labelPicker('message',b.dataset.messageLabel,{title:T('Метки сообщения','Message labels')}));$$('[data-message-remind]').forEach(b=>b.onclick=()=>{
   const source=(S.messages.get(S.selected)||[]).find(x=>x.id===b.dataset.messageRemind);
   remindAboutModal((source?.body||'Вернуться к сообщению').trim(),{sourceType:'message',sourceId:b.dataset.messageRemind,conversationId:S.selected});
 });$$('[data-message-history]').forEach(b=>b.onclick=()=>messageHistoryModal(b.dataset.messageHistory));$$('[data-message-pin]').forEach(b=>b.onclick=()=>togglePin(b.dataset.messagePin,b.dataset.pinned!=='1'));$$('[data-message-forward]').forEach(b=>b.onclick=()=>forwardModal(b.dataset.messageForward));$$('[data-forward-origin-conversation]').forEach(b=>b.onclick=()=>openChatAtMessage(b.dataset.forwardOriginConversation,b.dataset.forwardOriginMessage));$$('[data-message-edit]').forEach(b=>b.onclick=()=>editMessageModal(b.dataset.messageEdit));$$('[data-message-delete]').forEach(b=>b.onclick=()=>deleteMessageModal(b.dataset.messageDelete));$$('[data-task-message]').forEach(b=>b.onclick=()=>{
@@ -1859,7 +1861,7 @@ function labelFormModal(existing,kind,after){
           })});
         }
         S.labels=null;
-        toast(existing?'Метка сохранена':'Метка создана');
+        toast(existing?T('Метка сохранена','Label saved'):T('Метка создана','Label created'));
         after?.();
       }catch(error){toast(error.message)}
     };
@@ -4397,7 +4399,7 @@ function messageMenu(messageId){
       note:()=>replaceModal(()=>noteModal(message)),
       remind:()=>replaceModal(()=>remindAboutModal((message.body||'Вернуться к сообщению').trim(),{sourceType:'message',sourceId:messageId,conversationId:S.selected})),
       forward:()=>replaceModal(()=>forwardModal(messageId)),
-      label:()=>replaceModal(()=>labelPicker('message',messageId,{title:'Метки сообщения'})),
+      label:()=>replaceModal(()=>labelPicker('message',messageId,{title:T('Метки сообщения','Message labels')})),
       pin:()=>{closeModal();togglePin(messageId,!message.pinned)},
       task:()=>replaceModal(()=>taskModal(messageId,(message.body||'').trim().slice(0,120))),
       edit:()=>replaceModal(()=>editMessageModal(messageId)),
@@ -4831,7 +4833,7 @@ async function pinsModal(){
 async function savedModal(){try{const{items}=await api('/api/v1/saved-messages');modal('Сохранённые сообщения',items.length?items.map(m=>`<button class="conversation-card" data-saved-conversation="${m.conversationId}" data-saved-message="${m.id}"><span class="avatar dark">☆</span><span><strong>${esc(m.conversationTitle||'Диалог')}</strong><div class="preview">${esc(m.body||kindLabel(m.kind)||'Вложение')}</div></span><span class="time">${time(m.savedAt)}</span></button>`).join(''):'<div class="empty">Сохранённых сообщений пока нет.</div>');$$('[data-saved-conversation]').forEach(b=>b.onclick=()=>{const messageId=b.dataset.savedMessage;closeModal();openChatAtMessage(b.dataset.savedConversation,messageId)})}catch(e){toast(e.message)}}
 async function toggleMute(){const c=S.conversations.find(x=>x.id===S.selected);if(!c)return;const muted=c.mutedUntil&&Date.parse(c.mutedUntil)>Date.now(),mutedUntil=muted?null:new Date(Date.now()+8*3600000).toISOString();try{const{preferences}=await api(`/api/v1/conversations/${c.id}/preferences`,{method:'PATCH',body:JSON.stringify({mutedUntil})});c.mutedUntil=preferences.mutedUntil;render();toast(muted?'Уведомления включены':'Уведомления отключены на 8 часов')}catch(e){toast(e.message)}}
 async function archiveCurrent(){const c=S.conversations.find(x=>x.id===S.selected);if(!c)return;try{await api(`/api/v1/conversations/${c.id}/preferences`,{method:'PATCH',body:JSON.stringify({archived:true})});S.conversations=S.conversations.filter(x=>x.id!==c.id);S.selected=S.conversations[0]?.id||null;S.mobileChat=false;render();toast('Чат перемещён в личный архив')}catch(e){toast(e.message)}}
-async function archivedModal(){try{const{items}=await api('/api/v1/conversations/archived');modal('Архив чатов',items.length?items.map(c=>`<div class="row">${roomAvatar(c)}<span><div class="row-title">${esc(c.title||'Диалог')}</div><div class="row-sub">${esc(c.purpose||'Архивировано только для вас')}</div></span><button class="button secondary small" data-restore-conversation="${c.id}">Вернуть</button></div>`).join(''):'<div class="empty">Архив пуст.</div>');$$('[data-restore-conversation]').forEach(b=>b.onclick=async()=>{try{await api(`/api/v1/conversations/${b.dataset.restoreConversation}/preferences`,{method:'PATCH',body:JSON.stringify({archived:false})});const restored=items.find(x=>x.id===b.dataset.restoreConversation);if(restored)rememberConversation({...restored,archivedAt:null});toast('Чат возвращён');await archivedModal();lists()}catch(e){toast(e.message)}})}catch(e){toast(e.message)}}
+async function archivedModal(){try{const{items}=await api('/api/v1/conversations/archived');modal('Архив чатов',items.length?items.map(c=>`<div class="row">${roomAvatar(c)}<span><div class="row-title">${esc(c.title||'Диалог')}</div><div class="row-sub">${c.purpose?esc(c.purpose):'<span>Архивировано только для вас</span>'}</div></span><button class="button secondary small" data-restore-conversation="${c.id}">Вернуть</button></div>`).join(''):'<div class="empty">Архив пуст.</div>');$$('[data-restore-conversation]').forEach(b=>b.onclick=async()=>{try{await api(`/api/v1/conversations/${b.dataset.restoreConversation}/preferences`,{method:'PATCH',body:JSON.stringify({archived:false})});const restored=items.find(x=>x.id===b.dataset.restoreConversation);if(restored)rememberConversation({...restored,archivedAt:null});toast('Чат возвращён');await archivedModal();lists()}catch(e){toast(e.message)}})}catch(e){toast(e.message)}}
 let typingTimer;function typing(){if(S.ws?.readyState!==1)return;S.ws.send(JSON.stringify({event:'typing.start',data:{conversationId:S.selected}}));clearTimeout(typingTimer);typingTimer=setTimeout(()=>S.ws?.send(JSON.stringify({event:'typing.stop',data:{conversationId:S.selected}})),1000)}
 // Overlays keep a stack, so a person who went Ещё → Команда → карточка can
 // step back the way they came instead of being dumped on the home screen.

@@ -593,3 +593,6 @@ h4{font-size:15px;font-weight:700}
 
 /* Кнопка в строке решения не должна ломаться на три строки. */
 [data-decision-room]{white-space:nowrap;flex-shrink:0}
+
+/* Своя реакция выделена: иначе не понять, стоит ли она. */
+.reaction-button.mine{border-color:var(--accent,#7c9cff);background:color-mix(in srgb,var(--accent,#7c9cff) 18%,transparent)}
