@@ -4385,6 +4385,7 @@ function messageMenu(messageId){
     ['label','Метка',tileIcon.labels],
     ['pin',message.pinned?'Открепить':'Закрепить',msgIcon.pin],
     ['task','В задачу',msgIcon.task],
+    ['link','Скопировать ссылку','🔗'],
     ...(mine&&message.kind==='text'&&!message.forwarded?[['edit','Изменить',msgIcon.edit]]:[]),
     ...(mine||can('message.delete.any')?[['delete','Удалить',msgIcon.trash]]:[]),
   ];
@@ -4402,6 +4403,12 @@ function messageMenu(messageId){
       label:()=>replaceModal(()=>labelPicker('message',messageId,{title:T('Метки сообщения','Message labels')})),
       pin:()=>{closeModal();togglePin(messageId,!message.pinned)},
       task:()=>replaceModal(()=>taskModal(messageId,(message.body||'').trim().slice(0,120))),
+      link:async()=>{
+        closeModal();
+        const url=`${location.origin}/#/chats/${S.selected}?message=${messageId}`;
+        try{await navigator.clipboard.writeText(url);toast(T('Ссылка скопирована','Link copied'))}
+        catch{toast(url)}
+      },
       edit:()=>replaceModal(()=>editMessageModal(messageId)),
       delete:()=>replaceModal(()=>deleteMessageModal(messageId)),
     };
