@@ -112,7 +112,7 @@ async function syncNotificationLinks({force=false}={}){
     if(!document.querySelector('[data-dwc-notification]'))return;
   }
   notificationsSyncedAt=Date.now();
-  try{const payload=await api('/api/v1/notifications?limit=100');M.notifications=new Map((payload.items||[]).filter(n=>n.type==='meeting.review_ready'&&n.metadata?.callId).map(n=>[n.id,n]));for(const button of $$('[data-dwc-notification]')){const n=M.notifications.get(button.dataset.dwcNotification);if(n)button.dataset.miCall=n.metadata.callId}}catch{}
+  try{const [live,archived]=await Promise.all([api('/api/v1/notifications?limit=100'),api('/api/v1/notifications?limit=100&status=archived').catch(()=>({items:[]}))]);const payload={items:[...(live.items||[]),...(archived.items||[])]};M.notifications=new Map((payload.items||[]).filter(n=>n.type==='meeting.review_ready'&&n.metadata?.callId).map(n=>[n.id,n]));for(const button of $$('[data-dwc-notification]')){const n=M.notifications.get(button.dataset.dwcNotification);if(n)button.dataset.miCall=n.metadata.callId}}catch{}
 }
 function decorate(){if(!appVisible())return;injectModuleCard();injectTodayReview();syncNotificationLinks()}
 
