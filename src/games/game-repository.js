@@ -55,13 +55,13 @@ export function createGameRepository(pool, store = null) {
       [session.workspaceId, id],
     );
     const row = rows[0];
-    if (!row) throw fail('Game not found', 'GAME_NOT_FOUND', 404);
+    if (!row) throw fail('Игра не найдена', 'GAME_NOT_FOUND', 404);
     return row;
   };
 
   const assertPlayer = (row, session) => {
     if (![row.challengerId, row.opponentId].includes(session.userId)) {
-      throw fail('Game not found', 'GAME_NOT_FOUND', 404);
+      throw fail('Игра не найдена', 'GAME_NOT_FOUND', 404);
     }
   };
 
@@ -77,7 +77,7 @@ export function createGameRepository(pool, store = null) {
     /** Every game in a room, newest first — running ones and finished ones. */
     async listForConversation(session, conversationId, { limit = 20 } = {}) {
       if (store && !(await store.canAccessConversation(session, conversationId))) {
-        throw fail('Conversation not found', 'NOT_FOUND', 404);
+        throw fail('Беседа не найдена', 'NOT_FOUND', 404);
       }
       const { rows } = await pool.query(
         `SELECT id,conversation_id "conversationId",kind,status,challenger_id "challengerId",opponent_id "opponentId",
@@ -118,7 +118,7 @@ export function createGameRepository(pool, store = null) {
     async get(session, id) {
       const row = await loadRow(pool, session, id.replace?.(/ FOR UPDATE/, '') ?? id);
       if (store && !(await store.canAccessConversation(session, row.conversationId))) {
-        throw fail('Game not found', 'GAME_NOT_FOUND', 404);
+        throw fail('Игра не найдена', 'GAME_NOT_FOUND', 404);
       }
       return view(row, session.userId);
     },
@@ -129,8 +129,8 @@ export function createGameRepository(pool, store = null) {
      * agree to play.
      */
     async invite(session, { conversationId = null, kind, opponentId }) {
-      if (!KINDS.includes(kind)) throw fail('Unknown game', 'UNKNOWN_GAME');
-      if (opponentId === session.userId) throw fail('Nobody plays themselves', 'INVALID_OPPONENT');
+      if (!KINDS.includes(kind)) throw fail('Неизвестная игра', 'UNKNOWN_GAME');
+      if (opponentId === session.userId) throw fail('Нельзя сыграть с самим собой', 'INVALID_OPPONENT');
 
       // Which room the game sits in is bookkeeping, not a decision a person
       // should have to make: asking produced a picker offering rooms the
@@ -157,10 +157,10 @@ export function createGameRepository(pool, store = null) {
         );
         conversationId = rows[0]?.id ?? null;
       }
-      if (!conversationId) throw fail('You and this person share no room to play in', 'NO_SHARED_ROOM', 409);
+      if (!conversationId) throw fail('С этим человеком нет общей беседы для игры', 'NO_SHARED_ROOM', 409);
 
       if (store && !(await store.canAccessConversation(session, conversationId))) {
-        throw fail('Conversation not found', 'NOT_FOUND', 404);
+        throw fail('Беседа не найдена', 'NOT_FOUND', 404);
       }
       const { rowCount } = await pool.query(
         `SELECT 1 FROM conversation_members WHERE workspace_id=$1 AND conversation_id=$2 AND user_id=$3`,
@@ -174,7 +174,7 @@ export function createGameRepository(pool, store = null) {
            WHERE m.workspace_id=$1 AND m.user_id=$2 AND c.id=$3 AND c.visibility IN ('workspace','organization') AND m.role<>'guest'`,
           [session.workspaceId, opponentId, conversationId],
         );
-        if (!staff) throw fail('That person is not in this room', 'OPPONENT_NOT_HERE', 409);
+        if (!staff) throw fail('Этого человека нет в этой беседе', 'OPPONENT_NOT_HERE', 409);
       }
 
       try {
@@ -187,7 +187,7 @@ export function createGameRepository(pool, store = null) {
         );
         return view(rows[0], session.userId);
       } catch (error) {
-        if (error.code === '23505') throw fail('You already have a game of this kind going with that person', 'GAME_ALREADY_RUNNING', 409);
+        if (error.code === '23505') throw fail('С этим человеком уже идёт такая игра', 'GAME_ALREADY_RUNNING', 409);
         throw error;
       }
     },
@@ -196,8 +196,8 @@ export function createGameRepository(pool, store = null) {
     async respond(session, id, accept) {
       return this.tx(async (client) => {
         const row = await loadRow(client, session, id);
-        if (row.opponentId !== session.userId) throw fail(row.challengerId === session.userId ? 'Only the invited player answers' : 'Game not found', row.challengerId === session.userId ? 'NOT_INVITED' : 'GAME_NOT_FOUND', row.challengerId === session.userId ? 403 : 404);
-        if (row.status !== 'invited') throw fail('This invitation has already been answered', 'WRONG_STATUS', 409);
+        if (row.opponentId !== session.userId) throw fail(row.challengerId === session.userId ? 'Ответить может только приглашённый игрок' : 'Игра не найдена', row.challengerId === session.userId ? 'NOT_INVITED' : 'GAME_NOT_FOUND', row.challengerId === session.userId ? 403 : 404);
+        if (row.status !== 'invited') throw fail('На это приглашение уже ответили', 'WRONG_STATUS', 409);
         if (!accept) {
           await client.query(`UPDATE games SET status='declined',turn_user_id=NULL,updated_at=now(),version=version+1 WHERE workspace_id=$1 AND id=$2`,
             [session.workspaceId, row.id]);
@@ -290,9 +290,9 @@ export function createGameRepository(pool, store = null) {
       return this.tx(async (client) => {
         const row = await loadRow(client, session, id);
         assertPlayer(row, session);
-        if (!['invited', 'active'].includes(row.status)) throw fail('This game is already over', 'WRONG_STATUS', 409);
+        if (!['invited', 'active'].includes(row.status)) throw fail('Партия уже завершена', 'WRONG_STATUS', 409);
         if (row.status === 'invited') {
-          if (row.challengerId !== session.userId) throw fail('Only the person who sent the invitation can cancel it', 'NOT_CHALLENGER', 403);
+          if (row.challengerId !== session.userId) throw fail('Отменить приглашение может только тот, кто его отправил', 'NOT_CHALLENGER', 403);
           await finish(client, session, row, { winnerId: null, result: 'invite_cancelled' });
           return view({ ...row, status: 'finished', turnUserId: null, winnerId: null, result: 'invite_cancelled', version: row.version + 1 }, session.userId);
         }

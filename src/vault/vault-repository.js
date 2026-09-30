@@ -177,7 +177,7 @@ export function createVaultRepository(pool, { key = readVaultKey(), previous = r
           params,
         );
         if (!rows[0]) throw fail('Запись сейфа не найдена', 'VAULT_ENTRY_NOT_FOUND', 404);
-        await audit(client, session, id, 'vault.updated', { secretChanged: patch.secret !== undefined });
+        await audit(client, session, id, 'vault.updated', { title: rows[0].title, secretChanged: patch.secret !== undefined });
         await client.query('COMMIT');
         return rows[0];
       } catch (error) {
