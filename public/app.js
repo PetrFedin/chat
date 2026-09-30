@@ -3477,7 +3477,10 @@ async function digestModal(){
         $$('[data-digest-person]').forEach(b=>b.onclick=()=>personPage(b.dataset.digestPerson));
         $$('[data-digest-conversation]').forEach(b=>b.onclick=()=>{
           closeModal();
-          openChatAtMessage(b.dataset.digestConversation,b.dataset.digestMessage||null);
+          // closeModal() уходит назад по истории, и popstate приходит позже:
+          // перейти в чат сразу — значит получить откат на #/more.
+          const conversation=b.dataset.digestConversation,message=b.dataset.digestMessage||null;
+          setTimeout(()=>openChatAtMessage(conversation,message),120);
         });
         $$('[data-cal-event]').forEach(b=>b.onclick=()=>{closeModal();eventPage(b.dataset.calEvent)});
       },

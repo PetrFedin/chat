@@ -140,7 +140,7 @@ test('сводка доступна из интерфейса', () => {
   assert.match(app, /digest:\(\)=>digestModal\(\)/);
   assert.match(app, /api\(`\/api\/v1\/digest\$\{query\}`\)/);
   // Из упоминания — сразу в то место переписки, а не в её конец.
-  assert.match(app, /openChatAtMessage\(b\.dataset\.digestConversation,b\.dataset\.digestMessage\|\|null\)/);
+  assert.match(app, /openChatAtMessage\(conversation,message\)/);
   // Роль в интерфейсе пишется по-русски — словарём, а не руками.
   assert.match(app, /const ROLE_WORD=\{owner:'владелец'/);
   assert.equal(app.includes('esc(p.title||p.role)'), false, 'роль снова печатается английским словом из базы');
