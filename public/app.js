@@ -4609,7 +4609,7 @@ async function storiesModal(tab='live'){
       },{threshold:0.6});
       items.forEach((s,index)=>{
         const node=$$('.story-card')[index];
-        if(!node)return;
+        if(!node||s.authorId===me().userId)return;
         node.dataset.storyId=s.id;
         watcher.observe(node);
       });
