@@ -141,10 +141,17 @@ export function createStories(pool, store) {
       return rows;
     },
 
-    /** Убрать свою — до срока. */
+    /**
+     * Убрать свою — до срока.
+     *
+     * Гасим её (expires_at=now()), а не помечаем deleted_at: тот столбец
+     * archive() и так фильтрует прочь, и «убрать» превращалось в «стереть
+     * навсегда» — притом что «Мой архив» существует именно для того,
+     * чтобы снятое раньше срока оставалось на месте.
+     */
     async remove(session, storyId) {
       const { rows } = await pool.query(
-        `UPDATE stories SET deleted_at=now()
+        `UPDATE stories SET expires_at=LEAST(expires_at, now())
           WHERE id=$1 AND workspace_id=$2 AND author_id=$3 AND deleted_at IS NULL
           RETURNING id`,
         [storyId, session.workspaceId, session.userId],
