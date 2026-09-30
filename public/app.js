@@ -1483,7 +1483,7 @@ async function orgModal(){
 
   const branch=(parentId,depth)=>units.filter(u=>u.parentId===parentId).map(u=>{
     const head=nameOf(u.headUserId);
-    const seats=u.seats.limit===null?`${u.seats.used} <span>чел.</span>`:`${u.seats.used} из ${u.seats.limit}`;
+    const seats=u.seats.limit===null?`${u.seats.used} ${pluralIn(u.seats.used,['чел.','чел.','чел.'],['person','people'])}`:`${u.seats.used} <span>из</span> ${u.seats.limit}`;
     const tight=u.seats.limit!==null&&u.seats.free<=0;
     // Закрытое подразделение снаружи: имя, замок и счёт. Писать про него
     // «руководитель не назначен» было бы враньём — он назначен, просто не
@@ -1516,13 +1516,13 @@ async function orgModal(){
    */
   const ROLE_IN_UNIT={head:'руководитель',admin:'администратор',member:'участник'};
   const mine=units.filter(u=>u.mine);
-  const mineBlock=mine.length?`<h3 class="person-section">Мои подразделения — ${mine.length}</h3>
+  const mineBlock=mine.length?`<h3 class="person-section"><span>Мои подразделения</span> — ${mine.length}</h3>
     <div class="person-feed">${mine.map(u=>{
       const room=u.conversationId?S.conversations.find(c=>c.id===u.conversationId):null;
       const unread=Number(room?.unreadCount||0);
       return `<button type="button" class="row flow pressable unit-row" ${u.conversationId?`data-unit-room="${esc(u.conversationId)}"`:''} style="width:100%;text-align:left">
         <span><div class="row-title">${u.closed?'<span class="org-lock" aria-hidden="true">⊘</span> ':''}${esc(u.name)}</div>
-          <div class="row-sub">${esc(UNIT_KIND[u.kind]||u.kind)} · ${u.seats.used} чел.${u.headUserId===me().userId?' · вы руководитель':''}</div></span>
+          <div class="row-sub">${esc(UNIT_KIND[u.kind]||u.kind)} · ${u.seats.used} ${pluralIn(u.seats.used,['чел.','чел.','чел.'],['person','people'])}${u.headUserId===me().userId?' · <span>вы руководитель</span>':''}</div></span>
         ${unread?`<span class="chip pulse">${unread}</span>`:'<span class="chip">открыть</span>'}
       </button>`;
     }).join('')}</div>`:'';
