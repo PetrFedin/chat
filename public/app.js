@@ -227,6 +227,8 @@ function auth(mode='login'){
     $('#reset-password-form').hidden=true;
     $('#accept-invite-form').hidden=false;$('#accept-invite-form').dataset.token=token;
     $('#auth-title').textContent='Присоединиться к компании';
+    // Пароля ещё нет — «забыли пароль» здесь нечего чинить.
+    $('#auth-help').hidden=true;
     bindAuthExtras();
     return;
   }
@@ -264,7 +266,7 @@ function bindAuthExtras(){
   };
 }
 
-function setAuth(mode){$('.segmented').hidden=false;$('#accept-invite-form').hidden=true;$('#join-form').hidden=true;$('#login-form').hidden=mode!=='login';$('#register-form').hidden=mode!=='register';$('#auth-title').textContent=mode==='login'?'Войти в компанию':'Создать компанию';$$('[data-auth-mode]').forEach(b=>b.classList.toggle('active',b.dataset.authMode===mode));$('#auth-error').textContent=''}
+function setAuth(mode){$('.segmented').hidden=false;$('#auth-help').hidden=false;$('#accept-invite-form').hidden=true;$('#join-form').hidden=true;$('#login-form').hidden=mode!=='login';$('#register-form').hidden=mode!=='register';$('#auth-title').textContent=mode==='login'?'Войти в компанию':'Создать компанию';$$('[data-auth-mode]').forEach(b=>b.classList.toggle('active',b.dataset.authMode===mode));$('#auth-error').textContent=''}
 /**
  * Recovery has no mail channel, so the person who forgot asks the one party
  * who already knows who works here. Saying so beats an empty screen: before
@@ -3350,11 +3352,11 @@ function onboardingSection(){
   if(!state)return '';
   return `<section class="surface onboarding">
     <div class="section-head"><div><h2>Первые шаги</h2>
-      <p class="muted">Вы здесь недавно. Осталось ${state.left} из ${state.steps.length} — это не обязательно, но так коллегам будет проще.</p></div>
+      <p class="muted"><span>Вы здесь недавно. Осталось</span> ${state.left} <span>из</span> ${state.steps.length}<span> — это не обязательно, но так коллегам будет проще.</span></p></div>
       <button class="button small secondary pressable" data-onboarding-dismiss>Скрыть</button></div>
     ${state.steps.map(step=>`<div class="row onboarding-step${step.done?' done':''}">
       <span class="onboarding-mark">${step.done?'✓':''}</span>
-      <span><div class="row-title">${esc(step.title)}</div><div class="row-sub">${esc(step.hint)}</div></span>
+      <span><div class="section-title">${esc(step.title)}</div><div class="row-sub">${esc(step.hint)}</div></span>
       ${step.done?'':`<button type="button" class="button small secondary pressable" data-onboarding-go="${esc(step.action)}">Перейти</button>`}
     </div>`).join('')}
   </section>`;
@@ -6069,7 +6071,7 @@ async function profileModal(){
           :'Недоступен: на сервере не настроен ключ шифрования, а хранить секрет второго множителя в открытом виде нельзя.'}</p></div></div>
       ${second.available?(second.enabled
         ?`<div class="row flow"><span><div class="section-title">Включён</div>
-            <div class="row-sub">Запасных кодов осталось: ${second.recoveryCodesLeft}${second.lastUsedAt?` · последний раз ${esc(dateTime(second.lastUsedAt))}`:''}</div></span>
+            <div class="row-sub"><span>Запасных кодов осталось:</span> ${second.recoveryCodesLeft}${second.lastUsedAt?` · <span>последний раз</span> ${esc(dateTime(second.lastUsedAt))}`:''}</div></span>
             <button type="button" class="button small secondary pressable" data-2fa-codes>Новые запасные коды</button>
             <button type="button" class="button small danger pressable" data-2fa-off>Выключить</button></div>`
         :`<div class="stack"><button type="button" class="button secondary pressable" data-2fa-on>Включить второй множитель</button></div>`)
