@@ -978,6 +978,10 @@ export class PostgresStore {
     const conversationId=await this.messageConversation(s,id);
     if(!conversationId||!await this.canAccessConversation(s,conversationId))
       throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});
+    // «Содержимое больше не показывается» — и прежние редакции тоже: иначе
+    // удалённое читается через историю правок.
+    const gone=await this.pool.query('SELECT deleted_at FROM messages WHERE workspace_id=$1 AND id=$2',[s.workspaceId,id]);
+    if(gone.rows[0]?.deleted_at)return[];
     const{rows}=await this.pool.query(
       `SELECT v.id,v.body,v.replaced_at "replacedAt",v.edited_by "editedBy",
               COALESCE(p.display_name,u.email) "editedByName"

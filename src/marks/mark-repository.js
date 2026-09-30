@@ -237,6 +237,13 @@ export function createMarkRepository(pool) {
 
       // Сообщение должно существовать и быть в беседе, которую человек
       // действительно видит: проверяет тот, кто отдаёт беседы.
+      // Перекрасить тот же фрагмент — значит заменить выделение, а не
+      // положить новое поверх: иначе убрать его можно только столько раз,
+      // сколько раз выбирали цвет.
+      await pool.query(
+        'DELETE FROM message_highlights WHERE workspace_id=$1 AND user_id=$2 AND message_id=$3 AND start_offset=$4 AND end_offset=$5',
+        [session.workspaceId, session.userId, body.messageId, start, end],
+      );
       const { rows } = await pool.query(
         `INSERT INTO message_highlights(organization_id,workspace_id,user_id,conversation_id,message_id,quote,start_offset,end_offset,colour)
          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
