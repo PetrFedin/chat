@@ -906,7 +906,22 @@ function calendar(){
       return new Date(Number(parts.year),Number(parts.month)-1,Number(parts.day));
     }catch{return at}
   };
-  const eventsOn=(d)=>(S.calendar||[]).filter(e=>sameDay(eventDay(e),d));
+  // Событие «на несколько дней подряд» стоит в каждом из своих дней, а не
+  // только в первом.
+  const eventLastDay=(e)=>{
+    const first=eventDay(e);
+    if(!e.allDay||!e.endAt)return first;
+    const last=eventDay({...e,startAt:e.endAt});
+    return last<first?first:last;
+  };
+  const dayStart=(x)=>new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime();
+  const eventsOn=(d)=>(S.calendar||[]).filter(e=>{
+    const first=eventDay(e);
+    if(sameDay(first,d))return true;
+    if(!e.allDay)return false;
+    const t=dayStart(d);
+    return t>dayStart(first)&&t<=dayStart(eventLastDay(e));
+  });
   // An event still awaiting this person's answer pulses: the grid is where a
   // missed invitation actually costs something.
   const dot=(e)=>`<i class="cal-dot ${e.needsMyAnswer?'pending':esc(e.kind)}"></i>`;
@@ -952,13 +967,17 @@ function calendar(){
   // The list under the grid follows the grid: the visible week or month, or a
   // single day once one is picked. Showing the whole loaded window would put
   // next month's meetings under this week.
+  // Событие на несколько дней попадает в период, если хоть один его день
+  // в нём — не только первый.
+  const overlaps=(e,from,to)=>{const first=eventDay(e),last=eventLastDay(e);return first<to&&last>=from};
   const inPeriod=(e)=>{
     const d=eventDay(e);
-    if(c.view==='day')return sameDay(d,base);
-    if(c.view==='week'){const s0=weekStart();return d>=s0&&d<new Date(s0.getTime()+7*864e5)}
-    return d.getMonth()===base.getMonth()&&d.getFullYear()===base.getFullYear();
+    if(c.view==='day')return eventsOn(base).includes(e);
+    if(c.view==='week'){const s0=weekStart();return overlaps(e,s0,new Date(s0.getTime()+7*864e5))}
+    return overlaps(e,new Date(base.getFullYear(),base.getMonth(),1),new Date(base.getFullYear(),base.getMonth()+1,1));
   };
-  const shown=(S.calendar||[]).filter(e=>c.selected?dayKey(eventDay(e))===c.selected:inPeriod(e));
+  const onSelectedDay=(e)=>{const [y,m,d]=String(c.selected).split('-').map(Number);return eventsOn(new Date(y,m,d)).includes(e)};
+  const shown=(S.calendar||[]).filter(e=>c.selected?onSelectedDay(e):inPeriod(e));
   const heading=c.selected?'Выбранный день':(c.view==='day'?'События дня':c.view==='week'?'События недели':'События месяца');
   // Праздники и дни рождения — не встречи: их никто не заводил, открыть
   // у них нечего, и кнопкой они быть не должны. Строка, а не карточка.
@@ -970,7 +989,7 @@ function calendar(){
     </div>`:`<button class="calendar-event pressable ${esc(e.kind)} ${e.needsMyAnswer?'needs-answer':''}" data-cal-event="${esc(e.id)}">
       <strong>${e.allDay?'весь день':esc(time(e.startAt))}${(c.view!=='day'&&!c.selected)?`<i class="event-day">${esc(new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',c.view==='month'?{day:'numeric',month:'short'}:{weekday:'short',day:'numeric'}))}</i>`:''}</strong><span class="event-line"></span>
       <div><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(KIND_LABEL[e.kind]||e.kind)}${e.participantCount?` · ${e.participantCount} участн.`:''}${e.fileCount?` · ${e.fileCount} файл.`:''}</div></div>
-      ${e.needsMyAnswer?'<span class="chip pulse">нужен ответ</span>':`<span class="chip warm">${e.endAt?esc(time(e.endAt)):'—'}</span>`}
+      ${e.needsMyAnswer?'<span class="chip pulse">нужен ответ</span>':`<span class="chip warm">${e.allDay?esc(T('весь день','all day')):e.endAt?esc(time(e.endAt)):'—'}</span>`}
     </button>`).join(''):'<div class="surface empty"><strong>Здесь пусто</strong></div>';
 
   return `<section class="surface">${header()}${grid}</section>
@@ -1062,7 +1081,10 @@ async function eventPage(id){
   // собственным временем и названием, если вхождение переносили.
   const shown=occurrenceAt?(S.calendar||[]).find(e=>e.id===id):null;
   if(shown)event={...event,startAt:shown.startAt,endAt:shown.endAt,title:shown.title??event.title};
-  const range=`${esc(dateTime(event.startAt))}${event.endAt?` — ${esc(time(event.endAt))}`:''}`;
+  const dayOnly=(v)=>new Intl.DateTimeFormat(locale()==='en'?'en-GB':'ru',{day:'numeric',month:'long',...(event.timezone&&event.allDay?{timeZone:event.timezone}:{})}).format(new Date(v));
+  const range=event.allDay
+    ?`${esc(dayOnly(event.startAt))}${event.endAt&&dayOnly(event.endAt)!==dayOnly(event.startAt)?` — ${esc(dayOnly(event.endAt))}`:''} · ${esc(T('весь день','all day'))}`
+    :`${esc(dateTime(event.startAt))}${event.endAt?` — ${esc(time(event.endAt))}`:''}`;
   const people=event.participants.length
     ? event.participants.map(p=>`<div class="person-event"><span>${esc(p.displayName||'—')}${p.optional?' · необязательно':''}${p.note?` — ${esc(p.note)}`:''}</span><span class="inline-actions"><span class="chip ${p.response==='invited'?'pulse':'warm'}">${esc(RESPONSE_LABEL[p.response])}</span>${event.canEdit?`<button class="close-button" data-uninvite="${esc(p.userId)}" title="Убрать из встречи" aria-label="Убрать ${esc(p.displayName||'участника')} из встречи">×</button>`:''}</span></div>`).join('')
     : '<p class="muted">Участники не приглашены.</p>';
