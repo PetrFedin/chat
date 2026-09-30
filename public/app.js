@@ -2425,11 +2425,12 @@ function reminderRow(r){
   return `<div class="row" data-reminder="${esc(r.id)}">
     <span class="avatar dark" aria-hidden="true">◔</span>
     <span><div class="row-title">${esc(r.title)}</div>
-      <div class="row-sub">${esc(dateTime(r.remindAt))}${r.note?` · ${esc(r.note.slice(0,60))}`:''}</div></span>
+      <div class="row-sub">${esc(dateTime(r.remindAt))}${r.note?` · ${esc(r.note.slice(0,60))}`:''}</div>
+      ${r.sourceId&&['message','task','event'].includes(r.sourceType)?`<button class="text-button" data-reminder-open="${esc(r.sourceType)}:${esc(r.sourceId)}:${esc(r.conversationId||'')}">${esc(T('Открыть источник','Open source'))}</button>`:''}</span>
     <span class="inline-actions">
       ${overdue?'<span class="chip warm">пора</span>':''}
       ${r.status==='done'?'<button class="text-button" data-reminder-reopen="'+r.id+'">Снова ждать</button>'
-        :`<button class="text-button" data-reminder-snooze="${esc(r.id)}">＋1 час</button><button class="text-button" data-reminder-done="${esc(r.id)}">Готово</button>`}
+        :`<button class="text-button" data-reminder-snooze="${esc(r.id)}" data-at="${esc(r.remindAt)}">＋1 час</button><button class="text-button" data-reminder-done="${esc(r.id)}">Готово</button>`}
       <button class="text-button danger" data-reminder-delete="${esc(r.id)}" aria-label="Удалить напоминание">×</button>
     </span>
   </div>`;
@@ -2472,11 +2473,20 @@ async function remindersModal(status='open'){
         $$('[data-preset]').forEach(b=>b.onclick=()=>{$('#reminder-add [name="remindAt"]').value=b.dataset.preset});
         $$('[data-reminder-filter]').forEach(b=>b.onclick=async()=>{S.reminderFilter=b.dataset.reminderFilter;await refresh()});
         const patch=async(id,body)=>{try{await api(`/api/v1/reminders/${id}`,{method:'PATCH',body:JSON.stringify(body)});await refresh()}catch(error){toast(error.message)}};
+        $$('[data-reminder-open]').forEach(b=>b.onclick=()=>{
+          const [type,id,conv]=b.dataset.reminderOpen.split(':');
+          closeModal();
+          setTimeout(()=>{
+            if(type==='message'&&conv)openChatAtMessage(conv,id);
+            else if(type==='task')openTask(id);
+            else if(type==='event')eventPage(id);
+          },120);
+        });
         $$('[data-reminder-done]').forEach(b=>b.onclick=()=>patch(b.dataset.reminderDone,{status:'done'}));
         $$('[data-reminder-reopen]').forEach(b=>b.onclick=()=>patch(b.dataset.reminderReopen,{status:'pending'}));
-        $$('[data-reminder-snooze]').forEach(b=>b.onclick=()=>patch(b.dataset.reminderSnooze,{remindAt:new Date(Date.now()+3600e3).toISOString()}));
+        $$('[data-reminder-snooze]').forEach(b=>b.onclick=()=>patch(b.dataset.reminderSnooze,{remindAt:new Date(Math.max(Date.now(),new Date(b.dataset.at).getTime())+3600e3).toISOString()}));
         $$('[data-reminder-delete]').forEach(b=>b.onclick=async()=>{
-          try{await api(`/api/v1/reminders/${b.dataset.reminderDelete}`,{method:'DELETE'});await refresh()}catch(error){toast(error.message)}
+          try{await api(`/api/v1/reminders/${b.dataset.reminderDelete}`,{method:'DELETE'});await refresh();toast(T('Напоминание удалено','Reminder deleted'))}catch(error){toast(error.message)}
         });
       },
     };

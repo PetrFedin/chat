@@ -186,8 +186,8 @@ export function createReminderRepository(pool) {
             // встречу или задачу, а извещение приходило без неё и без
             // ссылки — за предметом надо было идти искать руками.
             `INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,
-                                       dedupe_key,type,title,body,conversation_id,calendar_event_id,commitment_id,url)
-             VALUES($1,$2,$3,$4,$5,'calendar.reminder',$6,$7,$8,$9,$10,$11)
+                                       dedupe_key,type,title,body,conversation_id,calendar_event_id,commitment_id,url,message_id)
+             VALUES($1,$2,$3,$4,$5,'calendar.reminder',$6,$7,$8,$9,$10,$11,$12)
              ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`,
             [row.organizationId, row.workspaceId, row.userId, randomUUID(),
              `reminder:${row.id}`, row.title,
@@ -196,7 +196,9 @@ export function createReminderRepository(pool) {
              row.sourceType === 'task' ? row.sourceId : null,
              row.sourceType === 'event' && row.sourceId ? `/#/calendar/${row.sourceId}`
                : row.sourceType === 'task' && row.sourceId ? `/#/tasks/${row.sourceId}`
-               : row.conversationId ? `/#/chats/${row.conversationId}` : null],
+               : row.sourceType === 'message' && row.sourceId && row.conversationId ? `/#/chats/${row.conversationId}?message=${row.sourceId}`
+               : row.conversationId ? `/#/chats/${row.conversationId}` : null,
+             row.sourceType === 'message' ? row.sourceId : null],
           );
           await client.query(
             "UPDATE reminders SET status='fired',fired_at=now(),updated_at=now() WHERE id=$1",
