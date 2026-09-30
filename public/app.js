@@ -704,9 +704,13 @@ const fileHref=(meta)=>{
 };
 const fileSize=(bytes)=>{
   if(!bytes&&bytes!==0)return '';
-  if(bytes<1024)return `${bytes} Б`;
-  if(bytes<1024*1024)return `${Math.round(bytes/1024)} КБ`;
-  return `${(bytes/1048576).toFixed(1)} МБ`;
+  // Единицы размера файла нигде не сидят одни в собственном узле —
+  // словарь-наблюдатель их не достанет, поэтому язык выбираем прямо
+  // здесь, как для заголовка модалки (см. T() выше).
+  const unit=(ru,en)=>T(ru,en);
+  if(bytes<1024)return `${bytes} ${unit('Б','B')}`;
+  if(bytes<1024*1024)return `${Math.round(bytes/1024)} ${unit('КБ','KB')}`;
+  return `${(bytes/1048576).toFixed(1)} ${unit('МБ','MB')}`;
 };
 const fileMeta=(meta)=>[esc(fileSize(meta?.size)),`<span>${filePreviewable(meta)?'открыть':'скачать'}</span>`].filter(Boolean).join(' · ');
 
@@ -760,7 +764,7 @@ function message(m,grouped=false){
     :'';
   // Откуда это пришло: без отметки перенос из мессенджера выглядит как
   // собственные слова того, кто его вставил.
-  const outside=m.externalOrigin?`<div class="msg-forward outside">Из ${esc(SOURCE_WORD[m.externalOrigin.source]||'мессенджера')}${
+  const outside=m.externalOrigin?`<div class="msg-forward outside"><span>Из</span> <span>${esc(SOURCE_WORD[m.externalOrigin.source]||'мессенджера')}</span>${
     m.externalOrigin.authorName?` · ${esc(m.externalOrigin.authorName)}`:''}${
     m.externalOrigin.sentAt?` · ${esc(dateTime(m.externalOrigin.sentAt))}`:''}</div>`:'';
   const body=deleted?'<p class="message-body muted">Сообщение удалено</p>'
@@ -4780,8 +4784,10 @@ async function pinsModal(){
           await api(`/api/v1/messages/${b.dataset.unpin}/pin`,{method:'DELETE'});
           updateMessage(b.dataset.unpin,{pinned:false});
           const{items:left}=await api(`/api/v1/conversations/${conversationId}/pins`);
-          history.back();
-          draw(left);
+          // history.back() открывает popstate не сразу, а draw() тут же
+          // толкает новую запись в overlayStack — отложенный popstate
+          // потом снимал не тот слой. replaceModal меняет текущий синхронно.
+          replaceModal(()=>draw(left));
           render();
           toast('Откреплено');
         }catch(error){b.disabled=false;toast(error.message)}
