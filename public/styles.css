@@ -588,3 +588,6 @@ h4{font-size:15px;font-weight:700}
 .person-history>summary::after{content:'▾';font-size:13px;color:var(--muted);transition:transform .15s ease}
 .person-history[open]>summary::after{transform:rotate(180deg)}
 .person-history>summary:focus-visible{outline:2px solid var(--focus);outline-offset:3px;border-radius:var(--r-1)}
+
+/* Кнопка в строке решения не должна ломаться на три строки. */
+[data-decision-room]{white-space:nowrap;flex-shrink:0}

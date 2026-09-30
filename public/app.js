@@ -3298,6 +3298,7 @@ async function catalogueModal(){
       title:'Каналы компании',
       body:`<div class="form-stack"><label>Поиск<input id="catalogue-search" value="${esc(S.catalogueQuery)}" placeholder="Название или зачем канал нужен"></label></div>
         <div class="stack" style="margin-top:12px">${items.length?items.map(row).join('')
+          :S.catalogueQuery?'<div class="empty"><strong>Ничего не найдено</strong>Попробуйте другое слово из названия.</div>'
           :'<div class="empty"><strong>Открытых каналов нет</strong>Каналы компании появятся здесь, как только их создадут.</div>'}</div>`,
       after:()=>{
         const search=$('#catalogue-search');
@@ -4533,7 +4534,7 @@ async function decisionsModal(query=''){
     ${items.length?items.map(d=>`<div class="row">
         <span><div class="row-title">${esc(d.title)}</div>
           ${d.body?`<div class="row-sub">${esc(d.body)}</div>`:''}
-          <div class="row-sub">${esc(dateTime(d.acceptedAt))}${d.acceptedByName?` · записал(а) ${esc(d.acceptedByName)}`:''}${
+          <div class="row-sub">${esc(dateTime(d.acceptedAt))}${d.acceptedByName?` · <span>записал(а)</span> ${esc(d.acceptedByName)}`:''}${
             d.callTitle?` · ${esc(d.callTitle)}`:''}</div></span>
         ${d.conversationId?`<button type="button" class="button small secondary pressable" data-decision-room="${esc(d.conversationId)}">К беседе</button>`:''}
       </div>`).join('')
