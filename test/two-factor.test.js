@@ -103,7 +103,12 @@ test('второй множитель закрывает вход и откры�
   const badCode = await request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code: '000000' } });
   assert.equal(badCode.code, 'TWO_FACTOR_BAD_CODE');
 
-  const code = codeAt(secret, now());
+  // Код, которым подтверждали настройку, на входе уже использован: повторить его нельзя.
+  const enrolmentReplay = await request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code: codeAt(secret, now()) } });
+  assert.equal(enrolmentReplay.code, 'TWO_FACTOR_BAD_CODE', 'код подтверждения настройки не должен работать на входе');
+
+  // Вход — кодом следующего окна (допустимый дрейф: одно окно вперёд).
+  const code = codeAt(secret, now() + 1);
   const good = await request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code } });
   assert.equal(good.status, 200);
 

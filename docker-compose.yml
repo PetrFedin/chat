@@ -89,6 +89,28 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Регулярные резервные копии: база и вложения одной папкой, старые удаляются по BACKUP_KEEP.
+  # Копии лежат в отдельном томе: если потерян том приложения, копия остаётся. Для надёжности
+  # периодически вывозите их с машины (rsync, облако): копия на том же диске — не защита от диска.
+  # Запуск: docker compose --profile backup up -d backup
+  backup:
+    build: .
+    profiles: ["backup"]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-chat}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-chat}
+      UPLOAD_DIR: /data/uploads
+      BACKUP_DIR: /backups
+      BACKUP_KEEP: ${BACKUP_KEEP:-14}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    command: ["sh", "-c", "while true; do node scripts/backup.mjs || echo 'копия не снялась, повторим через интервал'; sleep \"$$BACKUP_INTERVAL_SECONDS\"; done"]
+    volumes:
+      - uploads:/data
+      - backups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   # Резервная копия по расписанию запускается не здесь: планировщик — дело
   # хозяина машины. Снять копию тем же образом:
   #   docker compose run --rm app node scripts/backup.mjs
@@ -98,3 +120,4 @@ services:
 volumes:
   postgres:
   uploads:
+  backups:

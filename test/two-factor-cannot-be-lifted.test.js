@@ -69,7 +69,7 @@ test('начатая заново настройка не выключает в�
   assert.equal(bare.code, 'TWO_FACTOR_REQUIRED');
   const byOld = await call(base, '/api/v1/auth/login', {
     method: 'POST',
-    body: { email, password: 'OwnerPassword42', code: codeAt(secret, Math.floor(Date.now() / 1000 / 30)) },
+    body: { email, password: 'OwnerPassword42', code: codeAt(secret, Math.floor(Date.now() / 1000 / 30) + 1) },
   });
   assert.equal(byOld.status, 200, 'старый код перестал работать до подтверждения нового');
 });

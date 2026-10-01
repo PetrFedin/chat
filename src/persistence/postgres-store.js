@@ -1025,10 +1025,8 @@ export class PostgresStore {
     const readAt=`COALESCE((SELECT created_at FROM messages WHERE workspace_id=$2 AND id=$5),now())`;
     await this.pool.query(`INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role,last_read_at,last_read_message_id)
       VALUES($1,$2,$3,$4,'member',${readAt},$5)
-      ON CONFLICT(workspace_id,conversation_id,user_id) DO UPDATE SET
-        -- Чтение не откатывается: два окна, и из старого приходит «прочитано до №0».
-        last_read_message_id=CASE WHEN ${readAt} >= COALESCE(conversation_members.last_read_at,'-infinity') THEN EXCLUDED.last_read_message_id ELSE conversation_members.last_read_message_id END,
-        last_read_at=GREATEST(conversation_members.last_read_at,${readAt})`,
+      ON CONFLICT(workspace_id,conversation_id,user_id) DO UPDATE SET last_read_at=${readAt},last_read_message_id=EXCLUDED.last_read_message_id`,
+      // Граница ходит и назад — так человек помечает беседу непрочитанной (см. тест read-cursor).
       [s.organizationId,s.workspaceId,id,s.userId,messageId]);
   }
 

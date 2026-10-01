@@ -607,7 +607,8 @@ const ROUTES = [
   { route: 'GET /api/v1/highlights', path: () => '/api/v1/highlights', expect: 200 },
   {
     route: 'POST /api/v1/highlights', method: 'POST', path: () => '/api/v1/highlights',
-    body: (w) => ({ messageId: id(w.strangerMessage), quote: 'чужое', startOffset: 0, endOffset: 5 }), expect: 201,
+    // Другой фрагмент: то же место перекрашивает выделение, а не добавляет второе.
+    body: (w) => ({ messageId: id(w.strangerMessage), quote: 'жое', startOffset: 2, endOffset: 5 }), expect: 201,
   },
   { route: 'DELETE /api/v1/highlights/{своё}', method: 'DELETE', path: (w) => `/api/v1/highlights/${id(w.highlight)}`, expect: 204 },
   { route: 'GET /api/v1/message-notes', path: () => '/api/v1/message-notes', expect: 200 },

@@ -50,7 +50,8 @@ test('серия раскрывается, и одну встречу из не�
 
   const from = new Date(monday.getTime() - 86400000).toISOString();
   const to = new Date(monday.getTime() + 35 * 86400000).toISOString();
-  const list = async () => (await request(base, `/api/v1/calendar-events?from=${from}&to=${to}`, { cookie: owner.cookie })).payload.items;
+  // Только вхождения самой серии: праздничные дни и дни рождения тоже живут в календаре, и в разные месяцы их разное число.
+  const list = async () => (await request(base, `/api/v1/calendar-events?from=${from}&to=${to}`, { cookie: owner.cookie })).payload.items.filter((x) => x.seriesId === id || x.id === id);
 
   let items = await list();
   assert.equal(items.length, 6, `за пять недель ожидалось шесть планёрок, пришло ${items.length}`);
