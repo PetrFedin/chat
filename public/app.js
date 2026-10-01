@@ -3991,7 +3991,7 @@ async function contactsModal(){
     ${talkingBlock}
     ${units.length?unitBlocks:'<h3 class="person-section">Ваши подразделения</h3><p class="muted">Администратор ещё не добавил вас ни в одно подразделение.</p>'}
     <div class="stack" style="margin-top:16px"><button data-action-team class="button secondary">Весь штат компании</button></div>`,()=>{
-    $$('[data-person]').forEach(b=>b.onclick=()=>personPage(b.dataset.person));
+    $$('[data-person]').forEach(b=>{b.onclick=(event)=>{event.stopPropagation();personPage(b.dataset.person)}});
     $('[data-action-team]').onclick=()=>replaceModal(teamModal);
   });
 }
@@ -6044,7 +6044,7 @@ function inviteModal(){modal('Пригласить сотрудника',`<div c
   };
 }
 function teamModal(){modal('Команда',S.people.map(p=>`<button class="row pressable" data-person="${esc(p.userId)}" style="width:100%;text-align:left">${personAvatar(p)}<span><div class="row-title">${esc(p.displayName||p.email)}${p.active===false?' · уволен':''}</div><div class="row-sub">${availabilityNote(p.presence)||esc(p.title||roleWord(p.role))}</div></span><span class="presence-dot ${esc(p.presence?.state||'offline')}"></span></button>`).join(''),()=>{
-  $$('[data-person]').forEach(b=>{b.onclick=()=>personPage(b.dataset.person)});
+  $$('[data-person]').forEach(b=>{b.onclick=(event)=>{event.stopPropagation();personPage(b.dataset.person)}});
 })}
 /**
  * Профиль и безопасность.
