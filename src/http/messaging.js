@@ -126,6 +126,8 @@ export async function handleMessaging(req,res,ctx,url,path,method){
   if(m&&method==='POST'){
     const s=await requireSession(req);
     requirePermission(s.role,Permission.CHANNEL_MANAGE);
+    // Осиротевшую приватную беседу админ не видит (в ней никого не осталось), поэтому доступ здесь не проверяем:
+    // право на захват и так есть только у управляющих каналами, а хранилище берёт лишь беседу без владельца.
     json(res,200,await store.claimOrphanedConversation(s,m[1]));
     return true;
   }
@@ -236,7 +238,10 @@ export async function handleMessaging(req,res,ctx,url,path,method){
    */
   m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/external-forwards$`,'i'));
   if(m&&method==='POST'){
-    const s=await requireSession(req);await policyOr404(store,s,m[1]);
+    const s=await requireSession(req);const policy=await policyOr404(store,s,m[1]);
+    // Те же условия, что у обычной отправки: право писать и закрытый для записи канал объявлений.
+    requirePermission(s.role,Permission.MESSAGE_SEND);
+    if(policy.conversation.announcementOnly&&!hasPermission(s.role,Permission.CHANNEL_MANAGE)&&!['owner','moderator'].includes(policy.memberRole))throw httpError('В канале объявлений пишут только его руководители','ANNOUNCEMENT_ONLY',403);
     if(!store.createExternalForward)throw httpError('Перенос из мессенджеров доступен в режиме с базой данных','EXTERNAL_FORWARD_UNAVAILABLE',503);
     const b=await readJson(req);
     const prepared=prepareForward({
@@ -321,6 +326,9 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     if(kind==='text'&&!String(b.body??'').replace(/[\u200b\u200c\u200d\ufeff]/g,'').trim())throw httpError('Message body required','INVALID_MESSAGE_BODY',400);
     if(typeof b.body==='string'&&b.body.length>12000)throw httpError('Message body is too long','MESSAGE_TOO_LONG',400);
     if(b.metadata!==undefined&&(typeof b.metadata!=='object'||b.metadata===null||Array.isArray(b.metadata)||JSON.stringify(b.metadata).length>16384))throw httpError('Метаданные сообщения — объект до 16 КБ','INVALID_METADATA',400);
+    // Вложить можно только файл, который сам имеешь право читать: иначе прикреплённый по чужому
+    // идентификатору файл становился доступен всей беседе.
+    if(b.metadata?.fileId&&!(await store.getFile?.(s,String(b.metadata.fileId))))throw httpError('Файл не найден','FILE_NOT_FOUND',404);
     const message=await store.createMessage(s,m[1],{kind,body:b.body??null,replyToId:b.replyToId??null,threadRootId:b.threadRootId??null,metadata:b.metadata??{},mentionedUserIds:Array.isArray(b.mentionedUserIds)?b.mentionedUserIds:[],clientRequestId:b.clientRequestId??randomUUID()});
     const audience=await store.conversationAudience(s,m[1]),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,m[1]):audience;
     hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:m[1],message});

@@ -6472,6 +6472,13 @@ window.CHAT_ERRORS=ERROR_MESSAGE;
 // Поиск живёт в отдельном файле и не видит внутренностей приложения:
 // всё, чем он открывает найденное, проходит через эту дверь.
 window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
+// Страховка навигации: после ошибки и перерисовки кнопки меню оставались без обработчика (нижнее меню
+// «умирало» до перезагрузки). Если у кнопки раздела обработчика нет, переходим сами.
+document.addEventListener('click',(event)=>{
+  const button=event.target.closest?.('[data-nav]');
+  if(button&&!button.onclick&&S.boot)go(button.dataset.nav);
+});
+
 /**
  * Двойной щелчок по «Создать» заводил две-три одинаковые записи: у каждого
  * запроса свой ключ идемпотентности, и сервер не мог их склеить. Форма в окне
