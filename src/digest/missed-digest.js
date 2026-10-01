@@ -52,7 +52,11 @@ export function createMissedDigest(pool) {
     const fallback = new Date(Date.now() - DEFAULT_WINDOW_DAYS * 86400000);
     const earliest = new Date(Date.now() - MAX_WINDOW_DAYS * 86400000);
     if (!previous || previous < earliest) return { from: fallback.toISOString(), guessed: true };
-    return { from: previous.toISOString(), guessed: true };
+    // Другой сеанс может быть открыт прямо сейчас (телефон рядом с ноутбуком):
+    // его «последний раз» — секунды назад, и сводка выходила пустой при
+    // живом упоминании. Окно не уже половины суток.
+    const floor = new Date(Date.now() - 12 * 3600000);
+    return { from: (previous < floor ? previous : floor).toISOString(), guessed: true };
   }
 
   return {

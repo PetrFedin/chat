@@ -6,7 +6,7 @@ import { holidaysBetween, upcomingBirthdays } from './holidays.js';
 const ANSWERS = new Set(['accepted', 'tentative', 'declined']);
 import { Permission, hasPermission } from '../rbac.js';
 
-const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode });
+const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode, expose: true });
 
 /** Правило из базы может быть старым или испорченным — карточка не должна из-за этого падать. */
 const safeRule = (value) => { try { return parseRecurrence(value); } catch { return null; } };
@@ -513,7 +513,7 @@ export function createCalendarRepository(pool, store = null) {
         if (patch.recurrenceRule !== undefined) patch.recurrenceRule = formatRecurrence(parseRecurrence(patch.recurrenceRule));
         const start = patch.startAt ?? event.start_at;
         const end = patch.endAt === undefined ? event.end_at : patch.endAt;
-        if (end && new Date(end) <= new Date(start)) throw fail('The event must end after it starts', 'INVALID_CALENDAR_RANGE');
+        if (end && new Date(end) <= new Date(start)) throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');
 
         const setters = fields.map((f, i) => `${columns[f]}=$${i + 3}`).join(',');
         const { rows } = await client.query(
@@ -562,7 +562,7 @@ export function createCalendarRepository(pool, store = null) {
 
         if (!cancelled && !startAt) throw fail('Перенос без нового времени — не перенос', 'INVALID_OCCURRENCE_PATCH');
         if (!cancelled && endAt && new Date(endAt) <= new Date(startAt)) {
-          throw fail('The event must end after it starts', 'INVALID_CALENDAR_RANGE');
+          throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');
         }
 
         await client.query(

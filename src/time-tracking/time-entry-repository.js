@@ -20,7 +20,7 @@ import { canViewTask, managesTeamTasks } from '../task/task-authority.js';
 
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode, expose: true });
 
-const TASK_FIELDS = `c.id,c.workspace_id "workspaceId",c.title,c.owner_id "ownerId",c.requester_id "requesterId",c.acceptor_id "acceptorId",
+const TASK_FIELDS = `c.id,c.workspace_id "workspaceId",c.title,c.owner_id "ownerId",c.requester_id "requesterId",c.acceptor_id "acceptorId",c.status,
   COALESCE((SELECT jsonb_agg(tc.user_id) FROM task_collaborators tc WHERE tc.workspace_id=c.workspace_id AND tc.commitment_id=c.id),'[]') "collaboratorIds"`;
 
 const ENTRY_COLUMNS = `id,task_id "taskId",user_id "userId",started_at "startedAt",ended_at "endedAt",note,created_at "createdAt"`;
@@ -48,7 +48,10 @@ export function createTimeEntryRepository(pool) {
     enabled: true,
 
     async start(session, taskId, { note = null } = {}) {
-      await loadVisibleTask(session, taskId);
+      const task = await loadVisibleTask(session, taskId);
+      if (['accepted_result', 'closed', 'cancelled'].includes(task.status)) {
+        throw fail('Задача уже завершена — время на неё не считается', 'TASK_FINISHED', 409);
+      }
       const cleanNote = note ? String(note).trim().slice(0, 500) : null;
       try {
         const { rows } = await pool.query(

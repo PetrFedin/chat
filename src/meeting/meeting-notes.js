@@ -17,6 +17,7 @@ const fail = (message, code, statusCode = 400) => Object.assign(new Error(messag
 
 /** Список строк: пустые и лишние пробелы не хранятся. */
 const lines = (value, limit = 50) => (Array.isArray(value) ? value : [])
+  .map((item) => (typeof item === 'string' || typeof item === 'number' ? String(item) : ''))
   .map((item) => String(item ?? '').replace(/\s+/g, ' ').trim())
   .filter(Boolean)
   .slice(0, limit)

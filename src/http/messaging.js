@@ -315,7 +315,7 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     const called=audience.filter(id=>id!==s.userId&&mentioned.has(String(id)));
     const conversation=S_KIND(store.getConversation?await store.getConversation(s,m[1]).catch(()=>null):null);
     await Promise.all([
-      notifyUsers(s.workspaceId,called,{title:`Вас упомянул(а) ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}`,kind:'message.mentioned'}),
+      notifyUsers(s.workspaceId,called,{title:`Вас упомянул(а) ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}?message=${message.id}`,kind:'message.mentioned'}),
       notifyUsers(s.workspaceId,others,{title:`Новое сообщение · ${s.displayName}`,body:message.body??messageKindLabel(message.kind),url:`/#/chats/${m[1]}`,kind:conversation}),
     ]);
     json(res,201,{message});return true;
