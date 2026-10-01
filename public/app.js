@@ -355,7 +355,12 @@ async function routeFromHash(){
   // Неизвестный раздел: остаёмся, где были, а адрес приводим в порядок.
   if(parts.length&&!VIEWS.has(parts[0])&&!['meetings','meeting-operations'].includes(parts[0]))history.replaceState(null,'',`#/${S.view||'today'}`);
 }
-window.addEventListener('hashchange',()=>{routeFromHash().catch(e=>toast(e.message))});
+window.addEventListener('hashchange',()=>{
+  // Переход по адресу (вставили ссылку, нажали ссылку из письма) при открытом окне: окно оставалось поверх
+  // нового экрана. «Назад» браузера к этому не относится: к моменту hashchange popstate уже снял своё окно.
+  if(overlayStack.length){overlayStack.length=0;renderOverlay()}
+  routeFromHash().catch(e=>toast(e.message));
+});
 // The task list is paged now. The screen still shows one backlog, so it walks
 // the cursor to the end — bounded, so a runaway cursor cannot spin forever.
 /**
