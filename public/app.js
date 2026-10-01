@@ -417,7 +417,20 @@ async function loadMessages(id,{force=false}={}){
  * Прокрутка вверх подгружает предыдущую страницу и удерживает то же место:
  * лента не прыгает под руками — ровно то, чего ждёшь от любого мессенджера.
  */
+// В ленте рисуются последние сообщения окна, остальные загружены, но не в разметке: пятьсот сообщений
+// давали около четырнадцати тысяч узлов, и экран перерисовывался целиком на каждое событие.
+const MESSAGE_WINDOW=200;
+const messageWindow=(id)=>(S.showLimit??=new Map()).get(id)||MESSAGE_WINDOW;
 async function loadOlderMessages(id){
+  const stream0=$('#message-stream');
+  const loaded=(S.messages.get(id)||[]).length;
+  if(loaded>messageWindow(id)&&!S.loadingOlder){
+    // Сначала показываем то, что уже есть в памяти, и только потом идём на сервер.
+    S.showLimit.set(id,messageWindow(id)+100);
+    S.keepScroll=stream0?{height:stream0.scrollHeight,top:stream0.scrollTop}:null;
+    render();
+    return;
+  }
   const cursor=S.messageCursor.get(id);
   if(!cursor||S.loadingOlder)return;
   S.loadingOlder=true;
@@ -429,6 +442,7 @@ async function loadOlderMessages(id){
     S.messageCursor.set(id,page.nextCursor||null);
     if(older.length){
       S.messages.set(id,[...older,...(S.messages.get(id)||[])]);
+      (S.showLimit??=new Map()).set(id,messageWindow(id)+older.length);
       S.keepScroll=anchor;
       render();
     }
@@ -759,6 +773,12 @@ function dayLabel(value){
 function messageStream(items){
   if(!items.length)return '<div class="empty"><strong>Начните разговор</strong></div>';
   let out='',lastDay='',lastAuthor='',lastAt=0;
+  const limit=messageWindow(S.selected);
+  if(items.length>limit){
+    const hidden=items.length-limit;
+    items=items.slice(-limit);
+    out+=`<button type="button" class="button small ghost" id="show-earlier" style="margin:8px auto;display:block">${esc(T('Показать более ранние','Show earlier'))} (${hidden})</button>`;
+  }
   // Граница непрочитанного: без неё вернувшийся из отпуска не понимает,
   // с какого места читать, — сто сообщений выглядят одной стеной.
   const boundary=S.unreadFrom.get(S.selected)||null;
@@ -1388,6 +1408,8 @@ function bind(){
     }
     const older=$('#load-older');
     if(older)older.onclick=()=>loadOlderMessages(S.selected);
+    const earlier=$('#show-earlier');
+    if(earlier)earlier.onclick=()=>loadOlderMessages(S.selected);
     stream.onscroll=()=>{
       if(stream.scrollTop<80)loadOlderMessages(S.selected);
       // Долистал до низа — значит прочитал. Раньше отметка ставилась уже
