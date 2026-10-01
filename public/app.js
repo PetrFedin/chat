@@ -446,6 +446,12 @@ const BRAND_MARK='<svg class="brand-mark" viewBox="0 0 512 512" width="28" heigh
   +'</svg>';
 
 function render(){
+  // Перерисовка пересоздаёт поле ввода: без этого после Enter фокус уходил в body
+  // и клавиатурщику приходилось снова тянуться к полю.
+  const hadComposerFocus=document.activeElement?.id==='message-input';
+  try{renderInner()}finally{if(hadComposerFocus)document.querySelector('#message-input')?.focus({preventScroll:true})}
+}
+function renderInner(){
   navs();lists();
   // Заголовок главной — это имя продукта, а не название раздела: человек,
   // открывший приложение, должен видеть, куда он попал. На остальных

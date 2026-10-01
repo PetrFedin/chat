@@ -709,7 +709,7 @@ export class PostgresStore {
           AND ($3::text IS NULL OR c.title ILIKE '%'||$3||'%' OR c.purpose ILIKE '%'||$3||'%' OR c.slug ILIKE '%'||$3||'%')
         ORDER BY (cm.user_id IS NOT NULL) DESC, "recentMessages" DESC, c.title
         LIMIT $4`,
-      [s.workspaceId,s.userId,query?String(query).slice(0,120):null,Math.min(Number(limit)||100,200)]);
+      [s.workspaceId,s.userId,query?String(query).slice(0,120).replace(/[\\%_]/g,(ch)=>`\\${ch}`):null,Math.min(Number(limit)||100,200)]);
     return rows;
   }
   /**

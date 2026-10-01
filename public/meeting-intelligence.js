@@ -148,7 +148,7 @@ const observer=new MutationObserver(()=>{
   if(!appVisible())return;
   decorate();
   clearTimeout(observerTimer);
-  observerTimer=setTimeout(()=>{if(appVisible()&&Date.now()-M.loadedAt>5000)loadMeetings()},400);
+  observerTimer=setTimeout(()=>{if(appVisible()&&Date.now()-M.loadedAt>60000)loadMeetings()},400);
 });
 observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['hidden','class']});
 function routeHash(force=false){if(!appVisible()&&!force)return;const match=location.hash.match(/^#\/meetings\/([0-9a-f-]+)$/i);if(match){if(M.current?.call?.id!==match[1]||!$('.mi-overlay'))openMeeting(match[1],{updateHash:false});return}if(location.hash==='#/meetings'){if(!$('.mi-overlay')||M.current)openMeetingCenter(M.filter,{updateHash:false});return}}

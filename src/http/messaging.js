@@ -116,7 +116,7 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     if(typeof b.archived==='boolean')value.archived=b.archived;
     if(Object.prototype.hasOwnProperty.call(b,'mutedUntil')){
       if(b.mutedUntil===null||b.mutedUntil==='')value.mutedUntil=null;
-      else{const at=new Date(b.mutedUntil);if(Number.isNaN(at.getTime()))throw httpError('Invalid mutedUntil','INVALID_MUTE_UNTIL',400);value.mutedUntil=at.toISOString()}
+      else{const at=new Date(b.mutedUntil);if(Number.isNaN(at.getTime()))throw httpError('Invalid mutedUntil','INVALID_MUTE_UNTIL',400);if(at.getTime()>Date.now()+10*365*864e5)throw httpError('Заглушить можно не дольше чем на 10 лет','INVALID_MUTE_UNTIL',400);value.mutedUntil=at.toISOString()}
     }
     if(!Object.keys(value).length)throw httpError('No conversation preference supplied','INVALID_CONVERSATION_PREFERENCES',400);
     const preferences=await store.setConversationPreferences(s,m[1],value);json(res,200,{preferences});return true;
@@ -316,6 +316,7 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     // Пробел нулевой ширины — не текст: пузырь в ленте выходил пустым.
     if(kind==='text'&&!String(b.body??'').replace(/[\u200b\u200c\u200d\ufeff]/g,'').trim())throw httpError('Message body required','INVALID_MESSAGE_BODY',400);
     if(typeof b.body==='string'&&b.body.length>12000)throw httpError('Message body is too long','MESSAGE_TOO_LONG',400);
+    if(b.metadata!==undefined&&(typeof b.metadata!=='object'||b.metadata===null||Array.isArray(b.metadata)||JSON.stringify(b.metadata).length>16384))throw httpError('Метаданные сообщения — объект до 16 КБ','INVALID_METADATA',400);
     const message=await store.createMessage(s,m[1],{kind,body:b.body??null,replyToId:b.replyToId??null,threadRootId:b.threadRootId??null,metadata:b.metadata??{},mentionedUserIds:Array.isArray(b.mentionedUserIds)?b.mentionedUserIds:[],clientRequestId:b.clientRequestId??randomUUID()});
     const audience=await store.conversationAudience(s,m[1]),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,m[1]):audience;
     hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:m[1],message});
@@ -403,7 +404,7 @@ export async function handleMessaging(req,res,ctx,url,path,method){
   if(m&&method==='POST'){
     const s=await requireSession(req),conversationId=await store.messageConversation(s,m[1]);
     if(!conversationId||!(await store.canAccessConversation(s,conversationId)))throw httpError('Message not found','NOT_FOUND',404);
-    const b=await readJson(req),reactions=await store.toggleReaction(s,m[1],cleanText(b.reaction,24));
+    const b=await readJson(req),reactions=await store.toggleReaction(s,m[1],(()=>{const r=cleanText(b.reaction,24);if(typeof b.reaction!=='string'||!r||/[<>&\p{L}\p{N}]/u.test(r))throw httpError('Реакция — это эмодзи','INVALID_REACTION',400);return r})());
     const audience=await store.conversationAudience(s,conversationId);
     hub.broadcastUsers(s.workspaceId,audience,'message.reaction',{messageId:m[1],reactions});
     json(res,200,{reactions});return true;

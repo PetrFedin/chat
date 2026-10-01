@@ -33,7 +33,8 @@ function appVisible(){const app=$('#app-view');return Boolean(app&&!app.hidden)}
 
 async function refreshPeople(){if(D.people.length)return;try{const boot=await (window.ChatBootstrap?.get()??api('/api/v1/bootstrap'));D.people=boot.people||[]}catch{}}
 
-async function refreshAttention(force=false){if(!appVisible()||D.refreshing)return;if(!force&&Date.now()-D.lastRefresh<1800)return;D.refreshing=true;try{const [attention,conversations]=await Promise.all([api('/api/v1/attention'),api('/api/v1/conversations')]);D.attention=attention.attention;D.conversations=conversations.items||[];D.lastRefresh=Date.now();decorate()}catch{}finally{D.refreshing=false}}
+async function refreshAttention(force=false){if(!appVisible()||D.refreshing)return;// Перерисовка экрана — не повод идти в сеть: опрос по таймеру и по фокусу и так есть.
+  if(!force&&Date.now()-D.lastRefresh<10000)return;D.refreshing=true;try{const [attention,conversations]=await Promise.all([api('/api/v1/attention'),api('/api/v1/conversations')]);D.attention=attention.attention;D.conversations=conversations.items||[];D.lastRefresh=Date.now();decorate()}catch{}finally{D.refreshing=false}}
 
 function ensureBell(){const actions=$('.top-actions');if(!actions||$('#dwc-bell'))return;const button=document.createElement('button');button.id='dwc-bell';button.className='round-button pressable dwc-bell';button.type='button';button.setAttribute('aria-label',tr('Центр уведомлений','Notification center'));button.innerHTML='<span aria-hidden="true">◎</span><span class="dwc-badge" hidden>0</span>';const avatar=actions.querySelector('#top-avatar');actions.insertBefore(button,avatar||null);button.onclick=()=>openNotifications()}
 
