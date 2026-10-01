@@ -162,3 +162,106 @@ Collector config becomes versioned infrastructure and must enforce attribute red
 
 **Sequencing:** Task/Calendar authority cleanup first; tracing can then be layered over canonical commands; passkeys can proceed once identity/session flows are stable.
 
+## Additional wave — enterprise identity, retention/eDiscovery and signed integration events
+
+This wave comes after the single Task authority / Calendar / Projects prerequisites. It makes ChatX fit larger organisations without replacing its native workspace identity and domain graph.
+
+### Enterprise OIDC/SAML federation — ADAPT
+
+Reference identity broker: https://github.com/keycloak/keycloak
+
+Add an enterprise federation boundary so an organisation can map an external identity to an existing ChatX user/member.
+
+Model:
+
+- organisation identity provider;
+- issuer/provider;
+- subject/external user ID;
+- mapped ChatX user;
+- verified email/domain claims where appropriate;
+- login method/status;
+- last authentication metadata.
+
+Keycloak or another IdP broker can provide OIDC/SAML integration, but ChatX remains source for workspace membership, project permissions and domain roles.
+
+External authentication success must not grant a workspace role that has not been provisioned/mapped.
+
+### SCIM 2.0 Provisioning Adapter — ADOPT/CONDITIONAL
+
+For organisations that require directory-driven lifecycle, implement a bounded SCIM endpoint/adapter:
+
+- create/invite member;
+- update basic profile mapping;
+- activate/deactivate;
+- group-to-organisation-role mapping where explicitly configured.
+
+Deactivation must trigger ChatX session/access revocation but must not delete historical messages/tasks/files.
+
+Every SCIM mutation is idempotent and audited with provider + external ID.
+
+### Retention / Legal Hold / eDiscovery Export — ADOPT
+
+Create policy-controlled retention metadata for:
+
+- conversations/messages;
+- files;
+- meeting recordings/transcripts;
+- tasks/decisions;
+- audit/security events.
+
+Support:
+
+- organisation retention policy/version;
+- legal hold scope;
+- scheduled deletion eligibility;
+- hold override;
+- export snapshot.
+
+An eDiscovery/export package should include a manifest with IDs, timestamps, source relationships and checksums.
+
+Retention deletion must respect legal hold and existing evidence/acceptance relationships.
+
+### Signed Webhook / Integration Event Gateway — ADOPT
+
+Expose approved ChatX domain events to external systems through a controlled outbox-driven gateway.
+
+Examples:
+
+- task created/completed;
+- project/milestone changed;
+- decision confirmed;
+- meeting summary confirmed;
+- file review requested.
+
+Every delivery includes:
+
+- event ID/type/version;
+- occurred_at;
+- organisation/workspace scope;
+- bounded payload;
+- delivery attempt;
+- signature/key ID;
+- retry/dead-letter status.
+
+Consumers acknowledge events but cannot mutate ChatX by replying to the webhook. Mutations must use authenticated domain APIs.
+
+### Collaborative Whiteboard — DEFER/ADAPT
+
+Reference: https://github.com/tldraw/tldraw
+
+Only after Pages/Projects are stable, consider an embedded collaborative canvas linked to project/meeting/page.
+
+Whiteboard source document is versioned and access-controlled; exported images are derivatives.
+
+Do not store tasks/decisions solely as shapes. A shape can link/create a canonical Task/Decision through explicit domain commands.
+
+### Additional acceptance
+
+- external IdP authenticates identity but cannot bypass ChatX membership/role checks;
+- SCIM deactivate revokes access without erasing history;
+- retention/hold decisions are versioned and auditable;
+- webhook retries are idempotent and signatures verifiable;
+- whiteboard links to, but never replaces, Task/Decision authorities.
+
+**Sequencing:** single authority/Projects first -> enterprise federation -> SCIM where required -> retention/legal-hold -> signed integration events -> optional whiteboard.
+
