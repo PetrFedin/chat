@@ -39,12 +39,49 @@ function isPrivateV4(address) {
   return false;
 }
 
+/** IPv6 в восемь шестнадцатибитных групп (понимает «::» и хвост a.b.c.d); null — не разобрали. */
+function expandV6(value) {
+  let text = value;
+  const tail = text.match(/(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
+  if (tail) {
+    const [a, b, c, d] = tail.slice(1).map(Number);
+    if ([a, b, c, d].some((n) => n > 255)) return null;
+    text = `${text.slice(0, -tail[0].length)}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const [head, rest, ...extra] = text.split('::');
+  if (extra.length) return null;
+  const left = head ? head.split(':') : [];
+  let groups;
+  if (rest === undefined) {
+    groups = left;
+  } else {
+    const right = rest ? rest.split(':') : [];
+    const fill = 8 - left.length - right.length;
+    if (fill < 0) return null;
+    groups = [...left, ...Array(fill).fill('0'), ...right];
+  }
+  if (groups.length !== 8) return null;
+  const numbers = groups.map((g) => (/^[0-9a-f]{1,4}$/.test(g) ? parseInt(g, 16) : NaN));
+  return numbers.some(Number.isNaN) ? null : numbers;
+}
+
 function isPrivateV6(address) {
   const value = address.toLowerCase().replace(/^\[|\]$/g, '');
-  if (value === '::1' || value === '::') return true;
-  if (value.startsWith('fe80')) return true;         // link-local
-  if (/^f[cd]/.test(value)) return true;             // unique local
-  if (value.startsWith('::ffff:')) return isPrivateV4(value.slice(7)); // v4 в обёртке
+  const g = expandV6(value);
+  // Не разобрали — считаем внутренним: лучше отказать, чем отправить внутрь сети.
+  if (!g) return true;
+  const v4 = `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`;
+  if (g.every((n) => n === 0)) return true;                       // ::
+  if (g.slice(0, 7).every((n) => n === 0) && g[7] === 1) return true; // ::1
+  if ((g[0] & 0xffc0) === 0xfe80) return true;                    // link-local
+  if ((g[0] & 0xffc0) === 0xfec0) return true;                    // site-local
+  if ((g[0] & 0xfe00) === 0xfc00) return true;                    // unique local
+  if ((g[0] & 0xff00) === 0xff00) return true;                    // multicast
+  // v4 внутри v6: ::ffff:a.b.c.d (обёртка), ::a.b.c.d (устаревшая «совместимая» запись),
+  // 64:ff9b::/96 (NAT64) и 2002::/16 (6to4) — во всех случаях решает сам v4-адрес.
+  if (g.slice(0, 5).every((n) => n === 0) && (g[5] === 0xffff || g[5] === 0)) return isPrivateV4(v4);
+  if (g[0] === 0x64 && g[1] === 0xff9b && g.slice(2, 6).every((n) => n === 0)) return isPrivateV4(v4);
+  if (g[0] === 0x2002) return isPrivateV4(`${g[1] >> 8}.${g[1] & 255}.${g[2] >> 8}.${g[2] & 255}`);
   return false;
 }
 

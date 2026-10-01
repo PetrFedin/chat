@@ -544,8 +544,9 @@ export async function createChatServer(options={}){
   server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();
     // Сокет аутентифицируется cookie, а браузер шлёт cookie и со страницы чужого сайта: без проверки
     // Origin любая страница в интернете могла открыть соединение от имени вошедшего человека.
+    // Заголовок есть, но пустой, — тоже не «нет заголовка»: такой Origin отклоняем (клиенты без него — не браузеры — проходят).
     const origin=req.headers.origin;
-    if(origin){
+    if(origin!==undefined){
       let ok=false;
       try{
         const o=new URL(origin);
