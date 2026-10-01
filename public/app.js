@@ -4613,11 +4613,11 @@ async function storiesModal(tab='live'){
     <div class="story-meta">
       <div class="row-title">${esc(s.authorName||name(s.authorId))}</div>
       ${s.caption?`<div class="row-sub">${esc(s.caption)}</div>`:''}
-      <div class="row-sub">${esc(dateTime(s.createdAt))}${tab==='archive'?(s.live?' · идёт':' · погасла'):''}${
+      <div class="row-sub">${esc(dateTime(s.createdAt))}${tab==='archive'?(s.live?` · ${T('идёт','live')}`:` · ${T('погасла','expired')}`):''}${
         s.authorId===me().userId?` · ${s.views} ${pluralIn(s.views,['просмотр','просмотра','просмотров'],['view','views'])}`:''}</div>
       <div class="inline-actions">
         ${s.authorId===me().userId?`<button type="button" class="button small ghost pressable" data-story-viewers="${esc(s.id)}">Кто смотрел</button>
-        <button type="button" class="button small danger pressable" data-story-remove="${esc(s.id)}">Убрать</button>`:''}
+        ${tab==='archive'&&!s.live?'':`<button type="button" class="button small danger pressable" data-story-remove="${esc(s.id)}">Убрать</button>`}`:''}
       </div>
     </div></div>`;
 
@@ -4681,7 +4681,7 @@ async function storiesModal(tab='live'){
       try{
         const fileId=await uploadPicture(file);
         await api('/api/v1/stories',{method:'POST',body:JSON.stringify({fileId,caption:new FormData(form).get('caption')||null})});
-        toast('Опубликовано');
+        toast(T('Опубликовано','Published'));
         closeModal();storiesModal('live');
       }catch(error){button.disabled=false;toast(ERROR_MESSAGE[error.code]||error.message)}
     };
