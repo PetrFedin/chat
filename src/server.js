@@ -1,6 +1,8 @@
 import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { log, errorFields, routeOf } from './obs/log.js';
+import { gzipSync } from 'node:zlib';
+const gzipCache=new Map();
 import { createMetrics } from './obs/metrics.js';
 import { mkdir, readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
@@ -508,10 +510,21 @@ export async function createChatServer(options={}){
       // Asset URLs carry no content hash, so a max-age served stale JS and CSS
       // to every user for its whole window after a deploy. Revalidate instead:
       // an unchanged file costs a 304, a changed one is picked up immediately.
-      const etag=`W/"${stats.size.toString(16)}-${Math.floor(stats.mtimeMs).toString(16)}"`;
-      if(req.headers['if-none-match']===etag){res.writeHead(304,{etag,'cache-control':'no-cache'});res.end();return}
-      const body=await readFile(file);
-      res.writeHead(200,{'content-type':mime.get(extname(file))??'application/octet-stream','cache-control':file.endsWith('index.html')?'no-store':'no-cache',etag});
+      // Текстовые файлы отдаём сжатыми, если клиент умеет: app.js — около 500 КБ, а по сети шёл без сжатия.
+      const type=mime.get(extname(file))??'application/octet-stream';
+      const gz=/gzip/.test(String(req.headers['accept-encoding']??''))&&/^(text\/|application\/(javascript|json)|image\/svg)/.test(type)&&stats.size>1024;
+      const etag=`W/"${stats.size.toString(16)}-${Math.floor(stats.mtimeMs).toString(16)}${gz?'-gz':''}"`;
+      if(req.headers['if-none-match']===etag){res.writeHead(304,{etag,'cache-control':'no-cache',vary:'accept-encoding'});res.end();return}
+      let body=await readFile(file);
+      const headers={'content-type':type,'cache-control':file.endsWith('index.html')?'no-store':'no-cache',etag,vary:'accept-encoding'};
+      if(gz){
+        const key=`${file}:${etag}`;
+        let packed=gzipCache.get(key);
+        if(!packed){packed=gzipSync(body,{level:6});gzipCache.set(key,packed);if(gzipCache.size>64)gzipCache.delete(gzipCache.keys().next().value)}
+        body=packed;headers['content-encoding']='gzip';
+      }
+      headers['content-length']=body.length;
+      res.writeHead(200,headers);
       res.end(body);
     }catch{const body=await readFile(join(publicRoot,'index.html'));res.writeHead(200,{'content-type':'text/html; charset=utf-8','cache-control':'no-store'});res.end(body)}
   }catch(rawError){
