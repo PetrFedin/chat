@@ -99,8 +99,11 @@ function openConversation(conversationId,messageId){
   closeOverlay();
   // Приложение умеет открыть ленту окном вокруг сообщения; двенадцать
   // попыток найти его в DOM и молча сдаться — это прежний способ.
-  if(messageId&&window.ChatApp?.openChatAtMessage){
-    window.ChatApp.openChatAtMessage(conversationId,messageId);
+  // Через приложение, а не поиском строки в разметке: строки может не быть на экране
+  // (карточка «непрочитанных» тогда не делала ничего).
+  if(window.ChatApp?.openChatAtMessage){
+    closeOverlay();
+    window.ChatApp.openChatAtMessage(conversationId,messageId||null);
     return;
   }
   if(messageId)setTimeout(()=>highlightMessage(messageId),450);const target=document.querySelector(`.sidebar-row[data-conversation="${CSS.escape(conversationId)}"]`)||document.querySelector(`.conversation-card[data-conversation="${CSS.escape(conversationId)}"]`);if(target){target.click();setTimeout(()=>refreshAttention(true),650);return}const chats=$('[data-nav="chats"]');chats?.click();setTimeout(()=>document.querySelector(`[data-conversation="${CSS.escape(conversationId)}"]`)?.click(),80)}
@@ -195,7 +198,7 @@ document.addEventListener('click',async(event)=>{const target=event.target;
   if(target.closest('[data-action="search"]')){event.preventDefault();event.stopImmediatePropagation();openSearch();return}
   if(target.closest('[data-action="files"]')){event.preventDefault();event.stopImmediatePropagation();openFiles();return}
   if(target.closest('[data-dwc-close]')){closeOverlay();return}
-  const attention=target.closest('[data-dwc-attention]');if(attention){const type=attention.dataset.dwcAttention;if(type==='mentions')return openNotifications('mentions');if(type==='unread'){const c=D.conversations.find(x=>x.unreadCount>0);if(c)return openConversation(c.id);closeOverlay();return openNav('chats')}if(type==='decide')return openNav('tasks',{taskFilter:'mine'});if(['overdue','soon'].includes(type))return openNav('tasks');return}
+  const attention=target.closest('[data-dwc-attention]');if(attention){const type=attention.dataset.dwcAttention;if(type==='mentions')return openNotifications('mentions');if(type==='unread'){const c=D.conversations.find(x=>x.unreadCount>0);if(c)return openConversation(c.id);closeOverlay();return openNav('chats')}if(type==='decide')return openNav('tasks',{taskFilter:'mine'});if(type==='overdue'&&window.ChatApp?.openTaskFilter){closeOverlay();return window.ChatApp.openTaskFilter('overdue')}if(['overdue','soon'].includes(type)){closeOverlay();return window.ChatApp?.openTaskFilter?window.ChatApp.openTaskFilter('active'):openNav('tasks')}return}
   const filter=target.closest('[data-dwc-notification-filter]');if(filter){D.notificationFilter=filter.dataset.dwcNotificationFilter;$$('[data-dwc-notification-filter]').forEach(b=>b.classList.toggle('active',b===filter));await loadNotifications();return}
   if(target.closest('[data-dwc-read-all]')){await api('/api/v1/notifications/read-all',{method:'POST',body:JSON.stringify({type:D.notificationFilter==='mentions'?'mentions':null})}).catch(()=>{});await Promise.all([loadNotifications(),refreshAttention(true)]);return}
   if(target.closest('[data-dwc-files-more]')){await loadFiles();return}

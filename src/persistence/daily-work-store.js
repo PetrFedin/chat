@@ -371,7 +371,7 @@ export class MemoryStore extends BaseMemoryStore {
       if (q && !String(file.name).toLowerCase().includes(q)) continue;
       if (mime && !String(file.mimeType ?? '').startsWith(mime)) continue;
       const profile = this.profiles.get(this.membershipKey(session.workspaceId, file.uploadedBy));
-      rows.push({ ...clone(file), uploaderName:profile?.displayName ?? null, context:this.fileContext(session,file.id), contentUrl:`/api/v1/files/${file.id}/content`, previewUrl:/^(image\/|application\/pdf$|text\/)/.test(file.mimeType ?? '')?`/api/v1/files/${file.id}/preview`:null });
+      rows.push({ ...clone(file), uploaderName:profile?.displayName ?? null, context:this.fileContext(session,file.id), contentUrl:`/api/v1/files/${file.id}/content`, previewUrl:/^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/.test(file.mimeType ?? '')?`/api/v1/files/${file.id}/preview`:null });
     }
     rows.sort((a,b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     return rows.slice(0, Math.min(Math.max(Number(limit)||60,1),100));
@@ -677,7 +677,7 @@ export class PostgresStore extends BasePostgresStore {
     // файла остальные были недостижимы с экрана. Курсор — время
     // последнего показанного файла, как у сообщений и задач.
     const page=rows.slice(0,size);
-    const items=page.map(r=>({...r,context:r.messageId?{messageId:r.messageId,conversationId:r.conversationId,conversationTitle:r.conversationTitle,conversationKind:r.conversationKind}:null,contentUrl:`/api/v1/files/${r.id}/content`,previewUrl:/^(image\/|application\/pdf$|text\/)/.test(r.mimeType??'')?`/api/v1/files/${r.id}/preview`:null}));
+    const items=page.map(r=>({...r,context:r.messageId?{messageId:r.messageId,conversationId:r.conversationId,conversationTitle:r.conversationTitle,conversationKind:r.conversationKind}:null,contentUrl:`/api/v1/files/${r.id}/content`,previewUrl:/^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/.test(r.mimeType??'')?`/api/v1/files/${r.id}/preview`:null}));
     items.nextCursor=rows.length>size?page[page.length-1]?.createdAt??null:null;
     return items;
   }
