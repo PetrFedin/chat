@@ -64,6 +64,7 @@ export function createIntegrationsHandler() {
         // наружу ровно там, где администратор был уверен в обратном.
         topics: topicList(body.topics),
       });
+      await ctx.store?.recordAuthEvent?.({ workspaceId: session.workspaceId, userId: session.userId, eventType: 'integration.webhook.created', payload: { label: endpoint?.label ?? null } }).catch(() => {});
       json(res, 201, { endpoint, secretShownOnce: true });
       return true;
     }
@@ -79,13 +80,16 @@ export function createIntegrationsHandler() {
 
     const stateMatch = path.match(ENDPOINT_STATE);
     if (method === 'POST' && stateMatch) {
-      json(res, 200, { endpoint: await webhooks.setEndpointEnabled(session, stateMatch[1], stateMatch[2] === 'enable') });
+      const changed = await webhooks.setEndpointEnabled(session, stateMatch[1], stateMatch[2] === 'enable');
+      await ctx.store?.recordAuthEvent?.({ workspaceId: session.workspaceId, userId: session.userId, eventType: 'integration.webhook.toggled', payload: { enabled: stateMatch[2] === 'enable', label: changed?.label ?? null } }).catch(() => {});
+      json(res, 200, { endpoint: changed });
       return true;
     }
 
     const idMatch = path.match(ENDPOINT_ID);
     if (method === 'DELETE' && idMatch) {
       await webhooks.deleteEndpoint(session, idMatch[1]);
+      await ctx.store?.recordAuthEvent?.({ workspaceId: session.workspaceId, userId: session.userId, eventType: 'integration.webhook.deleted', payload: { endpointId: idMatch[1] } }).catch(() => {});
       noContent(res);
       return true;
     }

@@ -39,18 +39,25 @@ export function createTelegramHandler() {
     }
     if (path === '/api/v1/integrations/telegram' && method === 'POST') {
       const body = await readJson(req);
+      // Привязать к Telegram-чату можно только беседу, которую сам видишь: иначе администратор
+      // выводил наружу переписку, в которой его нет.
+      if (!(await ctx.store.canAccessConversation?.(session, String(body.conversationId ?? '')))) {
+        throw Object.assign(new Error('Беседа не найдена'), { code: 'NOT_FOUND', statusCode: 404, expose: true });
+      }
       const bridge = await telegram.create(session, {
         conversationId: body.conversationId,
         botToken: body.botToken,
         chatId: body.chatId,
         publicBaseUrl: originOf(req),
       });
+      await ctx.store.recordAuthEvent?.({ workspaceId: session.workspaceId, userId: session.userId, eventType: 'integration.telegram.created', payload: { conversationId: String(body.conversationId) } }).catch(() => {});
       json(res, 201, { bridge });
       return true;
     }
     const m = path.match(ENTRY);
     if (m && method === 'DELETE') {
       await telegram.remove(session, m[1]);
+      await ctx.store.recordAuthEvent?.({ workspaceId: session.workspaceId, userId: session.userId, eventType: 'integration.telegram.removed', payload: { bridgeId: m[1] } }).catch(() => {});
       json(res, 200, { ok: true });
       return true;
     }
