@@ -603,3 +603,6 @@ h4{font-size:15px;font-weight:700}
 /* Длинное слово без пробелов не должно растягивать страницу: переносим где угодно. */
 .row-title,.row-sub,.section-title,.task-card,.agenda-row,.sidebar-row .label,.conversation-card strong,.message-body,.person-event{overflow-wrap:anywhere}
 .row-title,.sidebar-row .label{min-width:0}
+
+/* Описание переключателя в окне — полноценный текст, а не строка списка: переносим (по-русски оно втрое длиннее контейнера). */
+.modal .switch-row .row-sub,.modal .switch-row .muted,.modal .form-stack>.muted,.modal .row-sub.wrap{white-space:normal;overflow:visible;text-overflow:clip}

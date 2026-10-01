@@ -1834,7 +1834,7 @@ async function labelsModal(){
       </h3>
       ${rows.length?`<div class="label-list">${rows.map(l=>`<div class="label-row">
         ${labelChip(l)}
-        <span class="muted">${l.usage!==undefined?`${l.usage} <span>объектов</span>`:''}</span>
+        <span class="muted">${l.usage!==undefined?`${l.usage} <span>${pluralIn(l.usage,['объект','объекта','объектов'],['object','objects'])}</span>`:''}</span>
         <span class="inline-actions">
           <button class="text-button" data-edit-label="${esc(l.id)}">изменить</button>
           <button class="text-button danger" data-drop-label="${esc(l.id)}">удалить</button>
@@ -3571,7 +3571,7 @@ async function reportModal(){
     const people=data.people.map(p=>`<div class="row" data-report-person="${esc(p.userId)}" style="cursor:pointer">
         ${personAvatar(p)}
         <span><div class="row-title">${esc(p.displayName)}</div>
-          <div class="row-sub">${p.open} ${pluralIn(p.open,['обязательство','обязательства','обязательств'],['commitment','commitments'])}${p.overdue?` · <span class="late">${p.overdue} <span>просрочено</span></span>`:''}${p.dueSoon?` · ${p.dueSoon} <span>в ближайшие сутки</span>`:''}${p.awaitingAnswer?` · ${p.awaitingAnswer} <span>ждёт ответа</span>`:''}</div></span>
+          <div class="row-sub">${p.open} ${pluralIn(p.open,['обязательство','обязательства','обязательств'],['commitment','commitments'])}${p.overdue?` · <span class="late">${p.overdue} <span>просрочено</span></span>`:''}${p.dueSoon?` · ${p.dueSoon} <span>в ближайшие сутки</span>`:''}${p.awaitingAnswer?` · ${p.awaitingAnswer} <span>${pluralIn(p.awaitingAnswer,['ждёт ответа','ждут ответа','ждут ответа'],['awaiting an answer','awaiting an answer'])}</span>`:''}</div></span>
         <span class="chip">${p.keptPromises===null?'—':`${p.keptPromises}%`}</span>
       </div>${p.avgLateHours?`<div class="row-sub" style="margin:-4px 0 8px 46px"><span>когда опаздывает — в среднем на</span> ${esc(hoursWord(p.avgLateHours))}</div>`:''}`).join('');
     const stuck=data.stuck.length?`<div class="section-head" style="margin-top:16px"><div><h3>Застряло</h3><p class="muted">Не просрочено, но и не двигается — именно это чаще всего оказывается забытым.</p></div></div>
@@ -3677,14 +3677,14 @@ async function integrationsModal(){
   const endpointRow=(e)=>`<div class="label-row">
     <span><div class="row-title">${esc(e.label||e.url)}</div>
       <div class="row-sub">${esc(e.url)}</div>
-      <div class="row-sub">${(e.topics||[]).map(t=>`<span class="label-chip" data-colour="blue">${esc(t)}</span>`).join(' ')||'<span class="warn-text">все события</span>'}</div></span>
+      <div class="row-sub">${(e.topics||[]).map(t=>`<span class="label-chip" data-colour="blue" title="${esc(t)}">${esc(topicLabel(t))}</span>`).join(' ')||'<span class="warn-text">все события</span>'}</div></span>
     <span class="inline-actions">
       <button class="text-button" data-toggle-endpoint="${esc(e.id)}" data-enabled="${e.enabled?'1':''}">${e.enabled?'выключить':'включить'}</button>
       <button class="text-button danger" data-drop-endpoint="${esc(e.id)}">удалить</button>
     </span>
   </div>`;
   const deliveryRow=(d)=>`<div class="person-event">
-    <span><span>${esc(DELIVERY_STATUS[d.status]||d.status)}</span> · ${esc(d.topic||d.eventType||'')}${d.attempts?` · ${d.attempts} <span>${pluralIn(d.attempts,['попытка','попытки','попыток'],['attempt','attempts'])}</span>`:''}</span>
+    <span><span>${esc(DELIVERY_STATUS[d.status]||d.status)}</span> · ${esc(topicLabel(d.topic||d.eventType||''))}${d.attempts?` · ${d.attempts} <span>${pluralIn(d.attempts,['попытка','попытки','попыток'],['attempt','attempts'])}</span>`:''}</span>
     <time>${esc(when(d.updatedAt||d.createdAt))}</time></div>`;
 
   modal('Интеграции',`
@@ -3858,13 +3858,15 @@ function telegramBridgeFormModal(after){
 // живут только как мгновенная рассылка. Подписка на них создавалась,
 // показывалась включённой и не срабатывала никогда.
 const WEBHOOK_TOPICS=['task.created','task.transitioned','task.rescheduled','task.reassigned','task.evidence.added'];
+// Ключ события наружу — для разработчика; человеку показываем название.
+const topicLabel=(t)=>({'task.created':T('Задача создана','Task created'),'task.transitioned':T('Задача сменила состояние','Task changed state'),'task.rescheduled':T('Срок задачи перенесён','Task rescheduled'),'task.reassigned':T('Задачу передали другому','Task reassigned'),'task.evidence.added':T('Добавлено доказательство','Evidence added')}[t]||t);
 
 function endpointFormModal(after){
   modal('Новая подписка',`<form id="endpoint-form" class="form-stack">
     <label>Название<input name="label" required maxlength="120" placeholder="Например: ERP компании"></label>
     <label>Адрес<input name="url" type="url" required placeholder="https://erp.example.ru/hooks/chat"></label>
     <div><div class="section-title">События</div>
-      <div class="label-grid">${WEBHOOK_TOPICS.map(t=>`<label class="label-option"><input type="checkbox" name="topics" value="${t}"> <span class="label-chip" data-colour="blue">${esc(t)}</span></label>`).join('')}</div></div>
+      <div class="label-grid">${WEBHOOK_TOPICS.map(t=>`<label class="label-option"><input type="checkbox" name="topics" value="${t}"> <span class="label-chip" data-colour="blue" title="${esc(t)}">${esc(topicLabel(t))}</span></label>`).join('')}</div></div>
     <p class="muted">Секрет для подписи покажут один раз — сохраните его сразу.</p>
     <button class="button primary">Создать</button>
   </form>`,()=>{
@@ -3979,7 +3981,7 @@ async function personPage(userId){
       ${personAvatar(person)}
       <div>
         <div class="row-title">${esc(person.title||'Должность не указана')}</div>
-        <div class="row-sub"><span>${esc(person.department||'Подразделение не указано')}</span> · <span>${esc(PRESENCE[person.presenceState]||'не в сети')}</span></div>
+        <div class="row-sub"><span>${esc(person.department||person.units?.[0]?.name||'Подразделение не указано')}</span> · <span>${esc(PRESENCE[person.presenceState]||'не в сети')}</span></div>
         ${availabilityChip({availability:person.availability,backAt:person.backAt})}
       </div>
     </div>
@@ -4559,7 +4561,7 @@ async function notesModal(eventId,eventTitle=''){
   const list=(values)=>(values||[]).join('\n');
   modal('Протокол',`
     ${failed?`<div class="empty"><strong>Протокол недоступен</strong>${esc(failed)}</div>`:`
-    <p class="muted">${notes?`Записал(а) ${esc(notes.createdByName||'кто-то из участников')}, ${esc(dateTime(notes.updatedAt))}.`
+    <p class="muted">${notes?`<span>Автор протокола:</span> ${esc(notes.createdByName||'кто-то из участников')}, ${esc(dateTime(notes.updatedAt))}.`
       :'Протокола ещё нет. Он виден тем же людям, что и сама встреча.'}</p>
     <form id="notes-form" class="form-stack">
       <label>Название<input name="title" maxlength="240" value="${esc(notes?.title||eventTitle||'')}"></label>
@@ -4638,7 +4640,7 @@ async function decisionsModal(query=''){
     ${items.length?items.map(d=>`<div class="row">
         <span><div class="row-title">${esc(d.title)}</div>
           ${d.body?`<div class="row-sub">${esc(d.body)}</div>`:''}
-          <div class="row-sub">${esc(dateTime(d.acceptedAt))}${d.acceptedByName?` · <span>записал(а)</span> ${esc(d.acceptedByName)}`:''}${
+          <div class="row-sub">${esc(dateTime(d.acceptedAt))}${d.acceptedByName?` · <span>автор:</span> ${esc(d.acceptedByName)}`:''}${
             d.callTitle?` · ${esc(d.callTitle)}`:''}</div></span>
         ${d.conversationId?`<button type="button" class="button small secondary pressable" data-decision-room="${esc(d.conversationId)}">К беседе</button>`:''}
       </div>`).join('')

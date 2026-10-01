@@ -62,7 +62,8 @@ export function createTelegramBridgeRepository(pool, store, { request = fetch, e
   }).then(async (response) => {
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) {
-      throw fail(data?.description || `Telegram API отказал на ${method}`, 'TELEGRAM_API_ERROR', 502);
+      const known = { Unauthorized: 'Telegram не принял токен бота', 'Bad Request: chat not found': 'Telegram не нашёл такой чат: проверьте ID и что бот добавлен в чат' }[data?.description];
+      throw fail(known || data?.description || `Telegram API отказал на ${method}`, 'TELEGRAM_API_ERROR', 502);
     }
     return data.result;
   });
