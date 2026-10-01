@@ -101,3 +101,64 @@ Mermaid renders safe diagrams in pages/messages. ical.js adds import/export/recu
 13. CHATX-INT-12 Mermaid/ICS
 
 **Implementation instruction:** every new surface resolves to the same Task/Calendar/Project/Decision authorities.
+
+## Additional wave — privileged identity and end-to-end operational tracing
+
+### Passkeys for organisation/workspace administrators — ADOPT
+
+Reference: https://github.com/MasterKale/SimpleWebAuthn
+
+Attach WebAuthn credentials to the existing ChatX user identity.
+
+Start with privileged roles/actions:
+
+- organisation owner/admin;
+- workspace admin;
+- member/role administration;
+- data export;
+- security/integration configuration;
+- deletion/retention controls.
+
+Use step-up authentication for high-impact operations even when the user already has an active session.
+
+Recovery/removal of a passkey is itself a privileged audited event.
+
+Do not make passkey possession a replacement for workspace/project authorization.
+
+### OpenTelemetry end-to-end tracing — ADOPT
+
+Reference: https://github.com/open-telemetry/opentelemetry-js
+
+Trace operational paths after the single Task authority is stable:
+
+`request/websocket -> authz -> message/task/calendar/project command -> PostgreSQL -> outbox/job -> push/file/STT provider -> result`
+
+Meeting processing can add spans for:
+
+- upload;
+- transcription provider;
+- transcript persistence;
+- summary proposal;
+- human confirmation.
+
+Never include message/file/transcript text or secrets in telemetry by default.
+
+Use stable correlation IDs to connect mobile/web/API/job/provider failures.
+
+### OpenTelemetry Collector — ADAPT
+
+Reference: https://github.com/open-telemetry/opentelemetry-collector-contrib
+
+Use a collector only when multiple services/providers need unified routing/redaction/sampling. Do not introduce it during the earliest single-process cleanup if direct export is simpler.
+
+Collector config becomes versioned infrastructure and must enforce attribute redaction.
+
+### Acceptance extension
+
+- privileged admin actions can require recent passkey verification;
+- tracing follows task/message/job execution without leaking workspace content;
+- telemetry unavailability does not block core messaging/task execution;
+- Meeting Intelligence evidence semantics remain unchanged.
+
+**Sequencing:** Task/Calendar authority cleanup first; tracing can then be layered over canonical commands; passkeys can proceed once identity/session flows are stable.
+
