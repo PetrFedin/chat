@@ -3698,7 +3698,7 @@ async function integrationsModal(){
     </span>
   </div>`;
   const deliveryRow=(d)=>`<div class="person-event">
-    <span><span>${esc(DELIVERY_STATUS[d.status]||d.status)}</span> · ${esc(topicLabel(d.topic||d.eventType||''))}${d.attempts?` · ${d.attempts} <span>${pluralIn(d.attempts,['попытка','попытки','попыток'],['attempt','attempts'])}</span>`:''}</span>
+    <span><span>${esc(DELIVERY_STATUS[d.status]||d.status)}</span> · ${esc(topicLabel(d.topic||d.eventType||''))}${d.attempts?` · ${d.attempts} <span>${pluralIn(d.attempts,['попытка','попытки','попыток'],['attempt','attempts'])}</span>`:''}${d.responseStatus?` · HTTP ${esc(d.responseStatus)}`:''}${d.error&&d.status!=='delivered'?` · <span class="muted" title="${esc(d.error)}">${esc(String(d.error).slice(0,60))}</span>`:''}</span>
     <time>${esc(when(d.updatedAt||d.createdAt))}</time></div>`;
 
   modal('Интеграции',`
