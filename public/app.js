@@ -6534,8 +6534,11 @@ function connect(){
     }
     // Входящий звонок раньше показывался только из push (в открытой вкладке без push — никак).
     if(p.event==='call.created'&&d?.call&&d.call.createdBy!==me().userId&&!d.call.scheduledFor){
+      // «Не беспокоить» и заглушённая беседа не должны выкатывать плашку поверх работы: звонок остаётся в списке звонков.
+      const room=S.conversations.find(c=>c.id===d.call.conversationId);
+      const quiet=myPresence().state==='do_not_disturb'||(room?.mutedUntil&&Date.parse(room.mutedUntil)>Date.now());
       const caller=person(d.call.createdBy)?.displayName||T('Коллега','A colleague');
-      window.ChatCalls?.notifyIncoming?.({title:`${caller} ${T('звонит','is calling')}`,body:d.call.title||(d.call.mode==='video'?T('Видеозвонок','Video call'):T('Аудиозвонок','Audio call')),url:`/#/calls/${d.call.id}`});
+      if(!quiet)window.ChatCalls?.notifyIncoming?.({title:`${caller} ${T('звонит','is calling')}`,body:d.call.title||(d.call.mode==='video'?T('Видеозвонок','Video call'):T('Аудиозвонок','Audio call')),url:`/#/calls/${d.call.id}`});
     }
     if(p.event==='call.cancelled'||p.event==='call.participant.declined'&&d?.userId===me().userId)document.querySelector('.incoming-call')?.remove();
     if(p.event==='session.ready'){

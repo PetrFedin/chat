@@ -244,8 +244,12 @@ test('напоминание с исчезнувшим источником не
   );
   await insert('отравленное', 'message', randomUUID());
   await insert('обычное', null, null);
-  const result = await app.reminders.due({});
-  assert.ok(result.fired >= 2, 'обе строки обработаны, а не откатились вместе');
+  // В общей базе набора могут ждать чужие напоминания старше наших: идём по пачкам, пока обе наши строки не обработаны.
+  for (let round = 0; round < 20; round += 1) {
+    const { rows } = await app.store.pool.query(`SELECT count(*)::int n FROM reminders WHERE user_id=$1 AND status='pending'`, [people.alice.id]);
+    if (!rows[0].n) break;
+    await app.reminders.due({ limit: 200 });
+  }
   const inbox = await call(base, '/api/v1/notifications?limit=50', { cookie: people.alice.cookie });
   const titles = inbox.payload.items.filter((n) => n.type === 'calendar.reminder').map((n) => n.title);
   assert.ok(titles.includes('обычное'), 'обычное напоминание пришло');
