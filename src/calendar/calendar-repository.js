@@ -72,7 +72,8 @@ export function createCalendarRepository(pool, store = null) {
 
   /**
    * Кто видит встречу: организатор, весь штат для общей, приглашённый,
-   * участник связанной комнаты — и тот, кому доверены чужие встречи.
+   * участник связанной комнаты — и тот, кому доверены чужие встречи (кроме
+   * личных: «личная» значит только своя).
    * Правило одно на чтение и на правку: когда оно было записано дважды,
    * они разошлись, и руководитель получал 404 на собственную правку.
    */
@@ -81,7 +82,7 @@ export function createCalendarRepository(pool, store = null) {
          OR (e.visibility='workspace' AND $4<>'guest')
          OR EXISTS(SELECT 1 FROM calendar_event_participants p WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.user_id=$3)
          OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3)
-         OR $5)`;
+         OR ($5 AND e.visibility<>'private'))`;
   const visibilityArgs = (session, id) => [session.workspaceId, id, session.userId, session.role,
     hasPermission(session.role, Permission.CALENDAR_MANAGE_TEAM)];
 

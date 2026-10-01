@@ -52,7 +52,7 @@ export function createMediaHandler(objectStore){
         const text=extractText(buffer,{mimeType,name});
         if(text)await store.saveFileText(s,id,{body:text,kind:indexable(mimeType,name)}).catch(()=>{});
       }
-      hub.broadcastWorkspace(s.workspaceId,'file.created',file);json(res,201,{file:{...(({storageKey,...rest})=>rest)(file),contentUrl:`/api/v1/files/${id}/content`,previewUrl:PREVIEWABLE.test(mimeType)?`/api/v1/files/${id}/preview`:null}})}catch(e){await objectStore.delete(storageKey).catch(()=>{});throw e}return true;
+      hub.broadcastUsers(s.workspaceId,[s.userId],'file.created',(({storageKey,...rest})=>rest)(file));json(res,201,{file:{...(({storageKey,...rest})=>rest)(file),contentUrl:`/api/v1/files/${id}/content`,previewUrl:PREVIEWABLE.test(mimeType)?`/api/v1/files/${id}/preview`:null}})}catch(e){await objectStore.delete(storageKey).catch(()=>{});throw e}return true;
     }
     let m=path.match(/^\/api\/v1\/files\/([0-9a-f-]+)\/(content|preview)$/i);
     if(m&&method==='GET'){

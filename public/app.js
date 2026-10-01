@@ -6382,6 +6382,29 @@ window.CHAT_ERRORS=ERROR_MESSAGE;
 // Поиск живёт в отдельном файле и не видит внутренностей приложения:
 // всё, чем он открывает найденное, проходит через эту дверь.
 window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
+/**
+ * Доступность оверлеев, которые рисуют соседние модули (поиск, центр
+ * внимания, настройки): у них нет ни role=dialog, ни подписей у значков и
+ * полей. Дописываем недостающее одним проходом после перерисовки; пишем
+ * только то, чего нет, поэтому сам проход наблюдателя не будит.
+ */
+(()=>{
+  let queued=false;
+  const label=(el,text)=>{if(el&&!el.hasAttribute('aria-label')&&!el.hasAttribute('aria-labelledby'))el.setAttribute('aria-label',text)};
+  const pass=()=>{
+    queued=false;
+    for(const drawer of document.querySelectorAll('.dwc-drawer,.prefs-panel')){
+      if(!drawer.hasAttribute('role')){drawer.setAttribute('role','dialog');drawer.setAttribute('aria-modal','true')}
+      const heading=drawer.querySelector('h2');
+      if(heading){if(!heading.id)heading.id=`dlg-${Math.random().toString(36).slice(2,8)}`;label(drawer,heading.textContent.trim()||T('Окно','Dialog'))}
+    }
+    document.querySelectorAll('[data-dwc-close],.prefs-panel .prefs-close,.close-button:not([aria-label])').forEach(b=>label(b,T('Закрыть','Close')));
+    label(document.querySelector('#dwc-search-input'),T('Поиск','Search'));
+    label(document.querySelector('#dwc-file-search'),T('Поиск по названиям файлов','Search file names'));
+    label(document.querySelector('#message-input'),T('Сообщение','Message'));
+  };
+  new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(pass)}).observe(document.body,{childList:true,subtree:true});
+})();
 // Предложение установки приходит один раз и до того, как человек
 // откроет настройки: держим его, пока оно не понадобится.
 window.addEventListener('beforeinstallprompt',(event)=>{event.preventDefault();S.installPrompt=event});

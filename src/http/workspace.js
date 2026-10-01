@@ -258,7 +258,8 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     if(wanted.length){
       if(!ctx.calendar?.createWithParticipants)throw Object.assign(new Error('Участники встреч доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
       const created=await ctx.calendar.createWithParticipants(s,draft,wanted);
-      hub.broadcastWorkspace(s.workspaceId,'calendar.created',created.event);
+      // Только владельцу и приглашённым: личная встреча не должна лететь всем сокетам пространства.
+      hub.broadcastUsers(s.workspaceId,[s.userId,...wanted.map(w=>w.userId??w)],'calendar.created',created.event);
       json(res,201,created);return true;
     }
     // Повторение живёт в репозитории календаря: базовое хранилище про
@@ -267,10 +268,10 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     if(draft.recurrenceRule){
       if(!ctx.calendar?.createWithParticipants)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
       const created=await ctx.calendar.createWithParticipants(s,draft,[]);
-      hub.broadcastWorkspace(s.workspaceId,'calendar.created',created.event);
+      hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',created.event);
       json(res,201,created);return true;
     }
-    const event=await store.createCalendarEvent(s,draft);hub.broadcastWorkspace(s.workspaceId,'calendar.created',event);
+    const event=await store.createCalendarEvent(s,draft);hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',event);
     json(res,201,{event,invited:0});return true}
   /**
    * Присутствие и объявленная доступность одним маршрутом.

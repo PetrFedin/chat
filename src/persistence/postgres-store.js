@@ -835,7 +835,7 @@ export class PostgresStore {
         [s.workspaceId,id,s.userId,size-half,anchor.created_at,around]);
       return [...older.reverse(),...newer];
     }
-    const{rows}=await this.pool.query(`SELECT ${messageColumnsSql(s)} FROM messages m WHERE m.workspace_id=$1 AND m.conversation_id=$2 AND m.thread_root_id IS NULL AND($5::timestamptz IS NULL OR (m.created_at,m.id) < ($5::timestamptz,$6::uuid)) ORDER BY m.created_at DESC,m.id DESC LIMIT $4`,[s.workspaceId,id,s.userId,size,before?.at??null,before?.id??null]);
+    const{rows}=await this.pool.query(`SELECT ${messageColumnsSql(s)} FROM messages m WHERE m.workspace_id=$1 AND m.conversation_id=$2 AND m.thread_root_id IS NULL AND($5::timestamptz IS NULL OR (date_trunc('milliseconds',m.created_at),m.id) < ($5::timestamptz,$6::uuid)) ORDER BY date_trunc('milliseconds',m.created_at) DESC,m.id DESC LIMIT $4`,[s.workspaceId,id,s.userId,size,before?.at??null,before?.id??null]);
     return rows.reverse();
   }
   /**
@@ -1015,7 +1015,10 @@ export class PostgresStore {
     const readAt=`COALESCE((SELECT created_at FROM messages WHERE workspace_id=$2 AND id=$5),now())`;
     await this.pool.query(`INSERT INTO conversation_members(organization_id,workspace_id,conversation_id,user_id,role,last_read_at,last_read_message_id)
       VALUES($1,$2,$3,$4,'member',${readAt},$5)
-      ON CONFLICT(workspace_id,conversation_id,user_id) DO UPDATE SET last_read_at=${readAt},last_read_message_id=EXCLUDED.last_read_message_id`,
+      ON CONFLICT(workspace_id,conversation_id,user_id) DO UPDATE SET
+        -- Чтение не откатывается: два окна, и из старого приходит «прочитано до №0».
+        last_read_message_id=CASE WHEN ${readAt} >= COALESCE(conversation_members.last_read_at,'-infinity') THEN EXCLUDED.last_read_message_id ELSE conversation_members.last_read_message_id END,
+        last_read_at=GREATEST(conversation_members.last_read_at,${readAt})`,
       [s.organizationId,s.workspaceId,id,s.userId,messageId]);
   }
 

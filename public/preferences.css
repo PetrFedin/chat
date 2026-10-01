@@ -31,3 +31,6 @@ html[data-theme="light"] .day-chip.today strong{color:var(--bg)}
 html[data-theme="light"] .modal{border-color:var(--line)}
 html[data-theme="light"] .composer-button.recording{background:#f6dcd8;color:#8d2f27}
 html[data-theme="light"] .presence-dot{background:#a6a8a3}
+
+/* Светлая тема: акцентные цвета текста были ниже 4.5:1 (счётчики, «сегодня», ярлыки встреч). */
+html[data-theme="light"]{--warm:#7f4c39;--warning:#80580f;--success:#2b7048;--danger:#b23a36}

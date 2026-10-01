@@ -28,6 +28,16 @@ function canManageConversation(session,policy){
   return hasPermission(session.role,Permission.CHANNEL_MANAGE)||['owner','moderator'].includes(policy.memberRole);
 }
 
+/**
+ * Владение беседой передаёт только владелец беседы (или тот, кто управляет
+ * каналами во всём пространстве). Модератор вправе добавлять людей и
+ * назначать модераторов, но не делать кого-то владельцем и не снимать
+ * владельца: иначе рядовой модератор отбирал беседу у её создателя.
+ */
+function ownsConversation(session,policy){
+  return hasPermission(session.role,Permission.CHANNEL_MANAGE)||policy.memberRole==='owner';
+}
+
 function requireConversationManager(session,policy){
   if(!canManageConversation(session,policy))throw httpError('Conversation management permission required','FORBIDDEN',403);
 }
@@ -58,9 +68,14 @@ export async function handleMessaging(req,res,ctx,url,path,method){
   }
   if(path==='/api/v1/saved-messages'&&method==='GET'){const s=await requireSession(req);json(res,200,{items:await store.listSavedMessages(s)});return true}
   if(path==='/api/v1/conversations'&&method==='POST'){
-    const s=await requireSession(req),b=await readJson(req),kind=String(b.kind??'group');
+    const s=await requireSession(req),b=(await readJson(req))??{},kind=String(b.kind??'group');
     if(!allowedConversationKinds.has(kind))throw httpError('Unsupported conversation kind','INVALID_CONVERSATION_KIND',400);
-    requirePermission(s.role,kind==='channel'?Permission.CHANNEL_CREATE:Permission.MESSAGE_SEND);
+    if(b.title!==undefined&&b.title!==null&&typeof b.title!=='string')throw httpError('Название должно быть строкой','INVALID_VALUE',400);
+    // Всё, что видно не только участникам (канал, команда, проект, инцидент…),
+    // заводят те, кому разрешено заводить каналы: иначе рядовой сотрудник
+    // обходил запрет, выбрав другой вид комнаты.
+    const wide=!['direct','group'].includes(kind)||(b.visibility!==undefined&&b.visibility!=='private');
+    requirePermission(s.role,wide?Permission.CHANNEL_CREATE:Permission.MESSAGE_SEND);
     // Гость беседы не заводит. Право на отправку сообщений у него есть —
     // он для того и позван, — но заводить комнаты это право не даёт:
     // гость не может никого в них позвать (состав ему менять нельзя), и
@@ -173,6 +188,7 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     if(!userIds.length)throw httpError('At least one userId is required','INVALID_CONVERSATION_MEMBERS',400);
     const role=String(b.role??'member');if(!MEMBER_ROLES.has(role))throw httpError('Invalid conversation role','INVALID_CONVERSATION_ROLE',400);
     if(s.role==='guest')throw httpError('A guest cannot change who is in a conversation','GUEST_CANNOT_MANAGE',403);
+    if(role==='owner'&&!ownsConversation(s,policy))throw httpError('Передать владение беседой может только её владелец','OWNER_ONLY',403);
     const previous=await store.conversationAudience(s,m[1]);
     const items=await store.addConversationMembers(s,m[1],userIds,role);
     const audience=await store.conversationAudience(s,m[1]);
@@ -186,6 +202,11 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     if(policy.conversation.kind==='direct')throw httpError('Direct conversation membership is immutable','DIRECT_MEMBERSHIP_IMMUTABLE',409);
     const b=await readJson(req),role=String(b.role??'');if(!MEMBER_ROLES.has(role))throw httpError('Invalid conversation role','INVALID_CONVERSATION_ROLE',400);
     if(s.role==='guest')throw httpError('A guest cannot change conversation roles','GUEST_CANNOT_MANAGE',403);
+    if(!ownsConversation(s,policy)){
+      const members=await store.listConversationMembers(s,m[1]);
+      const target=members.find(x=>String(x.userId)===String(m[2]));
+      if(role==='owner'||target?.role==='owner')throw httpError('Менять владельца беседы может только он сам','OWNER_ONLY',403);
+    }
     const items=await store.setConversationMemberRole(s,m[1],m[2],role);
     const audience=await store.conversationAudience(s,m[1]);
     hub.broadcastUsers(s.workspaceId,audience,'conversation.members.updated',{conversationId:m[1],items});
