@@ -139,7 +139,8 @@ test('closing a sheet cannot swallow the one that opens next', async () => {
   // pop the overlay opened in the meantime, which killed every card in the
   // «Создать» sheet.
   assert.match(source, /function replaceModal\(open\)\{if\(overlayStack\.length\)overlayStack\.pop\(\);open\(\)\}/);
-  assert.match(source, /if\(unwinding>0\)\{unwinding-=1;return\}/);
+  // Счётчик самоистекающий: без срока он глотал бы и следующие нажатия «назад».
+  assert.match(source, /if\(unwinding>0&&Date\.now\(\)<unwindDeadline\)\{unwinding-=1;return\}/);
   assert.doesNotMatch(source, /const x=b\.dataset\.q;closeModal\(\)/, 'the quick sheet must swap, not close and reopen');
 });
 
