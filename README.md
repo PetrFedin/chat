@@ -912,3 +912,11 @@ PDF разбирается своим кодом (`src/search/pdf-text.js`), б�
 месте. Событие уходит в журнал.
 
 См. `docs/ARCHITECTURE.md`, `docs/PRODUCT_BLUEPRINT.md`, `docs/MULTIUSER_RUNTIME.md`, `docs/REALTIME_MEDIA.md` и `docs/MEETING_INTELLIGENCE.md`.
+
+## Planned integration roadmap
+
+Canonical implementation plan:
+
+- [docs/CHATX_INTEGRATION_MASTER_PLAN_2026-10-01.md](./docs/CHATX_INTEGRATION_MASTER_PLAN_2026-10-01.md)
+
+This file is a planned implementation source, not evidence that every listed capability is already live. Future full-roadmap work should cite this filename and follow its sequence, authority boundaries, dependencies and acceptance gates.
