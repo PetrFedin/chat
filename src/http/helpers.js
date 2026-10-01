@@ -128,7 +128,9 @@ export const errorJson=(res,rawError)=>{const error=normalizeError(rawError);
  */
 export const publicOrigin=(req,env=process.env)=>{
   const fixed=String(env.PUBLIC_URL??'').trim().replace(/\/+$/,'');
-  if(/^https?:\/\/[^\s/]+$/i.test(fixed))return fixed;
+  // Допускаем и путь («https://example.com/chat»): раньше такой PUBLIC_URL молча отбрасывался, и возвращалась
+  // подстановка Host из заголовка.
+  if(/^https?:\/\/[^\s/?#]+(\/[^\s?#]*)?$/i.test(fixed))return fixed;
   const proto=String((trustsProxy(env)&&req.headers['x-forwarded-proto'])||(req.socket?.encrypted?'https':'http')).split(',')[0];
   return `${proto}://${req.headers.host??'localhost'}`;
 };

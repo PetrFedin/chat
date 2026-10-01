@@ -72,8 +72,8 @@ function eventLines(event) {
     lines.push(`UID:${event.id}@chatx`);
     lines.push(`RECURRENCE-ID:${event.allDay ? stampDate(exception.at, event.timezone) : stampUtc(exception.at)}`);
     lines.push(`DTSTAMP:${stampUtc(event.updatedAt ?? event.createdAt)}`);
-    lines.push(event.allDay ? `DTSTART;VALUE=DATE:${stampDate(startAt)}` : `DTSTART:${stampUtc(startAt)}`);
-    if (exception.endAt) lines.push(event.allDay ? `DTEND;VALUE=DATE:${stampDate(exception.endAt)}` : `DTEND:${stampUtc(exception.endAt)}`);
+    lines.push(event.allDay ? `DTSTART;VALUE=DATE:${stampDate(startAt, event.timezone)}` : `DTSTART:${stampUtc(startAt)}`);
+    if (exception.endAt) lines.push(event.allDay ? `DTEND;VALUE=DATE:${stampDate(new Date(new Date(exception.endAt).getTime() + 1000), event.timezone)}` : `DTEND:${stampUtc(exception.endAt)}`);
     lines.push(`SUMMARY:${escapeText(exception.title ?? event.title)}`);
     lines.push('END:VEVENT');
   }

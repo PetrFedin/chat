@@ -221,3 +221,53 @@ test('загрузка файла крупнее лимита JSON проход�
   });
   assert.equal(response.status, 201, 'раньше такая загрузка падала с 413');
 });
+
+test('напоминание с исчезнувшим источником не останавливает остальные', { skip }, async (t) => {
+  const { app, base, people } = await workspace(t);
+  const boot = await call(base, '/api/v1/bootstrap', { cookie: people.alice.cookie });
+  const general = boot.payload.conversations.find((c) => c.slug === 'general');
+  const remindAt = new Date(Date.now() + 3600000).toISOString();
+
+  // Через API ставить напоминание на несуществующее сообщение нельзя.
+  const ghost = await call(base, '/api/v1/reminders', {
+    cookie: people.alice.cookie, method: 'POST',
+    body: { title: 'призрак', remindAt, sourceType: 'message', sourceId: randomUUID(), conversationId: general.id },
+  });
+  assert.equal(ghost.status, 404);
+
+  // А если источник исчез уже после постановки (или строка попала в базу иначе), доставка идёт дальше.
+  const ws = (await app.store.pool.query('SELECT workspace_id, organization_id FROM memberships WHERE user_id=$1', [people.alice.id])).rows[0];
+  const insert = (title, sourceType, sourceId) => app.store.pool.query(
+    `INSERT INTO reminders(organization_id,workspace_id,user_id,title,remind_at,source_type,source_id,conversation_id)
+     VALUES($1,$2,$3,$4,now() - interval '1 minute',$5,$6,$7)`,
+    [ws.organization_id, ws.workspace_id, people.alice.id, title, sourceType, sourceId, general.id],
+  );
+  await insert('отравленное', 'message', randomUUID());
+  await insert('обычное', null, null);
+  const result = await app.reminders.due({});
+  assert.ok(result.fired >= 2, 'обе строки обработаны, а не откатились вместе');
+  const inbox = await call(base, '/api/v1/notifications?limit=50', { cookie: people.alice.cookie });
+  const titles = inbox.payload.items.filter((n) => n.type === 'calendar.reminder').map((n) => n.title);
+  assert.ok(titles.includes('обычное'), 'обычное напоминание пришло');
+  assert.ok(titles.includes('отравленное'), 'отравленное тоже пришло — без ссылки на исчезнувший источник');
+});
+
+test('метрики в production без токена закрыты, в том числе заголовком «Bearer undefined»', { skip }, async (t) => {
+  const previous = { env: process.env.NODE_ENV, token: process.env.METRICS_TOKEN };
+  process.env.NODE_ENV = 'production';
+  delete process.env.METRICS_TOKEN;
+  t.after(() => {
+    if (previous.env === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previous.env;
+    if (previous.token !== undefined) process.env.METRICS_TOKEN = previous.token;
+  });
+  const app = await createChatServer({ databaseUrl: DATABASE_URL, startMeetingWorker: false });
+  await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
+  t.after(() => app.close());
+  const base = `http://127.0.0.1:${app.server.address().port}`;
+  const bare = await fetch(`${base}/metrics`);
+  assert.equal(bare.status, 401);
+  const trick = await fetch(`${base}/metrics`, { headers: { authorization: 'Bearer undefined' } });
+  assert.equal(trick.status, 401, 'заголовок «Bearer undefined» не должен открывать метрики');
+  const health = await (await fetch(`${base}/healthz`)).json();
+  assert.deepEqual(Object.keys(health), ['ok'], 'в production подробности healthz скрыты');
+});

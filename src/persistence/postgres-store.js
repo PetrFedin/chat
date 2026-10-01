@@ -835,7 +835,7 @@ export class PostgresStore {
         [s.workspaceId,id,s.userId,size-half,anchor.created_at,around]);
       return [...older.reverse(),...newer];
     }
-    const{rows}=await this.pool.query(`SELECT ${messageColumnsSql(s)} FROM messages m WHERE m.workspace_id=$1 AND m.conversation_id=$2 AND m.thread_root_id IS NULL AND($5::timestamptz IS NULL OR (date_trunc('milliseconds',m.created_at),m.id) < ($5::timestamptz,$6::uuid)) ORDER BY date_trunc('milliseconds',m.created_at) DESC,m.id DESC LIMIT $4`,[s.workspaceId,id,s.userId,size,before?.at??null,before?.id??null]);
+    const{rows}=await this.pool.query(`SELECT ${messageColumnsSql(s)} FROM messages m WHERE m.workspace_id=$1 AND m.conversation_id=$2 AND m.thread_root_id IS NULL AND($5::uuid IS NULL OR (m.created_at,m.id) < (SELECT cm.created_at,cm.id FROM messages cm WHERE cm.workspace_id=$1 AND cm.id=$5::uuid)) ORDER BY m.created_at DESC,m.id DESC LIMIT $4`,[s.workspaceId,id,s.userId,size,before?.id??null]);
     return rows.reverse();
   }
   /**
@@ -1087,7 +1087,8 @@ export class PostgresStore {
       if(!file)throw Object.assign(new Error('File not found'),{code:'NOT_FOUND',statusCode:404});
       if(file.uploaded_by!==s.userId&&!['admin','owner'].includes(s.role))throw Object.assign(new Error('File not found'),{code:'NOT_FOUND',statusCode:404}); // не подтверждаем существование чужого файла
       await c.query("UPDATE files SET deleted_at=now(),status='deleted' WHERE workspace_id=$1 AND id=$2",[s.workspaceId,id]);
-      await c.query('DELETE FROM file_texts WHERE workspace_id=$1 AND file_id=$2',[s.workspaceId,id]).catch(()=>{});
+      await c.query('DELETE FROM file_texts WHERE workspace_id=$1 AND file_id=$2',[s.workspaceId,id]);
+      await c.query('DELETE FROM file_links WHERE workspace_id=$1 AND file_id=$2',[s.workspaceId,id]);
       await c.query('UPDATE workspace_profiles SET avatar_file_id=NULL WHERE workspace_id=$1 AND avatar_file_id=$2',[s.workspaceId,id]);
       await c.query('UPDATE conversations SET avatar_file_id=NULL WHERE workspace_id=$1 AND avatar_file_id=$2',[s.workspaceId,id]);
       return{storageKey:file.storage_key,name:file.name};

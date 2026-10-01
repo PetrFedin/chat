@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { log, errorFields, routeOf } from './obs/log.js';
 import { gzipSync } from 'node:zlib';
+import { timingSafeEqual } from 'node:crypto';
 const gzipCache=new Map();
 import { createMetrics } from './obs/metrics.js';
 import { mkdir, readFile, stat } from 'node:fs/promises';
@@ -410,7 +411,10 @@ export async function createChatServer(options={}){
     if(path==='/metrics'&&method==='GET'){
       const expected=process.env.METRICS_TOKEN;
       // В боевой среде метрики без токена не отдаём: в них видны объёмы и состояние очередей.
-      if((expected||process.env.NODE_ENV==='production')&&req.headers.authorization!==`Bearer ${expected}`){
+      // Токена нет вовсе: в production закрыто всем (раньше заголовок «Bearer undefined» проходил), иначе открыто.
+      const supplied=String(req.headers.authorization??'');
+      const tokenOk=expected&&supplied.length===`Bearer ${expected}`.length&&timingSafeEqual(Buffer.from(supplied),Buffer.from(`Bearer ${expected}`));
+      if(!tokenOk&&(expected||process.env.NODE_ENV==='production')){
         res.writeHead(401,{'content-type':'text/plain; charset=utf-8'});
         res.end('нужен токен\n');
         return;

@@ -34,14 +34,17 @@ export class RealtimeHub {
 
     const listen = async () => {
       if (bus.stopped) return;
+      let client = null;
       try {
-        const client = await pool.connect();
+        client = await pool.connect();
         bus.listener = client;
         client.on('notification', (message) => { if (message.channel === CHANNEL) void deliver(message.payload); });
         client.on('error', () => reconnect(client));
         client.on('end', () => reconnect(client));
         await client.query(`LISTEN ${CHANNEL}`);
       } catch (error) {
+        // Захваченное соединение не должно оставаться висеть при каждой неудачной попытке.
+        if (client) { bus.listener = null; try { client.release(true); } catch { /* закрыт */ } }
         bus.errors += 1;
         log('warn', 'realtime.bus.listen_failed', { err: String(error?.message ?? error) });
         setTimeout(listen, 2000).unref?.();

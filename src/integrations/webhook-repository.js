@@ -278,10 +278,13 @@ export function createWebhookRepository(pool, { env = process.env } = {}) {
            SET last_failure_at=now(), last_failure_reason=$2, consecutive_failures=consecutive_failures+1,
                enabled=CASE WHEN consecutive_failures+1 >= $3 THEN false ELSE enabled END,
                updated_at=now()
-           WHERE id=$1 RETURNING enabled, consecutive_failures`,
+           WHERE id=$1 RETURNING enabled, consecutive_failures,
+             (SELECT w.enabled FROM webhook_endpoints w WHERE w.id=$1) AS was_enabled`,
           [delivery.endpointId, String(error).slice(0, 500), failureLimit],
         );
-        disabled = rows[0] ? rows[0].enabled === false : false;
+        // Отключение — это переход «включён → выключен»: приёмник, снятый раньше (вручную, при увольнении автора),
+        // не должен на каждой поздней неудаче заново писать в журнал и слать уведомление.
+        disabled = rows[0] ? rows[0].was_enabled === true && rows[0].enabled === false : false;
         if (disabled) {
           // «Мы перестали слать заказчику всё» — событие, о котором до сих
           // пор узнавали от самого заказчика по телефону.
@@ -291,13 +294,17 @@ export function createWebhookRepository(pool, { env = process.env } = {}) {
               FROM webhook_endpoints e WHERE e.id=$1`,
             [delivery.endpointId, String(error).slice(0, 500)]);
           // Тому, кто завёл интеграцию, — в колокол: молчаливое отключение замечали позже всех.
+          await client.query('SAVEPOINT webhook_notify');
+          try {
           await client.query(`INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,url,priority)
             SELECT e.organization_id,e.workspace_id,e.created_by,gen_random_uuid(),'webhook.disabled:'||e.id||':'||e.consecutive_failures,
                    'integration.disabled','Подписка отключена: '||e.label,
                    'Приёмник не отвечал много раз подряд, доставки остановлены. Проверьте адрес и включите подписку снова в «Ещё → Интеграции».',
                    '/#/more','high'
               FROM webhook_endpoints e WHERE e.id=$1 AND e.created_by IS NOT NULL
-            ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`, [delivery.endpointId]).catch(() => {});
+            ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`, [delivery.endpointId]);
+          await client.query('RELEASE SAVEPOINT webhook_notify');
+          } catch { await client.query('ROLLBACK TO SAVEPOINT webhook_notify'); }
           // Ждущие доставки отключённого приёмника больше не занимают очередь.
           await client.query(
             `UPDATE webhook_deliveries SET status='dead', lock_token=NULL, locked_until=NULL,

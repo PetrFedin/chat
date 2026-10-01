@@ -104,6 +104,10 @@ export function createReminderRepository(pool) {
       const note = body.note == null || body.note === '' ? null : String(body.note).slice(0, MAX_NOTE);
       const sourceType = body.sourceType == null || body.sourceType === '' ? null : String(body.sourceType);
       if (sourceType && !SOURCES.has(sourceType)) throw fail('Такого источника напоминания нет', 'INVALID_REMINDER_SOURCE', 400);
+      if (sourceType === 'message' && body.sourceId) {
+        const { rowCount } = await pool.query('SELECT 1 FROM messages WHERE workspace_id=$1 AND id=$2 AND deleted_at IS NULL', [session.workspaceId, String(body.sourceId)]);
+        if (!rowCount) throw fail('Источник напоминания не найден', 'REMINDER_SOURCE_NOT_FOUND', 404);
+      }
       // Источник — задача или встреча — тоже должен быть виден тому, кто ставит напоминание.
       if (sourceType && body.sourceId && (sourceType === 'task' || sourceType === 'event')) {
         const team = ['manager', 'admin', 'owner'].includes(session.role);
@@ -192,14 +196,14 @@ export function createReminderRepository(pool) {
       const soon = await run(`
         INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,commitment_id,url,priority)
         SELECT c.organization_id,c.workspace_id,c.owner_id,gen_random_uuid(),
-               'task.due:'||c.id||':'||CASE WHEN c.promised_at<now() THEN 'late' ELSE 'soon' END,
+               'task.due:'||c.id||':'||CASE WHEN c.promised_at<now() THEN 'late' ELSE 'soon' END||':'||to_char(c.promised_at AT TIME ZONE 'UTC','YYYYMMDDHH24MI'),
                'task.due',c.title,
                CASE WHEN c.promised_at<now() THEN 'Срок вышел: обещали к '||to_char(c.promised_at AT TIME ZONE ${zoneOf('c.workspace_id','c.owner_id')},'DD.MM HH24:MI')
                     ELSE 'Срок близко: к '||to_char(c.promised_at AT TIME ZONE ${zoneOf('c.workspace_id','c.owner_id')},'DD.MM HH24:MI') END,
                c.id,'/#/tasks/'||c.id,CASE WHEN c.promised_at<now() THEN 'high' ELSE 'normal' END
           FROM commitments c
          WHERE c.promised_at IS NOT NULL AND c.promised_at < now() + interval '24 hours'
-           AND c.promised_at > now() - interval '30 days'
+           AND c.promised_at > now() - interval '3 days'
            AND c.status IN ('accepted','scheduled','in_progress','blocked')
         ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
       const review = await run(`
@@ -224,13 +228,15 @@ export function createReminderRepository(pool) {
                 SELECT p.user_id FROM calendar_event_participants p
                  WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.response_status<>'declined'
           ) u ON true
-         WHERE e.recurrence_rule IS NULL AND e.start_at > now() AND e.start_at <= now() + interval '15 minutes'
+         WHERE e.recurrence_rule IS NULL AND e.all_day = false AND e.kind IN ('meeting','focus')
+           AND e.start_at > now() AND e.start_at <= now() + interval '15 minutes'
         ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
       // Запись звонка, застрявшая в «идёт запись»/«обрабатывается» дольше трёх часов: ждать нечего.
       const stuck = await run(`
         WITH s AS (
           UPDATE call_sessions SET recording_status='failed', last_activity_at=now()
-           WHERE recording_status IN ('recording','processing') AND last_activity_at < now() - interval '3 hours'
+           WHERE recording_status IN ('recording','processing') AND state IN ('ended','cancelled','missed')
+             AND GREATEST(last_activity_at, COALESCE(ended_at, last_activity_at)) < now() - interval '3 hours'
           RETURNING id, organization_id, workspace_id, created_by, conversation_id, title)
         INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,conversation_id,url,priority)
         SELECT s.organization_id,s.workspace_id,s.created_by,gen_random_uuid(),'call.stuck:'||s.id,'meeting.failed',
@@ -248,7 +254,7 @@ export function createReminderRepository(pool) {
                '/#/meetings/'||c.id,'normal'
           FROM meeting_intelligence_runs r
           JOIN call_sessions c ON c.workspace_id=r.workspace_id AND c.id=r.call_id
-         WHERE EXISTS (SELECT 1 FROM meeting_proposals p WHERE p.run_id=r.id AND p.status='proposed' AND p.created_at < now() - interval '3 days')
+         WHERE EXISTS (SELECT 1 FROM meeting_proposals p WHERE p.run_id=r.id AND p.status='proposed' AND p.created_at < now() - interval '3 days' AND p.created_at > now() - interval '30 days')
         ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
       return { soon, review, meetings, stuck, proposals };
     },
@@ -270,7 +276,10 @@ export function createReminderRepository(pool) {
           [now.toISOString(), pageSize(limit, 50, 200)],
         );
         for (const row of rows) {
-          await client.query(
+          // Каждое напоминание в своём SAVEPOINT: если предмет (сообщение, задачу, встречу) успели удалить,
+          // вставка уведомления падает по внешнему ключу, и раньше это откатывало всю пачку — одно
+          // «отравленное» напоминание останавливало доставку всех остальных у всех.
+          const insert = (withLinks) => client.query(
             // Связь с тем, о чём напоминали, терялась: человек сам указал
             // встречу или задачу, а извещение приходило без неё и без
             // ссылки — за предметом надо было идти искать руками.
@@ -280,15 +289,23 @@ export function createReminderRepository(pool) {
              ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`,
             [row.organizationId, row.workspaceId, row.userId, randomUUID(),
              `reminder:${row.id}`, row.title,
-             row.note?.trim() ? row.note : 'Вы просили напомнить.', row.conversationId,
-             row.sourceType === 'event' ? row.sourceId : null,
-             row.sourceType === 'task' ? row.sourceId : null,
-             row.sourceType === 'event' && row.sourceId ? `/#/calendar/${row.sourceId}`
+             row.note?.trim() ? row.note : 'Вы просили напомнить.', withLinks ? row.conversationId : null,
+             withLinks && row.sourceType === 'event' ? row.sourceId : null,
+             withLinks && row.sourceType === 'task' ? row.sourceId : null,
+             withLinks ? (row.sourceType === 'event' && row.sourceId ? `/#/calendar/${row.sourceId}`
                : row.sourceType === 'task' && row.sourceId ? `/#/tasks/${row.sourceId}`
                : row.sourceType === 'message' && row.sourceId && row.conversationId ? `/#/chats/${row.conversationId}?message=${row.sourceId}`
-               : row.conversationId ? `/#/chats/${row.conversationId}` : null,
-             row.sourceType === 'message' ? row.sourceId : null],
+               : row.conversationId ? `/#/chats/${row.conversationId}` : null) : null,
+             withLinks && row.sourceType === 'message' ? row.sourceId : null],
           );
+          await client.query('SAVEPOINT reminder_row');
+          try {
+            await insert(true);
+          } catch {
+            await client.query('ROLLBACK TO SAVEPOINT reminder_row');
+            await insert(false); // напоминание придёт без ссылки, но придёт
+          }
+          await client.query('RELEASE SAVEPOINT reminder_row');
           await client.query(
             "UPDATE reminders SET status='fired',fired_at=now(),updated_at=now() WHERE id=$1",
             [row.id],

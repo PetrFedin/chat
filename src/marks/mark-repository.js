@@ -192,7 +192,9 @@ export function createMarkRepository(pool) {
     /** Выделения: либо все свои, либо только в одной беседе. */
     async highlights(session, { conversationId = null, messageId = null, limit = 300 } = {}) {
       const { rows } = await pool.query(
-        `SELECT h.id,h.conversation_id "conversationId",h.message_id "messageId",h.quote,
+        `SELECT h.id,h.conversation_id "conversationId",h.message_id "messageId",
+                CASE WHEN EXISTS(SELECT 1 FROM messages dm WHERE dm.workspace_id=h.workspace_id AND dm.id=h.message_id AND dm.deleted_at IS NOT NULL)
+                     THEN 'Сообщение удалено' ELSE h.quote END quote,
                 h.start_offset "startOffset",h.end_offset "endOffset",h.colour,h.created_at "createdAt",
                 ${conversationTitleSql('h.conversation_id','h.workspace_id','$2')} "conversationTitle"
            FROM message_highlights h

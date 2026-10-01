@@ -93,3 +93,19 @@ test('ZIP: запись-бомба обрывается по размеру, о�
   assert.ok(bomb.entry.compressedSize < 200 * 1024, 'бомба маленькая в сжатом виде');
   assert.throws(() => readZipEntry(bomb.buffer, bomb.entry), (e) => e.code === 'ZIP_ENTRY_TOO_LARGE');
 });
+
+test('PUBLIC_URL с путём принимается, а не заменяется заголовком Host', () => {
+  const req = { headers: { host: 'evil.example' }, socket: {} };
+  assert.equal(publicOrigin(req, { PUBLIC_URL: 'https://example.com/chat/' }), 'https://example.com/chat');
+});
+
+test('ICS: перенесённое вхождение события на весь день считается в поясе события', () => {
+  const feed = buildIcsFeed([{
+    id: 'e2', title: 'Серия', allDay: true, timezone: 'Europe/Moscow', recurrenceRule: 'FREQ=WEEKLY',
+    startAt: new Date('2026-11-01T21:00:00Z'), endAt: new Date('2026-11-02T20:59:59Z'),
+    createdAt: new Date(), updatedAt: new Date(),
+    exceptions: [{ at: new Date('2026-11-08T21:00:00Z'), cancelled: false, startAt: new Date('2026-11-09T21:00:00Z'), endAt: new Date('2026-11-10T20:59:59Z'), title: null }],
+  }]);
+  assert.match(feed, /DTSTART;VALUE=DATE:20261110/, 'начало перенесённого — 10 ноября по Москве, а не 9-е по UTC');
+  assert.match(feed, /DTEND;VALUE=DATE:20261111/);
+});
