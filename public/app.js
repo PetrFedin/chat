@@ -907,7 +907,7 @@ function openTaskFilter(filter){
 function tasks(){
   const filter=S.taskFilter||'active';
   const counts=S.taskCounts;
-  const tabs=TASK_TABS.map(([key,caption])=>{
+  const tabs=(filter==='soon'?[...TASK_TABS.slice(0,3),['soon',T('Срок в 24 часа','Due in 24 hours')],...TASK_TABS.slice(3)]:TASK_TABS).map(([key,caption])=>{
     const n=taskTabCount(key,counts);
     return `<button class="chipbtn pressable${filter===key?' on':''}" data-task-filter="${key}">${esc(caption)}${n?`<i>${n}</i>`:''}</button>`;
   }).join('');
@@ -925,7 +925,7 @@ function tasks(){
 async function loadTaskPage({append=false}={}){
   const query=new URLSearchParams({limit:'50',counts:'1'});
   const filter=S.taskFilter||'active';
-  if(filter!=='all')query.set('status',filter==='done'?'closed,accepted_result':filter);
+  if(filter!=='all')query.set('status',filter==='done'?'closed,accepted_result':filter==='soon'?'active':filter);
   if(S.taskScope==='all')query.set('scope','all');
   // «Ждут меня» — про смотрящего, и охват команды его не расширяет:
   // чужой ход остаётся чужим, сколько бы задач человеку ни было видно.
@@ -933,7 +933,9 @@ async function loadTaskPage({append=false}={}){
   if(append&&S.tasksCursor)query.set('cursor',S.tasksCursor);
   try{
     const page=await api(`/api/v1/tasks?${query}`);
-    S.tasksPage=append?[...(S.tasksPage??[]),...(page.items||[])]:(page.items||[]);
+    // «Срок в 24 часа» — вкладка-срез: открытые задачи, обещанные в ближайшие сутки (так же считает плитка на «Сегодня»).
+    const keepSoon=(items)=>filter==='soon'?items.filter((t)=>t.promisedAt&&Date.parse(t.promisedAt)>=Date.now()&&Date.parse(t.promisedAt)<=Date.now()+864e5):items;
+    S.tasksPage=append?[...(S.tasksPage??[]),...keepSoon(page.items||[])]:keepSoon(page.items||[]);
     S.tasksCursor=page.nextCursor??null;
     if(page.counts)S.taskCounts=page.counts;
   }catch(error){toast(error.message)}
@@ -1342,7 +1344,9 @@ function bind(){
     const title=new FormData(event.target).get('title')?.toString().trim();
     if(!title)return;
     event.target.reset();
-    try{await api('/api/v1/personal-items',{method:'POST',body:JSON.stringify({kind:'todo',title})});await loadPlan();render()}
+    try{await api('/api/v1/personal-items',{method:'POST',body:JSON.stringify({kind:'todo',title})});await loadPlan();render();
+      // Поле остаётся в руках: на телефоне фокус в BODY закрывает клавиатуру, и добавить несколько дел подряд нельзя.
+      document.querySelector('[data-plan-quick] input[name="title"]')?.focus({preventScroll:true})}
     catch(error){toast(error.message)}
   };
   bindPlanRows(async()=>{await loadPlan();render()});
@@ -1404,12 +1408,20 @@ function bind(){
   input.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}};input.oninput=e=>{typing(e);if(S.selected)writeDraft(S.selected,input.value)};
   const stream=$('#message-stream');
   if(stream){
+    stream.addEventListener('scroll',()=>{S.streamPos={conv:S.selected,top:stream.scrollTop,atEnd:stream.scrollHeight-stream.scrollTop-stream.clientHeight<80}},{passive:true});
     // Подгрузка вверх не должна выбрасывать читающего вниз ленты.
     if(S.keepScroll){
       const anchor=S.keepScroll;S.keepScroll=null;
       requestAnimationFrame(()=>{stream.scrollTop=stream.scrollHeight-anchor.height+anchor.top});
     }else{
-      requestAnimationFrame(()=>{stream.scrollTo(0,999999)});
+      // Лента дорисовывается (аватары, вложения, шрифты) и после первого кадра длиннее: догоняем конец несколько раз,
+      // пока человек сам не тронул прокрутку.
+      const keep=S.streamPos&&S.streamPos.conv===S.selected&&!S.streamPos.atEnd?S.streamPos:null;
+      if(keep){requestAnimationFrame(()=>{stream.scrollTop=keep.top});}
+      let touched=!!keep;const stop=()=>{touched=true};
+      stream.addEventListener('wheel',stop,{once:true,passive:true});stream.addEventListener('touchstart',stop,{once:true,passive:true});
+      const toEnd=()=>{if(!touched&&stream.isConnected&&S.streamPos?.atEnd!==false)stream.scrollTop=stream.scrollHeight};
+      requestAnimationFrame(toEnd);[120,400,900].forEach((ms)=>setTimeout(toEnd,ms));
     }
     stream.onclick=(e)=>{
       if(!matchMedia('(max-width:860px) and (hover:none)').matches||e.target.closest('button,a,input,textarea,select,summary,.msg-toolbar'))return;
@@ -1486,6 +1498,7 @@ function rememberConversation(conversation){
 }
 
 async function openChat(id){
+  S.streamPos=null;
   S.selected=id;S.view='chats';S.mobileChat=true;
   // Адрес обязан догонять экран. Беседу открывают из поиска, из центра
   // внимания, из карточки задачи — и раньше после этого в адресе
@@ -1525,6 +1538,7 @@ async function markConversationRead(id){
  * грузится окном вокруг искомого.
  */
 async function openChatAtMessage(id,messageId=null){
+  S.streamPos=null;
   if(!S.conversations.some(c=>c.id===id)){toast(T('Беседа не найдена или недоступна','Conversation not found or unavailable'));if(S.view!=='chats')go('chats',{silent:true});history.replaceState(null,'','#/chats');return}
   if(messageId){
     const known=(S.messages.get(id)||[]).some(m=>m.id===messageId);
@@ -4184,9 +4198,11 @@ const MORE_SCREENS=new Set(['apikeys','archived','calls','catalogue','company','
 async function action(a){
   const before=overlayStack.length;
   await actions[a]?.();
-  if(MORE_SCREENS.has(a)&&overlayStack.length>before){try{history.replaceState(history.state,'',`#/more/${a}`)}catch{}}
+  // Часть экранов открывает лист не сразу, а после запроса: адрес дописываем, когда лист появился.
+  const mark=()=>{if(MORE_SCREENS.has(a)&&overlayStack.length>before&&location.hash.startsWith('#/more')){try{history.replaceState(history.state,'',`#/more/${a}`)}catch{}return true}return false};
+  if(!mark()&&MORE_SCREENS.has(a))[500,1500].forEach((ms)=>setTimeout(mark,ms));
 }
-async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';writeDraft(S.selected,'');try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null})});append(S.selected,message);S.reply=null;render()}catch(e){
+async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';writeDraft(S.selected,'');try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null})});append(S.selected,message);S.reply=null;S.streamPos=null;render()}catch(e){
     // Текст не должен пропадать вместе с неудачной отправкой: возвращаем его в поле.
     const again=$('#message-input');if(again&&!again.value){again.value=body;writeDraft(S.selected,body)}
     toast(e.message)}}
