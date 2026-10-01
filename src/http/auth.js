@@ -148,7 +148,7 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
           await store.recordAuthEvent?.({workspaceId,userId:a.id,eventType:'auth.login.failed',payload:{reason:`totp_${check.reason}`,ip:address}}).catch(()=>{});
         }
         throw Object.assign(
-          new Error(check.reason==='missing'?'Нужен код из приложения':'Код не подошёл'),
+          new Error(check.reason==='missing'?'Нужен код из приложения':check.reason==='no_key'?'На сервере не задан ключ шифрования, поэтому код из приложения проверить нельзя. Войдите запасным кодом или обратитесь к администратору':'Код не подошёл'),
           {code:check.reason==='missing'?'TWO_FACTOR_REQUIRED':'TWO_FACTOR_BAD_CODE',statusCode:401,expose:true},
         );
       }

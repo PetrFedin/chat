@@ -148,7 +148,16 @@ export async function createChatServer(options={}){
       durabilityConfigured:mode==='postgres'&&Boolean(objects.durable),
     };
   };
-  const demo=await preparePreviewDemo({store,objectStore,mode,enabled:options.demoEnabled??process.env.DEMO_MODE==='true'});
+  // Демо-режим открывает вход владельцем без пароля: в боевой среде его включают только осознанно.
+  const demoAllowed=()=>{
+    if(process.env.DEMO_MODE!=='true')return false;
+    if(process.env.NODE_ENV==='production'&&process.env.ALLOW_DEMO_IN_PRODUCTION!=='true'){
+      log('error','demo.blocked',{reason:'DEMO_MODE=true при NODE_ENV=production без ALLOW_DEMO_IN_PRODUCTION=true: демо выключено'});
+      return false;
+    }
+    return true;
+  };
+  const demo=await preparePreviewDemo({store,objectStore,mode,enabled:options.demoEnabled??demoAllowed()});
   // maxPayload: без предела `ws` принимает кадр до ста мегабайт, и любой
   // вошедший может заставить сервер выделить их на каждое соединение.
   // Служебные пакеты — «печатает» и присутствие — весят десятки байт.

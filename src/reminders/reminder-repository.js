@@ -164,6 +164,55 @@ export function createReminderRepository(pool) {
       if (!rowCount) throw fail('Reminder not found', 'REMINDER_NOT_FOUND', 404);
     },
 
+    /**
+     * Подталкивание: срок задачи, затянувшаяся проверка, встреча через четверть часа.
+     *
+     * Раньше ничто из этого не напоминало о себе: уведомление «срок задачи» было объявлено, но
+     * нигде не создавалось, и просроченное находили только в отчётах. Каждое извещение ложится
+     * ровно один раз (ключ дедупликации), поэтому обход можно гонять часто.
+     */
+    async nudge() {
+      const run = async (sql) => (await pool.query(sql)).rowCount;
+      const soon = await run(`
+        INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,commitment_id,url,priority)
+        SELECT c.organization_id,c.workspace_id,c.owner_id,gen_random_uuid(),
+               'task.due:'||c.id||':'||CASE WHEN c.promised_at<now() THEN 'late' ELSE 'soon' END,
+               'task.due',c.title,
+               CASE WHEN c.promised_at<now() THEN 'Срок вышел: обещали к '||to_char(c.promised_at AT TIME ZONE 'Europe/Moscow','DD.MM HH24:MI')
+                    ELSE 'Срок близко: к '||to_char(c.promised_at AT TIME ZONE 'Europe/Moscow','DD.MM HH24:MI') END,
+               c.id,'/#/tasks/'||c.id,CASE WHEN c.promised_at<now() THEN 'high' ELSE 'normal' END
+          FROM commitments c
+         WHERE c.promised_at IS NOT NULL AND c.promised_at < now() + interval '24 hours'
+           AND c.promised_at > now() - interval '30 days'
+           AND c.status IN ('accepted','scheduled','in_progress','blocked')
+        ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
+      const review = await run(`
+        INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,commitment_id,url,priority)
+        SELECT c.organization_id,c.workspace_id,c.acceptor_id,gen_random_uuid(),
+               'task.review:'||c.id||':'||c.version,'review.requested',c.title,
+               'Результат ждёт вашей проверки больше суток',c.id,'/#/tasks/'||c.id,'normal'
+          FROM commitments c
+         WHERE c.status = 'in_review' AND c.updated_at < now() - interval '24 hours'
+        ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
+      const meetings = await run(`
+        INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,calendar_event_id,url,priority)
+        SELECT e.organization_id,e.workspace_id,u.user_id,gen_random_uuid(),
+               'calendar.soon:'||e.id||':'||to_char(e.start_at AT TIME ZONE 'UTC','YYYYMMDDHH24MI')||':'||u.user_id,
+               'calendar.reminder',e.title,
+               'Начало через несколько минут: '||to_char(e.start_at AT TIME ZONE 'Europe/Moscow','HH24:MI'),
+               e.id,'/#/calendar/'||e.id,'high'
+          FROM calendar_events e
+          JOIN LATERAL (
+                SELECT e.owner_id AS user_id
+                UNION
+                SELECT p.user_id FROM calendar_event_participants p
+                 WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.response_status<>'declined'
+          ) u ON true
+         WHERE e.recurrence_rule IS NULL AND e.start_at > now() AND e.start_at <= now() + interval '15 minutes'
+        ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
+      return { soon, review, meetings };
+    },
+
     /** Разбудить всё, чему пришёл час. */
     async due({ limit = 50, now = new Date() } = {}) {
       const client = await pool.connect();
@@ -244,6 +293,7 @@ export function createReminderWorker(repository, { intervalMs, env = process.env
     async tick() {
       await this.sweepCalls().catch(() => {});
       if (!repository?.enabled) return { fired: 0 };
+      await repository.nudge?.().catch(() => {});
       return repository.due({});
     },
     start() {
@@ -255,6 +305,7 @@ export function createReminderWorker(repository, { intervalMs, env = process.env
       const loop = async () => {
         try { await this.sweepCalls(); } catch { /* следующий проход попробует снова */ }
         if (repository?.enabled) try { await repository.due({}); } catch { /* следующий проход попробует снова */ }
+        if (repository?.enabled) try { await repository.nudge?.(); } catch { /* то же */ }
         if (running) schedule(loop);
       };
       // Первый обход — сразу, а не через интервал: после перезапуска

@@ -1,6 +1,12 @@
 import { inflateSync } from 'node:zlib';
 
 /**
+ * Потолок на развёрнутый поток. Сжатый размер файла ограничен, а развёрнутый — нет: «бомба»
+ * из нескольких мегабайт раскрывалась в гигабайты синхронным inflate и вешала весь сервер.
+ */
+const MAX_INFLATED = 32 * 1024 * 1024;
+
+/**
  * Текст из PDF — без зависимостей.
  *
  * Договоры, акты и счета в компании ходят именно в PDF, и до сих пор
@@ -238,11 +244,11 @@ function inflate(entry) {
   if (!filters.every((name) => name === 'FlateDecode')) return null;
   let data;
   try {
-    data = inflateSync(entry.stream);
+    data = inflateSync(entry.stream, { maxOutputLength: MAX_INFLATED });
   } catch {
     // Обрезанный поток: разворачиваем то, что успели, — для поиска
     // половина договора лучше, чем ничего.
-    try { data = inflateSync(entry.stream, { finishFlush: 2 }); } catch { return null; }
+    try { data = inflateSync(entry.stream, { finishFlush: 2, maxOutputLength: MAX_INFLATED }); } catch { return null; }
   }
   const parms = [dict.DecodeParms].flat().find((item) => item?.dict)?.dict;
   const predictor = typeof parms?.Predictor === 'number' ? parms.Predictor : 1;

@@ -1,5 +1,8 @@
 import { inflateRawSync } from 'node:zlib';
 
+/** Потолок на развёрнутую запись: архив-бомба иначе исчерпывает память единственного процесса. */
+const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
+
 /**
  * Чтение ZIP — ровно настолько, насколько нужно.
  *
@@ -63,7 +66,13 @@ export function readZipEntry(buffer, entry) {
   const start = entry.offset + 30 + nameLength + extraLength;
   const raw = buffer.subarray(start, start + entry.compressedSize);
   if (entry.method === 0) return Buffer.from(raw);
-  if (entry.method === 8) return inflateRawSync(raw);
+  if (entry.method === 8) {
+    try { return inflateRawSync(raw, { maxOutputLength: MAX_ENTRY_BYTES }); }
+    catch (error) {
+      if (error?.code === 'ERR_BUFFER_TOO_LARGE') throw Object.assign(new Error('Запись архива слишком велика после распаковки'), { code: 'ZIP_ENTRY_TOO_LARGE' });
+      throw error;
+    }
+  }
   throw Object.assign(new Error(`Неизвестный способ сжатия: ${entry.method}`), { code: 'UNSUPPORTED_ZIP_METHOD' });
 }
 

@@ -155,7 +155,9 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
 
     /** Нужен ли этому человеку второй множитель при входе. */
     async required(userId) {
-      if (!key) return false;
+      // Без ключа шифрования секрет не прочесть, но это не повод пускать без кода: защита, которая
+      // молча отключается при потере настройки, хуже её отсутствия. Вход закрыт, пока ключ не вернули
+      // (запасные коды при этом работают).
       return Boolean(await enabledFor(userId));
     },
 
@@ -173,6 +175,7 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
       if (!given) return { ok: false, reason: 'missing' };
 
       if (/^\d{6}$/.test(given)) {
+        if (!readers.length) return { ok: false, reason: 'no_key' };
         const secret = open(readers, row.secret);
         // Запоминается окно, которому код подошёл, а не то, в котором мы
         // проверяли: иначе код из прошлого окна проходил второй раз уже
