@@ -193,6 +193,10 @@ const ERROR_MESSAGE={
  * ответ.
  */
 const WRITE_METHODS=new Set(['POST','PATCH','PUT','DELETE']);
+function plainServerError(message,status){
+  if(!message||message==='Internal server error')return status>=500||!message?T(status?`Ошибка сервера (${status}). Попробуйте ещё раз.`:'Ошибка сервера. Попробуйте ещё раз.',status?`Server error (${status}). Please try again.`:'Server error. Please try again.'):message;
+  return message;
+}
 async function api(path,o={}){
   const method=(o.method||'GET').toUpperCase();
   const headers={...(typeof o.body==='string'?{'content-type':'application/json'}:{}),...(o.headers||{})};
@@ -203,15 +207,15 @@ async function api(path,o={}){
   let r;
   try{r=await send()}
   catch(networkError){
-    if(!WRITE_METHODS.has(method))throw networkError;
+    if(!WRITE_METHODS.has(method))throw Object.assign(new Error(T('Нет связи с сервером. Проверьте интернет.','No connection to the server. Check your internet.')),{status:0,cause:networkError});
     // Сеть моргнула: тем же ключом повтор безопасен.
-    try{r=await send()}catch{throw networkError}
+    try{r=await send()}catch{throw Object.assign(new Error(T('Нет связи с сервером. Проверьте интернет.','No connection to the server. Check your internet.')),{status:0,cause:networkError})}
   }
   if(r.status===204)return null;
   const p=(r.headers.get('content-type')||'').includes('json')?await r.json():await r.text();
   if(!r.ok){
     const code=p?.error?.code;
-    const e=new Error(ERROR_MESSAGE[code]||p?.error?.message||`HTTP ${r.status}`);
+    const e=new Error(plainServerError(ERROR_MESSAGE[code]||p?.error?.message,r.status));
     e.status=r.status;e.code=code;e.serverMessage=p?.error?.message;
     // Сессия кончилась посреди работы: без этого приложение выглядело живым и
     // отвечало на каждое действие сырой ошибкой.
