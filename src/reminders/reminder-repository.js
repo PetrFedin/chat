@@ -223,7 +223,18 @@ export function createReminderRepository(pool) {
                s.conversation_id,'/#/meetings/'||s.id,'high'
           FROM s
         ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
-      return { soon, review, meetings, stuck };
+      // Предложения по итогам встречи, которые три дня никто не принял и не отклонил, висели без срока.
+      const proposals = await run(`
+        INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,url,priority)
+        SELECT r.organization_id,r.workspace_id,c.created_by,gen_random_uuid(),'meeting.stale:'||r.id,'review.requested',
+               'Итоги встречи ждут решения',
+               'По встрече «'||COALESCE(NULLIF(c.title,''),'без названия')||'» есть нерассмотренные предложения уже больше трёх дней: примите их или отклоните.',
+               '/#/meetings/'||c.id,'normal'
+          FROM meeting_intelligence_runs r
+          JOIN call_sessions c ON c.workspace_id=r.workspace_id AND c.id=r.call_id
+         WHERE EXISTS (SELECT 1 FROM meeting_proposals p WHERE p.run_id=r.id AND p.status='proposed' AND p.created_at < now() - interval '3 days')
+        ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
+      return { soon, review, meetings, stuck, proposals };
     },
 
     /** Разбудить всё, чему пришёл час. */

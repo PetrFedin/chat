@@ -605,6 +605,7 @@
     'Выделено вами — нажмите, чтобы снять': ['Выделено вами — нажмите, чтобы снять', 'You highlighted this — click to remove'],
     'Выделение снято': ['Выделение снято', 'Highlight removed'],
     'Снять выделение': ['Снять выделение', 'Remove highlight'],
+    'Итоги встречи ждут решения': ['Итоги встречи ждут решения', 'Meeting summary awaits your decision'],
     'Запись не обработалась: итоги не появятся. Проведите встречу ещё раз или запишите протокол вручную.': ['Запись не обработалась: итоги не появятся. Проведите встречу ещё раз или запишите протокол вручную.', 'The recording could not be processed, so there will be no summary. Hold the meeting again or write the notes by hand.'],
     'Приёмник не отвечал много раз подряд, доставки остановлены. Проверьте адрес и включите подписку снова в «Ещё → Интеграции».': ['Приёмник не отвечал много раз подряд, доставки остановлены. Проверьте адрес и включите подписку снова в «Ещё → Интеграции».', 'The receiver failed many times in a row and deliveries have stopped. Check the address and re-enable the subscription in More → Integrations.'],
     'Результат ждёт вашей проверки больше суток': ['Результат ждёт вашей проверки больше суток', 'The result has been waiting for your review for over a day'],
