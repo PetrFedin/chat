@@ -683,7 +683,7 @@ const TASK_EVENT={
   'evidence.added':'добавлено доказательство',
   'acceptance.recorded':'решение о приёмке',
 };
-const TASK_ACTION={accepted:'Принять ответственность',rejected:'Отказаться',clarify:'Запросить уточнение',scheduled:'Запланировать',in_progress:'Начать работу',blocked:'Есть блокировка',in_review:'Отправить на проверку',accepted_result:'Принять результат',closed:'Закрыть',deferred:'Отложить',cancelled:'Отменить'};
+const TASK_ACTION={accepted:'Принять ответственность',rejected:'Отказаться',clarify:'Запросить уточнение',scheduled:'Запланировать',in_progress:'Начать работу',blocked:'Есть блокировка',in_review:'Отправить на проверку',accepted_result:'Принять результат',closed:'Закрыть задачу',proposed:'Ответить на уточнение',deferred:'Отложить',cancelled:'Отменить'};
 /**
  * Строка задачи.
  *
@@ -5465,9 +5465,14 @@ function eventModal(prefill=''){
       const type=wholeDay?'date':'datetime-local';
       for(const field of [startField,endField]){
         if(field.type===type)continue;
-        const value=field.value?new Date(field.value):null;
+        // Дата без времени разбирается как полночь по Гринвичу и после переключения «весь день»
+        // обратно превращалась в 03:00 по Москве; берём локальные 09:00, а день собираем по местному календарю.
+        const value=field.value?(field.type==='date'?new Date(`${field.value}T${field===endField?'10':'09'}:00:00`):new Date(field.value)):null;
         field.type=type;
-        if(value)field.value=wholeDay?value.toISOString().slice(0,10):toLocalInput(value.toISOString());
+        if(value){
+          const pad=(n)=>String(n).padStart(2,'0');
+          field.value=wholeDay?`${value.getFullYear()}-${pad(value.getMonth()+1)}-${pad(value.getDate())}`:toLocalInput(value.toISOString());
+        }
       }
       // «Окончание» обязательно только для тех видов, где обязательно на
       // сервере — иначе человек либо видит лишнюю звёздочку, либо не
