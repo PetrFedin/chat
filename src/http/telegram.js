@@ -1,4 +1,4 @@
-import { json, readJson } from './helpers.js';
+import { json, readJson, publicOrigin } from './helpers.js';
 import { Permission, requirePermission } from '../rbac.js';
 
 const ID = '([0-9a-f-]{36})';
@@ -6,10 +6,7 @@ const ENTRY = new RegExp(`^/api/v1/integrations/telegram/${ID}$`, 'i');
 const WEBHOOK = /^\/api\/v1\/integrations\/telegram\/webhook\/([0-9a-zA-Z-]+)$/;
 
 /** Тот же приём, что и в src/http/auth.js: адрес этого стенда глазами вызывающего. */
-const originOf = (req) => {
-  const proto = String(req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http')).split(',')[0];
-  return `${proto}://${req.headers.host ?? 'localhost'}`;
-};
+const originOf = (req) => publicOrigin(req);
 
 function unavailable(telegram) {
   throw Object.assign(new Error('Мост с Telegram работает только с базой данных PostgreSQL'), { code: 'TELEGRAM_UNAVAILABLE', statusCode: 503, expose: true });

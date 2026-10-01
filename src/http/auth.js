@@ -1,14 +1,11 @@
 import { hashPassword, verifyPassword, equalizePasswordTiming, normalizeEmail, createOpaqueToken, hashToken } from '../security.js';
 import { Permission, requirePermission, hasPermission } from '../rbac.js';
 import { log } from '../obs/log.js';
-import { cleanText, clientAddress, trustsProxy, json, noContent, readJson, toDateOrNull, ruPlural } from './helpers.js';
+import { cleanText, clientAddress, trustsProxy, json, noContent, readJson, toDateOrNull, ruPlural, publicOrigin } from './helpers.js';
 import { invitationMail, passwordResetMail } from '../mail/templates.js';
 
 /** Адрес этого стенда глазами пришедшего — из него собираются ссылки в письмах. */
-const originOf=(req)=>{
-  const proto=String((trustsProxy()&&req.headers['x-forwarded-proto'])||(req.socket.encrypted?'https':'http')).split(',')[0];
-  return `${proto}://${req.headers.host??'localhost'}`;
-};
+const originOf=(req)=>publicOrigin(req);
 
 /**
  * Письмо ставится в очередь, но никогда не роняет сам запрос.

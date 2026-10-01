@@ -83,7 +83,9 @@ export const pageSize=(value,fallback,max)=>{
   if(!Number.isFinite(number)||number<1)return fallback;
   return Math.min(number,max);
 };
-export const cookies=(req)=>Object.fromEntries(String(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');return i<0?[x,'']:[x.slice(0,i),decodeURIComponent(x.slice(i+1))]}));
+// Чужая cookie с «%» ломала decodeURIComponent и роняла все запросы 400-й ошибкой (на localhost рядом живут другие приложения).
+const safeDecode=(v)=>{try{return decodeURIComponent(v)}catch{return v}};
+export const cookies=(req)=>Object.fromEntries(String(req.headers.cookie??'').split(';').map(x=>x.trim()).filter(Boolean).map(x=>{const i=x.indexOf('=');return i<0?[x,'']:[x.slice(0,i),safeDecode(x.slice(i+1))]}));
 export const json=(res,status,value,headers={})=>{res.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store',...headers});res.end(JSON.stringify(value))};
 export const noContent=(res,headers={})=>{res.writeHead(204,{'cache-control':'no-store',...headers});res.end()};
 // A driver error (a 5-digit SQLSTATE, a constraint name) is internal detail:
@@ -116,6 +118,20 @@ export const errorJson=(res,rawError)=>{const error=normalizeError(rawError);
 // overwrites it. Trusting it unconditionally let a credential spray rotate the
 // header and skip the per-address limiter entirely, so the header counts only
 // when the deployment says it sits behind a proxy.
+/**
+ * Адрес стенда для ссылок в письмах (сброс пароля, приглашения, мост Telegram).
+ *
+ * Раньше он собирался из заголовка Host: анонимный запрос на сброс пароля
+ * с чужим Host отправлял жертве письмо с настоящим токеном и ссылкой на сайт
+ * атакующего. Теперь, если задан PUBLIC_URL, берётся только он; заголовок
+ * остаётся запасным вариантом для локальной разработки.
+ */
+export const publicOrigin=(req,env=process.env)=>{
+  const fixed=String(env.PUBLIC_URL??'').trim().replace(/\/+$/,'');
+  if(/^https?:\/\/[^\s/]+$/i.test(fixed))return fixed;
+  const proto=String((trustsProxy(env)&&req.headers['x-forwarded-proto'])||(req.socket?.encrypted?'https':'http')).split(',')[0];
+  return `${proto}://${req.headers.host??'localhost'}`;
+};
 export const trustsProxy=(env=process.env)=>env.TRUST_PROXY==='true';
 export const clientAddress=(req,env=process.env)=>{
   const direct=String(req.socket?.remoteAddress??'').trim()||null;
