@@ -1595,7 +1595,7 @@ async function orgModal(){
     ${wide?'<div class="stack" style="margin:14px 0 12px"><button data-new-root class="button secondary">＋ Подразделение верхнего уровня</button></div>':''}
     ${mine.length?'<h3 class="person-section">Вся компания</h3>':''}
     <div class="org-tree">${branch(null,0)}</div>
-    <p class="muted" style="margin-top:12px"><span>Мест занято</span>: ${taken} / ${planned}${wide?'':' · <span>вы управляете только своей веткой</span>'}</p>`,()=>{
+    <p class="muted" style="margin-top:12px"><span>Мест занято</span>: ${(S.boot?.company?.seatsUsed??0)+(S.boot?.company?.seatsInvited??0)} / ${S.boot?.company?.seatLimit||T('без ограничения','unlimited')} · <span>штат подразделений</span>: ${planned}${wide?'':' · <span>вы управляете только своей веткой</span>'}</p>`,()=>{
     if(wide)$('[data-new-root]').onclick=()=>unitFormModal(null,null,orgModal);
     $$('[data-unit]').forEach(button=>button.onclick=()=>unitSheet(units.find(u=>u.id===button.dataset.unit),{wide,units}));
     // Вход в комнату подразделения: закрываем лист и открываем беседу —
