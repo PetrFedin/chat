@@ -170,6 +170,12 @@ export async function sendSmtpMail(message, options) {
       const secureCapabilities = (await secureTalk.send(`EHLO ${helo}`, [250])).text;
       return await deliver(secureTalk, upgraded, secureCapabilities);
     }
+    // Сервер не умеет STARTTLS, а у нас есть пароль: отдавать его открытым текстом по сети нельзя
+    // (раньше молча отдавали). Явное разрешение — MAIL_ALLOW_PLAINTEXT=true, для локальных стендов.
+    const local = /^(localhost|127\.|::1$)/i.test(String(host));
+    if (!secure && user && !local && process.env.MAIL_ALLOW_PLAINTEXT !== 'true') {
+      throw new SmtpError('почтовый сервер не поддерживает шифрование STARTTLS: пароль открытым текстом не отправляем');
+    }
     return await deliver(talk, socket, capabilities);
   } catch (error) {
     socket.destroy();

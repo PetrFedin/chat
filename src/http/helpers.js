@@ -136,7 +136,12 @@ export const trustsProxy=(env=process.env)=>env.TRUST_PROXY==='true';
 export const clientAddress=(req,env=process.env)=>{
   const direct=String(req.socket?.remoteAddress??'').trim()||null;
   if(!trustsProxy(env))return direct;
-  const forwarded=String(req.headers['x-forwarded-for']??'').split(',')[0].trim();
+  // Первый адрес в X-Forwarded-For клиент подставляет сам, поэтому им нельзя обойти лимит входа и
+  // подделать журнал. Верим адресу, который дописал наш собственный прокси: счёт с правого края,
+  // число прокси — TRUST_PROXY_HOPS (по умолчанию 1).
+  const hops=Math.max(1,Number(env.TRUST_PROXY_HOPS??1)||1);
+  const chain=String(req.headers['x-forwarded-for']??'').split(',').map((x)=>x.trim()).filter(Boolean);
+  const forwarded=chain.length?chain[Math.max(0,chain.length-hops)]:'';
   return forwarded||direct;
 };
 // camera/microphone stay permitted: the product is a calling app.
