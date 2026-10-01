@@ -113,12 +113,13 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
       if (rows[0].confirmed_at) {
         throw Object.assign(new Error('Второй множитель уже включён'), { code: 'TWO_FACTOR_ALREADY_ON', statusCode: 409, expose: true });
       }
-      if (!verifyCode(open(readers, rows[0].pending_secret), code)) {
+      const matched = matchCode(open(readers, rows[0].pending_secret), String(code ?? ''));
+      if (matched === null) {
         throw Object.assign(new Error('Код не подошёл'), { code: 'TWO_FACTOR_BAD_CODE', statusCode: 400, expose: true });
       }
       const codes = newRecoveryCodes();
       // Подтверждённый секрет переезжает из ожидания в рабочие.
-      await pool.query('UPDATE auth_totp SET secret = pending_secret, pending_secret = NULL, confirmed_at = now(), last_counter = NULL WHERE user_id = $1', [userId]);
+      await pool.query('UPDATE auth_totp SET secret = pending_secret, pending_secret = NULL, confirmed_at = now(), last_counter = $2 WHERE user_id = $1', [userId, matched]);
       await pool.query('DELETE FROM auth_recovery_codes WHERE user_id = $1', [userId]);
       for (const recovery of codes) {
         await pool.query('INSERT INTO auth_recovery_codes(user_id, code_hash) VALUES($1, $2)', [userId, digest(recovery)]);

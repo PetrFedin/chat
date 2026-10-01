@@ -156,7 +156,7 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     const mime = url.searchParams.get('mime');
     const limit = pageSize(url.searchParams.get('limit'), 60, 100);
     const items = await store.listFiles(session, { query, mime, limit, cursor: url.searchParams.get('cursor') });
-    json(res, 200, { items, nextCursor: items.nextCursor ?? null });
+    json(res, 200, { items: items.map(({ storageKey, ...rest }) => rest), nextCursor: items.nextCursor ?? null });
     return true;
   }
 

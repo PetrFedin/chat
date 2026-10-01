@@ -5804,6 +5804,7 @@ function bulkInviteModal(){
         // Показываем построчно и в том же порядке: человек сверяет ответ
         // со своей таблицей глазами, а не ищет в ней адреса.
         $('#bulk-result').innerHTML=`<h3 class="person-section"><span>Разослано</span> ${answer.invited} <span>из</span> ${answer.total}</h3>
+          ${answer.willSend===false?'<p class="muted">Почтовый канал не настроен, письма не ушли: передайте ссылки сами.</p>':''}
           <div class="person-feed">${answer.results.map(row=>`<div class="person-event">
             <span>${esc(row.email)}${row.unit?`<span class="row-sub">${esc(row.unit)}</span>`:''}</span>
             <span class="inline-actions">${row.foreignDomain?'<span class="chip warm">чужой домен</span>':''}<span class="chip ${row.status==='invited'?'good':row.status==='already'?'':'warm'}">${esc(BULK_STATUS[row.status]||row.status)}</span></span>

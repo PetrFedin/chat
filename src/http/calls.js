@@ -116,6 +116,9 @@ export function createCallHandler() {
         throw Object.assign(new Error('Не разобрали дату и время'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
       }
       const startAt = new Date(startIso);
+      if (startAt.getTime() < Date.now() - 60000) {
+        throw Object.assign(new Error('Звонок нельзя назначить в прошлом'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
+      }
       const minutes = Math.min(Math.max(Number(body.minutes) || 30, 5), 8 * 60);
       const endIso = body.endAt ? toDateOrNull(body.endAt) : null;
       const endAt = endIso ? new Date(endIso) : new Date(startAt.getTime() + minutes * 60000);

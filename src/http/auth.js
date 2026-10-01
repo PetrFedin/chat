@@ -468,6 +468,7 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     if(rows.length>200)throw Object.assign(new Error('За один раз не больше 200 строк'),{code:'INVITE_LIST_TOO_LONG',statusCode:400,expose:true});
     const RANK={guest:0,member:1,manager:2,admin:3,owner:4};
     const mine=RANK[s.role??'member'];
+    let mailOff=false;
     const seen=new Set();
     const results=[];
     // Список обычно приносят целиком — вместе с теми, кто уже здесь. Это
@@ -519,8 +520,9 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
         const inviteUrl=`${originOf(req)}/?invite=${encodeURIComponent(token)}`;
         const letter=invitationMail({workspaceName:s.workspaceName??'рабочее пространство',
           inviterName:s.displayName??s.email,role,url:inviteUrl,expiresAt:invitation.expiresAt});
-        await post(ctx,{organizationId:s.organizationId,workspaceId:s.workspaceId,kind:'invitation',actorId:s.userId,
+        const mailed=await post(ctx,{organizationId:s.organizationId,workspaceId:s.workspaceId,kind:'invitation',actorId:s.userId,
           to:invitation.email,subject:letter.subject,text:letter.text,html:letter.html,sourceId:invitation.id});
+        if(mailed.willSend===false)mailOff=true;
         if(role!=='guest'&&free!==null)free-=1;
         results.push({email,status:'invited',role,inviteUrl,unit:unitName||undefined,foreignDomain:foreignDomain||undefined});
       }catch(error){
@@ -542,7 +544,7 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
       }
     }
     const invited=results.filter(x=>x.status==='invited').length;
-    json(res,201,{invited,total:results.length,results});return true;
+    json(res,201,{invited,total:results.length,results,willSend:!mailOff});return true;
   }
 
   if(method==='POST'&&path==='/api/v1/invitations'){
