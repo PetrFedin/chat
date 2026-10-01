@@ -309,7 +309,10 @@ function forgotPasswordModal(){
   });
 }
 
-async function bootstrap(){try{const b=await (window.ChatBootstrap?.get({force:true})??api('/api/v1/bootstrap'));window.ChatBootstrap?.put(b);S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadOnboarding(),loadTasks(),loadTaskPage(),loadCalendar(),loadInvitations(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash()}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
+async function bootstrap(){try{const b=await (window.ChatBootstrap?.get({force:true})??api('/api/v1/bootstrap'));window.ChatBootstrap?.put(b);S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadOnboarding(),loadTasks(),loadTaskPage(),loadCalendar(),loadInvitations(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash();
+    // Адрес «#/chats» без беседы выбирает первую, но не грузил её сообщения:
+    // экран показывал «Начните разговор» над пустой лентой.
+    if(S.view==='chats'&&S.selected&&!(S.messages.get(S.selected)||[]).length){await loadMessages(S.selected);render()}}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
 /**
  * Адрес страницы и то, что на ней видно, — одно и то же.
  *
@@ -323,11 +326,11 @@ async function routeFromHash(){
   if(!S.boot)return;
   const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?');
   const parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);
-  if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);return}
+  if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);if(!document.querySelector('#modal-heading'))history.replaceState(null,'','#/tasks');return}
   if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}
   // У задачи и беседы адрес был, у встречи — нет: уведомление «вас позвали»
   // вело в общий календарь, и человек искал нужную встречу глазами.
-  if(parts[0]==='calendar'&&parts[1]){S.view='calendar';render();await eventPage(parts[1]);return}
+  if(parts[0]==='calendar'&&parts[1]){S.view='calendar';render();await eventPage(parts[1]);if(!document.querySelector('#modal-heading'))history.replaceState(null,'','#/calendar');return}
   if(parts[0]&&VIEWS.has(parts[0])){if(S.view!==parts[0])go(parts[0],{silent:true});return}
   if(!parts.length&&S.view!=='today')go('today',{silent:true});
   // Неизвестный раздел: остаёмся, где были, а адрес приводим в порядок.
@@ -922,7 +925,15 @@ function calendar(){
     const first=eventDay(e);
     if(!e.allDay||!e.endAt)return first;
     const last=eventDay({...e,startAt:e.endAt});
-    return last<first?first:last;
+    if(last<=first)return first;
+    // Конец ровно в полночь — это «до начала следующего дня» (так заводят
+    // событие импортом и через API): сам следующий день ему не принадлежит.
+    try{
+      const at=new Date(e.endAt);
+      const hm=new Intl.DateTimeFormat('en-GB',{timeZone:e.timezone||undefined,hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(at);
+      if(hm==='00:00:00'||hm==='24:00:00')return new Date(last.getFullYear(),last.getMonth(),last.getDate()-1);
+    }catch{}
+    return last;
   };
   const dayStart=(x)=>new Date(x.getFullYear(),x.getMonth(),x.getDate()).getTime();
   const eventsOn=(d)=>(S.calendar||[]).filter(e=>{
@@ -3921,7 +3932,9 @@ async function contactsModal(){
     $('[data-action-team]').onclick=()=>replaceModal(teamModal);
   });
 }
-const WORKSPACE_ROLE={owner:'владелец',admin:'админ',manager:'руководитель',member:'сотрудник',guest:'гость'};
+const WORKSPACE_ROLE_RU={owner:'владелец',admin:'админ',manager:'руководитель',member:'сотрудник',guest:'гость'};
+const WORKSPACE_ROLE_EN={owner:'owner',admin:'admin',manager:'manager',member:'employee',guest:'guest'};
+const WORKSPACE_ROLE=new Proxy({},{get:(_,k)=>(locale()==='en'?WORKSPACE_ROLE_EN:WORKSPACE_ROLE_RU)[k],has:(_,k)=>k in WORKSPACE_ROLE_RU});
 
 // ── employee card ───────────────────────────────────────────────────────────
 const WORK_STATUS={proposed:'ожидает принятия',accepted:'принята',scheduled:'запланирована',in_progress:'в работе',blocked:'заблокирована',in_review:'на проверке',accepted_result:'результат принят',closed:'закрыта',deferred:'отложена',cancelled:'отменена',rejected:'отклонена'};

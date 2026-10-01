@@ -404,7 +404,7 @@ export async function handleMessaging(req,res,ctx,url,path,method){
   if(m&&method==='POST'){
     const s=await requireSession(req),conversationId=await store.messageConversation(s,m[1]);
     if(!conversationId||!(await store.canAccessConversation(s,conversationId)))throw httpError('Message not found','NOT_FOUND',404);
-    const b=await readJson(req),reactions=await store.toggleReaction(s,m[1],(()=>{const r=cleanText(b.reaction,24);if(typeof b.reaction!=='string'||!r||/[<>&\p{L}\p{N}]/u.test(r))throw httpError('Реакция — это эмодзи','INVALID_REACTION',400);return r})());
+    const b=await readJson(req),reactions=await store.toggleReaction(s,m[1],(()=>{const r=cleanText(b.reaction,24);if(typeof b.reaction!=='string'||!r||/[<>&\p{L}]/u.test(r)||(/\p{N}/u.test(r)&&!r.includes('\u20E3')))throw httpError('Реакция — это эмодзи','INVALID_REACTION',400);return r})());
     const audience=await store.conversationAudience(s,conversationId);
     hub.broadcastUsers(s.workspaceId,audience,'message.reaction',{messageId:m[1],reactions});
     json(res,200,{reactions});return true;
