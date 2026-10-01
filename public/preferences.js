@@ -604,6 +604,7 @@
     'Выделено': ['Выделено', 'Highlighted'],
     'Выделено вами — нажмите, чтобы снять': ['Выделено вами — нажмите, чтобы снять', 'You highlighted this — click to remove'],
     'Выделение снято': ['Выделение снято', 'Highlight removed'],
+    'Снять выделение': ['Снять выделение', 'Remove highlight'],
     'Выделено вами:': ['Выделено вами:', 'What you selected:'],
     'Ничего не выделено — будет отмечено всё сообщение:': ['Ничего не выделено — будет отмечено всё сообщение:', 'Nothing is selected, so the whole message will be marked:'],
     'В этом сообщении нечего выделять': ['В этом сообщении нечего выделять', 'There is nothing to highlight in this message'],

@@ -4403,6 +4403,7 @@ function messageMenu(messageId){
     ['pin',message.pinned?'Открепить':'Закрепить',msgIcon.pin],
     ['task','В задачу',msgIcon.task],
     ['link','Скопировать ссылку','🔗'],
+    ...((S.highlights?.get(message.id)||[]).length?[['unhighlight','Снять выделение',msgIcon.pin]]:[]),
     ...(mine&&message.kind==='text'&&!message.forwarded?[['edit','Изменить',msgIcon.edit]]:[]),
     ...(mine||can('message.delete.any')?[['delete','Удалить',msgIcon.trash]]:[]),
   ];
@@ -4420,6 +4421,13 @@ function messageMenu(messageId){
       label:()=>replaceModal(()=>labelPicker('message',messageId,{title:T('Метки сообщения','Message labels')})),
       pin:()=>{closeModal();togglePin(messageId,!message.pinned)},
       task:()=>replaceModal(()=>taskModal(messageId,(message.body||'').trim().slice(0,120))),
+      unhighlight:async()=>{
+        closeModal();
+        try{
+          for(const h of S.highlights?.get(messageId)||[])await api(`/api/v1/highlights/${h.id}`,{method:'DELETE'});
+          await loadMarks();render();toast(T('Выделение снято','Highlight removed'));
+        }catch(error){toast(error.message)}
+      },
       link:async()=>{
         closeModal();
         const url=`${location.origin}/#/chats/${S.selected}?message=${messageId}`;
