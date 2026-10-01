@@ -1001,7 +1001,13 @@ export class PostgresStore {
       // не значило. Гасим тело вместе с самим сообщением.
       await c.query(`UPDATE notifications SET body='Сообщение удалено',updated_at=now()
         WHERE workspace_id=$1 AND message_id=$2`,[s.workspaceId,id]);
-      await c.query('UPDATE messages SET deleted_at=now() WHERE workspace_id=$1 AND id=$2',[s.workspaceId,id]);await c.query('DELETE FROM message_pins WHERE workspace_id=$1 AND message_id=$2',[s.workspaceId,id])});return this.getMessage(s,id)}
+      // «Удалить у всех» должно удалять и в базе: раньше текст оставался в таблице (и уходил бы в выгрузку).
+      // Для текстовых сообщений тело обязано быть непустым, поэтому вместо него ставим пометку.
+      await c.query(`UPDATE messages SET deleted_at=now(),
+          body=CASE WHEN kind IN ('text','poll') THEN '[удалено]' ELSE NULL END, metadata='{}'::jsonb
+        WHERE workspace_id=$1 AND id=$2`,[s.workspaceId,id]);
+      await c.query('DELETE FROM message_versions WHERE workspace_id=$1 AND message_id=$2',[s.workspaceId,id]);
+      await c.query('DELETE FROM message_pins WHERE workspace_id=$1 AND message_id=$2',[s.workspaceId,id])});return this.getMessage(s,id)}
   async toggleReaction(s,id,reaction){const message=await this.getMessage(s,id);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});const deleted=await this.pool.query('DELETE FROM message_reactions WHERE workspace_id=$1 AND message_id=$2 AND user_id=$3 AND reaction=$4 RETURNING reaction',[s.workspaceId,id,s.userId,reaction]);if(!deleted.rowCount)await this.pool.query('INSERT INTO message_reactions(organization_id,workspace_id,message_id,user_id,reaction) VALUES($1,$2,$3,$4,$5)',[s.organizationId,s.workspaceId,id,s.userId,reaction]);const{rows}=await this.pool.query('SELECT user_id "userId",reaction,created_at "createdAt" FROM message_reactions WHERE workspace_id=$1 AND message_id=$2 ORDER BY created_at',[s.workspaceId,id]);return rows}
   async markRead(s,id,messageId=null){
     // Отметка «прочитано до сообщения» ставила `now()` — и всё, что пришло
