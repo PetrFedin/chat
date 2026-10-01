@@ -1,3 +1,4 @@
+import { russianMessage } from './ru-errors.js';
 import { createHash } from 'node:crypto';
 
 export const MAX_JSON=1_000_000,MAX_FILE=50*1024*1024;
@@ -108,7 +109,7 @@ export const errorJson=(res,rawError)=>{const error=normalizeError(rawError);
   // A handler that already answered and then threw must not take the process
   // down: writing headers twice throws ERR_HTTP_HEADERS_SENT out of the catch
   // block, where nothing is left to catch it.
-  if(res.headersSent){try{res.end()}catch{}return}const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers=error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{},hide=status>=500&&!error.expose;json(res,status,{error:{code:error.code??'BAD_REQUEST',message:hide?'Internal server error':error.message}},headers)};
+  if(res.headersSent){try{res.end()}catch{}return}const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers=error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{},hide=status>=500&&!error.expose;json(res,status,{error:{code:error.code??'BAD_REQUEST',message:hide?'Internal server error':russianMessage(error.message)}},headers)};
 // X-Forwarded-For is set by the client unless something in front of us
 // overwrites it. Trusting it unconditionally let a credential spray rotate the
 // header and skip the per-address limiter entirely, so the header counts only
