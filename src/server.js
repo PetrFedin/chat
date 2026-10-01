@@ -517,7 +517,12 @@ export async function createChatServer(options={}){
     errorJson(res,rawError);
   }});
   server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
-  wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});
+  wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);
+    // Выход, отзыв входа и истёкший срок не закрывали сокет: старая вкладка
+    // продолжала получать чужие сообщения. Сеанс перепроверяем раз в 20 секунд.
+    const watchdog=setInterval(async()=>{try{req.sessionResolved=false;req.session=undefined;if(!await authenticate(req)){ws.close(4401,'session ended')}}catch{}},20000);
+    ws.on('close',()=>clearInterval(watchdog));
+hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});
   // Ошибка самого протокола — слишком длинный кадр, битый UTF-8, чужой
   // опкод — приходит событием `error`. Без слушателя она становится
   // необработанным исключением всего процесса: один клиент с испорченным
@@ -552,7 +557,12 @@ export async function createChatServer(options={}){
   });
   // Присутствие ставится последним: это поход в базу, и он не должен
   // задерживать готовность сокета принимать пакеты.
-  try{const p=await store.setPresence(s,{state:'online'});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}
+  try{
+    // Подключение не должно затирать выбранный вручную статус («занят», «не беспокоить»):
+    // «в сети» ставим, только если человек был не в сети.
+    let state='online';
+    try{const cur=await store.pool?.query('SELECT state FROM user_presence WHERE workspace_id=$1 AND user_id=$2',[s.workspaceId,s.userId]);const was=cur?.rows?.[0]?.state;if(was&&was!=='offline')state=was}catch{}
+    const p=await store.setPresence(s,{state});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}
 });
   return{server,store,calls,webhooks,deliveryWorker,mail,mailWorker,digestMailer,reminders,reminderWorker,vault,marks,org,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{reminderWorker.stop?.();digestMailer?.stop?.();retention.stop?.();await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));await deliveryWorker.stop?.().catch((error)=>console.error('delivery worker shutdown failed',error));await mailWorker.stop?.().catch((error)=>console.error('mail worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
 }

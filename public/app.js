@@ -212,7 +212,15 @@ async function api(path,o={}){
   if(!r.ok){
     const code=p?.error?.code;
     const e=new Error(ERROR_MESSAGE[code]||p?.error?.message||`HTTP ${r.status}`);
-    e.status=r.status;e.code=code;e.serverMessage=p?.error?.message;throw e;
+    e.status=r.status;e.code=code;e.serverMessage=p?.error?.message;
+    // Сессия кончилась посреди работы: без этого приложение выглядело живым и
+    // отвечало на каждое действие сырой ошибкой.
+    if(r.status===401&&code==='UNAUTHENTICATED'&&S.boot&&!S.sessionLost){
+      S.sessionLost=true;
+      toast(T('Сессия истекла — войдите снова','Your session has expired — please sign in again'));
+      setTimeout(()=>{S.boot=null;try{S.ws?.close()}catch{}auth()},900);
+    }
+    throw e;
   }
   return p;
 }
@@ -309,7 +317,7 @@ function forgotPasswordModal(){
   });
 }
 
-async function bootstrap(){try{const b=await (window.ChatBootstrap?.get({force:true})??api('/api/v1/bootstrap'));window.ChatBootstrap?.put(b);S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadOnboarding(),loadTasks(),loadTaskPage(),loadCalendar(),loadInvitations(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash();
+async function bootstrap(){S.sessionLost=false;try{const b=await (window.ChatBootstrap?.get({force:true})??api('/api/v1/bootstrap'));window.ChatBootstrap?.put(b);S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadOnboarding(),loadTasks(),loadTaskPage(),loadCalendar(),loadInvitations(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash();
     // Адрес «#/chats» без беседы выбирает первую, но не грузил её сообщения:
     // экран показывал «Начните разговор» над пустой лентой.
     if(S.view==='chats'&&S.selected&&!(S.messages.get(S.selected)||[]).length){await loadMessages(S.selected);render()}}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
@@ -4109,8 +4117,15 @@ function editProfile(person){
 }
 
 async function action(a){await actions[a]?.()}
-async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';writeDraft(S.selected,'');try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null})});append(S.selected,message);S.reply=null;render()}catch(e){toast(e.message)}}
-function append(id,m){const list=S.messages.get(id)||[];if(!list.some(x=>x.id===m.id))list.push(m);S.messages.set(id,list);const c=S.conversations.find(x=>x.id===id);if(c)c.lastMessage=m}
+async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';writeDraft(S.selected,'');try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null})});append(S.selected,message);S.reply=null;render()}catch(e){
+    // Текст не должен пропадать вместе с неудачной отправкой: возвращаем его в поле.
+    const again=$('#message-input');if(again&&!again.value){again.value=body;writeDraft(S.selected,body)}
+    toast(e.message)}}
+function append(id,m){
+  // Беседа ещё не открывалась: историю подгрузит открытие. Положить сюда одно
+  // пришедшее по сокету сообщение значило бы выдать его за всю переписку.
+  const loaded=S.messages.has(id);
+  const list=S.messages.get(id)||[];if(loaded&&!list.some(x=>x.id===m.id))list.push(m);if(loaded)S.messages.set(id,list);const c=S.conversations.find(x=>x.id===id);if(c)c.lastMessage=m}
 const REACTIONS=['👍','👏','🔥','✅','❤️','😀','🤔','👀','🙏','🎯','⏱','❌'];
 /**
  * Плавающая панель маркера.
@@ -6343,7 +6358,23 @@ async function profileModal(){
 async function logout(){await api('/api/v1/auth/logout',{method:'POST'}).catch(()=>{});S.ws?.close();S.boot=null;closeModal();auth()}
 async function enablePush(){try{if(!S.boot?.push?.enabled)return toast('На сервере ещё не настроены VAPID-ключи.');if(!S.swReady)return toast('Браузер не разрешил фоновый сценарий — push здесь недоступен.');if(await Notification.requestPermission()!=='granted')return toast('Push не разрешён.');const r=await navigator.serviceWorker.ready;let sub=await r.pushManager.getSubscription();if(!sub)sub=await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key(S.boot.push.publicKey)});await api('/api/v1/push-subscriptions',{method:'POST',body:JSON.stringify(sub)});toast('Push включён')}catch(e){toast(e.message)}}
 function key(v){const s=(v+'='.repeat((4-v.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'),raw=atob(s);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)))}
-function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);S.ws=ws;ws.onmessage=async e=>{try{const p=JSON.parse(e.data),d=p.data;if(p.event==='game.updated'){if(S.gameWatch&&d?.gameId===S.gameWatch)resumeTop();return}if(p.event==='message.created'){
+function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);S.ws=ws;ws.onopen=async()=>{
+    // После обрыва могло пройти что угодно: перечитываем списки (но не bootstrap —
+    // он сам открывает сокет заново и зациклил бы переподключение).
+    if(S.wsOpenedBefore){
+      try{
+        const r=await api('/api/v1/conversations');if(Array.isArray(r.items))S.conversations=r.items;
+        await loadTaskPage().catch(()=>{});
+        if(S.selected){S.messages.delete(S.selected);await loadMessages(S.selected)}
+        render();
+      }catch{}
+    }
+    S.wsOpenedBefore=true;
+  };ws.onmessage=async e=>{try{const p=JSON.parse(e.data),d=p.data;if(p.event==='game.updated'){if(S.gameWatch&&d?.gameId===S.gameWatch)resumeTop();return}
+    if(p.event==='conversation.members.updated'||p.event==='conversation.updated'){
+      // Состав беседы поменялся: без перечитывания список и поле ввода показывали прежнее.
+      try{const r=await api('/api/v1/conversations');if(Array.isArray(r.items)){S.conversations=r.items;if(S.selected&&!S.conversations.some(c=>c.id===S.selected))S.selected=S.conversations[0]?.id??null;render()}}catch{}
+      return}if(p.event==='message.created'){
   // Ответ в ветке не падает в общую ленту — там стоит корень со
   // счётчиком, и он должен вырасти сам, без перезагрузки экрана.
   if(d.message.threadRootId){
@@ -6351,7 +6382,7 @@ function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='
     const root=list?.find(x=>x.id===d.message.threadRootId);
     if(root){root.replyCount=(root.replyCount||0)+1;root.lastReplyAt=d.message.createdAt}
   }else append(d.conversationId,d.message);
-  if(S.view==='chats')render()}if(p.event==='message.reaction'){for(const list of S.messages.values()){const m=list.find(x=>x.id===d.messageId);if(m)m.reactions=d.reactions}if(S.view==='chats')render()}if(p.event==='message.updated'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.deleted'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.pin'){updateMessage(d.messageId,{pinned:d.pinned});if(S.view==='chats')render()}if(p.event==='conversation.created'){rememberConversation(d);shell();if(S.view==='chats')render()}if(p.event==='presence.updated'){const x=person(d.userId);if(x)x.presence=d.presence;lists()}if(p.event==='task.created'&&!S.tasks.some(x=>x.id===d.id)){S.tasks.unshift(d);if(['today','tasks'].includes(S.view))render()}if(p.event==='task.updated'){upsertTask(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='calendar.created'&&!S.calendar.some(x=>x.id===d.id)){S.calendar.push(d);if(['today','calendar'].includes(S.view))render()}if(p.event==='typing.start'||p.event==='typing.stop'){if(d.conversationId===S.selected&&$('#typing'))$('#typing').textContent=p.event.endsWith('start')?`${name(d.userId)} печатает…`:''}}catch{}};ws.onclose=()=>S.boot&&setTimeout(connect,1600)}
+  if(S.view==='chats')render()}if(p.event==='message.reaction'){for(const list of S.messages.values()){const m=list.find(x=>x.id===d.messageId);if(m)m.reactions=d.reactions}if(S.view==='chats')render()}if(p.event==='message.updated'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.deleted'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.pin'){updateMessage(d.messageId,{pinned:d.pinned});if(S.view==='chats')render()}if(p.event==='conversation.created'){rememberConversation(d);shell();if(S.view==='chats')render()}if(p.event==='presence.updated'){const x=person(d.userId);if(x)x.presence=d.presence;lists()}if(p.event==='task.created'&&!S.tasks.some(x=>x.id===d.id)){S.tasks.unshift(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='task.updated'){upsertTask(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='calendar.created'&&!S.calendar.some(x=>x.id===d.id)){S.calendar.push(d);if(['today','calendar'].includes(S.view))render()}if(p.event==='typing.start'||p.event==='typing.stop'){if(d.conversationId===S.selected&&$('#typing'))$('#typing').textContent=p.event.endsWith('start')?`${name(d.userId)} печатает…`:''}}catch{}};ws.onclose=()=>S.boot&&setTimeout(connect,1600)}
 async function voice(){if(S.recorder?.state==='recording'){S.recorder.stop();return}try{const stream=await navigator.mediaDevices.getUserMedia({audio:true}),chunks=[],r=new MediaRecorder(stream);S.recorder=r;S.recordingAt=Date.now();r.ondataavailable=e=>e.data.size&&chunks.push(e.data);r.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:r.mimeType||'audio/webm'}),duration=Date.now()-S.recordingAt;S.recorder=null;const resp=await fetch(`/api/v1/conversations/${S.selected}/voice?durationMs=${duration}`,{method:'POST',credentials:'same-origin',headers:{'content-type':blob.type},body:blob}),p=await resp.json();if(resp.ok){append(S.selected,p.message);render()}else toast(p?.error?.message||'Ошибка записи')};r.start(250);toast('Запись началась — нажмите ещё раз, чтобы отправить.')}catch{toast('Нет доступа к микрофону.')}}
 $('#file-picker').onchange=async e=>{for(const file of e.target.files){const r=await fetch('/api/v1/files',{method:'POST',credentials:'same-origin',headers:{'content-type':file.type||'application/octet-stream','x-file-name':encodeURIComponent(file.name)},body:file}),p=await r.json();if(!r.ok){toast(p?.error?.message||'Ошибка загрузки');continue}const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({kind:'file',metadata:{fileId:p.file.id,name:file.name,mimeType:file.type,size:file.size,contentUrl:p.file.contentUrl}})});append(S.selected,message)}e.target.value='';render()};
 $$('[data-auth-mode]').forEach(b=>b.onclick=()=>setAuth(b.dataset.authMode));/**
@@ -6402,6 +6433,18 @@ window.CHAT_ERRORS=ERROR_MESSAGE;
 // Поиск живёт в отдельном файле и не видит внутренностей приложения:
 // всё, чем он открывает найденное, проходит через эту дверь.
 window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
+/**
+ * Двойной щелчок по «Создать» заводил две-три одинаковые записи: у каждого
+ * запроса свой ключ идемпотентности, и сервер не мог их склеить. Форма в окне
+ * в течение пары секунд после отправки повторную отправку не принимает.
+ */
+document.addEventListener('submit',(event)=>{
+  const form=event.target;
+  if(!(form instanceof HTMLFormElement)||!form.closest('.modal'))return;
+  if(Date.now()<Number(form.dataset.busyUntil||0)){event.preventDefault();event.stopImmediatePropagation();return}
+  form.dataset.busyUntil=String(Date.now()+1500);
+},true);
+
 /**
  * Доступность оверлеев, которые рисуют соседние модули (поиск, центр
  * внимания, настройки): у них нет ни role=dialog, ни подписей у значков и
