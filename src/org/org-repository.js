@@ -276,7 +276,7 @@ export function createOrgRepository(pool) {
             const { rows: used } = await client.query('SELECT count(*)::int c FROM org_unit_members WHERE workspace_id=$1 AND unit_id=$2', [session.workspaceId, id]);
             // Lowering the plan below the people already in the unit would
             // record a number nobody can act on; say so instead.
-            if (used[0].c > patch.seatLimit) throw fail(`В подразделении уже ${used[0].c} человек`, 'SEAT_LIMIT_BELOW_HEADCOUNT', 409);
+            if (used[0].c > patch.seatLimit) throw fail(`В подразделении уже ${used[0].c} ${used[0].c % 10 === 1 && used[0].c % 100 !== 11 ? 'человек' : (used[0].c % 10 >= 2 && used[0].c % 10 <= 4 && (used[0].c % 100 < 10 || used[0].c % 100 >= 20)) ? 'человека' : 'человек'}`, 'SEAT_LIMIT_BELOW_HEADCOUNT', 409);
           }
           await client.query('UPDATE org_units SET seat_limit=$3, updated_at=now() WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id, patch.seatLimit]);
         }

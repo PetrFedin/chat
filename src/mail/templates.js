@@ -1,3 +1,7 @@
+const STATUS_RU = {
+  proposed: 'ждёт ответа', accepted: 'принята', scheduled: 'запланирована', in_progress: 'в работе', blocked: 'заблокирована',
+  in_review: 'на проверке', accepted_result: 'результат принят', closed: 'закрыта', cancelled: 'отменена', rejected: 'отклонена', deferred: 'отложена', clarify: 'уточняется',
+};
 /**
  * Тексты писем.
  *
@@ -80,7 +84,7 @@ export function digestMail({ workspaceName, displayName, url, digest }) {
     ['Сдвинулось без вас', (digest.movedWithoutYou ?? []).map((t) => {
       if (t.eventType === 'commitment.reassigned') return `${t.title} — ${t.actorName} передал(а) задачу другому`;
       if (t.eventType === 'commitment.rescheduled') return `${t.title} — ${t.actorName} перенёс(ла) срок`;
-      return `${t.title} — ${t.actorName}: ${t.to}`;
+      return `${t.title} — ${t.actorName}: ${STATUS_RU[t.to] ?? t.to}`;
     })],
     ['Встречи прошли', (digest.meetingsHeld ?? []).map((e) => `${formatDate(e.startAt)} — ${e.title}`)],
     ['Приглашения на встречи', (digest.invitations ?? []).map((e) => `${formatDate(e.startAt)} — ${e.title}`)],

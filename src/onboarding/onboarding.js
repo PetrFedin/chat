@@ -80,7 +80,7 @@ export function createOnboarding(pool) {
           id: 'channels',
           title: 'Осмотритесь в каналах',
           hint: row.openChannels > 1
-            ? `В компании ${row.openChannels} открытых ${plural(row.openChannels, 'канал', 'канала', 'каналов')} — в каталоге видно, зачем нужен каждый и где сейчас живо.`
+            ? `В компании ${row.openChannels} ${plural(row.openChannels, 'открытый канал', 'открытых канала', 'открытых каналов')} — в каталоге видно, зачем нужен каждый и где сейчас живо.`
             : 'Открытые каналы компании собраны в каталоге.',
           action: 'catalogue',
           done: Number(row.channelsOpened) > 0,

@@ -1,5 +1,5 @@
 import { Permission, requirePermission } from '../rbac.js';
-import { cleanText, json, readJson, allowedPresence, toDateOrNull, INVALID_DATE } from './helpers.js';
+import { cleanText, json, readJson, allowedPresence, toDateOrNull, INVALID_DATE, validTimezone } from './helpers.js';
 
 /** Объявленная доступность — короткий набор понятных слов. */
 const AVAILABILITY=new Set(['available','meeting','lunch','focus','away','sick','vacation','trip']);
@@ -251,7 +251,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     // раньше человек узнавал о нём фразой «A value failed a validation
     // rule» из базы, хотя в форме поле не помечено обязательным.
     const needsEnd=['meeting','focus','task_block'].includes(b.kind??'meeting');
-    if(needsEnd&&!endAt)throw Object.assign(new Error('У встречи должно быть время окончания'),{code:'CALENDAR_END_REQUIRED',statusCode:400,expose:true});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Встреча должна закончиться после начала'),{code:'INVALID_CALENDAR_RANGE',statusCode:400,expose:true});const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:b.timezone??'UTC',allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null,recurrenceRule:b.recurrenceRule??null};
+    if(needsEnd&&!endAt)throw Object.assign(new Error('У встречи должно быть время окончания'),{code:'CALENDAR_END_REQUIRED',statusCode:400,expose:true});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Встреча должна закончиться после начала'),{code:'INVALID_CALENDAR_RANGE',statusCode:400,expose:true});const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:(()=>{const tz=b.timezone??'UTC';if(!validTimezone(tz))throw Object.assign(new Error('Такого часового пояса нет'),{code:'INVALID_TIMEZONE',statusCode:400,expose:true});return tz})(),allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null,recurrenceRule:b.recurrenceRule??null};
     const wanted=Array.isArray(b.participantIds)?b.participantIds.filter(Boolean):[];
     // Встреча и приглашения — одно решение, поэтому и одна транзакция: иначе
     // в календаре оставалась встреча, на которую никого не позвали.

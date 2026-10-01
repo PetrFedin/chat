@@ -23,6 +23,8 @@ const CONTROL=/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
  * Третьим доводом идёт название поля: где его передали, там и скажем.
  */
 export const cleanText=(value,max=500,field=null)=>{
+  // Объект или массив вместо строки превращался в «[object Object]» и сохранялся как данные.
+  if(value!==null&&typeof value==='object')throw Object.assign(new Error(field?`«${field}» должно быть текстом`:'Ожидался текст'),{code:'INVALID_TEXT',statusCode:400,expose:true});
   const s=String(value??'').replace(CONTROL,'').trim();
   if(!s)throw Object.assign(new Error(field?`Заполните поле «${field}»`:'Поле не заполнено'),{code:'INVALID_TEXT',statusCode:400,expose:true});
   if(s.length>max)throw Object.assign(new Error(field?`«${field}» длиннее ${max} символов`:`Текст длиннее ${max} символов`),{code:'INVALID_TEXT',statusCode:400,expose:true});
@@ -87,7 +89,7 @@ export const noContent=(res,headers={})=>{res.writeHead(204,{'cache-control':'no
 // A driver error (a 5-digit SQLSTATE, a constraint name) is internal detail:
 // it names our tables to anyone who can POST. Map the ones a client can
 // legitimately provoke, hide the rest behind a generic 400.
-const PG_CODES={'23505':{code:'ALREADY_EXISTS',statusCode:409,message:'A record with these values already exists'},'23503':{code:'REFERENCE_NOT_FOUND',statusCode:400,message:'A referenced record does not exist'},'23514':{code:'INVALID_VALUE',statusCode:400,message:'A value failed a validation rule'},'22P02':{code:'INVALID_VALUE',statusCode:400,message:'A value has the wrong format'},'22021':{code:'INVALID_TEXT',statusCode:400,message:'The text contains characters the database cannot store'},'22008':{code:'INVALID_DATE',statusCode:400,message:'The date is out of range'},'22003':{code:'INVALID_VALUE',statusCode:400,message:'The number is out of range'}};
+const PG_CODES={'23505':{code:'ALREADY_EXISTS',statusCode:409,message:'A record with these values already exists'},'23503':{code:'REFERENCE_NOT_FOUND',statusCode:400,message:'A referenced record does not exist'},'23514':{code:'INVALID_VALUE',statusCode:400,message:'A value failed a validation rule'},'22P02':{code:'INVALID_VALUE',statusCode:400,message:'A value has the wrong format'},'22021':{code:'INVALID_TEXT',statusCode:400,message:'The text contains characters the database cannot store'},'22008':{code:'INVALID_DATE',statusCode:400,message:'The date is out of range'},'22003':{code:'INVALID_VALUE',statusCode:400,message:'The number is out of range'},'22007':{code:'INVALID_DATE',statusCode:400,message:'The date is out of range'},'2201W':{code:'INVALID_VALUE',statusCode:400,message:'The number is out of range'},'2201X':{code:'INVALID_VALUE',statusCode:400,message:'The number is out of range'}};
 /**
  * Отказ инфраструктуры — не ошибка клиента.
  *
@@ -109,7 +111,7 @@ export const errorJson=(res,rawError)=>{const error=normalizeError(rawError);
   // A handler that already answered and then threw must not take the process
   // down: writing headers twice throws ERR_HTTP_HEADERS_SENT out of the catch
   // block, where nothing is left to catch it.
-  if(res.headersSent){try{res.end()}catch{}return}const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers=error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{},hide=status>=500&&!error.expose;json(res,status,{error:{code:error.code??'BAD_REQUEST',message:hide?'Internal server error':russianMessage(error.message)}},headers)};
+  if(res.headersSent){try{res.end()}catch{}return}const status=error.statusCode??(error.code==='FORBIDDEN'?403:400),headers={...(error.retryAfterSeconds?{'retry-after':String(error.retryAfterSeconds)}:{}),...(status===413?{connection:'close'}:{})},hide=status>=500&&!error.expose;json(res,status,{error:{code:error.code??'BAD_REQUEST',message:hide?'Internal server error':russianMessage(error.message)}},headers)};
 // X-Forwarded-For is set by the client unless something in front of us
 // overwrites it. Trusting it unconditionally let a credential spray rotate the
 // header and skip the per-address limiter entirely, so the header counts only
@@ -138,5 +140,12 @@ export const securityHeaders=({production=false,frameAncestors=null}={})=>{
   };
 };
 export async function readBuffer(req,limit){if(req.rawBody!==undefined){if(req.rawBody.length>limit)throw Object.assign(new Error('Request too large'),{code:'PAYLOAD_TOO_LARGE',statusCode:413});return req.rawBody}const chunks=[];let total=0;for await(const chunk of req){total+=chunk.length;if(total>limit)throw Object.assign(new Error('Request too large'),{code:'PAYLOAD_TOO_LARGE',statusCode:413});chunks.push(chunk)}return Buffer.concat(chunks)}
-export async function readJson(req){const body=await readBuffer(req,MAX_JSON);if(!body.length)return{};try{return JSON.parse(body.toString('utf8'))}catch{throw Object.assign(new Error('Invalid JSON'),{code:'INVALID_JSON'})}}
+/** Склонение по числу: 1 человек, 2 человека, 5 человек. */
+export const ruPlural=(n,one,few,many)=>{const a=Math.abs(n)%100,b=a%10;if(a>10&&a<20)return many;if(b>1&&b<5)return few;if(b===1)return one;return many};
+/** Часовой пояс из тела запроса: мусорный пояс ломал потом выдачу календаря целиком. */
+export const validTimezone=(tz)=>{try{new Intl.DateTimeFormat('en',{timeZone:String(tz)});return true}catch{return false}};
+export async function readJson(req){const body=await readBuffer(req,MAX_JSON);if(!body.length)return{};let parsed;try{parsed=JSON.parse(body.toString('utf8'))}catch{throw Object.assign(new Error('Invalid JSON'),{code:'INVALID_JSON',statusCode:400,expose:true})}
+  // «null», число или строка вместо объекта: маршруты читают body.поле и падали бы с JS-ошибкой.
+  if(parsed===null||typeof parsed!=='object'||Array.isArray(parsed))throw Object.assign(new Error('Invalid JSON'),{code:'INVALID_JSON',statusCode:400,expose:true});
+  return parsed}
 export const sha256=(buffer)=>createHash('sha256').update(buffer).digest('hex');

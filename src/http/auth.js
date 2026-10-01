@@ -1,7 +1,7 @@
 import { hashPassword, verifyPassword, equalizePasswordTiming, normalizeEmail, createOpaqueToken, hashToken } from '../security.js';
 import { Permission, requirePermission, hasPermission } from '../rbac.js';
 import { log } from '../obs/log.js';
-import { cleanText, clientAddress, trustsProxy, json, noContent, readJson, toDateOrNull } from './helpers.js';
+import { cleanText, clientAddress, trustsProxy, json, noContent, readJson, toDateOrNull, ruPlural } from './helpers.js';
 import { invitationMail, passwordResetMail } from '../mail/templates.js';
 
 /** Адрес этого стенда глазами пришедшего — из него собираются ссылки в письмах. */
@@ -591,7 +591,7 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
         // вправе звать людей, но не вправе добавлять мест, и отправлять
         // его в карточку компании — значит обещать ему закрытую дверь.
         const mayAddSeats=hasPermission(s.role,Permission.ORGANIZATION_SETTINGS);
-        throw Object.assign(new Error(`Свободных мест нет: занято ${seats.used} из ${seats.limit}, включая ${seats.invited} неотвеченных приглашений. ${mayAddSeats?'Добавьте мест в «Ещё → Компания» или отзовите лишние приглашения.':'Отзовите лишние приглашения или попросите администратора добавить мест.'}`),
+        throw Object.assign(new Error(`Свободных мест нет: занято ${seats.used} из ${seats.limit}, включая ${seats.invited} ${ruPlural(seats.invited,'неотвеченное приглашение','неотвеченных приглашения','неотвеченных приглашений')}. ${mayAddSeats?'Добавьте мест в «Ещё → Компания» или отзовите лишние приглашения.':'Отзовите лишние приглашения или попросите администратора добавить мест.'}`),
           {code:'NO_FREE_SEATS',statusCode:409,expose:true});
       }
     }

@@ -1,6 +1,6 @@
 import { resolveAvatar } from '../media/avatar.js';
 import { Permission, requirePermission } from '../rbac.js';
-import { cleanText, json, readJson } from './helpers.js';
+import { cleanText, json, readJson, validTimezone } from './helpers.js';
 
 const ID = '([0-9a-f-]{36})';
 const PERSON = new RegExp(`^/api/v1/people/${ID}$`, 'i');
@@ -58,6 +58,9 @@ export function createPeopleHandler() {
         // пробелов — внятным отказом.
         if (field === 'displayName') { patch[field] = cleanText(body[field], max); continue; }
         patch[field] = body[field] === null || body[field] === '' ? null : cleanText(body[field], max);
+        if (field === 'timezone' && patch[field] && !validTimezone(patch[field])) {
+          throw Object.assign(new Error('Такого часового пояса нет'), { code: 'INVALID_TIMEZONE', statusCode: 400, expose: true });
+        }
       }
       if (body.startedOn !== undefined) {
         // Соседние поля проходят через cleanText; дата уходила в базу

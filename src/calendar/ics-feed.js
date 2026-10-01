@@ -16,7 +16,17 @@ const escapeText = (value) => String(value ?? '')
 /** UTC-штамп в формате iCalendar: 20260101T120000Z. */
 const stampUtc = (iso) => new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 /** Дата без времени для событий на весь день: 20260101. */
-const stampDate = (iso) => String(iso).slice(0, 10).replace(/-/g, '');
+const stampDate = (value, timeZone) => {
+  // Из базы приходит Date, а не строка: String(Date) давал «Tue Nov 10» вместо 20261110, и
+  // календарные клиенты отбрасывали такие события. День берём в поясе самой встречи.
+  const at = new Date(value);
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timeZone || 'UTC', year: 'numeric', month: '2-digit', day: '2-digit' }).format(at);
+    return parts.replace(/-/g, '');
+  } catch {
+    return at.toISOString().slice(0, 10).replace(/-/g, '');
+  }
+};
 
 /** Строки длиннее 75 октетов складываются продолжением с одним пробелом впереди — правило самого стандарта. */
 function foldLine(line) {
@@ -39,8 +49,9 @@ function eventLines(event) {
   lines.push(`UID:${event.id}@chatx`);
   lines.push(`DTSTAMP:${stampUtc(event.updatedAt ?? event.createdAt)}`);
   if (event.allDay) {
-    lines.push(`DTSTART;VALUE=DATE:${stampDate(event.startAt)}`);
-    if (event.endAt) lines.push(`DTEND;VALUE=DATE:${stampDate(event.endAt)}`);
+    lines.push(`DTSTART;VALUE=DATE:${stampDate(event.startAt, event.timezone)}`);
+    // DTEND у события на весь день исключающий: конец 23:59:59 последнего дня — это начало следующего.
+    if (event.endAt) lines.push(`DTEND;VALUE=DATE:${stampDate(new Date(new Date(event.endAt).getTime() + 1000), event.timezone)}`);
   } else {
     lines.push(`DTSTART:${stampUtc(event.startAt)}`);
     if (event.endAt) lines.push(`DTEND:${stampUtc(event.endAt)}`);
@@ -49,7 +60,7 @@ function eventLines(event) {
   if (event.description) lines.push(`DESCRIPTION:${escapeText(event.description)}`);
   if (event.recurrenceRule) lines.push(`RRULE:${event.recurrenceRule}`);
   for (const exception of event.exceptions ?? []) {
-    if (exception.cancelled) lines.push(`EXDATE:${event.allDay ? stampDate(exception.at) : stampUtc(exception.at)}`);
+    if (exception.cancelled) lines.push(`EXDATE:${event.allDay ? stampDate(exception.at, event.timezone) : stampUtc(exception.at)}`);
   }
   lines.push(`LAST-MODIFIED:${stampUtc(event.updatedAt ?? event.createdAt)}`);
   lines.push('END:VEVENT');
@@ -59,7 +70,7 @@ function eventLines(event) {
     const startAt = exception.startAt ?? exception.at;
     lines.push('BEGIN:VEVENT');
     lines.push(`UID:${event.id}@chatx`);
-    lines.push(`RECURRENCE-ID:${event.allDay ? stampDate(exception.at) : stampUtc(exception.at)}`);
+    lines.push(`RECURRENCE-ID:${event.allDay ? stampDate(exception.at, event.timezone) : stampUtc(exception.at)}`);
     lines.push(`DTSTAMP:${stampUtc(event.updatedAt ?? event.createdAt)}`);
     lines.push(event.allDay ? `DTSTART;VALUE=DATE:${stampDate(startAt)}` : `DTSTART:${stampUtc(startAt)}`);
     if (exception.endAt) lines.push(event.allDay ? `DTEND;VALUE=DATE:${stampDate(exception.endAt)}` : `DTEND:${stampUtc(exception.endAt)}`);
