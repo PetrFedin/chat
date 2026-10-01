@@ -68,8 +68,10 @@ export function createIcsFeedRepository(pool) {
         `SELECT t.workspace_id "workspaceId",t.user_id "userId",m.role,p.display_name "displayName"
            FROM calendar_feed_tokens t
            JOIN memberships m ON m.workspace_id=t.workspace_id AND m.user_id=t.user_id
+           JOIN users u ON u.id=t.user_id
            LEFT JOIN workspace_profiles p ON p.workspace_id=t.workspace_id AND p.user_id=t.user_id
-          WHERE t.token=$1`,
+          -- Отключённый сотрудник и гость с истёкшим сроком ленту больше не получают.
+          WHERE t.token=$1 AND u.disabled_at IS NULL AND (m.access_until IS NULL OR m.access_until > now())`,
         [token],
       );
       const holder = holders[0];

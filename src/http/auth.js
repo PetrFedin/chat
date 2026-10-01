@@ -265,6 +265,16 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     const s=await requireSession(req);requirePermission(s.role,Permission.MEMBER_INVITE);
     if(!store.createPasswordReset)throw Object.assign(new Error('Password recovery requires a database deployment'),{code:'RESET_UNAVAILABLE',statusCode:503,expose:true});
     const b=await readJson(req),token=createOpaqueToken();
+    // Ссылку на смену пароля возвращаем прямо в ответе, так что выдать её на человека
+    // выше рангом значило бы войти под ним. Ссылку выдают тем, кто стоит выше (владелец — любому).
+    {
+      const RANK={guest:0,member:1,manager:2,admin:3,owner:4};
+      const target=(await store.listPeople(s)).find(x=>String(x.userId)===String(b.userId??''));
+      const targetRole=target?.role??target?.workspaceRole;
+      if(target&&s.role!=='owner'&&String(target.userId)!==String(s.userId)&&(RANK[targetRole]??0)>=(RANK[s.role]??0)){
+        throw Object.assign(new Error('Ссылку на смену пароля выдают только тому, чей уровень доступа ниже вашего'),{code:'RESET_RANK_FORBIDDEN',statusCode:403,expose:true});
+      }
+    }
     const reset=await store.createPasswordReset(s,{userId:String(b.userId??''),tokenHash:hashToken(token),expiresAt:new Date(Date.now()+86400000).toISOString()});
     const resetUrl=`${originOf(req)}/?reset=${encodeURIComponent(token)}`;
     const person=(await store.listPeople(s)).find(x=>x.userId===reset.userId);

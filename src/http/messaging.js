@@ -215,6 +215,10 @@ export async function handleMessaging(req,res,ctx,url,path,method){
   if(m&&method==='DELETE'){
     const s=await requireSession(req),policy=await policyOr404(store,s,m[1]);requireConversationManager(s,policy);
     if(policy.conversation.kind==='direct')throw httpError('Direct conversation membership is immutable','DIRECT_MEMBERSHIP_IMMUTABLE',409);
+    if(!ownsConversation(s,policy)&&String(m[2])!==String(s.userId)){
+      const members=await store.listConversationMembers(s,m[1]);
+      if(members.find(x=>String(x.userId)===String(m[2]))?.role==='owner')throw httpError('Менять владельца беседы может только он сам','OWNER_ONLY',403);
+    }
     const previous=await store.conversationAudience(s,m[1]);
     if(s.role==='guest')throw httpError('A guest cannot remove people from a conversation','GUEST_CANNOT_MANAGE',403);
     const items=await store.removeConversationMember(s,m[1],m[2]);
