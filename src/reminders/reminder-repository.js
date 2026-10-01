@@ -67,6 +67,11 @@ function readTitle(value) {
   return title;
 }
 
+/** Часовой пояс получателя для текста уведомления: свой из карточки, иначе московский (UTC в карточке — это «не задано»). */
+const zoneOf = (workspaceCol, userCol) => `COALESCE((SELECT CASE WHEN p.timezone IS NOT NULL AND p.timezone<>'UTC'
+      AND EXISTS(SELECT 1 FROM pg_timezone_names n WHERE n.name=p.timezone) THEN p.timezone ELSE 'Europe/Moscow' END
+    FROM workspace_profiles p WHERE p.workspace_id=${workspaceCol} AND p.user_id=${userCol}),'Europe/Moscow')`;
+
 export function createReminderRepository(pool) {
   if (!pool) {
     const unavailable = () => {
@@ -178,8 +183,8 @@ export function createReminderRepository(pool) {
         SELECT c.organization_id,c.workspace_id,c.owner_id,gen_random_uuid(),
                'task.due:'||c.id||':'||CASE WHEN c.promised_at<now() THEN 'late' ELSE 'soon' END,
                'task.due',c.title,
-               CASE WHEN c.promised_at<now() THEN 'Срок вышел: обещали к '||to_char(c.promised_at AT TIME ZONE 'Europe/Moscow','DD.MM HH24:MI')
-                    ELSE 'Срок близко: к '||to_char(c.promised_at AT TIME ZONE 'Europe/Moscow','DD.MM HH24:MI') END,
+               CASE WHEN c.promised_at<now() THEN 'Срок вышел: обещали к '||to_char(c.promised_at AT TIME ZONE ${zoneOf('c.workspace_id','c.owner_id')},'DD.MM HH24:MI')
+                    ELSE 'Срок близко: к '||to_char(c.promised_at AT TIME ZONE ${zoneOf('c.workspace_id','c.owner_id')},'DD.MM HH24:MI') END,
                c.id,'/#/tasks/'||c.id,CASE WHEN c.promised_at<now() THEN 'high' ELSE 'normal' END
           FROM commitments c
          WHERE c.promised_at IS NOT NULL AND c.promised_at < now() + interval '24 hours'
@@ -199,7 +204,7 @@ export function createReminderRepository(pool) {
         SELECT e.organization_id,e.workspace_id,u.user_id,gen_random_uuid(),
                'calendar.soon:'||e.id||':'||to_char(e.start_at AT TIME ZONE 'UTC','YYYYMMDDHH24MI')||':'||u.user_id,
                'calendar.reminder',e.title,
-               'Начало через несколько минут: '||to_char(e.start_at AT TIME ZONE 'Europe/Moscow','HH24:MI'),
+               'Начало через несколько минут: '||to_char(e.start_at AT TIME ZONE ${zoneOf('e.workspace_id','u.user_id')},'HH24:MI'),
                e.id,'/#/calendar/'||e.id,'high'
           FROM calendar_events e
           JOIN LATERAL (
