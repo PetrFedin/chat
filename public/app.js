@@ -2127,7 +2127,7 @@ async function knowledgeArticleModal(article,after){
             await api(`/api/v1/knowledge/${article.id}`,{method:'DELETE'});
             // Два уровня назад — подтверждение и карточку статьи, — не
             // закрывая весь список целиком, как делает closeModal().
-            const depth=2;overlayStack.splice(-depth);renderOverlay();unwinding+=depth;try{history.go(-depth)}catch{unwinding-=depth}
+            const depth=2;overlayStack.splice(-depth);renderOverlay();unwinding+=depth;unwindDeadline=Date.now()+900;try{history.go(-depth)}catch{unwinding-=depth}
             setTimeout(()=>after?.(),250);toast(T('Статья удалена','Article deleted'))
           }
           catch(error){toast(error.message)}
@@ -2423,7 +2423,7 @@ async function calendarSubscribeModal(){
               await api('/api/v1/calendar/ics',{method:'POST'});
               // Два уровня назад — подтверждение и старую ссылку, — не
               // закрывая всё окно целиком, как делает closeModal().
-              const depth=2;overlayStack.splice(-depth);renderOverlay();unwinding+=depth;try{history.go(-depth)}catch{unwinding-=depth}
+              const depth=2;overlayStack.splice(-depth);renderOverlay();unwinding+=depth;unwindDeadline=Date.now()+900;try{history.go(-depth)}catch{unwinding-=depth}
               setTimeout(()=>{toast('Новая ссылка готова');calendarSubscribeModal()},250);
             }catch(error){toast(error.message)}
           };
@@ -4992,13 +4992,16 @@ window.addEventListener('chat:localechange',()=>{
   $$('[data-game-kind]').forEach(node=>{node.textContent=gameName(node.dataset.gameKind)});
 });
 window.addEventListener('popstate',()=>{
-  if(unwinding>0){unwinding-=1;return}
+  // Счётчик «закрываем окна» живёт недолго: если ожидаемый popstate так и не пришёл, он не должен
+  // глотать следующие нажатия «назад» (из-за этого ‹ в окнах иногда не делала ничего).
+  if(unwinding>0&&Date.now()<unwindDeadline){unwinding-=1;return}
+  unwinding=0;
   if(overlayStack.length){overlayStack.pop();renderOverlay();resumeTop();return}
   // Окон не осталось — «назад» возвращает на прошлый раздел, а не выкидывает
   // из приложения.
   routeFromHash().catch(error=>toast(error.message));
 });
-let unwinding=0;
+let unwinding=0,unwindDeadline=0;
 function closeModal(){
   const depth=overlayStack.length;
   overlayStack.length=0;
@@ -5006,7 +5009,7 @@ function closeModal(){
   // history.go is asynchronous. The popstate it schedules must not swallow an
   // overlay opened in the meantime — that is what made every card in the
   // «Создать» sheet do nothing at all.
-  if(depth){unwinding+=depth;try{history.go(-depth)}catch{unwinding-=depth}}
+  if(depth){unwinding+=depth;unwindDeadline=Date.now()+900;try{history.go(-depth)}catch{unwinding-=depth}}
 }
 /**
  * Меняем открытый лист на другой: одно перемещение, а не закрытие и
@@ -5038,7 +5041,7 @@ function openChatFromSheet(id){
 }
 
 function replaceModal(open){if(overlayStack.length)overlayStack.pop();open()}
-function quick(){modal('Создать',`<div class="module-grid"><button class="module-card" data-q="dm"><span class="module-icon">${navIcon.chats}</span><strong>Сообщение</strong></button><button class="module-card" data-q="group"><span class="module-icon">${tileIcon.team}</span><strong>Группа</strong></button><button class="module-card" data-q="task"><span class="module-icon">${msgIcon.task}</span><strong>Задача</strong></button><button class="module-card" data-q="event"><span class="module-icon">${navIcon.calendar}</span><strong>Событие</strong></button><button class="module-card" data-q="channel"><span class="module-icon">${roomIcon.channel}</span><strong>Канал</strong></button></div>`);$$('[data-q]').forEach(b=>b.onclick=()=>{const x=b.dataset.q;replaceModal(({dm:directModal,group:groupModal,task:()=>taskModal(),event:eventModal,channel:channelModal})[x])})}
+function quick(){modal('Создать',`<div class="module-grid"><button class="module-card" data-q="dm"><span class="module-icon">${navIcon.chats}</span><strong>Сообщение</strong></button><button class="module-card" data-q="group"><span class="module-icon">${tileIcon.team}</span><strong>Группа</strong></button>${can('task.create')?`<button class="module-card" data-q="task"><span class="module-icon">${msgIcon.task}</span><strong>Задача</strong></button>`:''}${can('calendar.create')?`<button class="module-card" data-q="event"><span class="module-icon">${navIcon.calendar}</span><strong>Событие</strong></button>`:''}${can('channel.create')?`<button class="module-card" data-q="channel"><span class="module-icon">${roomIcon.channel}</span><strong>Канал</strong></button>`:''}</div>`);$$('[data-q]').forEach(b=>b.onclick=()=>{const x=b.dataset.q;replaceModal(({dm:directModal,group:groupModal,task:()=>taskModal(),event:eventModal,channel:channelModal})[x])})}
 const TASK_PRIORITY={normal:'обычный',high:'высокий',urgent:'срочный',low:'низкий'};
 /**
  * Сообщение → задача одним движением.
