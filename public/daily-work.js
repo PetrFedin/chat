@@ -235,6 +235,6 @@ setInterval(()=>{if(!document.hidden)refreshAttention(true)},12000);
 
 // The top bar needs to open these; without an export its search button had
 // no handler at all and simply did nothing when tapped.
-window.ChatDailyWork={openSearch,openFiles,openNotifications};
+window.ChatDailyWork={openSearch,openFiles,openNotifications,refresh:()=>refreshAttention(true)};
 
 (async function start(){await refreshPeople();await refreshAttention(true);decorate()})();

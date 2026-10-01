@@ -6404,6 +6404,7 @@ async function profileModal(){
 async function logout(){await api('/api/v1/auth/logout',{method:'POST'}).catch(()=>{});S.ws?.close();S.boot=null;closeModal();auth()}
 async function enablePush(){try{if(!S.boot?.push?.enabled)return toast('На сервере ещё не настроены VAPID-ключи.');if(!S.swReady)return toast('Браузер не разрешил фоновый сценарий — push здесь недоступен.');if(await Notification.requestPermission()!=='granted')return toast('Push не разрешён.');const r=await navigator.serviceWorker.ready;let sub=await r.pushManager.getSubscription();if(!sub)sub=await r.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:key(S.boot.push.publicKey)});await api('/api/v1/push-subscriptions',{method:'POST',body:JSON.stringify(sub)});toast('Push включён')}catch(e){toast(e.message)}}
 function key(v){const s=(v+'='.repeat((4-v.length%4)%4)).replace(/-/g,'+').replace(/_/g,'/'),raw=atob(s);return Uint8Array.from([...raw].map(c=>c.charCodeAt(0)))}
+let wsRefreshTimer=null;
 function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);S.ws=ws;ws.onopen=async()=>{
     // После обрыва могло пройти что угодно: перечитываем списки (но не bootstrap —
     // он сам открывает сокет заново и зациклил бы переподключение).
@@ -6416,7 +6417,12 @@ function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='
       }catch{}
     }
     S.wsOpenedBefore=true;
-  };ws.onmessage=async e=>{try{const p=JSON.parse(e.data),d=p.data;if(p.event==='session.ready'){
+  };ws.onmessage=async e=>{try{const p=JSON.parse(e.data),d=p.data;
+    // Бейджи и колокол раньше обновлялись только опросом раз в 12 секунд, хотя сервер шлёт события сразу.
+    if(p.event==='message.created'||p.event==='conversation.read'||/^notification\./.test(p.event)||p.event==='task.updated'||p.event==='task.created'){
+      clearTimeout(wsRefreshTimer);wsRefreshTimer=setTimeout(()=>window.ChatDailyWork?.refresh?.(),350);
+    }
+    if(p.event==='session.ready'){
       // Своё «в сети» сервер подключившемуся сокету не шлёт: без этого после перезагрузки у самого себя
       // в списке команды горела серая точка.
       const self=S.people.find(x=>x.userId===d?.userId);
