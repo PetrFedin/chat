@@ -402,7 +402,8 @@ export async function createChatServer(options={}){
      */
     if(path==='/metrics'&&method==='GET'){
       const expected=process.env.METRICS_TOKEN;
-      if(expected&&req.headers.authorization!==`Bearer ${expected}`){
+      // В боевой среде метрики без токена не отдаём: в них видны объёмы и состояние очередей.
+      if((expected||process.env.NODE_ENV==='production')&&req.headers.authorization!==`Bearer ${expected}`){
         res.writeHead(401,{'content-type':'text/plain; charset=utf-8'});
         res.end('нужен токен\n');
         return;
@@ -411,6 +412,8 @@ export async function createChatServer(options={}){
       res.end(metrics.render());
       return;
     }
+    // Подробности конфигурации (режим хранения, подключённые сервисы) без токена в production не раскрываем.
+    if(path==='/healthz'&&process.env.NODE_ENV==='production'&&(!process.env.METRICS_TOKEN||req.headers.authorization!==`Bearer ${process.env.METRICS_TOKEN}`))return json(res,200,{ok:true});
     if(path==='/healthz')return json(res,200,{ok:true,storageMode:mode,persistence:persistenceStatus(),realtime:true,push:push.enabled,media:mediaProvider.status(),meetingIntelligence:{webhook:liveKitWebhook.status(),processor:meetingProcessor.status(),worker:meetingWorker.status?.()??{configured:false,running:false}},integrations:{outbound:deliveryWorker.status?.()??{configured:false}},mail:mailWorker.status?.()??{configured:false},retention:retention.status?.()??{configured:false},objectStorage:objectStore.status(),demo:{enabled:demo.enabled,label:demo.label??null,persistent:Boolean(demo.persistent),meeting:Boolean(demo.meeting)}});
     if(path==='/readyz'){
       const started=Date.now();
@@ -525,12 +528,31 @@ export async function createChatServer(options={}){
     });
     errorJson(res,rawError);
   }});
-  server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
+  server.on('upgrade',async(req,socket,head)=>{try{const url=new URL(req.url??'/',`http://${req.headers.host??'localhost'}`);if(url.pathname!=='/ws')return socket.destroy();
+    // Сокет аутентифицируется cookie, а браузер шлёт cookie и со страницы чужого сайта: без проверки
+    // Origin любая страница в интернете могла открыть соединение от имени вошедшего человека.
+    const origin=req.headers.origin;
+    if(origin){
+      let ok=false;
+      try{
+        const o=new URL(origin);
+        const fixed=process.env.PUBLIC_URL?new URL(process.env.PUBLIC_URL).host:null;
+        ok=o.host===(req.headers.host??'')||(fixed&&o.host===fixed);
+      }catch{ok=false}
+      if(!ok){socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');return socket.destroy()}
+    }const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
   wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);
     // Выход, отзыв входа и истёкший срок не закрывали сокет: старая вкладка
     // продолжала получать чужие сообщения. Сеанс перепроверяем раз в 20 секунд.
     const watchdog=setInterval(async()=>{try{req.sessionResolved=false;req.session=undefined;if(!await authenticate(req)){ws.close(4401,'session ended')}}catch{}},20000);
-    ws.on('close',()=>clearInterval(watchdog));
+    ws.on('close',()=>{
+      clearInterval(watchdog);
+      // Закрытый сокет раньше оставался в хабе навсегда, а «в сети» не гасло после закрытия вкладки.
+      remove();
+      if(!hub.clients.has(`${s.workspaceId}:${s.userId}`)){
+        store.setPresence(s,{state:'offline'}).then((p)=>hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p})).catch(()=>{});
+      }
+    });
 hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});
   // Ошибка самого протокола — слишком длинный кадр, битый UTF-8, чужой
   // опкод — приходит событием `error`. Без слушателя она становится
