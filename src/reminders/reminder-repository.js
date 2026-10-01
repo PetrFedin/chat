@@ -104,6 +104,17 @@ export function createReminderRepository(pool) {
       const note = body.note == null || body.note === '' ? null : String(body.note).slice(0, MAX_NOTE);
       const sourceType = body.sourceType == null || body.sourceType === '' ? null : String(body.sourceType);
       if (sourceType && !SOURCES.has(sourceType)) throw fail('Такого источника напоминания нет', 'INVALID_REMINDER_SOURCE', 400);
+      // Источник — задача или встреча — тоже должен быть виден тому, кто ставит напоминание.
+      if (sourceType && body.sourceId && (sourceType === 'task' || sourceType === 'event')) {
+        const team = ['manager', 'admin', 'owner'].includes(session.role);
+        const sql = sourceType === 'task'
+          ? `SELECT 1 FROM commitments c WHERE c.workspace_id=$1 AND c.id=$2 AND ($4 OR c.owner_id=$3 OR c.requester_id=$3 OR c.acceptor_id=$3
+               OR EXISTS(SELECT 1 FROM task_collaborators tc WHERE tc.workspace_id=c.workspace_id AND tc.commitment_id=c.id AND tc.user_id=$3))`
+          : `SELECT 1 FROM calendar_events e WHERE e.workspace_id=$1 AND e.id=$2 AND ($4 OR e.owner_id=$3 OR e.visibility='workspace'
+               OR EXISTS(SELECT 1 FROM calendar_event_participants p WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.user_id=$3))`;
+        const { rowCount } = await pool.query(sql, [session.workspaceId, String(body.sourceId), session.userId, team]);
+        if (!rowCount) throw fail('Источник напоминания не найден', 'REMINDER_SOURCE_NOT_FOUND', 404);
+      }
       // Беседа проверяется на существование и на доступность: напоминание
       // цеплялось к любому опознавателю, в том числе выдуманному и к
       // чужой личной переписке. Когда оно срабатывало, человека вели по

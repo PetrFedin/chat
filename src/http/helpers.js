@@ -168,5 +168,18 @@ export const validTimezone=(tz)=>{try{new Intl.DateTimeFormat('en',{timeZone:Str
 export async function readJson(req){const body=await readBuffer(req,MAX_JSON);if(!body.length)return{};let parsed;try{parsed=JSON.parse(body.toString('utf8'))}catch{throw Object.assign(new Error('Invalid JSON'),{code:'INVALID_JSON',statusCode:400,expose:true})}
   // «null», число или строка вместо объекта: маршруты читают body.поле и падали бы с JS-ошибкой.
   if(parsed===null||typeof parsed!=='object'||Array.isArray(parsed))throw Object.assign(new Error('Invalid JSON'),{code:'INVALID_JSON',statusCode:400,expose:true});
+  // Тысячи вложенных скобок укладываются в лимит размера, но обход такого объекта (и JSON.stringify) рекурсивен.
+  if(jsonDepth(parsed)>32)throw Object.assign(new Error('Invalid JSON'),{code:'INVALID_JSON',statusCode:400,expose:true});
   return parsed}
+/** Глубина вложенности без рекурсии: на злонамеренном вводе рекурсия сама упёрлась бы в стек. */
+function jsonDepth(root){
+  let max=0;const stack=[[root,1]];
+  while(stack.length){
+    const[node,depth]=stack.pop();
+    if(depth>max)max=depth;
+    if(max>32)return max;
+    if(node&&typeof node==='object')for(const child of Object.values(node))if(child&&typeof child==='object')stack.push([child,depth+1]);
+  }
+  return max;
+}
 export const sha256=(buffer)=>createHash('sha256').update(buffer).digest('hex');
