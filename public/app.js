@@ -6303,12 +6303,23 @@ async function profileModal(){
           try{await saveAvatar(null);toast('Фотография убрана')}
           catch(error){dropAvatar.disabled=false;toast(error.message)}
         };
-        const askPassword=(what)=>{
-          // Сеанс бывает украден: шаг, снимающий защиту, подтверждается
-          // паролем, а не одним лишь тем, что вкладка открыта.
-          const value=prompt(`${what}\n\nПодтвердите паролем:`);
-          return value===null?null:value;
-        };
+        // Сеанс бывает украден: шаг, снимающий защиту, подтверждается паролем, а не одним лишь тем,
+        // что вкладка открыта. Спрашиваем в своём окне (системный prompt() в приложении и в
+        // встроенных просмотрщиках не показывается), поле скрывает ввод.
+        const askPassword=(what)=>new Promise((resolve)=>{
+          modal(T('Подтвердите паролем','Confirm with your password'),`<form id="ask-password" class="form-stack">
+            <p class="muted">${esc(what)}</p>
+            <label>${esc(T('Пароль','Password'))}<input name="password" type="password" autocomplete="current-password" required></label>
+            <button class="button primary" type="submit">${esc(T('Подтвердить','Confirm'))}</button></form>`,()=>{
+            $('#ask-password').onsubmit=(event)=>{
+              event.preventDefault();
+              const value=new FormData(event.currentTarget).get('password');
+              // Сначала закрываем это окно, и только потом отдаём пароль: следующее действие откроет своё.
+              window.addEventListener('popstate',()=>resolve(value),{once:true});
+              history.back();
+            };
+          });
+        });
         const on=$('[data-2fa-on]');
         if(on)on.onclick=async()=>{
           on.disabled=true;
@@ -6319,7 +6330,7 @@ async function profileModal(){
         };
         const off=$('[data-2fa-off]');
         if(off)off.onclick=async()=>{
-          const password=askPassword('Второй множитель будет выключен, запасные коды перестанут действовать.');
+          const password=await askPassword('Второй множитель будет выключен, запасные коды перестанут действовать.');
           if(password===null)return;
           off.disabled=true;
           try{await api('/api/v1/auth/two-factor',{method:'DELETE',body:JSON.stringify({password})});toast('Второй множитель выключен');await refresh()}
@@ -6327,7 +6338,7 @@ async function profileModal(){
         };
         const codes=$('[data-2fa-codes]');
         if(codes)codes.onclick=async()=>{
-          const password=askPassword('Прежние запасные коды перестанут действовать.');
+          const password=await askPassword('Прежние запасные коды перестанут действовать.');
           if(password===null)return;
           codes.disabled=true;
           try{const r=await api('/api/v1/auth/two-factor/recovery-codes',{method:'POST',body:JSON.stringify({password})});await refresh();recoveryCodesModal(r.recoveryCodes)}
