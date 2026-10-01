@@ -3730,7 +3730,7 @@ async function integrationsModal(){
       }catch(error){toast(error.message)}
     });
     $$('[data-drop-endpoint]').forEach(b=>b.onclick=()=>{
-      modal('Удалить подписку?','<p class="muted">События перестанут уходить по этому адресу. Журнал доставок останется.</p><button id="confirm-endpoint-delete" class="button danger" style="width:100%">Удалить</button>',()=>{
+      modal('Удалить подписку?','<p class="muted">События перестанут уходить по этому адресу. Журнал её доставок тоже удалится.</p><button id="confirm-endpoint-delete" class="button danger" style="width:100%">Удалить</button>',()=>{
         $('#confirm-endpoint-delete').onclick=async()=>{
           try{await api(`/api/v1/integrations/webhooks/${b.dataset.dropEndpoint}`,{method:'DELETE'});toast('Подписка удалена');replaceModal(integrationsModal)}
           catch(error){toast(error.message)}
@@ -3985,7 +3985,7 @@ async function personPage(userId){
   const reports=person.reportsTo.length
     ? person.reportsTo.map(r=>`${esc(r.headName||'—')} <span class="muted">(${esc(r.unit)})</span>`).join(' · ')
     : '<span class="muted">не назначено</span>';
-  const load=Object.entries(person.workload.byStatus||{}).map(([k,v])=>`<span class="person-chip"><span>${esc(WORK_STATUS[k]||k)}</span>: ${v}</span>`).join('') || '<span class="muted">задач нет</span>';
+  const load=Object.entries(person.workload.byStatus||{}).filter(([k])=>!['closed','cancelled','rejected'].includes(k)).map(([k,v])=>`<span class="person-chip"><span>${esc(WORK_STATUS[k]||k)}</span>: ${v}</span>`).join('') || '<span class="muted">задач нет</span>';
   const feed=activity.length
     ? activity.map(a=>`<div class="person-event"><span><span>${esc(a.label)}</span>${a.subject?` · ${esc(a.subject)}`:''}</span><time>${esc(when(a.createdAt))}</time></div>`).join('')
     : '<p class="muted">Действий пока не записано.</p>';
@@ -5261,9 +5261,11 @@ function taskDetailModal(task){
   const evidence=task.evidence||[],acceptances=task.acceptances||[],audit=task.audit||[];
   // Labels are read when the card opens: the list screen would need one
   // request per row to show them, and that is not worth the round trips.
+  let labelsCache=null;
   api(`/api/v1/labelled/task/${task.id}`).then(({items})=>{
+    labelsCache=labelChips(items);
     const slot=$('[data-task-label-slot]');
-    if(slot)slot.innerHTML=labelChips(items);
+    if(slot)slot.innerHTML=labelsCache;
   }).catch(()=>{
     // Без Postgres запрос за метками не дойдёт до сервера вовсе — не
     // оставляем «загружаем…» висеть так, будто оно ещё в пути.
@@ -5284,7 +5286,10 @@ function taskDetailModal(task){
     <div><div class="section-title"><span>Доказательства ·</span> ${evidence.length}</div>${evidence.length?evidence.map(e=>`<div class="row"><span>↗</span><span><div class="section-title">${esc(EVIDENCE_LABEL[e.type]||e.type)}</div><div class="row-sub">${esc(e.value)}</div></span><span class="time">${esc(dateTime(e.createdAt))}</span></div>`).join(''):'<div class="empty">Пока нет. Без доказательства результат нельзя отправить на проверку.</div>'}</div>
     ${acceptances.length?`<div><div class="section-title">Проверка результата</div>${acceptances.map(a=>`<div class="row"><span>${a.decision==='accepted'?'✓':'↩'}</span><span><div class="section-title">${a.decision==='accepted'?'Результат принят':'Возвращено на доработку'}</div><div class="row-sub">${esc(a.comment||'')}</div></span><span class="time">${esc(dateTime(a.createdAt))}</span></div>`).join('')}</div>`:''}
     ${audit.length?`<details><summary><span>История изменений ·</span> ${audit.length}</summary><div class="stack" style="margin-top:8px">${audit.map(a=>`<div class="row-sub">${esc(dateTime(a.createdAt))} · <span>${esc(TASK_EVENT[a.eventType]||a.eventType)}</span>${a.payload?.reason?` — «${esc(a.payload.reason)}»`:''}</div>`).join('')}</div></details>`:''}
-  </div>`);
+  </div>`,()=>{
+  // Обработчики навешиваются при каждой отрисовке окна: после «‹» из вложенной формы окно рисуется из
+  // сохранённой разметки, и карточка оставалась «мёртвой» (кнопки не жали, метки и время — «загружаем…»).
+  if(labelsCache){const slot=$('[data-task-label-slot]');if(slot)slot.innerHTML=labelsCache}
   renderTaskTimeSlot(task);
   // Шаги, помощники и связи: всё перерисовывает карточку из ответа
   // сервера, а не правит разметку на месте — счётчики и права считает он.
@@ -5339,6 +5344,7 @@ function taskDetailModal(task){
     closeModal();
     if(conversationId)await openChatAtMessage(conversationId,messageId);
     else toast('Это сообщение в беседе, которая сейчас не открыта');
+  });
   });
 }
 function taskTransition(task,to){if(taskReasonRequired(task,to)){modal(taskActionLabel(task,to),`<form id="task-transition-form" class="form-stack"><p class="muted">Причина будет сохранена в истории задачи.</p><label>Причина<textarea name="reason" rows="4" required></textarea></label><button class="button primary">${esc(taskActionLabel(task,to))}</button></form>`);$('#task-transition-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await executeTaskTransition(task,to,f.get('reason'))};return}executeTaskTransition(task,to,null)}
@@ -6409,7 +6415,13 @@ function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='
       }catch{}
     }
     S.wsOpenedBefore=true;
-  };ws.onmessage=async e=>{try{const p=JSON.parse(e.data),d=p.data;if(p.event==='game.updated'){if(S.gameWatch&&d?.gameId===S.gameWatch)resumeTop();return}
+  };ws.onmessage=async e=>{try{const p=JSON.parse(e.data),d=p.data;if(p.event==='session.ready'){
+      // Своё «в сети» сервер подключившемуся сокету не шлёт: без этого после перезагрузки у самого себя
+      // в списке команды горела серая точка.
+      const self=S.people.find(x=>x.userId===d?.userId);
+      if(self&&(self.presenceState==='offline'||!self.presenceState))self.presenceState='online';
+      return}
+    if(p.event==='game.updated'){if(S.gameWatch&&d?.gameId===S.gameWatch)resumeTop();return}
     if(p.event==='conversation.members.updated'||p.event==='conversation.updated'){
       // Состав беседы поменялся: без перечитывания список и поле ввода показывали прежнее.
       try{const r=await api('/api/v1/conversations');if(Array.isArray(r.items)){S.conversations=r.items;if(S.selected&&!S.conversations.some(c=>c.id===S.selected))S.selected=S.conversations[0]?.id??null;render()}}catch{}
