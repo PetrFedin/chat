@@ -2099,7 +2099,7 @@ async function knowledgeArticleModal(article,after){
             // Два уровня назад — подтверждение и карточку статьи, — не
             // закрывая весь список целиком, как делает closeModal().
             const depth=2;overlayStack.splice(-depth);renderOverlay();unwinding+=depth;try{history.go(-depth)}catch{unwinding-=depth}
-            setTimeout(()=>after?.(),250);toast('Статья удалена')
+            setTimeout(()=>after?.(),250);toast(T('Статья удалена','Article deleted'))
           }
           catch(error){toast(error.message)}
         };
@@ -2123,7 +2123,7 @@ function knowledgeFormModal(article,after){
         if(editing)await api(`/api/v1/knowledge/${article.id}`,{method:'PATCH',body:JSON.stringify(body)});
         else await api('/api/v1/knowledge',{method:'POST',body:JSON.stringify(body)});
         history.back();setTimeout(()=>after?.(),250);
-        toast(editing?'Статья изменена':'Статья опубликована');
+        toast(editing?T('Статья изменена','Article updated'):T('Статья опубликована','Article published'));
       }catch(error){toast(error.message)}
     };
   });
@@ -3719,7 +3719,7 @@ async function apiKeysModal(){
     $$('[data-drop-key]').forEach(b=>b.onclick=()=>{
       modal('Отозвать ключ?','<p class="muted">Все запросы с этим ключом начнут получать отказ немедленно. Отменить нельзя — понадобится новый ключ.</p><button id="confirm-key-revoke" class="button danger" style="width:100%">Отозвать</button>',()=>{
         $('#confirm-key-revoke').onclick=async()=>{
-          try{await api(`/api/v1/api-keys/${b.dataset.dropKey}`,{method:'DELETE'});toast('Ключ отозван');replaceModal(apiKeysModal)}
+          try{await api(`/api/v1/api-keys/${b.dataset.dropKey}`,{method:'DELETE'});toast(T('Ключ отозван','Key revoked'));replaceModal(apiKeysModal)}
           catch(error){toast(error.message)}
         };
       });
@@ -3840,7 +3840,7 @@ function endpointFormModal(after){
       event.preventDefault();
       const form=new FormData(event.currentTarget);
       const topics=form.getAll('topics');
-      if(!topics.length)return toast('Выберите хотя бы одно событие');
+      if(!topics.length)return toast(T('Выберите хотя бы одно событие','Choose at least one event'));
       try{
         const{endpoint}=await api('/api/v1/integrations/webhooks',{method:'POST',body:JSON.stringify({
           label:form.get('label'),url:form.get('url'),topics,
@@ -3981,7 +3981,7 @@ async function personPage(userId){
         <select name="role" class="input" style="flex:1 1 160px">
           ${['guest','member','manager','admin'].map(r=>`<option value="${r}"${person.workspaceRole===r?' selected':''}>${esc(WORKSPACE_ROLE[r]??r)}</option>`).join('')}
         </select>
-        <button class="button secondary pressable">Назначить</button>
+        <button class="button secondary pressable">${esc(T('Назначить','Assign'))}</button>
       </form>`}
     <div class="stack" style="margin-top:10px">${person.disabledAt
       ?'<button data-employ class="button secondary">Вернуть на работу</button>'
@@ -3999,7 +3999,7 @@ async function personPage(userId){
       button.disabled=true;
       try{
         await api(`/api/v1/people/${person.userId}/role`,{method:'PUT',body:JSON.stringify({role})});
-        toast(`${person.displayName||person.email} теперь ${WORKSPACE_ROLE[role]??role}`);
+        toast(locale()==='en'?`${person.displayName||person.email} is now ${WORKSPACE_ROLE[role]??role}`:`${person.displayName||person.email} теперь ${WORKSPACE_ROLE[role]??role}`);
         S.people=(await api('/api/v1/bootstrap')).people||S.people;closeModal();personPage(person.userId);
       }catch(error){button.disabled=false;toast(ERROR_MESSAGE[error.code]||error.message)}
     };
