@@ -1556,7 +1556,7 @@ async function orgModal(){
       const unread=Number(room?.unreadCount||0);
       return `<button type="button" class="row flow pressable unit-row" ${u.conversationId?`data-unit-room="${esc(u.conversationId)}"`:''} style="width:100%;text-align:left">
         <span><div class="row-title">${u.closed?'<span class="org-lock" aria-hidden="true">⊘</span> ':''}${esc(u.name)}</div>
-          <div class="row-sub">${esc(UNIT_KIND[u.kind]||u.kind)} · ${u.seats.used} ${pluralIn(u.seats.used,['чел.','чел.','чел.'],['person','people'])}${u.headUserId===me().userId?' · <span>вы руководитель</span>':''}</div></span>
+          <div class="row-sub"><span>${esc(UNIT_KIND[u.kind]||u.kind)}</span> · ${u.seats.used} ${pluralIn(u.seats.used,['чел.','чел.','чел.'],['person','people'])}${u.headUserId===me().userId?' · <span>вы руководитель</span>':''}</div></span>
         ${unread?`<span class="chip pulse">${unread}</span>`:'<span class="chip">открыть</span>'}
       </button>`;
     }).join('')}</div>`:'';
