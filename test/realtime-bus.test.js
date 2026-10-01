@@ -70,3 +70,40 @@ test('без шины хаб работает как раньше и ничег�
   assert.equal(socket.received.length, 2);
   assert.equal(hub.bus, null);
 });
+
+test('события, пропущенные пока обрывалось прослушивание, дочитываются после восстановления', { skip }, async (t) => {
+  const pool = new pg.Pool({ connectionString: DATABASE_URL });
+  const sender = new RealtimeHub();
+  const receiver = new RealtimeHub();
+  t.after(async () => { await sender.detachBus(); await receiver.detachBus(); await pool.end(); });
+  await sender.attachBus(pool);
+  await receiver.attachBus(pool);
+
+  const workspace = randomUUID();
+  const user = randomUUID();
+  const socket = fakeSocket();
+  receiver.add(workspace, user, socket);
+
+  // Рвём соединение, на котором получатель слушает шину, и сразу шлём события.
+  const pid = receiver.bus.listener.processID;
+  await pool.query('SELECT pg_terminate_backend($1)', [pid]);
+  sender.broadcastUsers(workspace, [user], 'message.created', { n: 1 });
+  sender.broadcastUsers(workspace, [user], 'message.updated', { n: 2 });
+
+  assert.ok(await until(() => socket.received.length === 2, 8000), `дошло ${socket.received.length} из 2`);
+  assert.deepEqual(socket.received.map((x) => x.data.n), [1, 2], 'порядок событий сохранён');
+});
+
+test('гость не получает присутствие и сторис команды, но получает остальные события пространства', () => {
+  const hub = new RealtimeHub();
+  const workspace = randomUUID();
+  const member = fakeSocket();
+  const guest = Object.assign(fakeSocket(), { chatRole: 'guest' });
+  hub.add(workspace, randomUUID(), member);
+  hub.add(workspace, randomUUID(), guest);
+  hub.broadcastWorkspace(workspace, 'presence.updated', { n: 1 });
+  hub.broadcastWorkspace(workspace, 'story.published', { n: 2 });
+  hub.broadcastWorkspace(workspace, 'calendar.created', { n: 3 });
+  assert.deepEqual(member.received.map((x) => x.event), ['presence.updated', 'story.published', 'calendar.created']);
+  assert.deepEqual(guest.received.map((x) => x.event), ['calendar.created']);
+});

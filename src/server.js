@@ -564,7 +564,7 @@ export async function createChatServer(options={}){
       }catch{ok=false}
       if(!ok){socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');return socket.destroy()}
     }const s=await authenticate(req);if(!s){socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');return socket.destroy()}wss.handleUpgrade(req,socket,head,ws=>wss.emit('connection',ws,req,s))}catch{socket.destroy()}});
-  wss.on('connection',async(ws,req,s)=>{const remove=hub.add(s.workspaceId,s.userId,ws);
+  wss.on('connection',async(ws,req,s)=>{ws.chatRole=s.role;const remove=hub.add(s.workspaceId,s.userId,ws);
     // Выход, отзыв входа и истёкший срок не закрывали сокет: старая вкладка
     // продолжала получать чужие сообщения. Сеанс перепроверяем раз в 20 секунд.
     const watchdog=setInterval(async()=>{try{req.sessionResolved=false;req.session=undefined;if(!await authenticate(req)){ws.close(4401,'session ended')}}catch{}},20000);

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 
 const CHANNEL = 'chat_rt';
 const KEEP_SECONDS = 120;
+// Гость видит только беседы, в которые его позвали: чужое присутствие и сторис команды до него не доходят.
+const STAFF_ONLY = new Set(['presence.updated', 'story.published']);
 
 export class RealtimeHub {
   constructor() {
@@ -22,14 +24,34 @@ export class RealtimeHub {
     const bus = { pool, listener: null, timer: null, stopped: false, errors: 0 };
     this.bus = bus;
 
-    const deliver = async (id) => {
+    // События доставляются строго по очереди: параллельные запросы к таблице могли обогнать друг друга,
+    // и «сообщение удалено» приходило раньше «сообщение создано».
+    const seen = new Set();
+    let chain = Promise.resolve();
+    const handle = async (id) => {
+      const key = String(id);
+      if (seen.has(key)) return;
+      seen.add(key);
+      if (seen.size > 5000) seen.delete(seen.values().next().value);
       try {
         const { rows } = await pool.query('SELECT origin, workspace_id, user_ids, event, data FROM realtime_events WHERE id=$1', [id]);
         const row = rows[0];
         if (!row || row.origin === this.instanceId) return;
         if (row.user_ids) this.#deliverUsers(row.workspace_id, row.user_ids, row.event, row.data);
         else this.#deliverWorkspace(row.workspace_id, row.event, row.data, null);
-      } catch (error) { bus.errors += 1; log('warn', 'realtime.bus.read_failed', { err: String(error?.message ?? error) }); }
+      } catch (error) { seen.delete(key); bus.errors += 1; log('warn', 'realtime.bus.read_failed', { err: String(error?.message ?? error) }); }
+    };
+    const deliver = (id) => { chain = chain.then(() => handle(id)); return chain; };
+
+    // Пока соединение на прослушивание было разорвано, уведомления пропадали: после восстановления
+    // дочитываем события за время разрыва (уже доставленные отсекает seen).
+    const catchUp = async (since) => {
+      try {
+        const { rows } = await pool.query(
+          `SELECT id FROM realtime_events WHERE created_at >= $1::timestamptz - interval '2 seconds' AND origin <> $2 ORDER BY id`,
+          [since.toISOString(), this.instanceId]);
+        for (const row of rows) deliver(row.id);
+      } catch (error) { bus.errors += 1; log('warn', 'realtime.bus.catchup_failed', { err: String(error?.message ?? error) }); }
     };
 
     const listen = async () => {
@@ -42,9 +64,11 @@ export class RealtimeHub {
         client.on('error', () => reconnect(client));
         client.on('end', () => reconnect(client));
         await client.query(`LISTEN ${CHANNEL}`);
+        if (bus.lostAt) { const since = bus.lostAt; bus.lostAt = null; void catchUp(since); }
       } catch (error) {
         // Захваченное соединение не должно оставаться висеть при каждой неудачной попытке.
         if (client) { bus.listener = null; try { client.release(true); } catch { /* закрыт */ } }
+        bus.lostAt ??= new Date();
         bus.errors += 1;
         log('warn', 'realtime.bus.listen_failed', { err: String(error?.message ?? error) });
         setTimeout(listen, 2000).unref?.();
@@ -53,6 +77,7 @@ export class RealtimeHub {
     const reconnect = (client) => {
       if (bus.listener !== client) return;
       bus.listener = null;
+      bus.lostAt ??= new Date();
       try { client.release(true); } catch { /* уже закрыт */ }
       if (!bus.stopped) setTimeout(listen, 1000).unref?.();
     };
@@ -122,7 +147,10 @@ export class RealtimeHub {
   #deliverWorkspace(workspaceId, event, data, except) {
     for (const [key, sockets] of this.clients) {
       if (!key.startsWith(`${workspaceId}:`)) continue;
-      for (const socket of sockets) if (socket !== except) this.send(socket, event, data);
+      for (const socket of sockets) {
+        if (socket === except || (socket.chatRole === 'guest' && STAFF_ONLY.has(event))) continue;
+        this.send(socket, event, data);
+      }
     }
   }
 
