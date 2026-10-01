@@ -343,6 +343,13 @@ async function routeFromHash(){
   // У задачи и беседы адрес был, у встречи — нет: уведомление «вас позвали»
   // вело в общий календарь, и человек искал нужную встречу глазами.
   if(parts[0]==='calendar'&&parts[1]){S.view='calendar';render();await eventPage(parts[1]);if(!document.querySelector('#modal-heading'))history.replaceState(null,'','#/calendar');return}
+  if(parts[0]==='more'&&parts[1]&&MORE_SCREENS.has(parts[1])){
+    if(S.view!=='more')go('more',{silent:true});
+    if(overlayStack.length)return;
+    try{history.replaceState(null,'','#/more')}catch{}
+    await action(parts[1]);
+    return;
+  }
   if(parts[0]&&VIEWS.has(parts[0])){if(S.view!==parts[0])go(parts[0],{silent:true});return}
   if(!parts.length&&S.view!=='today')go('today',{silent:true});
   // Неизвестный раздел: остаёмся, где были, а адрес приводим в порядок.
@@ -4137,7 +4144,14 @@ function editProfile(person){
   });
 }
 
-async function action(a){await actions[a]?.()}
+// Разделы «Ещё», у которых есть свой адрес: #/more/team открывает «Команду» и после обновления страницы,
+// и по ссылке коллеге. Окно рисуется поверх «Ещё», поэтому «назад» возвращает на плитки.
+const MORE_SCREENS=new Set(['apikeys','archived','calls','catalogue','company','contacts','dashboard','decisions','digest','files','games','integrations','invite','journal','knowledge','labels','meeting-ops','org','plan','presence','reminders','report','saved','settings','stories','team','time-report','vault','wiki']);
+async function action(a){
+  const before=overlayStack.length;
+  await actions[a]?.();
+  if(MORE_SCREENS.has(a)&&overlayStack.length>before){try{history.replaceState(history.state,'',`#/more/${a}`)}catch{}}
+}
 async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';writeDraft(S.selected,'');try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null})});append(S.selected,message);S.reply=null;render()}catch(e){
     // Текст не должен пропадать вместе с неудачной отправкой: возвращаем его в поле.
     const again=$('#message-input');if(again&&!again.value){again.value=body;writeDraft(S.selected,body)}

@@ -169,6 +169,8 @@ export async function createChatServer(options={}){
   // Без этого шва проверить, что выключенный переключатель действительно
   // останавливает уведомление, нельзя ничем, кроме веры.
   const hub=new RealtimeHub(),push=options.push??pushConfig(),wss=new WebSocketServer({noServer:true,maxPayload:16*1024});
+  // Несколько копий приложения: события реального времени идут через Postgres (REALTIME_BUS=true).
+  if((options.realtimeBus??process.env.REALTIME_BUS==='true')&&store.pool)hub.attachBus(store.pool,{log}).catch((error)=>log('warn','realtime.bus.attach_failed',{err:String(error?.message??error)}));
   const sendPush=options.sendPush??((subscription,payload)=>webpush.sendNotification(subscription,JSON.stringify(payload),{TTL:60}));
   const authThrottle=options.authThrottle??createAuthThrottle(process.env);
   // `apiThrottle:false` выключает ограничение целиком. Нужно проверкам,
@@ -609,7 +611,7 @@ hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});
     try{const cur=await store.pool?.query('SELECT state FROM user_presence WHERE workspace_id=$1 AND user_id=$2',[s.workspaceId,s.userId]);const was=cur?.rows?.[0]?.state;if(was&&was!=='offline')state=was}catch{}
     const p=await store.setPresence(s,{state});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}
 });
-  return{server,store,calls,webhooks,deliveryWorker,mail,mailWorker,digestMailer,reminders,reminderWorker,vault,marks,org,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{reminderWorker.stop?.();digestMailer?.stop?.();retention.stop?.();await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));await deliveryWorker.stop?.().catch((error)=>console.error('delivery worker shutdown failed',error));await mailWorker.stop?.().catch((error)=>console.error('mail worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
+  return{server,store,calls,webhooks,deliveryWorker,mail,mailWorker,digestMailer,reminders,reminderWorker,vault,marks,org,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await hub.detachBus?.();reminderWorker.stop?.();digestMailer?.stop?.();retention.stop?.();await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));await deliveryWorker.stop?.().catch((error)=>console.error('delivery worker shutdown failed',error));await mailWorker.stop?.().catch((error)=>console.error('mail worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
 }
 
 // An unhandled rejection or a stray exception must not silently kill a server
