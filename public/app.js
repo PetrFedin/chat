@@ -6422,6 +6422,12 @@ function connect(){S.ws?.close();const ws=new WebSocket(`${location.protocol==='
     if(p.event==='message.created'||p.event==='conversation.read'||/^notification\./.test(p.event)||p.event==='task.updated'||p.event==='task.created'){
       clearTimeout(wsRefreshTimer);wsRefreshTimer=setTimeout(()=>window.ChatDailyWork?.refresh?.(),350);
     }
+    // Входящий звонок раньше показывался только из push (в открытой вкладке без push — никак).
+    if(p.event==='call.created'&&d?.call&&d.call.createdBy!==me().userId&&!d.call.scheduledFor){
+      const caller=person(d.call.createdBy)?.displayName||T('Коллега','A colleague');
+      window.ChatCalls?.notifyIncoming?.({title:`${caller} ${T('звонит','is calling')}`,body:d.call.title||(d.call.mode==='video'?T('Видеозвонок','Video call'):T('Аудиозвонок','Audio call')),url:`/#/calls/${d.call.id}`});
+    }
+    if(p.event==='call.cancelled'||p.event==='call.participant.declined'&&d?.userId===me().userId)document.querySelector('.incoming-call')?.remove();
     if(p.event==='session.ready'){
       // Своё «в сети» сервер подключившемуся сокету не шлёт: без этого после перезагрузки у самого себя
       // в списке команды горела серая точка.
