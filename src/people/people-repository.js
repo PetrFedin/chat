@@ -246,6 +246,23 @@ export function createPeopleRepository(pool, org = null) {
         if (!rows[0]) throw fail('Person not found', 'PERSON_NOT_FOUND', 404);
         if (!active) {
           await client.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [userId]);
+          // Хвосты увольнения: подписки на события, заведённые им, продолжали слать данные
+          // компании наружу, а подразделение оставалось с «руководителем», который не войдёт.
+          await client.query('UPDATE webhook_endpoints SET enabled=false, updated_at=now() WHERE workspace_id=$1 AND created_by=$2', [session.workspaceId, userId]);
+          await client.query('UPDATE org_units SET head_user_id=NULL WHERE workspace_id=$1 AND head_user_id=$2', [session.workspaceId, userId]);
+          // Открытые задачи сами не перейдут к другому: говорим тому, кто увольняет, что их надо передать.
+          const { rows: [left] } = await client.query(
+            `SELECT count(*)::int n FROM commitments
+              WHERE workspace_id=$1 AND owner_id=$2 AND status NOT IN ('closed','cancelled','rejected','accepted_result')`,
+            [session.workspaceId, userId]);
+          if (left?.n > 0) {
+            await client.query(
+              `INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,url,priority)
+               VALUES($1,$2,$3,gen_random_uuid(),$4,'task.updated','У ушедшего сотрудника остались открытые задачи',$5,'/#/tasks','high')
+               ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`,
+              [session.organizationId, session.workspaceId, session.userId, `offboard:${userId}:${Date.now()}`,
+               `${profile.email ?? 'Сотрудник'}: открытых задач — ${left.n}. Передайте их другим исполнителям.`]);
+          }
         }
         await client.query(
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
