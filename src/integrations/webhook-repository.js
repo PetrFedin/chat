@@ -290,6 +290,14 @@ export function createWebhookRepository(pool, { env = process.env } = {}) {
                    jsonb_build_object('label',e.label,'consecutiveFailures',e.consecutive_failures,'reason',$2::text)
               FROM webhook_endpoints e WHERE e.id=$1`,
             [delivery.endpointId, String(error).slice(0, 500)]);
+          // Тому, кто завёл интеграцию, — в колокол: молчаливое отключение замечали позже всех.
+          await client.query(`INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,url,priority)
+            SELECT e.organization_id,e.workspace_id,e.created_by,gen_random_uuid(),'webhook.disabled:'||e.id||':'||e.consecutive_failures,
+                   'integration.disabled','Подписка отключена: '||e.label,
+                   'Приёмник не отвечал много раз подряд, доставки остановлены. Проверьте адрес и включите подписку снова в «Ещё → Интеграции».',
+                   '/#/more','high'
+              FROM webhook_endpoints e WHERE e.id=$1 AND e.created_by IS NOT NULL
+            ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`, [delivery.endpointId]).catch(() => {});
           // Ждущие доставки отключённого приёмника больше не занимают очередь.
           await client.query(
             `UPDATE webhook_deliveries SET status='dead', lock_token=NULL, locked_until=NULL,

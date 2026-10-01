@@ -210,7 +210,20 @@ export function createReminderRepository(pool) {
           ) u ON true
          WHERE e.recurrence_rule IS NULL AND e.start_at > now() AND e.start_at <= now() + interval '15 minutes'
         ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
-      return { soon, review, meetings };
+      // Запись звонка, застрявшая в «идёт запись»/«обрабатывается» дольше трёх часов: ждать нечего.
+      const stuck = await run(`
+        WITH s AS (
+          UPDATE call_sessions SET recording_status='failed', last_activity_at=now()
+           WHERE recording_status IN ('recording','processing') AND last_activity_at < now() - interval '3 hours'
+          RETURNING id, organization_id, workspace_id, created_by, conversation_id, title)
+        INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,conversation_id,url,priority)
+        SELECT s.organization_id,s.workspace_id,s.created_by,gen_random_uuid(),'call.stuck:'||s.id,'meeting.failed',
+               COALESCE(NULLIF(s.title,''),'Итоги встречи'),
+               'Запись не обработалась: итоги не появятся. Проведите встречу ещё раз или запишите протокол вручную.',
+               s.conversation_id,'/#/meetings/'||s.id,'high'
+          FROM s
+        ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
+      return { soon, review, meetings, stuck };
     },
 
     /** Разбудить всё, чему пришёл час. */
