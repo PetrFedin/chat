@@ -3262,10 +3262,19 @@ function companyModal(){
     if(owner)owner.onsubmit=async(event)=>{
       event.preventDefault();
       const userId=new FormData(event.currentTarget).get('userId');
-      try{
-        await api('/api/v1/workspace/owner',{method:'POST',body:JSON.stringify({userId})});
-        toast('Владение передано');closeModal();await bootstrap();
-      }catch(error){toast(error.message)}
+      // Необратимое действие не выполняется одним нажатием: сначала показываем, кому и что отдаём.
+      const target=S.people.find(x=>x.userId===userId);
+      modal(T('Передать владение?','Hand over ownership?'),`
+        <p>${esc(T('Компанию получит','The company will go to'))} <b>${esc(target?.displayName||target?.email||'')}</b>. ${esc(T('Вы останетесь администратором, а вернуть владение сможет только новый владелец.','You will stay an administrator, and only the new owner can give ownership back.'))}</p>
+        <button id="confirm-owner" class="button danger" style="width:100%">${esc(T('Да, передать владение','Yes, hand over ownership'))}</button>`,()=>{
+        $('#confirm-owner').onclick=async()=>{
+          $('#confirm-owner').disabled=true;
+          try{
+            await api('/api/v1/workspace/owner',{method:'POST',body:JSON.stringify({userId})});
+            toast(T('Владение передано','Ownership handed over'));closeModal();await bootstrap();
+          }catch(error){$('#confirm-owner').disabled=false;toast(error.message)}
+        };
+      });
     };
   });
 }
