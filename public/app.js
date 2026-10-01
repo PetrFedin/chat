@@ -1411,6 +1411,12 @@ function bind(){
     }else{
       requestAnimationFrame(()=>{stream.scrollTo(0,999999)});
     }
+    stream.onclick=(e)=>{
+      if(!matchMedia('(max-width:860px) and (hover:none)').matches||e.target.closest('button,a,input,textarea,select,summary,.msg-toolbar'))return;
+      const item=e.target.closest('.message-item');if(!item)return;
+      stream.querySelectorAll('.tools-open').forEach(x=>{if(x!==item)x.classList.remove('tools-open')});
+      item.classList.toggle('tools-open');
+    };
     const older=$('#load-older');
     if(older)older.onclick=()=>loadOlderMessages(S.selected);
     const earlier=$('#show-earlier');
@@ -2628,8 +2634,9 @@ async function planModal(status=S.planFilter||'open'){
     const next=await build(true);
     const top=overlayStack[overlayStack.length-1];
     if(!top)return next;
+    const dialog=$('.modal');
     Object.assign(top,next);
-    renderOverlay();
+    renderOverlay(dialog?{top:dialog.scrollTop}:null);
     return next;
   };
 
@@ -4972,8 +4979,9 @@ let typingTimer;function typing(){if(S.ws?.readyState!==1)return;S.ws.send(JSON.
 // back gesture close an overlay rather than leave the app.
 const overlayStack=[];
 let openerBeforeOverlay=null;
-function renderOverlay(){
+function renderOverlay(keep){
   const top=overlayStack[overlayStack.length-1];
+  if(top?.ghost){$('#modal-root').innerHTML='';return}
   if(!top){
     $('#modal-root').innerHTML='';
     // Фокус возвращается сразу, а не в следующем кадре: в свёрнутой или
@@ -4994,6 +5002,13 @@ function renderOverlay(){
   // Move focus into the dialog: the first thing a person types belongs to the
   // sheet they just opened, not to the page behind it.
   const dialog=$('.modal');
+  if(keep){
+    // Карточка дорисовывается (метки, время приходят отдельными запросами) и в первый кадр короче, чем была:
+    // положение возвращаем сразу и ещё раз, когда содержимое дорисовано.
+    const restore=()=>{const d=$('.modal');if(d&&keep.top!=null&&Math.abs(d.scrollTop-keep.top)>2)d.scrollTop=keep.top};
+    restore();setTimeout(restore,250);setTimeout(restore,700);
+    return;
+  }
   const first=dialog?.querySelector('input,textarea,select,button:not([data-close]):not([data-back]):not([data-skip-autofocus])');
   (first||dialog)?.focus?.({preventScroll:true});
 }
@@ -5012,7 +5027,9 @@ document.addEventListener('keydown',(event)=>{
   else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
   else if(!dialog.contains(document.activeElement)){event.preventDefault();first.focus()}
 });
+let modalCapture=null;
 function modal(title,body,after,refresh){
+  if(modalCapture){modalCapture({title,body,after,refresh});return}
   // Кто открыл окно, тому и вернуть фокус при закрытии: иначе человек с
   // клавиатуры каждый раз оказывается в начале страницы и идёт обратно
   // через всю боковую панель.
@@ -5028,14 +5045,16 @@ function modal(title,body,after,refresh){
  * go back, and the card still claimed it had none. A page that can go stale
  * hands modal() a refresh; it is re-read when it becomes the top again.
  */
+const refreshTop=()=>resumeTop();
 async function resumeTop(){
   const top=overlayStack[overlayStack.length-1];
   if(!top?.refresh)return;
   try{
     const next=await top.refresh();
     if(overlayStack[overlayStack.length-1]!==top||!next)return;
+    const dialog=$('.modal');
     Object.assign(top,next);
-    renderOverlay();
+    renderOverlay(dialog?{top:dialog.scrollTop}:null);
   }catch(error){toast(error.message)}
 }
 // Название игры — не пара «русский текст → словарь», а прямой выбор по
@@ -5052,7 +5071,7 @@ window.addEventListener('popstate',()=>{
   // глотать следующие нажатия «назад» (из-за этого ‹ в окнах иногда не делала ничего).
   if(unwinding>0&&Date.now()<unwindDeadline){unwinding-=1;return}
   unwinding=0;
-  if(overlayStack.length){overlayStack.pop();renderOverlay();resumeTop();return}
+  if(overlayStack.length){overlayStack.pop().onPop?.();renderOverlay();resumeTop();return}
   // Окон не осталось — «назад» возвращает на прошлый раздел, а не выкидывает
   // из приложения.
   routeFromHash().catch(error=>toast(error.message));
@@ -5060,7 +5079,7 @@ window.addEventListener('popstate',()=>{
 let unwinding=0,unwindDeadline=0;
 function closeModal(){
   const depth=overlayStack.length;
-  overlayStack.length=0;
+  overlayStack.splice(0).forEach((entry)=>entry.onPop?.());
   renderOverlay();
   // history.go is asynchronous. The popstate it schedules must not swallow an
   // overlay opened in the meantime — that is what made every card in the
@@ -5096,6 +5115,29 @@ function openChatFromSheet(id){
   openChat(id);
 }
 
+/**
+ * Экраны из daily-work.js (поиск, файлы, уведомления) рисуют свой слой и раньше не занимали записи в истории:
+ * «назад» с открытым слоем выходило из приложения. Пустая запись в стопке окон возвращает им «назад».
+ */
+const ghostOverlay={
+  push(onPop){
+    if(overlayStack.some((e)=>e.ghost))return;
+    if(!overlayStack.length)openerBeforeOverlay=document.activeElement;
+    overlayStack.push({ghost:true,onPop});
+    try{history.pushState({overlay:overlayStack.length},'',location.href)}catch{}
+  },
+  /** Закрыли кнопкой: снять запись и откатить историю. */
+  close(){
+    const at=overlayStack.findIndex((e)=>e.ghost);
+    if(at<0)return;
+    if(at!==overlayStack.length-1){overlayStack.splice(at,1);return}
+    overlayStack.pop();
+    unwinding+=1;unwindDeadline=Date.now()+900;
+    try{history.go(-1)}catch{unwinding-=1}
+  },
+  /** Ушли на другой экран: запись снимаем, историю не трогаем (откат отменил бы следующее окно). */
+  drop(){const at=overlayStack.findIndex((e)=>e.ghost);if(at>=0)overlayStack.splice(at,1)},
+};
 function replaceModal(open){if(overlayStack.length)overlayStack.pop();open()}
 function quick(){modal('Создать',`<div class="module-grid"><button class="module-card" data-q="dm"><span class="module-icon">${navIcon.chats}</span><strong>Сообщение</strong></button><button class="module-card" data-q="group"><span class="module-icon">${tileIcon.team}</span><strong>Группа</strong></button>${can('task.create')?`<button class="module-card" data-q="task"><span class="module-icon">${msgIcon.task}</span><strong>Задача</strong></button>`:''}${can('calendar.create')?`<button class="module-card" data-q="event"><span class="module-icon">${navIcon.calendar}</span><strong>Событие</strong></button>`:''}${can('channel.create')?`<button class="module-card" data-q="channel"><span class="module-icon">${roomIcon.channel}</span><strong>Канал</strong></button>`:''}</div>`);$$('[data-q]').forEach(b=>b.onclick=()=>{const x=b.dataset.q;replaceModal(({dm:directModal,group:groupModal,task:()=>taskModal(),event:eventModal,channel:channelModal})[x])})}
 const TASK_PRIORITY={normal:'обычный',high:'высокий',urgent:'срочный',low:'низкий'};
@@ -5282,6 +5324,7 @@ function taskStructureSection(task){
     </div>`).join('')}
     <form id="task-step-form" class="form-stack" style="margin-top:8px">
       <label>Добавить шаг<input name="title" maxlength="240" placeholder="Что именно надо сделать" required></label>
+      <button type="submit" class="button secondary small pressable">Добавить</button>
     </form></div>
 
   <div><div class="section-title"><span>Кто помогает</span>${helpers.length?` · ${helpers.length}`:''}</div>
@@ -5335,7 +5378,7 @@ function taskDetailModal(task){
   renderTaskTimeSlot(task);
   // Шаги, помощники и связи: всё перерисовывает карточку из ответа
   // сервера, а не правит разметку на месте — счётчики и права считает он.
-  const reopen=async()=>{closeModal();await openTask(task.id)};
+  const reopen=()=>refreshTop();
   const stepForm=$('#task-step-form');
   if(stepForm)stepForm.onsubmit=async(event)=>{
     event.preventDefault();
@@ -5387,6 +5430,11 @@ function taskDetailModal(task){
     if(conversationId)await openChatAtMessage(conversationId,messageId);
     else toast('Это сообщение в беседе, которая сейчас не открыта');
   });
+  },async()=>{
+    const{task:fresh}=await api(`/api/v1/tasks/${task.id}`);upsertTask(fresh);
+    let got=null;modalCapture=(entry)=>{got=entry};
+    try{taskDetailModal(fresh)}finally{modalCapture=null}
+    return got;
   });
 }
 function taskTransition(task,to){if(taskReasonRequired(task,to)){modal(taskActionLabel(task,to),`<form id="task-transition-form" class="form-stack"><p class="muted">Причина будет сохранена в истории задачи.</p><label>Причина<textarea name="reason" rows="4" required></textarea></label><button class="button primary">${esc(taskActionLabel(task,to))}</button></form>`);$('#task-transition-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);await executeTaskTransition(task,to,f.get('reason'))};return}executeTaskTransition(task,to,null)}
@@ -6547,7 +6595,7 @@ window.CHAT_ERRORS=ERROR_MESSAGE;
 // разметке двенадцать раз подряд и молча сдавались.
 // Поиск живёт в отдельном файле и не видит внутренностей приложения:
 // всё, чем он открывает найденное, проходит через эту дверь.
-window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,userId:()=>me()?.userId??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
+window.ChatApp={openChatAtMessage,ghostOverlay,role:()=>me()?.role??null,userId:()=>me()?.userId??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
 // Страховка навигации: после ошибки и перерисовки кнопки меню оставались без обработчика (нижнее меню
 // «умирало» до перезагрузки). Если у кнопки раздела обработчика нет, переходим сами.
 document.addEventListener('click',(event)=>{

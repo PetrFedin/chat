@@ -77,7 +77,7 @@ test('an overlay is re-read when it becomes the top again', async () => {
   const app = await read('public/app.js');
   assert.match(app, /function modal\(title,body,after,refresh\)/, 'modal не принимает refresh');
   assert.match(app, /async function resumeTop\(\)/);
-  assert.match(app, /overlayStack\.pop\(\);renderOverlay\(\);resumeTop\(\)/, 'возврат не перечитывает страницу');
+  assert.match(app, /overlayStack\.pop\(\)\.onPop\?\.\(\);renderOverlay\(\);resumeTop\(\)/, 'возврат не перечитывает страницу');
   // Both planning pages have to supply one, or the feature is decorative.
   assert.match(app, /modal\(first\.title,first\.body,first\.after,\(\)=>build\(true\)\)/);
   assert.match(app, /modal\(first\.title,first\.body,first\.after,build\)/);
