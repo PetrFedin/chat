@@ -33,6 +33,13 @@ export function createApiKeyRepository(pool) {
     return { enabled: false, list: stop, create: stop, revoke: stop, resolve: async () => null };
   }
 
+  /** След в журнале: ключ даёт доступ к данным, и кто его выдал — не тайна. Сбой журнала ключу не мешает. */
+  const audit = (session, id, eventType, payload) => pool.query(
+    `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+     VALUES($1,$2,'api_key',$3,$4,$5,$6)`,
+    [session.organizationId, session.workspaceId, id, eventType, session.userId, payload],
+  ).catch(() => {});
+
   return {
     enabled: true,
 
@@ -56,15 +63,17 @@ export function createApiKeyRepository(pool) {
          RETURNING id,name,key_prefix "keyPrefix",read_only "readOnly",created_at "createdAt"`,
         [session.organizationId, session.workspaceId, session.userId, trimmed.slice(0, 100), hashKey(raw), prefix, Boolean(readOnly)],
       );
+      await audit(session, rows[0].id, 'api_key.created', { name: rows[0].name, readOnly: rows[0].readOnly });
       return { ...rows[0], key: raw };
     },
 
     async revoke(session, id) {
-      const { rowCount } = await pool.query(
-        'UPDATE api_keys SET revoked_at=now() WHERE id=$1 AND workspace_id=$2 AND user_id=$3 AND revoked_at IS NULL',
+      const { rows } = await pool.query(
+        'UPDATE api_keys SET revoked_at=now() WHERE id=$1 AND workspace_id=$2 AND user_id=$3 AND revoked_at IS NULL RETURNING name',
         [id, session.workspaceId, session.userId],
       );
-      if (!rowCount) throw fail('Ключ не найден', 'NOT_FOUND', 404);
+      if (!rows[0]) throw fail('Ключ не найден', 'NOT_FOUND', 404);
+      await audit(session, id, 'api_key.revoked', { name: rows[0].name });
     },
 
     /**

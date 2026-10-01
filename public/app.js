@@ -3294,6 +3294,9 @@ const JOURNAL_EVENT={
   'commitment.reassigned':['Задачу передали другому', ()=>''],
   'commitment.rescheduled':['Срок задачи перенесён', ()=>''],
   'evidence.added':['Добавлено доказательство', ()=>''],
+  'invitation.revoked':['Приглашение отозвано', e=>`${e.payload?.email??''} — ${WORKSPACE_ROLE[e.payload?.role]??e.payload?.role??''}`],
+  'api_key.created':['Выдан ключ API', e=>`${e.payload?.name??''}${e.payload?.readOnly?T(' — только чтение',' — read-only'):''}`],
+  'api_key.revoked':['Ключ API отозван', e=>e.payload?.name??''],
   'conversation.ownership_claimed':['Беседа осталась без владельца и принята', e=>e.payload?.title??''],
 };
 
@@ -3652,7 +3655,7 @@ async function integrationsModal(){
     </span>
   </div>`;
   const deliveryRow=(d)=>`<div class="person-event">
-    <span><span>${esc(DELIVERY_STATUS[d.status]||d.status)}</span> · ${esc(d.topic||d.eventType||'')}${d.attempts?` · ${d.attempts} <span>попыт.</span>`:''}</span>
+    <span><span>${esc(DELIVERY_STATUS[d.status]||d.status)}</span> · ${esc(d.topic||d.eventType||'')}${d.attempts?` · ${d.attempts} <span>${pluralIn(d.attempts,['попытка','попытки','попыток'],['attempt','attempts'])}</span>`:''}</span>
     <time>${esc(when(d.updatedAt||d.createdAt))}</time></div>`;
 
   modal('Интеграции',`
