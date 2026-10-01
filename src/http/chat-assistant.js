@@ -1,4 +1,5 @@
 import { json, readJson, pageSize } from './helpers.js';
+import { Permission, requirePermission } from '../rbac.js';
 
 const CONVERSATION_ID='([0-9a-f-]+)';
 const SUMMARIZE=new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/assistant/summarize$`,'i');
@@ -18,6 +19,8 @@ export function createChatAssistantHandler(){
     const summarize=path.match(SUMMARIZE);
     if(summarize&&method==='POST'){
       const s=await ctx.requireSession(req);
+      // До сотен сообщений уходят внешней модели: гость, которому ИИ-функции не положены, их не запускает.
+      requirePermission(s.role,Permission.AI_USE);
       const body=await readJson(req);
       const limit=pageSize(body.limit,60,120);
       const items=await ctx.store.listMessages(s,summarize[1],limit);
@@ -28,6 +31,8 @@ export function createChatAssistantHandler(){
     const suggest=path.match(SUGGEST);
     if(suggest&&method==='POST'){
       const s=await ctx.requireSession(req);
+      // До сотен сообщений уходят внешней модели: гость, которому ИИ-функции не положены, их не запускает.
+      requirePermission(s.role,Permission.AI_USE);
       const body=await readJson(req);
       const limit=pageSize(body.limit,30,120);
       const items=await ctx.store.listMessages(s,suggest[1],limit);

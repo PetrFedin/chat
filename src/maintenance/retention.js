@@ -60,6 +60,9 @@ export function createRetentionSweeper(pool, env = process.env) {
       WHERE e.published_at IS NOT NULL AND e.published_at < ${older(days)}
         AND NOT EXISTS (SELECT 1 FROM webhook_deliveries d WHERE d.event_id = e.id)`);
 
+    // Ключи идемпотентности живут сутки; метод prune() в репозитории никто не вызывал, и таблица росла.
+    await run('idempotencyKeys', `DELETE FROM idempotency_keys WHERE expires_at < now()`);
+
     await run('mediaWebhooks', `DELETE FROM media_webhook_events WHERE received_at < ${older(days)}`);
 
     state.removed = removed;
