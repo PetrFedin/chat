@@ -1078,6 +1078,23 @@ export class PostgresStore {
        ON CONFLICT (workspace_id,file_id) DO UPDATE SET body=EXCLUDED.body,kind=EXCLUDED.kind,extracted_at=now()`,
       [s.organizationId,s.workspaceId,fileId,body,kind??'text']);
   }
+  /**
+   * Удалить файл: автор или администратор. Содержимое из хранилища убирает вызывающий (возвращаем ключ),
+   * здесь — строка файла, распознанный текст, связи и ссылки-аватары, чтобы нигде не осталось следа.
+   */
+  async deleteFile(s,id){
+    return this.tx(async(c)=>{
+      const{rows}=await c.query('SELECT uploaded_by,storage_key,name FROM files WHERE workspace_id=$1 AND id=$2 AND deleted_at IS NULL FOR UPDATE',[s.workspaceId,id]);
+      const file=rows[0];
+      if(!file)throw Object.assign(new Error('File not found'),{code:'NOT_FOUND',statusCode:404});
+      if(file.uploaded_by!==s.userId&&!['admin','owner'].includes(s.role))throw Object.assign(new Error('File not found'),{code:'NOT_FOUND',statusCode:404}); // не подтверждаем существование чужого файла
+      await c.query("UPDATE files SET deleted_at=now(),status='deleted' WHERE workspace_id=$1 AND id=$2",[s.workspaceId,id]);
+      await c.query('DELETE FROM file_texts WHERE workspace_id=$1 AND file_id=$2',[s.workspaceId,id]).catch(()=>{});
+      await c.query('UPDATE workspace_profiles SET avatar_file_id=NULL WHERE workspace_id=$1 AND avatar_file_id=$2',[s.workspaceId,id]);
+      await c.query('UPDATE conversations SET avatar_file_id=NULL WHERE workspace_id=$1 AND avatar_file_id=$2',[s.workspaceId,id]);
+      return{storageKey:file.storage_key,name:file.name};
+    });
+  }
   async getFile(s,id){return(await this.pool.query('SELECT id,name,mime_type "mimeType",size_bytes "sizeBytes",storage_key "storageKey",sha256,status,workspace_id "workspaceId" FROM files WHERE workspace_id=$1 AND id=$2 AND deleted_at IS NULL',[s.workspaceId,id])).rows[0]||null}
   async saveVoiceMessage(s,id,v){return this.tx(async c=>{const messageId=randomUUID(),voiceId=randomUUID(),{rows}=await c.query(`INSERT INTO messages(id,organization_id,workspace_id,conversation_id,kind,author_id,body,metadata) VALUES($1,$2,$3,$4,'voice',$5,NULL,$6) RETURNING id,kind,author_id "authorId",metadata,created_at "createdAt"`,[messageId,s.organizationId,s.workspaceId,id,s.userId,{fileId:v.file.id,durationMs:v.durationMs}]);await c.query('INSERT INTO voice_messages(id,organization_id,workspace_id,message_id,file_id,duration_ms,waveform) VALUES($1,$2,$3,$4,$5,$6,$7)',[voiceId,s.organizationId,s.workspaceId,messageId,v.file.id,v.durationMs,JSON.stringify(v.waveform)]);return{message:rows[0],voice:{id:voiceId,messageId,fileId:v.file.id,durationMs:v.durationMs,waveform:v.waveform},file:v.file}})}
   taskSelect(){return `SELECT c.id,c.organization_id "organizationId",c.workspace_id "workspaceId",c.title,c.outcome,c.owner_id "ownerId",c.requester_id "requesterId",c.acceptor_id "acceptorId",c.source_message_id "sourceMessageId",c.status,c.priority,c.promised_at "promisedAt",c.forecast_at "forecastAt",c.version,c.created_at "createdAt",c.updated_at "updatedAt",(SELECT count(*)::int FROM evidence e WHERE e.workspace_id=c.workspace_id AND e.commitment_id=c.id) "evidenceCount",COALESCE((SELECT jsonb_agg(tc.user_id) FROM task_collaborators tc WHERE tc.workspace_id=c.workspace_id AND tc.commitment_id=c.id),'[]') "collaboratorIds",(SELECT count(*)::int FROM task_checklist_items i WHERE i.workspace_id=c.workspace_id AND i.commitment_id=c.id) "checklistTotal",(SELECT count(*)::int FROM task_checklist_items i WHERE i.workspace_id=c.workspace_id AND i.commitment_id=c.id AND i.completed_at IS NOT NULL) "checklistDone",(SELECT count(*)::int FROM task_dependencies d JOIN commitments b ON b.workspace_id=d.workspace_id AND b.id=d.depends_on_commitment_id WHERE d.workspace_id=c.workspace_id AND d.commitment_id=c.id AND d.kind='blocks' AND b.status<>ALL(ARRAY['closed','accepted_result','cancelled','rejected'])) "blockedBy" FROM commitments c`}

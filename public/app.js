@@ -3333,6 +3333,7 @@ const JOURNAL_EVENT={
   'commitment.rescheduled':['Срок задачи перенесён', ()=>''],
   'evidence.added':['Добавлено доказательство', ()=>''],
   'invitation.revoked':['Приглашение отозвано', e=>`${e.payload?.email??''} — ${WORKSPACE_ROLE[e.payload?.role]??e.payload?.role??''}`],
+  'file.deleted':['Файл удалён', e=>e.payload?.name??''],
   'integration.webhook.created':['Заведена подписка на события', e=>e.payload?.label??''],
   'integration.webhook.toggled':['Подписка включена или выключена', e=>`${e.payload?.label??''} — ${e.payload?.enabled?T('включена','on'):T('выключена','off')}`],
   'integration.webhook.deleted':['Подписка на события удалена', ()=>''],
@@ -6483,7 +6484,7 @@ window.CHAT_ERRORS=ERROR_MESSAGE;
 // разметке двенадцать раз подряд и молча сдавались.
 // Поиск живёт в отдельном файле и не видит внутренностей приложения:
 // всё, чем он открывает найденное, проходит через эту дверь.
-window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
+window.ChatApp={openChatAtMessage,role:()=>me()?.role??null,userId:()=>me()?.userId??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
 // Страховка навигации: после ошибки и перерисовки кнопки меню оставались без обработчика (нижнее меню
 // «умирало» до перезагрузки). Если у кнопки раздела обработчика нет, переходим сами.
 document.addEventListener('click',(event)=>{

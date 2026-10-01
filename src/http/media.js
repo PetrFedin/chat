@@ -54,6 +54,15 @@ export function createMediaHandler(objectStore){
       }
       hub.broadcastUsers(s.workspaceId,[s.userId],'file.created',(({storageKey,...rest})=>rest)(file));json(res,201,{file:{...(({storageKey,...rest})=>rest)(file),contentUrl:`/api/v1/files/${id}/content`,previewUrl:PREVIEWABLE.test(mimeType)?`/api/v1/files/${id}/preview`:null}})}catch(e){await objectStore.delete(storageKey).catch(()=>{});throw e}return true;
     }
+    const delFile=path.match(/^\/api\/v1\/files\/([0-9a-f-]+)$/i);
+    if(delFile&&method==='DELETE'){
+      const s=await requireSession(req);
+      if(!store.deleteFile)throw Object.assign(new Error('Удаление файлов доступно в режиме с базой данных'),{code:'FILE_DELETE_UNAVAILABLE',statusCode:503,expose:true});
+      const removed=await store.deleteFile(s,delFile[1]);
+      await objectStore.delete(removed.storageKey).catch(()=>{});
+      await store.recordAuthEvent?.({workspaceId:s.workspaceId,userId:s.userId,eventType:'file.deleted',payload:{name:removed.name}}).catch(()=>{});
+      res.writeHead(204);res.end();return true;
+    }
     let m=path.match(/^\/api\/v1\/files\/([0-9a-f-]+)\/(content|preview)$/i);
     if(m&&method==='GET'){
       const s=await requireSession(req),file=await store.getFile(s,m[1]);if(!file)throw Object.assign(new Error('File not found'),{code:'NOT_FOUND',statusCode:404});
