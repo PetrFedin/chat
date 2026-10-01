@@ -366,7 +366,10 @@ export async function createChatServer(options={}){
     // caller asks for it by sending the header.
     const idemKey=String(req.headers[IDEMPOTENCY_HEADER]??'').trim();
     let idemFinish=null;
-    if(idemKey&&idempotency&&path.startsWith('/api/')&&['POST','PATCH','PUT','DELETE'].includes(method)){
+    // Загрузка файла крупнее лимита JSON не может быть «снята отпечатком»: читать её целиком ради ключа нельзя
+    // (раньше такая загрузка с заголовком Idempotency-Key падала с 413), и повтор загрузки безопасен.
+    const oversized=Number(req.headers['content-length']??0)>MAX_JSON;
+    if(idemKey&&idempotency&&!oversized&&path.startsWith('/api/')&&['POST','PATCH','PUT','DELETE'].includes(method)){
       if(idemKey.length>200)throw Object.assign(new Error('Idempotency-Key is too long'),{code:'INVALID_IDEMPOTENCY_KEY',statusCode:400});
       const session=await authenticate(req);
       if(session){

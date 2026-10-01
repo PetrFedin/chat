@@ -211,3 +211,13 @@ test('ошибки сервера приходят по-русски, а мус�
   const object = await call(base, '/api/v1/tasks', { cookie: people.alice.cookie, method: 'POST', body: { title: { a: 1 }, outcome: 'x' } });
   assert.equal(object.status, 400);
 });
+
+test('загрузка файла крупнее лимита JSON проходит и с заголовком Idempotency-Key', { skip }, async (t) => {
+  const { base, people } = await workspace(t);
+  const big = Buffer.alloc(2 * 1024 * 1024, 65);
+  const response = await call(base, '/api/v1/files', {
+    cookie: people.alice.cookie, method: 'POST', raw: big,
+    headers: { 'content-type': 'text/plain', 'x-file-name': 'big.txt', 'idempotency-key': randomUUID() },
+  });
+  assert.equal(response.status, 201, 'раньше такая загрузка падала с 413');
+});
