@@ -846,7 +846,11 @@ export class PostgresStore {
    */
   async createMessage(s,id,v={}){
     try{
-      return await this.createMessageOnce(s,id,v);
+      const created=await this.createMessageOnce(s,id,v);
+      // Новое сообщение возвращает чат из архива у остальных участников:
+      // архив — «убрать с глаз», а не «не хочу ничего получать».
+      await this.pool.query('UPDATE conversation_members SET archived_at=NULL WHERE workspace_id=$1 AND conversation_id=$2 AND user_id<>$3 AND archived_at IS NOT NULL',[s.workspaceId,id,s.userId]).catch(()=>{});
+      return created;
     }catch(error){
       // Индекс зовётся messages_sender_request_idx; достаточно кода отказа
       // и того, что у отправки вообще был идентификатор запроса.
