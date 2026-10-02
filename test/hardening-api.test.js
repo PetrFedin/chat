@@ -275,3 +275,54 @@ test('метрики в production без токена закрыты, в том
   const health = await (await fetch(`${base}/healthz`)).json();
   assert.deepEqual(Object.keys(health), ['ok'], 'в production подробности healthz скрыты');
 });
+
+test('«вся компания видит, что время занято»: чужой видит занятость, а не название и описание', { skip }, async (t) => {
+  const { base, people } = await workspace(t);
+  const startAt = new Date(Date.now() + 2 * 86400000).toISOString();
+  const endAt = new Date(Date.now() + 2 * 86400000 + 3600000).toISOString();
+  const made = await call(base, '/api/v1/calendar-events', {
+    cookie: people.bob.cookie, method: 'POST',
+    body: { kind: 'meeting', title: 'Секретные переговоры', description: 'Секретное описание', startAt, endAt, visibility: 'workspace' },
+  });
+  assert.equal(made.status, 201);
+  const id = made.payload.event.id;
+  const range = `from=${new Date(Date.now() - 86400000).toISOString()}&to=${new Date(Date.now() + 5 * 86400000).toISOString()}`;
+
+  const list = await call(base, `/api/v1/calendar-events?${range}`, { cookie: people.alice.cookie });
+  const seen = list.payload.items.find((x) => x.id === id);
+  assert.ok(seen, 'занятость видна');
+  assert.equal(seen.busyOnly, true);
+  assert.notEqual(seen.title, 'Секретные переговоры');
+  const card = await call(base, `/api/v1/calendar-events/${id}`, { cookie: people.alice.cookie });
+  assert.equal(card.payload.event.description, null);
+  assert.notEqual(card.payload.event.title, 'Секретные переговоры');
+
+  // Организатор видит своё целиком.
+  const own = await call(base, `/api/v1/calendar-events/${id}`, { cookie: people.bob.cookie });
+  assert.equal(own.payload.event.title, 'Секретные переговоры');
+  assert.equal(own.payload.event.description, 'Секретное описание');
+});
+
+test('личная беседа называется именем собеседника у обоих', { skip }, async (t) => {
+  const { base, people } = await workspace(t);
+  const created = await call(base, '/api/v1/conversations', {
+    cookie: people.alice.cookie, method: 'POST', body: { kind: 'direct', participantIds: [people.bob.id] },
+  });
+  assert.equal(created.status, 201);
+  const titleFor = async (who) => (await call(base, '/api/v1/bootstrap', { cookie: people[who].cookie }))
+    .payload.conversations.find((c) => c.id === created.payload.conversation.id)?.title;
+  assert.equal(await titleFor('alice'), 'bob');
+  assert.equal(await titleFor('bob'), 'alice');
+});
+
+test('повторение, которое кончается раньше первой встречи, отклоняется', { skip }, async (t) => {
+  const { base, people } = await workspace(t);
+  const start = new Date(Date.now() + 5 * 86400000);
+  const result = await call(base, '/api/v1/calendar-events', {
+    cookie: people.alice.cookie, method: 'POST',
+    body: { kind: 'meeting', title: 'Серия', startAt: start.toISOString(), endAt: new Date(start.getTime() + 3600000).toISOString(),
+      timezone: 'Europe/Moscow', recurrenceRule: 'FREQ=WEEKLY;UNTIL=20200101T000000Z' },
+  });
+  assert.equal(result.status, 400);
+  assert.equal(result.code, 'INVALID_RECURRENCE');
+});

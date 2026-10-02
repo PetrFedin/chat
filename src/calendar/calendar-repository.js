@@ -9,6 +9,14 @@ import { Permission, hasPermission } from '../rbac.js';
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode, expose: true });
 
 /** Правило из базы может быть старым или испорченным — карточка не должна из-за этого падать. */
+/** Правило, которое кончается раньше начала, создавало встречу, исчезающую из календаря без следа. */
+const checkedRule = (value, startAt) => {
+  const rule = parseRecurrence(value);
+  if (rule?.until && startAt && rule.until.getTime() < new Date(startAt).getTime()) {
+    throw Object.assign(new Error('Повторение заканчивается раньше первой встречи'), { code: 'INVALID_RECURRENCE', statusCode: 400, expose: true });
+  }
+  return formatRecurrence(rule);
+};
 const safeRule = (value) => { try { return parseRecurrence(value); } catch { return null; } };
 
 const participantView = (row) => ({
@@ -115,6 +123,19 @@ export function createCalendarRepository(pool, store = null) {
     }
   };
 
+  /**
+   * «Вся компания видит, что время занято»: чужому человеку — только занятость. Название, описание, беседа,
+   * задача, участники и файлы остаются у организатора, приглашённых и тех, кто ведёт календарь команды.
+   */
+  const busyOnly = (session, row, participant) => {
+    if (!row || row.visibility !== 'workspace') return row;
+    if (row.ownerId === session.userId || participant || hasPermission(session.role, Permission.CALENDAR_MANAGE_TEAM)) return row;
+    return {
+      ...row, title: 'Занято', description: null, busyOnly: true, conversationId: null, conversationTitle: null,
+      commitmentId: null, commitmentTitle: null, participantCount: 0, fileCount: 0,
+    };
+  };
+
   const repository = {
     /** One event with everything a person needs before deciding to attend. */
     async getEvent(session, id) {
@@ -148,10 +169,11 @@ export function createCalendarRepository(pool, store = null) {
         ),
       ]);
       const mine = participants.rows.find((p) => p.user_id === session.userId);
+      const shown = busyOnly(session, event.rows[0], Boolean(mine));
       return {
-        ...event.rows[0],
-        participants: participants.rows.map(participantView),
-        files: files.rows,
+        ...shown,
+        participants: shown.busyOnly ? [] : participants.rows.map(participantView),
+        files: shown.busyOnly ? [] : files.rows,
         myResponse: mine?.response_status ?? null,
         // Карточка обещала кнопки только организатору, хотя вести чужие
         // встречи разрешено и по праву calendar.manage.team — иначе встречу
@@ -204,7 +226,7 @@ export function createCalendarRepository(pool, store = null) {
          LIMIT $6`,
         [session.workspaceId, since, until, session.userId, session.role, size],
       );
-      const single = rows.map((row) => ({ ...row, needsMyAnswer: row.myResponse === 'invited' }));
+      const single = rows.map((row) => ({ ...busyOnly(session, row, row.myResponse != null), needsMyAnswer: row.myResponse === 'invited' }));
       const series = await repository.expandSeries(session, { since, until, size });
       const layers = await repository.calendarLayers(session, { since, until });
       // Одиночные и вхождения серий — один список, отсортированный по
@@ -262,7 +284,7 @@ export function createCalendarRepository(pool, store = null) {
           if (change?.cancelled) continue;
           const startAt = change?.startAt ? new Date(change.startAt) : at;
           const endAt = change?.endAt ? new Date(change.endAt) : (duration ? new Date(startAt.getTime() + duration) : null);
-          out.push({
+          out.push(busyOnly(session, {
             ...row,
             // Идентификатор вхождения: строка события и момент по правилу.
             id: `${row.id}@${at.toISOString()}`,
@@ -275,7 +297,7 @@ export function createCalendarRepository(pool, store = null) {
             recurrenceText: describeRecurrence(rule),
             needsMyAnswer: row.myResponse === 'invited',
             exceptions: undefined,
-          });
+          }, row.myResponse != null));
         }
       }
       return out;
@@ -407,7 +429,7 @@ export function createCalendarRepository(pool, store = null) {
            body.visibility || 'participants', body.commitmentId ?? null, body.conversationId ?? null,
            // Разбор здесь, а не в маршруте: негодное правило не должно
            // доехать до базы ни одним путём.
-           formatRecurrence(parseRecurrence(body.recurrenceRule))],
+           checkedRule(body.recurrenceRule, body.startAt)],
         );
         const event = rows[0];
         if (!ids.length) return { event, invited: 0 };
@@ -511,7 +533,7 @@ export function createCalendarRepository(pool, store = null) {
         if (!fields.length) throw fail('Nothing to update', 'EMPTY_PATCH');
         // Правило приводится к одному виду и проверяется здесь же: иначе
         // в базе оседает строка, которую раскрыть не удастся.
-        if (patch.recurrenceRule !== undefined) patch.recurrenceRule = formatRecurrence(parseRecurrence(patch.recurrenceRule));
+        if (patch.recurrenceRule !== undefined) patch.recurrenceRule = checkedRule(patch.recurrenceRule, patch.startAt ?? event.start_at);
         const start = patch.startAt ?? event.start_at;
         const end = patch.endAt === undefined ? event.end_at : patch.endAt;
         if (end && new Date(end) <= new Date(start)) throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');

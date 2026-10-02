@@ -39,9 +39,9 @@ export const managesTeamTasks = (session) => hasPermission(session?.role, Permis
 // здесь не формальность, а единственное, что остаётся от договорённости:
 // по ней решают, переформулировать задачу, отдать её другому или снять
 // вовсе.
-const REASON_REQUIRED = new Set(['blocked','deferred','cancelled','rejected']);
+const REASON_REQUIRED = new Set(['blocked','deferred','cancelled','rejected','clarify']);
 const STATUS_WORD = {
-  blocked:'заблокирована', deferred:'отложена', cancelled:'отменена', rejected:'отклонена',
+  blocked:'заблокирована', deferred:'отложена', cancelled:'отменена', rejected:'отклонена', clarify:'отправлена на уточнение',
 };
 
 export class TaskAuthorityError extends Error {

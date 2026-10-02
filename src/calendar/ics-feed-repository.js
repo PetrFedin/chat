@@ -81,6 +81,7 @@ export function createIcsFeedRepository(pool) {
       const until = new Date(Date.now() + WINDOW_FUTURE_MS).toISOString();
       const { rows } = await pool.query(
         `SELECT e.id,e.title,e.description,e.start_at "startAt",e.end_at "endAt",e.all_day "allDay",
+                e.timezone,e.owner_id "ownerId",e.visibility,(pa.user_id IS NOT NULL) "participant",
                 e.recurrence_rule "recurrenceRule",e.created_at "createdAt",e.updated_at "updatedAt",
                 COALESCE((SELECT jsonb_agg(jsonb_build_object('at',x.occurrence_at,'cancelled',x.cancelled,'startAt',x.start_at,'endAt',x.end_at,'title',x.title))
                    FROM calendar_event_exceptions x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id),'[]') exceptions
@@ -95,7 +96,10 @@ export function createIcsFeedRepository(pool) {
           ORDER BY e.start_at`,
         [holder.workspaceId, holder.role, holder.userId, since, until],
       );
-      return buildIcsFeed(rows, { calendarName: `ChatX — ${holder.displayName ?? 'календарь'}` });
+      // Видимость «вся компания видит, что время занято» — это занятость, а не название и описание.
+      const shown = rows.map((row) => (row.visibility === 'workspace' && row.ownerId !== holder.userId && !row.participant
+        ? { ...row, title: 'Занято', description: null } : row));
+      return buildIcsFeed(shown, { calendarName: `ChatX — ${holder.displayName ?? 'календарь'}` });
     },
   };
 }

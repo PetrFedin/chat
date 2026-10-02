@@ -53,12 +53,14 @@ export const conversationListSql = (session, { withMentions = false } = {}) => `
   SELECT c.id,c.kind,
     -- Личная переписка называлась «Диалог» — все сразу, и в списке их было
     -- не различить. Беседа один на один зовётся именем собеседника.
-    COALESCE(c.title,CASE WHEN c.kind='direct' THEN (
+    -- Название, записанное при создании, у личной переписки принадлежит тому, кто её завёл: у собеседника
+    -- она называлась бы его собственным именем. Для личной берём имя второго участника, а записанное — запасной вариант.
+    COALESCE(CASE WHEN c.kind='direct' THEN NULL ELSE c.title END,CASE WHEN c.kind='direct' THEN (
       SELECT COALESCE(p2.display_name,p2.email)
         FROM conversation_members cm2
         LEFT JOIN workspace_profiles p2 ON p2.workspace_id=cm2.workspace_id AND p2.user_id=cm2.user_id
        WHERE cm2.workspace_id=c.workspace_id AND cm2.conversation_id=c.id AND cm2.user_id<>$2
-       LIMIT 1) END) "title",
+       LIMIT 1) END,c.title) "title",
     c.slug,c.purpose,c.visibility,c.announcement_only "announcementOnly",c.created_at "createdAt",c.version,
     -- У группы и канала фотография своя, у личной переписки — лицо
     -- собеседника: своей обложки у разговора вдвоём не бывает.
