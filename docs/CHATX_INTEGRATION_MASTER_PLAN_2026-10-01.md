@@ -265,3 +265,92 @@ Do not store tasks/decisions solely as shapes. A shape can link/create a canonic
 
 **Sequencing:** single authority/Projects first -> enterprise federation -> SCIM where required -> retention/legal-hold -> signed integration events -> optional whiteboard.
 
+## Additional wave — CRDT collaborative pages and presence
+
+This wave activates real-time editing for the planned Workspace Pages layer after single Task authority, Projects and the basic Tiptap page model are stable.
+
+### Yjs shared-document model — ADOPT
+
+Reference: https://github.com/yjs/yjs
+
+Use Yjs as the collaboration state mechanism for page/editor content that genuinely needs concurrent editing.
+
+Boundaries:
+
+- ChatX page ID/version/ACL remains canonical;
+- Yjs document represents collaborative page content;
+- tasks/decisions/projects remain native ChatX entities;
+- attachments remain File authority;
+- final snapshots/version history remain persisted by ChatX.
+
+Do not move task status, project membership or permissions into CRDT documents.
+
+### Hocuspocus collaboration server — ADAPT/SIDECAR
+
+Reference: https://github.com/ueberdosis/hocuspocus
+
+Use Hocuspocus or an equivalent Yjs server when multi-user editing needs durable rooms, auth hooks and persistence adapters.
+
+Connection admission must verify:
+
+- user identity/session;
+- workspace/page permission;
+- document/page ID;
+- organisation scope.
+
+The collaboration server must not trust a page ID supplied by the client without ChatX authorization.
+
+### Presence / Awareness — ADOPT
+
+Expose ephemeral collaboration presence:
+
+- currently editing;
+- cursor/selection;
+- user display identity;
+- connection state.
+
+Awareness state is transient and must not be stored as audit/business history.
+
+Do not use presence to infer employee productivity.
+
+### Snapshot / Version bridge — ADOPT
+
+Periodically or on meaningful save/publish points:
+
+Yjs state -> deterministic page snapshot -> ChatX page version -> index/search/update event
+
+Store:
+
+- page version ID;
+- source collaboration document/version reference;
+- author/editor set where appropriate;
+- created_at;
+- content hash.
+
+This allows rollback/history without replaying an unbounded CRDT log.
+
+### Offline edit / reconnect rules — ADOPT
+
+Yjs can merge concurrent edits, but business-side conflicts still require explicit behavior:
+
+- page deleted/archived while offline;
+- user loses permission;
+- workspace membership revoked;
+- attachment removed;
+- page relation points to deleted project/task.
+
+On reconnect, authorization is rechecked before accepting/syncing document state.
+
+### Additional acceptance
+
+- two users can edit the same page concurrently without destructive last-write-wins;
+- collaboration cannot bypass page/workspace ACL;
+- losing access revokes future sync/room admission;
+- page snapshots are searchable/versioned and reproducible;
+- CRDT content cannot directly mutate Tasks/Decisions without explicit ChatX commands;
+- collaboration service outage degrades to safe read/edit fallback where possible rather than breaking messaging/tasks.
+
+**Sequencing:** single Task authority -> Projects -> basic Pages/Tiptap -> Yjs -> Hocuspocus/presence -> snapshot/search integration.
+
+**Dependency note:** Yjs/Hocuspocus remain collaboration infrastructure, not ChatX domain authorities.
+
