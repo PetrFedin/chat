@@ -470,3 +470,100 @@ Do not turn SLA metrics into hidden employee-performance scoring.
 
 **Dependency note:** JSON Forms is currently MIT-licensed upstream and remains presentation infrastructure, not workflow authority.
 
+## Premium innovation wave — governed Action Copilot and semantic workspace memory
+
+This wave positions ChatX as a Work Communication OS rather than another messenger: AI understands work context and prepares actions while domain authorities and humans stay in control.
+
+### Semantic Workspace Memory — ADOPT/ADAPT
+
+Optional vector infrastructure:
+
+https://github.com/qdrant/qdrant
+
+Build a rebuildable semantic projection over authorised:
+
+- Pages;
+- files/extracted text;
+- confirmed Decisions;
+- Tasks/Projects;
+- meeting transcripts/summaries;
+- selected message windows.
+
+Every chunk stores canonical source ID/version, workspace scope, ACL projection, source type, time and embedding model/version.
+
+Keep Typesense for lexical/filter search; use hybrid retrieval where it improves quality.
+
+### Governed Action Copilot — ADOPT
+
+Typed-agent pattern:
+
+https://github.com/pydantic/pydantic-ai
+
+For complex stateful flows evaluate:
+
+https://github.com/langchain-ai/langgraph
+
+Tool classes:
+
+Read tools:
+- search;
+- fetch page/file/message context;
+- inspect project/task/calendar;
+- inspect confirmed decision.
+
+Proposal tools:
+- draft task;
+- draft project update;
+- draft decision;
+- draft calendar block;
+- draft request/form;
+- draft follow-up message.
+
+Side-effect tools:
+- create/update/send actions requiring explicit approval/policy unless a narrowly defined organisation automation already authorises them.
+
+### Approval Checkpoint — REQUIRED
+
+user intent -> retrieval -> proposal -> structured preview -> human approve/edit/reject -> canonical domain command -> result/evidence
+
+Model text never mutates DB directly.
+
+### What should I do next? — ADOPT
+
+Create a source-linked brief from:
+
+- due/blocked tasks;
+- decisions awaiting execution;
+- mentions/questions;
+- calendar conflicts;
+- meeting follow-ups;
+- requests awaiting approval;
+- milestones.
+
+### Cross-object Reasoning — ADOPT
+
+Premium workflows:
+
+- turn confirmed decision into tasks/calendar blocks;
+- show what changed in a project;
+- prepare for a meeting from workspace sources;
+- explain blockers;
+- find commitments that never became tasks;
+- draft weekly project update from verified progress.
+
+### Safety / Evaluation — ADOPT
+
+Measure groundedness, proposal accuracy, wrong-workspace leakage, stale-source use, tool-call correctness and user edit/reject rate.
+
+Fail closed on unresolved permissions/authority.
+
+### Additional acceptance
+
+- factual brief items resolve to source;
+- semantic retrieval enforces ACL;
+- model cannot bypass Task/Calendar/Decision authorities;
+- writes have approval/policy evidence;
+- system falls back to ordinary search/workflows if AI/vector provider is unavailable.
+
+**Sequencing:** single Task authority + Projects + Pages/Search -> semantic projection -> read-only copilot -> proposal actions -> approval checkpoint -> governed side effects.
+
