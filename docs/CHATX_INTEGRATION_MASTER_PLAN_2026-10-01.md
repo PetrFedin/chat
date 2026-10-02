@@ -567,3 +567,118 @@ Fail closed on unresolved permissions/authority.
 
 **Sequencing:** single Task authority + Projects + Pages/Search -> semantic projection -> read-only copilot -> proposal actions -> approval checkpoint -> governed side effects.
 
+## Premium commercial wave — Work Graph and Execution Risk Radar
+
+This wave converts ChatX's existing communication/execution graph into a management-intelligence product without inventing opaque employee scores.
+
+### Work Graph Projection — ADOPT
+
+Create a rebuildable graph/read model from canonical entities:
+
+- people/teams;
+- project/milestone;
+- task;
+- dependency;
+- decision;
+- meeting;
+- request/approval;
+- page/file;
+- conversation/message source;
+- calendar event;
+- evidence/acceptance.
+
+Edges may include:
+
+- owns;
+- depends-on;
+- decided-in;
+- created-from;
+- blocks;
+- evidenced-by;
+- scheduled-as;
+- mentioned-in;
+- belongs-to;
+- supersedes.
+
+PostgreSQL/domain entities remain authority.
+
+### Graph UI — ADAPT
+
+Use Cytoscape.js as a possible bounded visualization layer:
+
+https://github.com/cytoscape/cytoscape.js
+
+Views:
+
+- project execution graph;
+- decision -> tasks -> evidence;
+- blocker chain;
+- milestone dependency;
+- meeting-to-execution chain.
+
+Graph layout is visualization, not business truth.
+
+### Execution Risk Signals — ADOPT
+
+Generate explainable deterministic signals such as:
+
+- blocked task with downstream dependants;
+- milestone depends on overdue task;
+- confirmed decision has no execution task;
+- task has no owner;
+- due task has no calendar/plan context where policy expects one;
+- evidence returned/rejected repeatedly;
+- approval/request aging;
+- dependency cycle;
+- upcoming overload/conflict from explicit assignments/calendar.
+
+Each signal exposes the exact underlying source facts.
+
+Do not label a person "low performer" or infer competence.
+
+### Impact Propagation — ADOPT
+
+When a task/date/decision changes, show affected graph:
+
+changed node -> downstream tasks/milestones/calendar commitments -> owners -> suggested review list
+
+This is deterministic impact discovery, not automatic rescheduling.
+
+### Management Radar — ADOPT
+
+Project/owner view:
+
+- top unresolved blockers;
+- orphan decisions;
+- critical dependency chains;
+- approvals aging;
+- milestones at risk by explicit rule;
+- evidence/review bottlenecks;
+- actions needing decision.
+
+Every card deep-links to source.
+
+### AI Explanation Layer — ADAPT
+
+The existing Action Copilot may summarize:
+
+- why a milestone is flagged;
+- what changed;
+- which decisions/tasks are connected;
+- suggested next review actions.
+
+It cannot create hidden risk scores or override the deterministic signal layer.
+
+### Additional acceptance
+
+- graph rebuilds from canonical ChatX entities;
+- every risk signal has transparent rule/source IDs;
+- no people ranking/scoring is generated;
+- graph cycle/impact calculations are deterministic/tested;
+- AI text cannot create/change the underlying signal;
+- removed/permission-restricted content disappears from user-visible projection.
+
+**Sequencing:** single Task authority + Projects/Dependencies + Decisions -> Work Graph -> deterministic risk signals -> impact propagation -> management radar -> AI explanation.
+
+**Commercial framing:** ChatX gains an executive execution-control layer similar to a live organisational digital twin, while retaining evidence-level traceability.
+
