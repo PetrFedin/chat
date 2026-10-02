@@ -354,3 +354,119 @@ On reconnect, authorization is rechecked before accepting/syncing document state
 
 **Dependency note:** Yjs/Hocuspocus remain collaboration infrastructure, not ChatX domain authorities.
 
+## Additional wave — structured requests, approvals and schema-driven forms
+
+This wave turns repeated work requests into structured ChatX workflows without building a separate low-code system.
+
+### JSON Forms renderer — ADOPT/ADAPT
+
+Reference:
+
+https://github.com/eclipsesource/jsonforms
+
+Use JSON Forms as the UI layer for versioned structured request templates.
+
+Examples:
+
+- access request;
+- purchase/request-to-buy;
+- vacation/absence request;
+- creative/design brief;
+- document review request;
+- IT/service request;
+- project intake;
+- approval checklist;
+- incident report;
+- meeting/event request.
+
+The renderer does not own workflow state.
+
+### Request Template Authority — ADOPT
+
+Create:
+
+- request_template;
+- template_version;
+- JSON Schema;
+- UI Schema;
+- allowed workspace/org scope;
+- submitter roles;
+- approval rule;
+- default project/channel;
+- task-generation mapping;
+- effective/status dates.
+
+Used template versions are immutable.
+
+### Structured Request Entity — ADOPT
+
+Submission stores:
+
+- requester;
+- organisation/workspace;
+- template/version;
+- structured values;
+- attachments;
+- submitted_at;
+- status;
+- approver(s);
+- linked Task/Project/Decision;
+- audit history.
+
+The request is a first-class entity, not a long message with hidden semantics.
+
+### Approval Workflow — ADOPT
+
+Support bounded states such as:
+
+draft -> submitted -> needs-info -> approved/rejected -> execution -> completed/cancelled
+
+Approval may create/update:
+
+- canonical Task;
+- Project intake;
+- Decision record;
+- calendar event;
+- file review.
+
+These are explicit domain commands with idempotent links.
+
+### Form-to-Task Mapping — ADOPT
+
+Template configuration can map selected fields into:
+
+- task title/description;
+- assignee/team candidate;
+- due date;
+- project;
+- checklist;
+- evidence requirements.
+
+The resulting Task becomes the execution authority; subsequent task status should not be duplicated in form fields.
+
+### Request SLA / Queue View — ADOPT
+
+Provide queue metrics:
+
+- new/pending;
+- age;
+- approval waiting;
+- execution waiting;
+- returned for information;
+- completed cycle time.
+
+Do not turn SLA metrics into hidden employee-performance scoring.
+
+### Additional acceptance
+
+- server validates submitted schema/version;
+- request template edits do not alter old submissions;
+- approval cannot bypass ChatX ACL/role rules;
+- generated Tasks/Decisions are idempotently linked;
+- structured request does not duplicate canonical Task status;
+- JSON Forms outage/render bug cannot corrupt persisted structured values.
+
+**Sequencing:** single Task authority + Projects first -> request template/entity -> JSON Forms UI -> approval -> Task/Decision linkage -> automation rules.
+
+**Dependency note:** JSON Forms is currently MIT-licensed upstream and remains presentation infrastructure, not workflow authority.
+
