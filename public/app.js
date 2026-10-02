@@ -350,6 +350,7 @@ async function routeFromHash(){
     await action(parts[1]);
     return;
   }
+  if(parts[0]==='chats'&&S.mobileChat&&matchMedia('(max-width:980px)').matches){S.mobileChat=false;S.chatPushed=false;render();return}
   if(parts[0]&&VIEWS.has(parts[0])){if(S.view!==parts[0])go(parts[0],{silent:true});return}
   if(!parts.length&&S.view!=='today')go('today',{silent:true});
   // Неизвестный раздел: остаёмся, где были, а адрес приводим в порядок.
@@ -1420,7 +1421,7 @@ function bind(){
       if(keep){requestAnimationFrame(()=>{stream.scrollTop=keep.top});}
       let touched=!!keep;const stop=()=>{touched=true};
       stream.addEventListener('wheel',stop,{once:true,passive:true});stream.addEventListener('touchstart',stop,{once:true,passive:true});
-      const toEnd=()=>{if(!touched&&stream.isConnected&&S.streamPos?.atEnd!==false)stream.scrollTop=stream.scrollHeight};
+      const toEnd=()=>{if(!touched&&!S.jumping&&stream.isConnected&&S.streamPos?.atEnd!==false)stream.scrollTop=stream.scrollHeight};
       requestAnimationFrame(toEnd);[120,400,900].forEach((ms)=>setTimeout(toEnd,ms));
     }
     stream.onclick=(e)=>{
@@ -1499,13 +1500,16 @@ function rememberConversation(conversation){
 
 async function openChat(id){
   S.streamPos=null;
+  const fromList=!S.mobileChat&&matchMedia('(max-width:980px)').matches;
   S.selected=id;S.view='chats';S.mobileChat=true;
   // Адрес обязан догонять экран. Беседу открывают из поиска, из центра
   // внимания, из карточки задачи — и раньше после этого в адресе
   // оставался прежний раздел: перезагрузка уводила на «Сегодня», а
   // ссылкой нельзя было поделиться. Заменяем запись, а не добавляем:
   // лишний шаг «назад» здесь никому не нужен.
-  if(location.hash!=='#/chats'){try{history.replaceState(null,'','#/chats')}catch{}}
+  // На телефоне открытая беседа — следующий экран после списка: «назад» браузера возвращает к списку, а не из раздела.
+  if(fromList){try{history.pushState(null,'','#/chats');S.chatPushed=true}catch{}}
+  else if(location.hash!=='#/chats'){try{history.replaceState(null,'','#/chats')}catch{}}
   await loadMessages(id);
   const conversation=S.conversations.find(c=>c.id===id);
   const unread=Number(conversation?.unreadCount||0);
@@ -1550,17 +1554,21 @@ async function openChatAtMessage(id,messageId=null){
       }catch(error){toast(error.code==='MESSAGE_NOT_FOUND'?'Сообщение удалено или недоступно':error.message)}
     }
   }
+  if(messageId){S.jumping=true;setTimeout(()=>{S.jumping=false},1500)}
   await openChat(id);
   if(!messageId)return;
   // Кадры в фоновой вкладке не рисуются, поэтому подсветка через таймер.
   setTimeout(()=>{
     const row=document.querySelector(`[data-message-row="${CSS.escape(messageId)}"]`);
     if(!row){toast('Это сообщение не удалось показать');return}
-    row.scrollIntoView({behavior:'smooth',block:'center'});
+    // Сообщения вне экрана не отрисованы (content-visibility): на время прыжка рисуем всё, чтобы высоты были настоящими.
+    row.closest('#message-stream')?.classList.add('no-cv');
+    row.scrollIntoView({block:'center'});
+    setTimeout(()=>{row.scrollIntoView({block:'center'});setTimeout(()=>row.closest('#message-stream')?.classList.remove('no-cv'),2500)},250);
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
   },60);
 }
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),knowledge:()=>knowledgeModal(),wiki:()=>wikiModal(),'calendar-subscribe':()=>calendarSubscribeModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,apikeys:()=>apiKeysModal(),'time-report':()=>timeReportModal(),dashboard:()=>dashboardModal(),'assistant-summarize':()=>assistantSummarizeModal(),'assistant-suggest':()=>assistantSuggestModal(),journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{if(S.chatPushed){S.chatPushed=false;history.back();return}S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),knowledge:()=>knowledgeModal(),wiki:()=>wikiModal(),'calendar-subscribe':()=>calendarSubscribeModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,apikeys:()=>apiKeysModal(),'time-report':()=>timeReportModal(),dashboard:()=>dashboardModal(),'assistant-summarize':()=>assistantSummarizeModal(),'assistant-suggest':()=>assistantSuggestModal(),journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 /**
  * Роль по-русски.
