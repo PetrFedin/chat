@@ -126,9 +126,11 @@ test('доступ по HTTP: Bearer-ключ входит вместо cookie, 
   const bootstrap = await request('/api/v1/bootstrap', { bearer: created.key });
   assert.equal(bootstrap.status, 200);
 
-  // Полный ключ может создавать сущности — например, ещё один ключ от своего имени.
+  // Ключ — доступ программы к работе, а не к учётной записи: новый ключ он выпустить не может
+  // (иначе отзыв исходного ключа ничего бы не отзывал).
   const secondViaKey = await request('/api/v1/api-keys', { bearer: created.key, method: 'POST', body: { name: 'Выпущен по API' } });
-  assert.equal(secondViaKey.status, 201);
+  assert.equal(secondViaKey.status, 403);
+  assert.equal((await secondViaKey.json()).error.code, 'API_KEY_FORBIDDEN');
 
   // Ключ «только чтение» видит bootstrap, но не может создавать.
   const readBootstrap = await request('/api/v1/bootstrap', { bearer: readOnly.key });

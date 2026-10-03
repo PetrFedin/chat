@@ -3,6 +3,22 @@
  * Подменяются при отправке ответа: сам код и его тесты остаются как были.
  */
 const RU = new Map(Object.entries({
+  "A guest cannot carry a commitment": "Гость не может быть исполнителем задачи",
+  "Reassigning requires a reason": "Для передачи задачи нужна причина",
+  "Rescheduling requires a reason": "Для переноса срока нужна причина",
+  "Evidence URL is not a valid address": "Ссылка в доказательстве указана неверно",
+  "Evidence URL must be http or https": "Ссылка в доказательстве должна начинаться с http:// или https://",
+  "Evidence metric must start with a number": "Показатель должен начинаться с числа",
+  "Evidence message is not available": "Сообщение из доказательства недоступно",
+  "Those people are not workspace staff": "Эти люди не сотрудники компании",
+  "Nobody to invite": "Некого приглашать",
+  "A guest cannot change conversation roles": "Гость не может менять роли в беседе",
+  "A direct conversation cannot be left; archive it instead": "Из личной переписки выйти нельзя — отправьте её в архив",
+  "Forwarded message content is immutable": "Пересланное сообщение изменить нельзя",
+  "Only text messages can be edited": "Править можно только текстовые сообщения",
+  "Endpoint label is required": "Укажите название подписки",
+  "A display name is required": "Укажите имя",
+  "Topics must be an array of patterns": "Темы должны быть списком",
   "An identical request is still being processed": "Такой же запрос ещё выполняется",
   "Authentication required": "Нужно войти в систему",
   "Bad request": "Некорректный запрос",
@@ -133,4 +149,14 @@ const RU = new Map(Object.entries({
   "Realtime media provider is not configured": "Звонки на этом сервере пока не подключены"
 }));
 
-export const russianMessage = (message) => RU.get(message) ?? message;
+const STATUS_RU = { inbox: 'входящая', clarify: 'на уточнении', proposed: 'ожидает принятия', accepted: 'принята', scheduled: 'запланирована',
+  in_progress: 'в работе', blocked: 'заблокирована', in_review: 'на проверке', accepted_result: 'результат принят', closed: 'закрыта',
+  deferred: 'отложена', cancelled: 'отменена', rejected: 'отклонена' };
+export const russianMessage = (message) => {
+  const known = RU.get(message);
+  if (known) return known;
+  // «proposed -> done is not allowed»: внутренние имена состояний человеку ничего не говорят.
+  const step = /^(\w+) -> (\w+) is not allowed$/.exec(String(message));
+  if (step) return `Из состояния «${STATUS_RU[step[1]] ?? step[1]}» нельзя перейти в «${STATUS_RU[step[2]] ?? step[2]}»`;
+  return message;
+};

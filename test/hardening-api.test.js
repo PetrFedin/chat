@@ -326,3 +326,52 @@ test('повторение, которое кончается раньше пе�
   assert.equal(result.status, 400);
   assert.equal(result.code, 'INVALID_RECURRENCE');
 });
+
+test('API-ключ не управляет безопасностью учётной записи, а при увольнении ключи отзываются', { skip }, async (t) => {
+  const { base, people } = await workspace(t);
+  const made = await call(base, '/api/v1/api-keys', { cookie: people.alice.cookie, method: 'POST', body: { name: 'ci' } });
+  assert.equal(made.status, 201);
+  const bearer = { headers: { authorization: `Bearer ${made.payload.key}` } };
+  assert.equal((await call(base, '/api/v1/bootstrap', bearer)).status, 200, 'ключ работает для обычных запросов');
+  for (const [method, path] of [['POST', '/api/v1/auth/two-factor'], ['GET', '/api/v1/auth/sessions'], ['POST', '/api/v1/api-keys'], ['GET', '/api/v1/vault']]) {
+    const denied = await call(base, path, { method, body: method === 'POST' ? { name: 'x' } : undefined, ...bearer });
+    assert.equal(denied.status, 403, `${method} ${path} по ключу`);
+    assert.equal(denied.code, 'API_KEY_FORBIDDEN');
+  }
+  const off = await call(base, '/api/v1/people/' + people.alice.id + '/deactivate', { cookie: people.owner.cookie, method: 'POST' });
+  assert.equal(off.status, 200, JSON.stringify(off.payload));
+  const back = await call(base, '/api/v1/people/' + people.alice.id + '/reactivate', { cookie: people.owner.cookie, method: 'POST' });
+  assert.equal(back.status, 200, JSON.stringify(back.payload));
+  assert.equal((await call(base, '/api/v1/bootstrap', bearer)).status, 401, 'после возвращения старый ключ не оживает');
+});
+
+test('уволенному нельзя поручить задачу и открыть с ним личную переписку; чужой Origin не проходит с cookie', { skip }, async (t) => {
+  const { base, people } = await workspace(t);
+  assert.equal((await call(base, '/api/v1/people/' + people.bob.id + '/deactivate', { cookie: people.owner.cookie, method: 'POST' })).status, 200);
+  const task = await call(base, '/api/v1/tasks', { cookie: people.alice.cookie, method: 'POST', body: { title: 'уволенному', ownerId: people.bob.id } });
+  assert.equal(task.status, 409);
+  assert.equal(task.code, 'PERSON_DEACTIVATED');
+  const dm = await call(base, '/api/v1/conversations', { cookie: people.alice.cookie, method: 'POST', body: { kind: 'direct', participantIds: [people.bob.id] } });
+  assert.equal(dm.status, 400);
+
+  const evil = await call(base, '/api/v1/tasks', { cookie: people.alice.cookie, method: 'POST', headers: { origin: 'http://evil.example' }, body: { title: 'csrf' } });
+  assert.equal(evil.status, 403);
+  assert.equal(evil.code, 'CROSS_ORIGIN');
+  const same = await call(base, '/api/v1/tasks', { cookie: people.alice.cookie, method: 'POST', headers: { origin: base }, body: { title: 'свой сайт', ownerId: people.alice.id } });
+  assert.notEqual(same.status, 403);
+});
+
+test('подразделение и дата выхода: PATCH держит те же границы, что и создание', { skip }, async (t) => {
+  const { base, people } = await workspace(t);
+  const unit = await call(base, '/api/v1/org/units', { cookie: people.owner.cookie, method: 'POST', body: { name: 'Отдел', kind: 'department' } });
+  assert.equal(unit.status, 201);
+  const id = unit.payload.unit.id;
+  for (const body of [{ name: 'я'.repeat(5000) }, { name: { a: 1 } }, { purpose: 'я'.repeat(900) }, { purpose: { a: 1 } }]) {
+    assert.equal((await call(base, `/api/v1/org/units/${id}`, { cookie: people.owner.cookie, method: 'PATCH', body })).status, 400, JSON.stringify(body).slice(0, 40));
+  }
+  for (const startedOn of ['99999-01-01', '2020-02-31', [1]]) {
+    const bad = await call(base, `/api/v1/people/${people.alice.id}`, { cookie: people.alice.cookie, method: 'PATCH', body: { startedOn } });
+    assert.equal(bad.status, 400, String(startedOn));
+  }
+  assert.equal((await call(base, `/api/v1/people/${people.alice.id}`, { cookie: people.alice.cookie, method: 'PATCH', body: { startedOn: '2024-03-01' } })).status, 200);
+});

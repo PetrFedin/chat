@@ -365,7 +365,7 @@ export function createOrgRepository(pool) {
       if (!['head', 'admin', 'member'].includes(role)) throw fail('Неизвестная роль в подразделении', 'INVALID_UNIT_ROLE');
       return tx(async (client) => {
         const unit = await loadUnit(client, session, unitId);
-        const { rowCount: isMember } = await client.query("SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2 AND role<>'guest'", [session.workspaceId, userId]);
+        const { rowCount: isMember } = await client.query("SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=$2 AND m.role<>'guest' AND u.disabled_at IS NULL", [session.workspaceId, userId]);
         // A guest is somebody else's employee; placing them on the org chart
         // would make the chart lie about who works here.
         if (!isMember) throw fail('В подразделение можно добавить только сотрудника компании', 'NOT_WORKSPACE_STAFF', 409);

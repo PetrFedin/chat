@@ -20,6 +20,11 @@ export function validatePassword(password) {
     error.code = 'WEAK_PASSWORD';
     throw error;
   }
+  if (password.length > 256) {
+    const error = new Error('Пароль не длиннее 256 символов');
+    error.code = 'WEAK_PASSWORD';
+    throw error;
+  }
   if (!/[A-Za-zА-Яа-яЁё]/.test(password) || !/\d/.test(password)) {
     const error = new Error('В пароле должны быть буквы и хотя бы одна цифра');
     error.code = 'WEAK_PASSWORD';

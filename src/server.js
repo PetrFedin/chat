@@ -257,12 +257,19 @@ export async function createChatServer(options={}){
     if(req.sessionResolved)return req.session??null;
     const token=cookieToken(req);
     let session=token?await store.getSession(hashToken(token)):null;
+    // Cookie уходит и с чужого сайта, если тот выбрал путь, который SameSite пропускает: запрос, изменяющий
+    // данные, с чужим Origin не выполняется. Запросы без Origin (скрипты, curl) и по API-ключу не затрагиваются.
+    if(session&&!['GET','HEAD','OPTIONS'].includes(req.method)&&req.headers.origin&&req.headers.origin!=='null'){
+      let originHost=null;try{originHost=new URL(req.headers.origin).host}catch{}
+      let publicHost=null;try{publicHost=options.env?.PUBLIC_URL||process.env.PUBLIC_URL?new URL(options.env?.PUBLIC_URL||process.env.PUBLIC_URL).host:null}catch{}
+      if(originHost&&originHost!==req.headers.host&&originHost!==publicHost&&req.headers['sec-fetch-site']!=='same-origin')throw Object.assign(new Error('Запрос с чужого сайта отклонён'),{code:'CROSS_ORIGIN',statusCode:403,expose:true});
+    }
     // Ключ проверяется только когда нет cookie: у вошедшего в браузере
     // человека уже есть сессия, и лишний поход в таблицу ключей на
     // каждый запрос — это работа впустую.
     if(!session){
       const bearer=bearerToken(req);
-      if(bearer)session=await apiKeys.resolve(bearer).catch(()=>null);
+      if(bearer){session=await apiKeys.resolve(bearer).catch(()=>null);if(session)session.viaApiKey=true}
     }
     req.sessionResolved=true;
     if(session)req.session=session;
@@ -275,6 +282,9 @@ export async function createChatServer(options={}){
     // собирается что-то менять: отказ на входе честнее, чем маршрут,
     // который сам решает, уважать ли чужой флаг.
     if(s.readOnly&&!['GET','HEAD'].includes(req.method))throw Object.assign(new Error('Этот ключ доступен только для чтения'),{code:'API_KEY_READ_ONLY',statusCode:403,expose:true});
+    // Ключ — доступ программы к работе, а не к самой учётной записи: двухфакторка, сейф паролей, выпуск ключей,
+    // сессии, пароль, передача компании и сброс чужого пароля — только из браузера, по сессии.
+    if(s.viaApiKey&&/^\/api\/v1\/(auth\/(two-factor|sessions|password)|vault|api-keys|workspace\/owner|password-resets)(\/|$|\?)/.test(String(req.url).split('?')[0]+'/'))throw Object.assign(new Error('Эта операция недоступна по API-ключу: войдите в браузере'),{code:'API_KEY_FORBIDDEN',statusCode:403,expose:true});
     return s;
   };
   const openSession=async(res,req,userId,workspaceId,status=200)=>{const token=createOpaqueToken(),tokenHash=hashToken(token),expiresAt=createSessionExpiry();await store.createSession({userId,workspaceId,tokenHash,expiresAt,userAgent:req.headers['user-agent']??null,ipAddress:clientAddress(req)});const s=await store.getSession(tokenHash);if(!s)throw Object.assign(new Error('Доступ к рабочему пространству закрыт. Если это ошибка, обратитесь к администратору компании.'),{code:'WORKSPACE_ACCESS_CLOSED',statusCode:401,expose:true});json(res,status,{session:{...s,permissions:visiblePermissions(s.role)},storageMode:mode,push,media:mediaProvider.status(),objectStorage:objectStore.status()},{'set-cookie':sessionCookie(token)})};

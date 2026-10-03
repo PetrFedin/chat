@@ -67,7 +67,16 @@ export function createPeopleHandler() {
         // сырой и возвращалась пятисоткой на «когда-то».
         if (body.startedOn === '' || body.startedOn === null) patch.startedOn = null;
         else {
-          const startedOn = new Date(body.startedOn);
+          if (typeof body.startedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(body.startedOn)) {
+            throw Object.assign(new Error('Дата выхода на работу — в виде 2026-01-31'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
+          }
+          const startedOn = new Date(`${body.startedOn}T00:00:00Z`);
+          if (!Number.isNaN(startedOn.getTime()) && startedOn.toISOString().slice(0, 10) !== body.startedOn) {
+            throw Object.assign(new Error('Такой даты не бывает'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
+          }
+          if (startedOn.getUTCFullYear() < 1950 || startedOn.getUTCFullYear() > 2100) {
+            throw Object.assign(new Error('Дата выхода на работу — между 1950 и 2100 годом'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
+          }
           if (Number.isNaN(startedOn.getTime())) {
             throw Object.assign(new Error('Invalid date'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
           }
@@ -123,6 +132,7 @@ export function createPeopleHandler() {
       if (!people.setAccessUntil) throw unavailable();
       let accessUntil = null;
       if (body.accessUntil) {
+        if (typeof body.accessUntil !== 'string') throw Object.assign(new Error('Непонятная дата'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
         const at = new Date(body.accessUntil);
         if (Number.isNaN(at.getTime())) {
           throw Object.assign(new Error('Непонятная дата'), { code: 'INVALID_DATE', statusCode: 400, expose: true });
@@ -158,7 +168,7 @@ export function createPeopleHandler() {
           { code: 'FORBIDDEN', statusCode: 403 });
       }
       const person = await people.setActive(session, m[1], m[2].toLowerCase() === 'reactivate',
-        { rank: (role) => RANK[role] ?? 0 });
+        { rank: (role) => RANK[role] ?? 0, seatState: ctx.store.seatState ? () => ctx.store.seatState(session) : null });
       json(res, 200, { person });
       return true;
     }

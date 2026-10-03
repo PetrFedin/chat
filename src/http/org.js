@@ -76,7 +76,11 @@ export function createOrgHandler() {
       // Moving a unit or changing its plan reshapes the company, so it stays
       // with workspace-wide rights even for a unit admin.
       if ((body.parentId !== undefined || body.seatLimit !== undefined) && !workspaceWide) throw forbidden();
-      json(res, 200, { unit: await org.updateUnit(session, m[1], body) });
+      // Те же границы, что при создании: PATCH не должен принимать то, что POST отклоняет.
+      const patch = { ...body };
+      if (patch.name !== undefined) patch.name = cleanText(patch.name, 120, 'Название');
+      if (patch.purpose !== undefined && patch.purpose !== null) patch.purpose = patch.purpose === '' ? null : cleanText(patch.purpose, 500, 'Назначение');
+      json(res, 200, { unit: await org.updateUnit(session, m[1], patch) });
       return true;
     }
     if (m && method === 'DELETE') {

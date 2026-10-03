@@ -217,7 +217,7 @@ export function createPeopleRepository(pool, org = null) {
      * задачи, сообщения и доказательства ушедшего никуда не деваются, иначе
      * увольнение стирало бы историю работы компании.
      */
-    async setActive(session, userId, active, { rank = () => 0 } = {}) {
+    async setActive(session, userId, active, { rank = () => 0, seatState = null } = {}) {
       if (userId === session.userId) throw fail('Себя уволить нельзя', 'CANNOT_DEACTIVATE_SELF', 400);
 
       const client = await pool.connect();
@@ -234,6 +234,16 @@ export function createPeopleRepository(pool, org = null) {
         );
         if (!member[0]) throw fail('Person not found', 'PERSON_NOT_FOUND', 404);
         if (member[0].role === 'owner') throw fail('Владельца компании уволить нельзя', 'CANNOT_DEACTIVATE_OWNER', 403);
+        // Возвращение занимает место так же, как приглашение: иначе увольнение и новый найм обходили предел мест.
+        if (active && member[0].role !== 'guest' && seatState) {
+          const { rows: gone } = await client.query('SELECT disabled_at FROM users WHERE id=$1', [userId]);
+          if (gone[0]?.disabled_at) {
+            const seats = await seatState();
+            if (seats?.full) {
+              throw fail(`Свободных мест нет: занято ${seats.used} из ${seats.limit}. Добавьте мест, прежде чем возвращать сотрудника.`, 'NO_FREE_SEATS', 409);
+            }
+          }
+        }
         if (rank(member[0].role) >= rank(session.role)) {
           throw fail('Увольнять можно только тех, кто ниже вас по лестнице', 'ROLE_TOO_HIGH', 403);
         }
@@ -246,6 +256,8 @@ export function createPeopleRepository(pool, org = null) {
         if (!rows[0]) throw fail('Person not found', 'PERSON_NOT_FOUND', 404);
         if (!active) {
           await client.query('UPDATE user_sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL', [userId]);
+          // Ключи программного доступа не оживают при возвращении: новый ключ человек выпустит сам.
+          await client.query('UPDATE api_keys SET revoked_at=now() WHERE user_id=$1 AND workspace_id=$2 AND revoked_at IS NULL', [userId, session.workspaceId]);
           // Хвосты увольнения: подписки на события, заведённые им, продолжали слать данные
           // компании наружу, а подразделение оставалось с «руководителем», который не войдёт.
           await client.query('UPDATE webhook_endpoints SET enabled=false, updated_at=now() WHERE workspace_id=$1 AND created_by=$2', [session.workspaceId, userId]);
