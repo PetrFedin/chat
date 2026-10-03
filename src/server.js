@@ -253,17 +253,19 @@ export async function createChatServer(options={}){
    * проверки, которая должна быть дешёвой.
    */
   const bearerToken=(req)=>{const header=req.headers['authorization'];if(!header)return null;const match=/^Bearer\s+(.+)$/i.exec(String(header).trim());return match?match[1]:null};
+  // Cookie уходит и с чужого сайта, если тот выбрал путь, который SameSite пропускает: запрос, изменяющий
+  // данные, с чужим Origin не выполняется. Запросы без Origin (скрипты, curl) и по API-ключу не затрагиваются.
+  const assertSameOrigin=(req)=>{
+    if(['GET','HEAD','OPTIONS'].includes(req.method)||!req.headers.origin||req.headers.origin==='null')return;
+    let originHost=null;try{originHost=new URL(req.headers.origin).host}catch{}
+    let publicHost=null;try{publicHost=options.env?.PUBLIC_URL||process.env.PUBLIC_URL?new URL(options.env?.PUBLIC_URL||process.env.PUBLIC_URL).host:null}catch{}
+    if(!originHost||(originHost!==req.headers.host&&originHost!==publicHost&&req.headers['sec-fetch-site']!=='same-origin'))throw Object.assign(new Error('Запрос с чужого сайта отклонён'),{code:'CROSS_ORIGIN',statusCode:403,expose:true});
+  };
   const authenticate=async(req)=>{
     if(req.sessionResolved)return req.session??null;
     const token=cookieToken(req);
     let session=token?await store.getSession(hashToken(token)):null;
-    // Cookie уходит и с чужого сайта, если тот выбрал путь, который SameSite пропускает: запрос, изменяющий
-    // данные, с чужим Origin не выполняется. Запросы без Origin (скрипты, curl) и по API-ключу не затрагиваются.
-    if(session&&!['GET','HEAD','OPTIONS'].includes(req.method)&&req.headers.origin&&req.headers.origin!=='null'){
-      let originHost=null;try{originHost=new URL(req.headers.origin).host}catch{}
-      let publicHost=null;try{publicHost=options.env?.PUBLIC_URL||process.env.PUBLIC_URL?new URL(options.env?.PUBLIC_URL||process.env.PUBLIC_URL).host:null}catch{}
-      if(originHost&&originHost!==req.headers.host&&originHost!==publicHost&&req.headers['sec-fetch-site']!=='same-origin')throw Object.assign(new Error('Запрос с чужого сайта отклонён'),{code:'CROSS_ORIGIN',statusCode:403,expose:true});
-    }
+    if(session)assertSameOrigin(req);
     // Ключ проверяется только когда нет cookie: у вошедшего в браузере
     // человека уже есть сессия, и лишний поход в таблицу ключей на
     // каждый запрос — это работа впустую.
@@ -494,6 +496,7 @@ export async function createChatServer(options={}){
     if(await handleMeetingOperations(req,res,ctx,url,path,method))return;
     if(await handleMeetingIntelligence(req,res,ctx,path,method))return;
     if(await handlePreviewDemo(req,res,ctx,path,method))return;
+    if(path.startsWith('/api/')&&cookieToken(req))assertSameOrigin(req);
     if(await handleAuth(req,res,ctx,path,method,url))return;
     if(await handleDailyWork(req,res,ctx,url,path,method))return;
     if(await handleWorkspace(req,res,ctx,url,path,method))return;

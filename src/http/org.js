@@ -77,7 +77,9 @@ export function createOrgHandler() {
       // with workspace-wide rights even for a unit admin.
       if ((body.parentId !== undefined || body.seatLimit !== undefined) && !workspaceWide) throw forbidden();
       // Те же границы, что при создании: PATCH не должен принимать то, что POST отклоняет.
-      const patch = { ...body };
+      const patch = {};
+      for (const key of ['parentId', 'name', 'purpose', 'kind', 'seatLimit', 'headUserId']) if (body[key] !== undefined) patch[key] = body[key];
+      if (patch.kind !== undefined && !['company', 'department', 'division', 'team', 'office', 'guild'].includes(patch.kind)) throw Object.assign(new Error('Неизвестный тип подразделения'), { code: 'INVALID_UNIT_KIND', statusCode: 400, expose: true });
       if (patch.name !== undefined) patch.name = cleanText(patch.name, 120, 'Название');
       if (patch.purpose !== undefined && patch.purpose !== null) patch.purpose = patch.purpose === '' ? null : cleanText(patch.purpose, 500, 'Назначение');
       json(res, 200, { unit: await org.updateUnit(session, m[1], patch) });

@@ -238,6 +238,8 @@ export function createPeopleRepository(pool, org = null) {
         if (active && member[0].role !== 'guest' && seatState) {
           const { rows: gone } = await client.query('SELECT disabled_at FROM users WHERE id=$1', [userId]);
           if (gone[0]?.disabled_at) {
+            // Два возвращения подряд видели одно свободное место: очередь выстраиваем замком на организации.
+            await client.query('SELECT 1 FROM organizations WHERE id=$1 FOR UPDATE', [session.organizationId]);
             const seats = await seatState();
             if (seats?.full) {
               throw fail(`Свободных мест нет: занято ${seats.used} из ${seats.limit}. Добавьте мест, прежде чем возвращать сотрудника.`, 'NO_FREE_SEATS', 409);
@@ -477,11 +479,14 @@ export function createPeopleRepository(pool, org = null) {
       const { rows } = await pool.query(
         `SELECT a.sequence, a.event_type "eventType", a.aggregate_type "aggregateType", a.aggregate_id "aggregateId",
                 a.payload, a.created_at "createdAt",
-                CASE WHEN a.aggregate_type='commitment' THEN (SELECT title FROM commitments c WHERE c.workspace_id=a.workspace_id AND c.id=a.aggregate_id) END subject
+                CASE WHEN a.aggregate_type='commitment' THEN (SELECT title FROM commitments c WHERE c.workspace_id=a.workspace_id AND c.id=a.aggregate_id
+                  -- Название чужой задачи, которой смотрящий не видит, в ленте не показываем: сама задача для него 404.
+                  AND ($5::boolean OR c.owner_id=$6 OR c.requester_id=$6 OR c.acceptor_id=$6
+                       OR EXISTS(SELECT 1 FROM task_collaborators tc WHERE tc.workspace_id=c.workspace_id AND tc.commitment_id=c.id AND tc.user_id=$6))) END subject
          FROM audit_events a
          WHERE a.workspace_id=$1 AND a.actor_id=$2 AND ($3::bigint IS NULL OR a.sequence < $3)
          ORDER BY a.sequence DESC LIMIT $4`,
-        [session.workspaceId, userId, before, Math.min(Number(limit) || 40, 100)],
+        [session.workspaceId, userId, before, Math.min(Number(limit) || 40, 100), hasPermission(session.role, Permission.TASK_MANAGE_TEAM), session.userId],
       );
       return rows
         .filter((row) => !PRIVATE_TO_JOURNAL.has(row.eventType))

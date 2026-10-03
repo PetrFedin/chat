@@ -30,11 +30,12 @@ export function fileNameFromHeader(raw){
 
 import { extractText, indexable } from '../search/file-text.js';
 import { randomUUID } from 'node:crypto';
+import { checkOutboundUrl } from '../net/outbound-url.js';
 import { extname } from 'node:path';
 import { Permission, hasPermission, requirePermission } from '../rbac.js';
 import { MAX_FILE, cleanText, json, readBuffer, readJson, sha256 } from './helpers.js';
 
-const PREVIEWABLE = /^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/;
+const PREVIEWABLE = /^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/i;
 
 export function createMediaHandler(objectStore){
   return async function handleMedia(req,res,ctx,url,path,method){
@@ -75,7 +76,7 @@ export function createMediaHandler(objectStore){
       await objectStore.put(storageKey,buffer,mimeType);
       try{const file=await store.saveFile(s,{id,name:`voice-${id}.webm`,mimeType,sizeBytes:buffer.length,storageKey,sha256:sha256(buffer)}),result=await store.saveVoiceMessage(s,m[1],{file,durationMs,waveform:[]}),audience=await store.conversationAudience(s,m[1]),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,m[1]):audience;hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:m[1],message:result.message});await notifyUsers(s.workspaceId,notificationAudience.filter(id=>id!==s.userId),{title:`Голосовое сообщение · ${s.displayName}`,body:'Новое голосовое сообщение',url:`/#/chats/${m[1]}`,kind:'message.created'});json(res,201,{...result,...(result.file?{file:(({storageKey,...rest})=>rest)(result.file)}:{})})}catch(e){await objectStore.delete(storageKey).catch(()=>{});throw e}return true;
     }
-    if(path==='/api/v1/push-subscriptions'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.PUSH_SUBSCRIBE);const b=await readJson(req);if(!b.endpoint||!b.keys?.p256dh||!b.keys?.auth)throw Object.assign(new Error('Invalid push subscription'),{code:'INVALID_PUSH_SUBSCRIPTION'});const subscription=await store.savePushSubscription(s,{endpoint:b.endpoint,p256dh:b.keys.p256dh,auth:b.keys.auth,userAgent:req.headers['user-agent']??null});json(res,201,{subscription:{id:subscription.id,endpoint:subscription.endpoint}});return true}
+    if(path==='/api/v1/push-subscriptions'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.PUSH_SUBSCRIBE);const b=await readJson(req);if(!b.endpoint||!b.keys?.p256dh||!b.keys?.auth)throw Object.assign(new Error('Invalid push subscription'),{code:'INVALID_PUSH_SUBSCRIPTION'});{const verdict=checkOutboundUrl(String(b.endpoint));if(!verdict.ok||!String(b.endpoint).startsWith('https://'))throw Object.assign(new Error('Invalid push subscription'),{code:'INVALID_PUSH_SUBSCRIPTION',statusCode:400,expose:true})}const subscription=await store.savePushSubscription(s,{endpoint:b.endpoint,p256dh:b.keys.p256dh,auth:b.keys.auth,userAgent:req.headers['user-agent']??null});json(res,201,{subscription:{id:subscription.id,endpoint:subscription.endpoint}});return true}
     return false;
   }
 }

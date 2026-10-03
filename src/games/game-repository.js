@@ -131,6 +131,11 @@ export function createGameRepository(pool, store = null) {
     async invite(session, { conversationId = null, kind, opponentId }) {
       if (!KINDS.includes(kind)) throw fail('Неизвестная игра', 'UNKNOWN_GAME');
       if (opponentId === session.userId) throw fail('Нельзя сыграть с самим собой', 'INVALID_OPPONENT');
+      {
+        const { rows: who } = await pool.query(
+          'SELECT u.disabled_at FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=$2', [session.workspaceId, opponentId]);
+        if (who[0]?.disabled_at) throw fail('Этот сотрудник уволен: играть с ним нельзя', 'PERSON_DEACTIVATED', 409);
+      }
 
       // Which room the game sits in is bookkeeping, not a decision a person
       // should have to make: asking produced a picker offering rooms the

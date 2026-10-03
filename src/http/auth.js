@@ -639,6 +639,15 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
       }
       throw error;
     }
+    // Параллельные приглашения успевали пройти проверку мест вместе (проверка и запись не в одной транзакции):
+    // после записи считаем ещё раз и откатываем своё приглашение, если оно вышло за предел.
+    if(wanted!=='guest'&&store.seatState&&store.revokeInvitation){
+      const after=await store.seatState(s);
+      if(after.limit!==null&&after.used>after.limit){
+        await store.revokeInvitation(s,i.id).catch(()=>{});
+        throw Object.assign(new Error(`Свободных мест нет: занято ${after.used-1} из ${after.limit}. Добавьте мест или отзовите лишние приглашения.`),{code:'NO_FREE_SEATS',statusCode:409,expose:true});
+      }
+    }
     const inviteUrl=`${originOf(req)}/?invite=${encodeURIComponent(token)}`;
     const letter=invitationMail({workspaceName:s.workspaceName??'рабочее пространство',inviterName:s.displayName??s.email,role:wanted,url:inviteUrl,expiresAt:i.expiresAt});
     const delivery=await post(ctx,{organizationId:s.organizationId,workspaceId:s.workspaceId,kind:'invitation',actorId:s.userId,

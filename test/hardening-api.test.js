@@ -426,3 +426,22 @@ test('экран приглашения: компания, кто зовёт и 
   await call(base, '/api/v1/invitations/accept', { method: 'POST', body: { token, displayName: 'Пик', password: 'MemberPassword42' } });
   assert.equal((await call(base, `/api/v1/invitations/peek?token=${encodeURIComponent(token)}`)).payload.invitation.state, 'accepted');
 });
+
+test('чужой Origin не выходит из аккаунта и не входит; push принимает только внешний https; журнал не раскрывает чужие задачи', { skip }, async (t) => {
+  const { base, people } = await workspace(t);
+  const evilLogout = await call(base, '/api/v1/auth/logout', { cookie: people.alice.cookie, method: 'POST', headers: { origin: 'http://evil.example' } });
+  assert.equal(evilLogout.status, 403);
+  assert.equal((await call(base, '/api/v1/bootstrap', { cookie: people.alice.cookie })).status, 200, 'сессия цела');
+
+  const subscribe = (endpoint) => call(base, '/api/v1/push-subscriptions', { cookie: people.alice.cookie, method: 'POST', body: { endpoint, keys: { p256dh: 'a', auth: 'b' } } });
+  assert.equal((await subscribe('http://127.0.0.1:1/x')).status, 400);
+  assert.equal((await subscribe('https://127.0.0.1/x')).status, 400);
+
+  // Задача bob→bob приватна для carol, и её название не должно попасть в ленту действий bob у carol.
+  const task = await call(base, '/api/v1/tasks', { cookie: people.bob.cookie, method: 'POST', body: { title: 'СЕКРЕТНАЯ-ЗАДАЧА', ownerId: people.bob.id } });
+  assert.equal(task.status, 201);
+  const feed = await call(base, `/api/v1/people/${people.bob.id}/activity`, { cookie: people.carol.cookie });
+  assert.ok(!JSON.stringify(feed.payload).includes('СЕКРЕТНАЯ-ЗАДАЧА'), 'название чужой задачи в ленте');
+  const own = await call(base, `/api/v1/people/${people.bob.id}/activity`, { cookie: people.bob.cookie });
+  assert.ok(JSON.stringify(own.payload).includes('СЕКРЕТНАЯ-ЗАДАЧА'), 'свою видно');
+});
