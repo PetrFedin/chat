@@ -273,6 +273,38 @@ export const openapi = Object.freeze({
     '/api/v1/calendar-events/{id}/respond': { post: { tags: ['Calendar'], summary: 'Answer an invitation: accepted, tentative or declined, with an optional note', responses: { '200': { description: 'Answer recorded with its timestamp' }, '404': { description: 'You are not invited' } } } },
     '/api/v1/calendar-events/{id}/files': { post: { tags: ['Calendar'], summary: 'Attach an already uploaded file to the event', responses: { '201': { description: 'Attached' }, '403': { description: 'Not the organiser' } } } },
     '/api/v1/calendar-invitations': { get: { tags: ['Calendar'], summary: 'Everything still awaiting this person\u2019s answer', responses: { '200': { description: 'Pending invitations' } } } },
+    '/api/v1/request-templates': {
+      get: { tags: ['Requests'], summary: 'List request templates (current versions)', responses: { '200': { description: 'Templates with fields, approval chain and task mapping' }, '404': { description: 'Guests do not see this module' } } },
+      post: { tags: ['Requests'], summary: 'Create a request template (owner or administrator)', responses: { '201': { description: 'Template, version 1' }, '400': { description: 'INVALID_TEMPLATE' }, '403': { description: 'Not allowed to manage templates' } } },
+    },
+    '/api/v1/request-templates/{templateId}': {
+      patch: { tags: ['Requests'], summary: 'Edit a template: creates a new version, submitted requests keep theirs', responses: { '200': { description: 'Template, new version' }, '404': { description: 'TEMPLATE_NOT_FOUND' } } },
+    },
+    '/api/v1/request-templates/{templateId}/archive': {
+      post: { tags: ['Requests'], summary: 'Archive a template (or restore it with /restore)', responses: { '200': { description: 'Archived flag' } } },
+    },
+    '/api/v1/requests': {
+      get: { tags: ['Requests'], summary: 'List requests: scope=mine, approve (awaiting my answer) or all (owner/admin)', responses: { '200': { description: 'Requests' } } },
+      post: { tags: ['Requests'], summary: 'Submit a request; values are validated against the template version', responses: { '201': { description: 'Request with its approval steps' }, '400': { description: 'INVALID_REQUEST_VALUES' }, '409': { description: 'TEMPLATE_ARCHIVED' } } },
+    },
+    '/api/v1/requests/queue': {
+      get: { tags: ['Requests'], summary: 'Aggregate queue numbers (no per-person breakdown)', responses: { '200': { description: 'pending, needsInfo, inExecution, awaitingMe, averages' } } },
+    },
+    '/api/v1/requests/{requestId}': {
+      get: { tags: ['Requests'], summary: 'One request with steps and history; 404 for anyone who may not see it', responses: { '200': { description: 'Request' }, '404': { description: 'REQUEST_NOT_FOUND' } } },
+    },
+    '/api/v1/requests/{requestId}/decision': {
+      post: { tags: ['Requests'], summary: 'Approver answers the current step: approve, reject or needs_info (comment required for the last two)', responses: { '200': { description: 'Updated request' }, '403': { description: 'NOT_AN_APPROVER' }, '409': { description: 'REQUEST_NOT_PENDING' } } },
+    },
+    '/api/v1/requests/{requestId}/respond': {
+      post: { tags: ['Requests'], summary: 'Requester answers a needs_info question and resubmits', responses: { '200': { description: 'Updated request' } } },
+    },
+    '/api/v1/requests/{requestId}/cancel': {
+      post: { tags: ['Requests'], summary: 'Requester withdraws a pending request', responses: { '200': { description: 'Cancelled request' } } },
+    },
+    '/api/v1/requests/{requestId}/complete': {
+      post: { tags: ['Requests'], summary: 'Mark an approved request completed', responses: { '200': { description: 'Completed request' } } },
+    },
     '/api/v1/org/units': {
       get: { tags: ['Organisation'], summary: 'The unit tree with headcount against planned seats', description: 'Readable by everyone in the workspace: knowing who runs what is the point of a chart. The response also names the units this caller may manage.', responses: { '200': { description: 'Units, canManage and managedUnitIds' }, '503': { description: 'Requires a PostgreSQL deployment' } } },
       post: { tags: ['Organisation'], summary: 'Create a department, division or team', description: 'A top-level unit needs org.structure.manage. A sub-unit may be created by whoever runs the parent, which is how a department head staffs their own department without workspace-wide rights. Depth is capped at six levels.', responses: { '201': { description: 'Unit created' }, '403': { description: 'You do not manage the parent unit' }, '409': { description: 'Depth exceeded or the name is taken among siblings' } } }

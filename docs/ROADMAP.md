@@ -109,6 +109,29 @@ new `dailyTotals`) — a test asserts the numbers agree exactly with
 those two existing reports for the same range, so the three screens
 can't quietly drift apart.
 
+**Structured requests and approvals**
+The "Request Template Authority" / "Approval Workflow" slice of
+`CHATX_INTEGRATION_MASTER_PLAN_2026-10-01.md`, built natively (no JSON Forms
+dependency — the field set is a small, server-validated subset: text, textarea,
+number, money, date, select, checkbox). Owners/admins keep versioned templates
+(`request_templates` + immutable `request_template_versions`: fields, an
+ordered approval chain by role or person with an optional numeric threshold such
+as "admin only above 100 000", and an optional task mapping). Any staff member
+submits a request (`requests`, values validated against the template *version*
+it was filed on), approvers answer step by step (approve / reject / ask for
+details — a comment is mandatory for the last two; nobody approves their own
+request, and an outsider gets 404 rather than 403), the requester replies to a
+question or withdraws, and a history (`request_events`) records every move.
+Approval can create one ordinary task, exactly once, with the requester as the
+acceptor — the task stays the execution authority, the request never copies its
+status. A step nobody else could answer (a company of one owner) is skipped
+with a note rather than hanging forever. Queue numbers (pending, needs-info,
+in execution, average age/cycle) are aggregate only — deliberately not broken
+down per employee. UI: More → Requests (`public/requests.js`, same overlay layer
+as Search/Files), with starter templates for time off, purchase and access.
+Gaps left on purpose: JSON-Forms-grade layouts, file attachments on requests,
+SLA reminders for approvers, and delegation while an approver is away.
+
 **Structured data import (CSV)**
 The bulk-invite screen ("Invite in bulk" under Invite) now accepts an
 actual `.csv` file exported from HR or Excel, not only hand-typed
