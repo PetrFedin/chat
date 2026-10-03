@@ -66,9 +66,24 @@ function decorate(){ensureBell();applyUnreadBadges();ensureAttentionStrip()}
 
 function removeOverlayNode(){document.querySelector('.dwc-overlay')?.remove();hideMentionPicker()}
 // Кнопка «закрыть» откатывает историю, переход на другой экран запись лишь снимает.
-function closeOverlay(){removeOverlayNode();window.ChatApp?.ghostOverlay?.close()}
+function closeOverlay(){removeOverlayNode();window.ChatApp?.ghostOverlay?.close();const back=D.opener;D.opener=null;if(back?.isConnected)back.focus?.({preventScroll:true})}
 function leaveOverlay(){removeOverlayNode();window.ChatApp?.ghostOverlay?.drop()}
-function claimHistory(){window.ChatApp?.ghostOverlay?.push(removeOverlayNode)}
+function claimHistory(){
+  if(!D.opener)D.opener=document.activeElement;
+  window.ChatApp?.ghostOverlay?.push(removeOverlayNode);
+  // Фокус — в открывшуюся панель: иначе Tab ходит по странице за ней.
+  setTimeout(()=>{const root=document.querySelector('.dwc-overlay');const first=root?.querySelector('input,button:not([data-dwc-close]),select,textarea,a[href]')||root?.querySelector('button');first?.focus?.({preventScroll:true})},60);
+}
+document.addEventListener('keydown',(event)=>{
+  if(event.key!=='Tab')return;
+  const root=document.querySelector('.dwc-overlay');if(!root)return;
+  const items=[...root.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')].filter(el=>el.offsetParent!==null);
+  if(!items.length)return;
+  const first=items[0],last=items[items.length-1];
+  if(!root.contains(document.activeElement)){event.preventDefault();first.focus()}
+  else if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
+  else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
+});
 
 function notificationTitle(n){if(n.type==='message.mentioned')return tr(`Упоминание${n.actorName?` · ${n.actorName}`:''}`,`Mention${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='message.created')return tr(`Новое сообщение${n.actorName?` · ${n.actorName}`:''}`,`New message${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.assigned')return tr(`Новая задача${n.actorName?` · ${n.actorName}`:''}`,`New task${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.due')return tr('Срок задачи','Task due');// Название встречи и приглашение звонившего доходят от сервера в
 // `n.title`/`n.actorName` с первого дня, но заголовок был захардкожен

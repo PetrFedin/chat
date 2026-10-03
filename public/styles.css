@@ -650,3 +650,30 @@ h4{font-size:15px;font-weight:700}
 .row-title,.row-sub{overflow-wrap:anywhere}
 .task-card .task-title{overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .row>.inline-actions{flex-wrap:wrap}
+
+/* Планшет и телефон: строка с кнопками действий («Принять» / «Уточнить») не вылезает за край даже при длинном названии. */
+.row:has(>.inline-actions){grid-template-columns:minmax(0,1fr)}
+.row:has(>.inline-actions)>.inline-actions{grid-column:1/-1}
+@media(min-width:561px){.row:has(>.inline-actions){grid-template-columns:minmax(0,1fr) auto}.row:has(>.inline-actions)>.inline-actions{grid-column:auto}}
+
+/* Чат внутри экрана: страница не прокручивается вместе с лентой, а лента не пробрасывает прокрутку наружу. */
+#message-stream{overscroll-behavior:contain}
+/* Нижние отступы под навигацию уже заложены в высоту чата (100dvh − 150px): второй раз их прибавлять нельзя, иначе страница длиннее экрана на 100 px и ползёт вместе с лентой. */
+@media (max-width:980px){.app-shell:has(.chat-shell){padding-bottom:0}.screen:has(.chat-shell){padding-bottom:0}}
+
+/* Узкие экраны: верхняя панель умещается (320 px), в ландшафте шапка беседы не съедает ленту. */
+@media (max-width:360px){.top-actions{gap:4px}.top-actions .round-button,.top-actions button{min-width:34px}}
+@media (max-height:520px) and (orientation:landscape){
+  #mobile-nav{display:none}
+  .app-shell{padding-bottom:0}
+  .screen{padding-bottom:16px}
+  .message-header{padding:6px 10px}
+  .message-header>.inline-actions:last-child .round-button{min-width:32px;min-height:32px;width:32px;height:32px}
+  .chat-shell{height:calc(100dvh - 76px)}
+}
+
+/* Оверлеи файлов/поиска/уведомлений: кнопки на сенсорном экране не ниже 40 px, деструктивная не жмётся рядом с «Открыть». */
+@media (pointer:coarse){
+  .dwc-overlay button,.dwc-overlay .dwc-icon-button{min-height:40px!important}
+  .dwc-overlay .dwc-icon-button{min-width:40px!important}
+}

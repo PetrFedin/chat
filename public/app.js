@@ -229,7 +229,11 @@ async function api(path,o={}){
   return p;
 }
 
-function toast(t){const n=document.createElement('div');n.className='toast';n.textContent=t;$('#toast-root').append(n);setTimeout(()=>n.remove(),2400)}
+function toast(t){const n=document.createElement('div');n.className='toast';n.textContent=t;
+  // Ошибку читают медленнее и должны услышать сразу: role=alert и время по длине текста, а не фиксированные 2,4 с.
+  const bad=/ошиб|не удалось|нельзя|нет связи|не найден|отклон|запрещ|недоступ|fail|error|cannot|denied|unavailable/i.test(String(t));
+  if(bad)n.setAttribute('role','alert');
+  $('#toast-root').append(n);setTimeout(()=>n.remove(),Math.min(9000,Math.max(bad?4500:2400,String(t).length*55)))}
 function auth(mode='login'){
   $('#app-view').hidden=true;$('#auth-view').hidden=false;
   const params=new URLSearchParams(location.search);
@@ -324,7 +328,20 @@ function forgotPasswordModal(){
 async function bootstrap(){S.sessionLost=false;try{const b=await (window.ChatBootstrap?.get({force:true})??api('/api/v1/bootstrap'));window.ChatBootstrap?.put(b);S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadOnboarding(),loadTasks(),loadTaskPage(),loadCalendar(),loadInvitations(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash();
     // Адрес «#/chats» без беседы выбирает первую, но не грузил её сообщения:
     // экран показывал «Начните разговор» над пустой лентой.
-    if(S.view==='chats'&&S.selected&&!(S.messages.get(S.selected)||[]).length){await loadMessages(S.selected);render()}}catch(e){if(e.status===401)auth();else{auth();$('#auth-error').textContent=e.message}}}
+    if(S.view==='chats'&&S.selected&&!(S.messages.get(S.selected)||[]).length){await loadMessages(S.selected);render()}}catch(e){
+    if(e.status===401){auth();return}
+    // Нет сети — не «вас разлогинило»: экран входа показывать нельзя, сессия цела.
+    if(!e.status&&(navigator.onLine===false||/fetch|network|нет связи/i.test(String(e.message)))){offlineScreen();return}
+    auth();$('#auth-error').textContent=e.message}}
+function offlineScreen(){
+  document.body.insertAdjacentHTML('beforeend',`<div id="offline-screen" role="alert" style="position:fixed;inset:0;z-index:300;display:grid;place-items:center;background:var(--bg);padding:24px;text-align:center"><div><h2 style="margin:0 0 8px">${T('Нет связи с сервером','No connection')}</h2><p class="muted" style="margin:0 0 16px">${T('Вы не вышли из системы: проверьте интернет — приложение продолжит само.','You are still signed in: check your connection — the app will continue on its own.')}</p><button class="button primary" id="offline-retry">${T('Повторить','Retry')}</button></div></div>`);
+  const retry=()=>{$('#offline-screen')?.remove();bootstrap()};
+  $('#offline-retry').onclick=retry;
+  window.addEventListener('online',()=>{if($('#offline-screen'))retry()},{once:true});
+}
+// Постоянный признак «нет сети»: тост исчезает, а человек не должен гадать, почему не уходят сообщения.
+window.addEventListener('offline',()=>toast(T('Нет связи с сервером. Проверьте интернет.','No connection. Check your internet.')));
+window.addEventListener('online',()=>toast(T('Связь восстановлена','Back online')));
 /**
  * Адрес страницы и то, что на ней видно, — одно и то же.
  *
@@ -1564,8 +1581,10 @@ async function openChatAtMessage(id,messageId=null){
     if(!row){toast('Это сообщение не удалось показать');return}
     // Сообщения вне экрана не отрисованы (content-visibility): на время прыжка рисуем всё, чтобы высоты были настоящими.
     row.closest('#message-stream')?.classList.add('no-cv');
-    row.scrollIntoView({block:'center'});
-    setTimeout(()=>{row.scrollIntoView({block:'center'});setTimeout(()=>row.closest('#message-stream')?.classList.remove('no-cv'),2500)},250);
+    // scrollIntoView крутит и страницу (заголовок уезжал под верхнюю панель), поэтому крутим только ленту.
+    const centre=()=>{const stream=row.closest('#message-stream');if(stream)stream.scrollTop=row.offsetTop-stream.offsetTop-(stream.clientHeight-row.offsetHeight)/2};
+    centre();
+    setTimeout(()=>{centre();setTimeout(()=>row.closest('#message-stream')?.classList.remove('no-cv'),2500)},250);
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
   },60);
 }
@@ -5346,7 +5365,7 @@ function taskStructureSection(task){
       <span><label class="checkline"><input type="checkbox" data-step-toggle="${esc(item.id)}" ${item.completedAt?'checked':''}>
         <span class="${item.completedAt?'step-done':''}">${esc(item.title)}</span></label>
         ${item.completedAt?`<div class="row-sub">${esc(item.completedByName||'')} · ${esc(dateTime(item.completedAt))}</div>`:''}</span>
-      <button type="button" class="close-button" data-step-remove="${esc(item.id)}" title="Убрать шаг">×</button>
+      <button type="button" class="close-button" data-step-remove="${esc(item.id)}" title="${T('Убрать шаг','Remove step')}" aria-label="${T('Убрать шаг','Remove step')}">×</button>
     </div>`).join('')}
     <form id="task-step-form" class="form-stack" style="margin-top:8px">
       <label>Добавить шаг<input name="title" maxlength="240" placeholder="Что именно надо сделать" required></label>
