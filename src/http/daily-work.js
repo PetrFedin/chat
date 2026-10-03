@@ -139,13 +139,15 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     const limit = pageSize(url.searchParams.get('limit'), 30, 60);
     // Диапазон дат: договор трёхмесячной давности иначе тонет среди
     // шестидесяти свежих совпадений, а второй страницы у поиска нет.
-    const range=(value)=>{
+    const range=(value,endOfDay=false)=>{
       if(!value)return null;
-      const at=new Date(value);
+      // «до 2026-10-03» без времени — это весь третий день, а не его начало.
+      const at=new Date(endOfDay&&/^\d{4}-\d{2}-\d{2}$/.test(String(value))?`${value}T23:59:59.999Z`:value);
       if(Number.isNaN(at.getTime()))throw Object.assign(new Error('Invalid date'),{code:'INVALID_DATE',statusCode:400,expose:true});
       return at.toISOString();
     };
-    const from=range(url.searchParams.get('from')),to=range(url.searchParams.get('to'));
+    const from=range(url.searchParams.get('from')),to=range(url.searchParams.get('to'),true);
+    if(from&&to&&from>to)throw Object.assign(new Error('Начало периода позже его конца'),{code:'INVALID_DATE',statusCode:400,expose:true});
     json(res,200,{query,from,to,items:await store.searchWorkspace(session,query,{types,limit,from,to})});
     return true;
   }

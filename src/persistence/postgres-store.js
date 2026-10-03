@@ -850,7 +850,7 @@ export class PostgresStore {
       const created=await this.createMessageOnce(s,id,v);
       // Новое сообщение возвращает чат из архива у остальных участников:
       // архив — «убрать с глаз», а не «не хочу ничего получать».
-      await this.pool.query('UPDATE conversation_members SET archived_at=NULL WHERE workspace_id=$1 AND conversation_id=$2 AND user_id<>$3 AND archived_at IS NOT NULL',[s.workspaceId,id,s.userId]).catch(()=>{});
+      await this.pool.query('UPDATE conversation_members SET archived_at=NULL WHERE workspace_id=$1 AND conversation_id=$2 AND user_id<>$3 AND archived_at IS NOT NULL AND (muted_until IS NULL OR muted_until<=now())',[s.workspaceId,id,s.userId]).catch(()=>{});
       return created;
     }catch(error){
       // Индекс зовётся messages_sender_request_idx; достаточно кода отказа
@@ -1009,7 +1009,7 @@ export class PostgresStore {
         WHERE workspace_id=$1 AND id=$2`,[s.workspaceId,id]);
       await c.query('DELETE FROM message_versions WHERE workspace_id=$1 AND message_id=$2',[s.workspaceId,id]);
       await c.query('DELETE FROM message_pins WHERE workspace_id=$1 AND message_id=$2',[s.workspaceId,id])});return this.getMessage(s,id)}
-  async toggleReaction(s,id,reaction){const message=await this.getMessage(s,id);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});const deleted=await this.pool.query('DELETE FROM message_reactions WHERE workspace_id=$1 AND message_id=$2 AND user_id=$3 AND reaction=$4 RETURNING reaction',[s.workspaceId,id,s.userId,reaction]);if(!deleted.rowCount)await this.pool.query('INSERT INTO message_reactions(organization_id,workspace_id,message_id,user_id,reaction) VALUES($1,$2,$3,$4,$5)',[s.organizationId,s.workspaceId,id,s.userId,reaction]);const{rows}=await this.pool.query('SELECT user_id "userId",reaction,created_at "createdAt" FROM message_reactions WHERE workspace_id=$1 AND message_id=$2 ORDER BY created_at',[s.workspaceId,id]);return rows}
+  async toggleReaction(s,id,reaction){const message=await this.getMessage(s,id);if(!message||message.deletedAt)throw Object.assign(new Error('Message not found'),{code:'NOT_FOUND',statusCode:404});const deleted=await this.pool.query('DELETE FROM message_reactions WHERE workspace_id=$1 AND message_id=$2 AND user_id=$3 AND reaction=$4 RETURNING reaction',[s.workspaceId,id,s.userId,reaction]);if(!deleted.rowCount)await this.pool.query('INSERT INTO message_reactions(organization_id,workspace_id,message_id,user_id,reaction) VALUES($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING',[s.organizationId,s.workspaceId,id,s.userId,reaction]);const{rows}=await this.pool.query('SELECT user_id "userId",reaction,created_at "createdAt" FROM message_reactions WHERE workspace_id=$1 AND message_id=$2 ORDER BY created_at',[s.workspaceId,id]);return rows}
   async markRead(s,id,messageId=null){
     // Отметка «прочитано до сообщения» ставила `now()` — и всё, что пришло
     // после названного сообщения, молча становилось прочитанным. Человек
