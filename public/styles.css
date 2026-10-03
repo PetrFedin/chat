@@ -677,3 +677,4 @@ h4{font-size:15px;font-weight:700}
   .dwc-overlay button,.dwc-overlay .dwc-icon-button{min-height:40px!important}
   .dwc-overlay .dwc-icon-button{min-width:40px!important}
 }
+.message-body a{color:var(--warm);text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}

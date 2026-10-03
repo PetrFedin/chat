@@ -412,3 +412,17 @@ test('протокол встречи и поиск не раскрывают «
   const mine = await call(base, '/api/v1/search?q=' + encodeURIComponent('уникум'), { cookie: people.bob.cookie });
   assert.ok(mine.payload.items.some((x) => x.type === 'event'), 'организатор своё находит');
 });
+
+test('экран приглашения: компания, кто зовёт и роль видны по ссылке до ввода пароля', { skip }, async (t) => {
+  const { base, people, suffix } = await workspace(t);
+  const invited = await call(base, '/api/v1/invitations', { cookie: people.owner.cookie, method: 'POST', body: { email: `peek-${suffix}@t.test`, role: 'member' } });
+  const token = new URL(invited.payload.invitation.inviteUrl).searchParams.get('invite');
+  const peek = await call(base, `/api/v1/invitations/peek?token=${encodeURIComponent(token)}`);
+  assert.equal(peek.status, 200);
+  assert.equal(peek.payload.invitation.state, 'pending');
+  assert.equal(peek.payload.invitation.role, 'member');
+  assert.match(peek.payload.invitation.workspaceName, /Hard/);
+  assert.equal((await call(base, '/api/v1/invitations/peek?token=wrong')).status, 404);
+  await call(base, '/api/v1/invitations/accept', { method: 'POST', body: { token, displayName: 'Пик', password: 'MemberPassword42' } });
+  assert.equal((await call(base, `/api/v1/invitations/peek?token=${encodeURIComponent(token)}`)).payload.invitation.state, 'accepted');
+});

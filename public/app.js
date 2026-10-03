@@ -229,6 +229,12 @@ async function api(path,o={}){
   return p;
 }
 
+/** Необратимое действие с двух нажатий: первое меняет подпись кнопки, второе (в течение 3,5 с) выполняет. */
+function confirmTap(button,run,ask){
+  if(button.dataset.armed)return run();
+  button.dataset.armed='1';const label=button.textContent;button.textContent=ask||T('Точно?','Sure?');
+  setTimeout(()=>{delete button.dataset.armed;button.textContent=label},3500);
+}
 function toast(t){const n=document.createElement('div');n.className='toast';n.textContent=t;
   // Ошибку читают медленнее и должны услышать сразу: role=alert и время по длине текста, а не фиксированные 2,4 с.
   const bad=/ошиб|не удалось|нельзя|нет связи|не найден|отклон|запрещ|недоступ|fail|error|cannot|denied|unavailable/i.test(String(t));
@@ -243,6 +249,15 @@ function auth(mode='login'){
     $('#reset-password-form').hidden=true;
     $('#accept-invite-form').hidden=false;$('#accept-invite-form').dataset.token=token;
     $('#auth-title').textContent='Присоединиться к компании';
+    // Кто зовёт и куда — до того, как человек придумает пароль.
+    fetch(`/api/v1/invitations/peek?token=${encodeURIComponent(token)}`).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
+      const box=$('#invite-peek')||(()=>{const d=document.createElement('p');d.id='invite-peek';d.className='muted';d.style.margin='0 0 12px';$('#accept-invite-form').prepend(d);return d})();
+      if(!ok){box.textContent=j?.error?.message||T('Приглашение недействительно','This invitation is not valid');box.style.color='var(--danger)';return}
+      const i=j.invitation;
+      if(i.state!=='pending'){box.textContent=i.state==='expired'?T('Срок приглашения истёк — попросите прислать новое.','This invitation has expired — ask for a new one.'):T('Это приглашение уже использовано или отозвано.','This invitation was already used or revoked.');box.style.color='var(--danger)';return}
+      const roles={owner:T('владелец','owner'),admin:T('администратор','administrator'),manager:T('руководитель','manager'),member:T('сотрудник','employee'),guest:T('гость','guest')};
+      box.textContent=`${i.inviterName||T('Коллега','A colleague')} ${T('приглашает вас в','invites you to')} «${i.workspaceName}» — ${roles[i.role]||i.role}. ${T('Приглашение выдано на','Issued to')} ${i.email}.`;
+    }).catch(()=>{});
     // Пароля ещё нет — «забыли пароль» здесь нечего чинить.
     $('#auth-help').hidden=true;
     bindAuthExtras();
@@ -545,7 +560,7 @@ function today(){const active=S.tasks.filter(t=>!['closed','accepted_result','ca
   const later=S.calendar.filter(e=>Date.parse(e.startAt)>=dayEnd.getTime()).sort(byStart);
   const events=(todays.length?todays:later).slice(0,4);
   const agendaTitle=todays.length||!later.length?'Расписание дня':'Ближайшие встречи';
-  const agendaHint=todays.length?'Встречи и рабочее время':later.length?'Сегодня встреч нет':'Встречи и рабочее время';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2></section>${onboardingSection()}${S.invitations.length?`<section class="surface"><div class="section-head"><div><h2>Ждут вашего ответа</h2><p class="muted">${S.invitations.length} ${pluralIn(S.invitations.length,['приглашение','приглашения','приглашений'],['invitation','invitations'])} на встречу</p></div></div>${S.invitations.map(i=>`<div class="agenda-row"><span class="agenda-time">${time(i.startAt)}</span><span><div class="row-title">${esc(i.title)}</div><div class="row-sub">${esc(new Date(i.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'long'}))}${i.organiser?` · ${esc(i.organiser)}`:''}</div></span><span class="inline-actions">${[['accepted','Приду'],['tentative','Под вопросом'],['declined','Не приду']].map(([value,caption])=>`<button class="button small ${value==='accepted'?'primary':'secondary'} pressable" data-invite-answer="${value}" data-invite-event="${esc(i.id)}">${caption}</button>`).join('')}</span></div>`).join('')}</section>`:''}${agendaSection(events,agendaTitle,agendaHint,dayEnd)}${answerNeededSection()}${myTasksSection(active)}${planSection()}</div><div class="stack"><div class="metric-grid">${tasksVisible()?`<button type="button" class="metric-card pressable" data-nav="tasks"><strong>${active.length}</strong><span>${pluralIn(active.length,['активная задача','активные задачи','активных задач'],['active task','active tasks'])}</span></button>`:''}${guestShell()?'':`<button type="button" class="metric-card pressable" data-action="team"><strong>${S.people.length}</strong><span>${pluralIn(S.people.length,['сотрудник','сотрудника','сотрудников'],['employee','employees'])}</span></button>`}<button type="button" class="metric-card pressable" data-nav="chats"><strong>${S.conversations.length}</strong><span>${pluralIn(S.conversations.length,['диалог','диалога','диалогов'],['conversation','conversations'])}</span></button></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||'<div class="empty">Создайте первый канал.</div>'}</section></div></div>`}
+  const agendaHint=todays.length?'Встречи и рабочее время':later.length?'Сегодня встреч нет':'Встречи и рабочее время';return `<div class="page-grid"><div class="stack"><section class="surface greeting"><p class="kicker" id="now-line" data-prefs-owned>${esc(nowLine())}</p><h2><span id="greeting-word">${greetingFor(new Date())}</span>, ${esc((me().displayName||'').split(' ')[0])}</h2></section>${onboardingSection()}${S.invitations.length?`<section class="surface"><div class="section-head"><div><h2>Ждут вашего ответа</h2><p class="muted">${S.invitations.length} ${pluralIn(S.invitations.length,['приглашение','приглашения','приглашений'],['invitation','invitations'])} на встречу</p></div></div>${S.invitations.map(i=>`<div class="agenda-row"><span class="agenda-time">${time(i.startAt)}</span><span><div class="row-title">${esc(i.title)}</div><div class="row-sub">${esc(new Date(i.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'long'}))}${i.organiser?` · ${esc(i.organiser)}`:''}</div></span><span class="inline-actions">${[['accepted','Приду'],['tentative','Под вопросом'],['declined','Не приду']].map(([value,caption])=>`<button class="button small ${value==='accepted'?'primary':'secondary'} pressable" data-invite-answer="${value}" data-invite-event="${esc(i.id)}">${caption}</button>`).join('')}</span></div>`).join('')}</section>`:''}${agendaSection(events,agendaTitle,agendaHint,dayEnd)}${answerNeededSection()}${myTasksSection(active)}${planSection()}</div><div class="stack"><div class="metric-grid">${tasksVisible()?`<button type="button" class="metric-card pressable" data-nav="tasks"><strong>${active.length}</strong><span>${pluralIn(active.length,['активная задача','активные задачи','активных задач'],['active task','active tasks'])}</span></button>`:''}${guestShell()?'':`<button type="button" class="metric-card pressable" data-action="team"><strong>${S.people.length}</strong><span>${pluralIn(S.people.length,['сотрудник','сотрудника','сотрудников'],['employee','employees'])}</span></button>`}<button type="button" class="metric-card pressable" data-nav="chats"><strong>${S.conversations.length}</strong><span>${pluralIn(S.conversations.length,['диалог','диалога','диалогов'],['conversation','conversations'])}</span></button></div><section class="surface"><div class="section-head"><h3>Последние сообщения</h3></div>${S.conversations.slice(0,6).map(c=>convRow(c)).join('')||(me().role==='guest'?`<div class="empty"><strong>${T('Вы гость','You are a guest')}</strong>${T('Вы видите только беседы, в которые вас добавили. Как только коллеги позовут вас в разговор, он появится здесь.','You only see conversations you were added to. When colleagues add you to one, it will appear here.')}</div>`:'<div class="empty">Создайте первый канал.</div>')}</section></div></div>`}
 /**
  * The personal list, on the screen where the day is planned. A commitment
  * belongs to «Мои задачи» above; this is the work nobody promised to anybody.
@@ -4204,6 +4219,14 @@ function editProfile(person){
     ${input('phone','Телефон',person.phone)}
     ${input('birthday','День рождения (ДД.ММ)',person.birthDay?`${person.birthDay}.${person.birthMonth}`:'')}
     <p class="muted" style="margin:-4px 0 0;font-size:12px">Год не спрашиваем: поздравить нужно в правильный день, а возраст — ваше дело.</p>
+    ${(()=>{
+      // Пояс из профиля решает, когда начинаются «тихие часы», в какое время придёт сводка и напоминание.
+      const here=Intl.DateTimeFormat().resolvedOptions().timeZone||'UTC';
+      let zones=[];try{zones=Intl.supportedValuesOf('timeZone')}catch{zones=['UTC','Europe/Moscow','Europe/Kaliningrad','Asia/Yekaterinburg','Asia/Novosibirsk','Asia/Vladivostok','Europe/London','Europe/Berlin','America/New_York','Asia/Tokyo']}
+      const chosen=person.timezone&&person.timezone!=='UTC'?person.timezone:here;
+      if(!zones.includes(chosen))zones=[chosen,...zones];
+      return `<label class="field-group"><span>${T('Часовой пояс','Time zone')}</span><select name="timezone" class="field">${zones.map(z=>`<option value="${esc(z)}"${z===chosen?' selected':''}>${esc(z)}${z===here?` — ${T('как в этом браузере','this browser')}`:''}</option>`).join('')}</select></label>
+      <p class="muted" style="margin:-4px 0 0;font-size:12px">${T('От него зависят тихие часы, час сводки и тексты напоминаний.','It sets quiet hours, the digest hour and reminder texts.')}</p>`})()}
     <label class="field-group"><span>О себе</span><textarea name="about" rows="3" maxlength="2000">${esc(person.about??'')}</textarea></label>
     <button class="button primary" type="submit">Сохранить</button>
   </form>`,()=>{
@@ -4513,7 +4536,21 @@ async function loadMarks(){
  * набор логинов: «@cancelui-yg7qwk» вместо «Иван Партнёр».
  */
 const mentionHandleOf=(person)=>String(person.email||'').split('@')[0].replace(/[^\p{L}\p{N}._-]/gu,'').toLowerCase()||String(person.displayName||'').toLowerCase().replace(/\s+/g,'.');
+/** Адреса в тексте — ссылки (только http/https, в новой вкладке, без передачи окна). Текст уже экранирован. */
+function linkify(html){
+  return html.split(/(<[^>]+>)/).map((part)=>part.startsWith('<')?part:part.replace(/https?:\/\/[^\s<>]+/g,(url)=>{
+    let tail='';
+    const cut=url.search(/&(quot|#39|lt|gt);/);
+    if(cut>=0){tail=url.slice(cut);url=url.slice(0,cut)}
+    // Знак препинания в конце фразы к ссылке не относится.
+    while(/[.,;:!?)\]»]$/.test(url)&&!/&(amp|lt|gt|quot|#39);$/.test(url)){tail=url.slice(-1)+tail;url=url.slice(0,-1)}
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer nofollow">${url}</a>${tail}`;
+  })).join('');
+}
 function escWithMentions(text){
+  return linkify(escWithMentionsRaw(text));
+}
+function escWithMentionsRaw(text){
   const escaped=esc(text);
   if(!S.people?.length)return escaped;
   return escaped.replace(/@([\p{L}\p{N}._-]{1,40})/gu,(full,handle)=>{
@@ -6046,15 +6083,23 @@ async function renderPendingInvites(){
       // Старая ссылка при этом закрывается: две живые ссылки на один
       // адрес — это два входа, и закрывать потом придётся обе.
       try{
-        const{mail}=await api(`/api/v1/invitations/${b.dataset.resend}/resend`,{method:'POST',body:'{}'});
-        toast((mail?.willSend??mail?.queued)?'Письмо отправлено заново':'Почта не настроена — передайте ссылку сами');
+        const{mail,invitation}=await api(`/api/v1/invitations/${b.dataset.resend}/resend`,{method:'POST',body:'{}'});
+        const sent=mail?.willSend??mail?.queued;
+        toast(sent?'Письмо отправлено заново':'Почта не настроена — передайте ссылку сами');
         await renderPendingInvites();
+        // Без почты ссылка — единственный способ позвать человека: показываем её, а не прячем в тост.
+        if(!sent&&invitation?.inviteUrl){
+          modal(T('Ссылка для приглашённого','Invitation link'),`<div class="stack"><p class="muted">${T('Почта не настроена: отправьте эту ссылку сами. Прежняя ссылка больше не действует.','Mail is not set up: send this link yourself. The previous link no longer works.')}</p><input id="invite-link" class="field" readonly value="${esc(invitation.inviteUrl)}"><button class="button primary" id="invite-link-copy">${T('Скопировать','Copy')}</button></div>`,()=>{
+            $('#invite-link-copy').onclick=async()=>{try{await navigator.clipboard.writeText(invitation.inviteUrl);toast(T('Ссылка скопирована','Link copied'))}catch{$('#invite-link').select();toast(T('Выделено — скопируйте вручную','Selected — copy it manually'))}};
+            $('#invite-link').onfocus=e=>e.target.select();
+          });
+        }
       }catch(error){toast(error.message)}
     });
-    $$('[data-revoke]').forEach(b=>b.onclick=async()=>{
+    $$('[data-revoke]').forEach(b=>b.onclick=()=>confirmTap(b,async()=>{
       try{await api(`/api/v1/invitations/${b.dataset.revoke}`,{method:'DELETE'});toast('Приглашение отозвано');await renderPendingInvites()}
       catch(error){toast(error.message)}
-    });
+    },T('Точно отозвать?','Revoke?')));
   }catch{box.innerHTML=''}
 }
 
@@ -6383,7 +6428,7 @@ async function profileModal(){
         <div class="quiet-row" ${settings.dailyDigest?'':'hidden'} data-digest-hour>
           <label>Присылать в<select name="digestHour" class="field">${HOURS.map(h=>`<option value="${h}" ${Number(settings.digestHour??8)===h?'selected':''}>${String(h).padStart(2,'0')}:00</option>`).join('')}</select></label>
         </div>
-        <p class="muted" style="font-size:12px"><span>Время считается по вашему поясу:</span> ${esc(settings.timezone||'UTC')}.</p>
+        <p class="muted" style="font-size:12px"><span>Время считается по вашему поясу:</span> ${esc(settings.timezone||'UTC')}. ${T('Поменять можно в карточке профиля.','Change it in your profile card.')}</p>
         <button class="button primary pressable" type="submit">Сохранить</button>
       </form>
 
@@ -6517,11 +6562,11 @@ async function profileModal(){
           }
         };
         const others=$('[data-revoke-others]');
-        if(others)others.onclick=async()=>{
+        if(others)others.onclick=()=>confirmTap(others,async()=>{
           others.disabled=true;
           try{const r=await api('/api/v1/auth/sessions/revoke-others',{method:'POST'});toast(`Закрыто входов: ${r.revoked}`);await refresh()}
           catch(error){others.disabled=false;toast(error.message)}
-        };
+        },T('Выйти везде?','Sign out everywhere?'));
         $$('[data-revoke]').forEach(b=>b.onclick=async()=>{
           b.disabled=true;
           try{await api(`/api/v1/auth/sessions/${b.dataset.revoke}`,{method:'DELETE'});toast('Вход закрыт');await refresh()}

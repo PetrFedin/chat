@@ -583,7 +583,14 @@ export async function createChatServer(options={}){
       // Закрытый сокет раньше оставался в хабе навсегда, а «в сети» не гасло после закрытия вкладки.
       remove();
       if(!hub.clients.has(`${s.workspaceId}:${s.userId}`)){
-        store.setPresence(s,{state:'offline'}).then((p)=>hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p})).catch(()=>{});
+        // «Не беспокоить» и «занят» выбраны человеком и не должны слетать от закрытой вкладки.
+        (async()=>{
+          const cur=await store.pool?.query('SELECT state FROM user_presence WHERE workspace_id=$1 AND user_id=$2',[s.workspaceId,s.userId]).catch(()=>null);
+          const was=cur?.rows?.[0]?.state;
+          if(was==='do_not_disturb'||was==='busy')return;
+          const p=await store.setPresence(s,{state:'offline'});
+          hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p});
+        })().catch(()=>{});
       }
     });
 hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});

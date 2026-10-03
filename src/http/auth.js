@@ -98,6 +98,25 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     return answer();
   }
 
+  // Что за приглашение: человек, получивший ссылку, должен видеть, в какую компанию и кем его зовут, до того как придумает пароль.
+  // Токен — секрет, по нему ничего нельзя перебрать; запросы всё равно идут через тот же ограничитель.
+  if(method==='GET'&&path==='/api/v1/invitations/peek'){
+    authThrottle?.guard('invitation',{address});
+    const token=String(url.searchParams.get('token')??'').slice(0,200);
+    if(!token||!store.pool)throw Object.assign(new Error('Приглашение недействительно'),{code:'INVITATION_INVALID',statusCode:404,expose:true});
+    const{rows}=await store.pool.query(
+      `SELECT i.role,i.status,i.expires_at "expiresAt",i.email,w.name "workspaceName",COALESCE(p.display_name,iu.email) "inviterName"
+         FROM workspace_invitations i
+         JOIN workspaces w ON w.id=i.workspace_id
+         LEFT JOIN workspace_profiles p ON p.workspace_id=i.workspace_id AND p.user_id=i.invited_by
+         LEFT JOIN users iu ON iu.id=i.invited_by
+        WHERE i.token_hash=$1`,[hashToken(token)]);
+    const row=rows[0];
+    if(!row)throw Object.assign(new Error('Приглашение недействительно: его уже использовали, отозвали или ссылка набрана с ошибкой'),{code:'INVITATION_INVALID',statusCode:404,expose:true});
+    const expired=new Date(row.expiresAt)<new Date();
+    json(res,200,{invitation:{workspaceName:row.workspaceName,inviterName:row.inviterName,role:row.role,email:row.email,expiresAt:row.expiresAt,
+      state:row.status!=='pending'?row.status:expired?'expired':'pending'}});return true;
+  }
   if(method==='POST'&&path==='/api/v1/invitations/accept'){
     authThrottle?.guard('invitation',{address});
     const b=await readJson(req),p=hashPassword(b.password),x=await store.acceptInvitation({tokenHash:hashToken(cleanText(b.token,200)),displayName:cleanText(b.displayName,120,'Ваше имя'),passwordHash:p.hash,passwordSalt:p.salt});
