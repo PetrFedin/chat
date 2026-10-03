@@ -375,3 +375,40 @@ test('подразделение и дата выхода: PATCH держит т
   }
   assert.equal((await call(base, `/api/v1/people/${people.alice.id}`, { cookie: people.alice.cookie, method: 'PATCH', body: { startedOn: '2024-03-01' } })).status, 200);
 });
+
+test('повторяющаяся встреча тоже напоминает за 15 минут, отменённое вхождение — нет', { skip }, async (t) => {
+  const { app, base, people } = await workspace(t);
+  const start = new Date(Date.now() + 10 * 60_000);
+  start.setUTCSeconds(0, 0);
+  const made = await call(base, '/api/v1/calendar-events', {
+    cookie: people.alice.cookie, method: 'POST',
+    body: { kind: 'meeting', title: 'Ежедневная планёрка', startAt: start.toISOString(), endAt: new Date(start.getTime() + 1800000).toISOString(),
+      timezone: 'UTC', recurrenceRule: 'FREQ=DAILY' },
+  });
+  assert.equal(made.status, 201);
+  await app.reminders.nudge();
+  const inbox = await call(base, '/api/v1/notifications?limit=50', { cookie: people.alice.cookie });
+  assert.ok(inbox.payload.items.some((n) => n.type === 'calendar.reminder' && n.title === 'Ежедневная планёрка'), 'напоминание о вхождении пришло');
+  // Повторный проход не дублирует.
+  await app.reminders.nudge();
+  const again = await call(base, '/api/v1/notifications?limit=50', { cookie: people.alice.cookie });
+  assert.equal(again.payload.items.filter((n) => n.title === 'Ежедневная планёрка').length, 1);
+});
+
+test('протокол встречи и поиск не раскрывают «занято»; таймер останавливается вместе с задачей', { skip }, async (t) => {
+  const { base, people } = await workspace(t);
+  const startAt = new Date(Date.now() + 3 * 86400000).toISOString();
+  const endAt = new Date(Date.now() + 3 * 86400000 + 3600000).toISOString();
+  const made = await call(base, '/api/v1/calendar-events', { cookie: people.bob.cookie, method: 'POST',
+    body: { kind: 'meeting', title: 'Закрытый разговор уникум', startAt, endAt, visibility: 'workspace' } });
+  const id = made.payload.event.id;
+  assert.equal((await call(base, `/api/v1/calendar-events/${id}/notes`, { cookie: people.bob.cookie, method: 'PUT', body: { title: 'П', notes: 'секрет', decisions: ['д'] } })).status, 200);
+  for (const method of ['GET', 'PUT']) {
+    const r = await call(base, `/api/v1/calendar-events/${id}/notes`, { cookie: people.alice.cookie, method, body: method === 'PUT' ? { title: 'взлом', notes: 'x', decisions: [] } : undefined });
+    assert.equal(r.status, 404, `${method} протокола чужим`);
+  }
+  const found = await call(base, '/api/v1/search?q=' + encodeURIComponent('уникум'), { cookie: people.alice.cookie });
+  assert.equal(found.payload.items.length, 0, 'поиск не выдаёт название занятого события');
+  const mine = await call(base, '/api/v1/search?q=' + encodeURIComponent('уникум'), { cookie: people.bob.cookie });
+  assert.ok(mine.payload.items.some((x) => x.type === 'event'), 'организатор своё находит');
+});

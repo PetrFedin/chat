@@ -1,6 +1,7 @@
 import { pageSize, toDateOrNull } from '../http/helpers.js';
 import { openConversationSql } from '../persistence/visibility.js';
 import { randomUUID } from 'node:crypto';
+import { parseRecurrence, expandOccurrences } from '../calendar/recurrence.js';
 
 /**
  * Напоминания человека самому себе.
@@ -231,6 +232,47 @@ export function createReminderRepository(pool) {
          WHERE e.recurrence_rule IS NULL AND e.all_day = false AND e.kind IN ('meeting','focus')
            AND e.start_at > now() AND e.start_at <= now() + interval '15 minutes'
         ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
+      // Повторяющиеся встречи (самая частая — еженедельная планёрка) раскрываются по правилу: ближайшее вхождение,
+      // с учётом отменённых и перенесённых, тоже напоминает за 15 минут.
+      const { rows: series } = await pool.query(
+        `SELECT e.id,e.organization_id "organizationId",e.workspace_id "workspaceId",e.title,e.start_at "startAt",e.end_at "endAt",
+                e.timezone,e.recurrence_rule "rule",
+                COALESCE((SELECT jsonb_agg(jsonb_build_object('at',x.occurrence_at,'cancelled',x.cancelled,'startAt',x.start_at))
+                           FROM calendar_event_exceptions x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id),'[]') exceptions,
+                ARRAY(SELECT e.owner_id UNION SELECT p.user_id FROM calendar_event_participants p
+                       WHERE p.workspace_id=e.workspace_id AND p.calendar_event_id=e.id AND p.response_status<>'declined') users
+           FROM calendar_events e
+          WHERE e.recurrence_rule IS NOT NULL AND e.all_day=false AND e.kind IN ('meeting','focus') AND e.start_at <= now() + interval '15 minutes'`);
+      let recurring = 0;
+      const now = Date.now(), horizon = now + 15 * 60_000;
+      for (const row of series) {
+        let rule;
+        try { rule = parseRecurrence(row.rule); } catch { continue; }
+        const duration = row.endAt ? Date.parse(row.endAt) - Date.parse(row.startAt) : 0;
+        const changes = new Map((row.exceptions ?? []).map((x) => [new Date(x.at).getTime(), x]));
+        let occurrences;
+        try {
+          // Окно шире на сутки: перенесённое вхождение стоит не там, где его ставит правило.
+          occurrences = expandOccurrences({ startAt: row.startAt, durationMs: duration, rule, timeZone: row.timezone || 'UTC',
+            from: new Date(now - 86_400_000), to: new Date(horizon + 86_400_000), limit: 50 });
+        } catch { continue; }
+        for (const at of occurrences) {
+          const change = changes.get(at.getTime());
+          if (change?.cancelled) continue;
+          const start = change?.startAt ? new Date(change.startAt) : at;
+          if (start.getTime() <= now || start.getTime() > horizon) continue;
+          const stamp = start.toISOString().replace(/[-:T]/g, '').slice(0, 12);
+          const done = await pool.query(
+            `INSERT INTO notifications(organization_id,workspace_id,recipient_user_id,source_event_id,dedupe_key,type,title,body,calendar_event_id,url,priority)
+             SELECT $1,$2,u.user_id,gen_random_uuid(),'calendar.soon:'||$3||':'||$4||':'||u.user_id,'calendar.reminder',$5,
+                    'Начало через несколько минут: '||to_char($6::timestamptz AT TIME ZONE ${zoneOf('$2::uuid', 'u.user_id')},'HH24:MI'),
+                    $3::uuid,'/#/calendar/'||$3,'high'
+               FROM unnest($7::uuid[]) AS u(user_id)
+             ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`,
+            [row.organizationId, row.workspaceId, row.id, stamp, row.title, start.toISOString(), row.users]);
+          recurring += done.rowCount;
+        }
+      }
       // Запись звонка, застрявшая в «идёт запись»/«обрабатывается» дольше трёх часов: ждать нечего.
       const stuck = await run(`
         WITH s AS (
@@ -256,7 +298,7 @@ export function createReminderRepository(pool) {
           JOIN call_sessions c ON c.workspace_id=r.workspace_id AND c.id=r.call_id
          WHERE EXISTS (SELECT 1 FROM meeting_proposals p WHERE p.run_id=r.id AND p.status='proposed' AND p.created_at < now() - interval '3 days' AND p.created_at > now() - interval '30 days')
         ON CONFLICT (workspace_id,dedupe_key) DO NOTHING`);
-      return { soon, review, meetings, stuck, proposals };
+      return { soon, review, meetings: meetings + recurring, stuck, proposals };
     },
 
     /** Разбудить всё, чему пришёл час. */

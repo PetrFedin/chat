@@ -435,7 +435,7 @@ export function createCalendarRepository(pool, store = null) {
         if (!ids.length) return { event, invited: 0 };
 
         const { rows: staff } = await client.query(
-          "SELECT user_id FROM memberships WHERE workspace_id=$1 AND user_id=ANY($2::uuid[]) AND role<>'guest'",
+          "SELECT m.user_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=ANY($2::uuid[]) AND m.role<>'guest' AND u.disabled_at IS NULL",
           [session.workspaceId, ids],
         );
         if (staff.length !== ids.length) throw fail('Those people are not workspace staff', 'NOT_WORKSPACE_STAFF', 409);
@@ -461,7 +461,7 @@ export function createCalendarRepository(pool, store = null) {
         const ids = [...new Set(userIds)].filter(Boolean);
         if (!ids.length) throw fail('Nobody to invite', 'NO_PARTICIPANTS');
         const { rows: staff } = await client.query(
-          "SELECT user_id FROM memberships WHERE workspace_id=$1 AND user_id=ANY($2::uuid[]) AND role<>'guest'",
+          "SELECT m.user_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=ANY($2::uuid[]) AND m.role<>'guest' AND u.disabled_at IS NULL",
           [session.workspaceId, ids],
         );
         const allowed = staff.map((r) => r.user_id);
@@ -534,6 +534,7 @@ export function createCalendarRepository(pool, store = null) {
         // Правило приводится к одному виду и проверяется здесь же: иначе
         // в базе оседает строка, которую раскрыть не удастся.
         if (patch.recurrenceRule !== undefined) patch.recurrenceRule = checkedRule(patch.recurrenceRule, patch.startAt ?? event.start_at);
+        else if (patch.startAt && event.recurrence_rule) checkedRule(event.recurrence_rule, patch.startAt);
         const start = patch.startAt ?? event.start_at;
         const end = patch.endAt === undefined ? event.end_at : patch.endAt;
         if (end && new Date(end) <= new Date(start)) throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');

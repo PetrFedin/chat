@@ -58,7 +58,8 @@ export function createMeetingNotes(pool, { calendar = null, store = null } = {})
    */
   const eventOrFail = async (session, eventId) => {
     const event = await calendar?.getEvent(session, eventId);
-    if (!event) throw fail('Встреча не найдена', 'EVENT_NOT_FOUND', 404);
+    // Чужому человеку, которому встреча видна только как «Занято», протокола не существует.
+    if (!event || event.busyOnly) throw fail('Встреча не найдена', 'EVENT_NOT_FOUND', 404);
     return event;
   };
 
