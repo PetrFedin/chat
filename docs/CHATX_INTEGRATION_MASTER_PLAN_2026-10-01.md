@@ -794,3 +794,107 @@ The domain action still uses ordinary ChatX permissions; DLP is an additional ou
 
 **Commercial framing:** this makes ChatX's AI story enterprise-grade: governed AI with explicit data boundaries rather than "send workspace content to a model".
 
+## Moat wave — cross-company secure workrooms
+
+This wave extends ChatX from internal Work OS into secure external collaboration for client, supplier, agency, contractor and partner work.
+
+### External Organisation Authority — ADOPT
+
+Create:
+
+- external organisation;
+- verified domain/identity metadata;
+- invited members;
+- relationship owner;
+- allowed workrooms;
+- security policy;
+- expiry/offboarding state.
+
+An external user is not silently added to the internal organisation graph.
+
+### Workroom Authority — ADOPT
+
+A workroom is a bounded shared scope containing only explicitly shared:
+
+- conversation/thread;
+- project/milestone;
+- tasks;
+- decisions;
+- requests/approvals;
+- files/pages;
+- meetings/calendar;
+- evidence/deliverables.
+
+Internal-only data remains outside the workroom.
+
+### Relationship Authorization — REUSE
+
+Use the already planned OpenFGA-style relationship authorization to model:
+
+organisation -> workroom -> member -> resource -> permission
+
+Reference:
+
+https://github.com/openfga/openfga
+
+Every cross-company read/write must resolve through server-side relationship policy.
+
+### Data Boundary / Share Projection — REQUIRED
+
+Do not simply expose the internal canonical object with all fields.
+
+For shared objects define:
+
+- public/shared projection;
+- internal fields;
+- redactions;
+- comments visibility;
+- attachment visibility;
+- history visibility.
+
+Internal notes stay internal.
+
+### External Deliverable / Acceptance Flow — ADOPT
+
+Useful sequence:
+
+internal task -> shareable deliverable -> external review -> comment/request change -> resubmit -> accept -> evidence/receipt
+
+This reuses ChatX's Golden Path and evidence/acceptance authority.
+
+### External Decision / Approval — ADOPT
+
+Support explicit bilateral decisions:
+
+- proposal approved/rejected;
+- deliverable accepted;
+- scope change approved;
+- request confirmed.
+
+Every decision records both organisation context and source artefacts.
+
+### Secure Guest Lifecycle — ADOPT
+
+invited -> verified -> active -> access changed -> expired/revoked
+
+Offboarding must remove future access while preserving audit history.
+
+### Cross-company AI Boundary — REQUIRED
+
+Action Copilot / semantic retrieval can access only the external/shared projection inside a workroom.
+
+Internal organisation content cannot leak into an external AI-generated brief.
+
+### Additional acceptance
+
+- external user cannot enumerate internal workspaces/resources;
+- shared projection is explicit and tested;
+- access revocation takes effect immediately for future requests;
+- deliverable acceptance is attributable to the correct organisation/user;
+- internal comments/files never appear in external retrieval;
+- workroom can be exported/closed without merging organisations.
+
+**Sequencing:** enterprise identity + OpenFGA + Projects/Pages/Decisions -> external org -> workroom -> share projections -> external review/acceptance -> AI boundary.
+
+**Commercial framing:** opens agency-client, supplier, professional-services and enterprise project collaboration markets without turning ChatX into an insecure guest-enabled messenger.
+
