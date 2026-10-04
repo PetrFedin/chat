@@ -682,3 +682,115 @@ It cannot create hidden risk scores or override the deterministic signal layer.
 
 **Commercial framing:** ChatX gains an executive execution-control layer similar to a live organisational digital twin, while retaining evidence-level traceability.
 
+## Premium enterprise wave — AI Privacy Gateway and data-loss prevention
+
+This wave makes ChatX significantly safer for enterprise AI usage by separating "AI can access this" from ordinary workspace access.
+
+### PII / Sensitive-data Detector — ADAPT
+
+Reference:
+
+https://github.com/data-privacy-stack/presidio
+
+Use Presidio-style analyzers as a bounded detection/redaction service for selected AI/export/connectors flows.
+
+Candidate classes:
+
+- email/phone/address;
+- government/account identifiers;
+- payment/bank-like identifiers;
+- secrets/tokens/credentials;
+- organisation-specific patterns.
+
+Detection is probabilistic/heuristic and must not be treated as perfect.
+
+### Data Classification Authority — ADOPT
+
+Allow organisation/workspace policies such as:
+
+- PUBLIC;
+- INTERNAL;
+- CONFIDENTIAL;
+- RESTRICTED;
+- AI_EXTERNAL_DENY;
+- EXPORT_DENY.
+
+Classification can exist at:
+
+- workspace/channel;
+- page/file;
+- meeting recording/transcript;
+- message range where explicitly tagged;
+- project/decision.
+
+Inherited/effective classification must be visible.
+
+### AI Egress Policy — ADOPT
+
+Before external model/tool invocation:
+
+requested context -> ACL check -> classification check -> minimisation -> PII/secret scan -> optional redaction/tokenisation -> policy decision -> model/provider call
+
+Persist:
+
+- policy version;
+- provider/model;
+- data categories detected;
+- redaction/minimisation summary;
+- allow/deny result;
+- actor/request purpose;
+- trace ID.
+
+Do not store raw sensitive prompt content in policy logs unless explicitly necessary.
+
+### Provider Boundary — ADOPT
+
+Organisation policy may choose:
+
+- approved external provider;
+- self-hosted/local provider;
+- no generative AI;
+- specific model allowed only for specific classification.
+
+Action Copilot must respect this policy before retrieval/tool execution.
+
+### Secret / Credential Guard — ADOPT
+
+Detect likely:
+
+- API keys;
+- passwords;
+- private tokens;
+- connection strings;
+- signing material.
+
+If found in an AI/export request, default to block/redact and surface a user warning.
+
+This is a safety net, not a substitute for secret management.
+
+### DLP Export Gate — ADOPT
+
+Apply similar policy to:
+
+- external webhook payload;
+- file export/share;
+- eDiscovery package;
+- automation connector;
+- copied AI context.
+
+The domain action still uses ordinary ChatX permissions; DLP is an additional outbound policy.
+
+### Additional acceptance
+
+- ACL is checked before DLP/AI processing;
+- restricted classification can block AI egress deterministically;
+- redaction is reviewable where user-visible output requires context;
+- false-positive/override path is audited;
+- provider policy is versioned per organisation;
+- privacy gateway outage fails closed for protected egress paths;
+- Presidio/provider can be replaced without changing ChatX data authority.
+
+**Sequencing:** Pages/Search + enterprise identity + Action Copilot -> classification -> Presidio-style detection -> AI egress policy -> export/DLP gates -> organisation controls.
+
+**Commercial framing:** this makes ChatX's AI story enterprise-grade: governed AI with explicit data boundaries rather than "send workspace content to a model".
+
