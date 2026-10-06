@@ -212,8 +212,10 @@ Calendar. Schedule Impact now has a deterministic proposal/approval flow:
 preserve duration, find the latest free concrete slot before the deadline,
 preview/edit/approve/reject, then audit the decision and canonical Calendar
 move. The collision check follows the task-block owner's calendar even when a
-manager performs the move. Remaining calendar work is recurring-series
-conflict detection, working-hours/availability-aware slot scoring and richer
+manager performs the move. The same conflict engine now expands RRULE series
+and applies occurrence exceptions, so recurring meetings constrain both manual
+moves and generated proposals. Remaining calendar work is richer conflict
+resolution, working-hours/availability-aware slot scoring and stronger
 phone/tablet/desktop scheduling interaction.
 
 For local product QA, `/preview.html` provides a development-only device

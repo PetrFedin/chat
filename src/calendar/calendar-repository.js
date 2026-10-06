@@ -114,9 +114,65 @@ export function createCalendarRepository(pool, store = null) {
     return rows;
   };
 
-  const assertNoConcreteConflict = async (client, session, input) => {
+  const findRecurringConflicts = async (client,session,{startAt,endAt,excludeEventId=null,userId=session.userId}={}) => {
+    if(!startAt||!endAt)return[];
+    const fromMs=Date.parse(startAt),toMs=Date.parse(endAt);
+    const {rows}=await client.query(
+      `SELECT e.id,e.kind,e.title,e.start_at "startAt",e.end_at "endAt",e.timezone,e.recurrence_rule "recurrenceRule",
+              COALESCE((SELECT jsonb_agg(jsonb_build_object('at',x.occurrence_at,'cancelled',x.cancelled,'startAt',x.start_at,'endAt',x.end_at,'title',x.title))
+                FROM calendar_event_exceptions x
+               WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id),'[]') "exceptions"
+         FROM calendar_events e
+        WHERE e.workspace_id=$1
+          AND e.recurrence_rule IS NOT NULL
+          AND ($2::uuid IS NULL OR e.id<>$2::uuid)
+          AND e.start_at < $4
+          AND (
+            e.owner_id=$3 OR EXISTS(
+              SELECT 1 FROM calendar_event_participants p
+               WHERE p.workspace_id=e.workspace_id
+                 AND p.calendar_event_id=e.id
+                 AND p.user_id=$3
+                 AND p.response_status<>'declined'
+            )
+          )`,
+      [session.workspaceId,excludeEventId,userId,endAt],
+    );
+    const out=[];
+    for(const row of rows){
+      let rule;
+      try{rule=parseRecurrence(row.recurrenceRule)}catch{continue}
+      const duration=Math.max(0,Date.parse(row.endAt)-Date.parse(row.startAt));
+      const changes=new Map((row.exceptions??[]).map(x=>[new Date(x.at).getTime(),x]));
+      const occurrences=expandOccurrences({
+        startAt:row.startAt,durationMs:duration,rule,timeZone:row.timezone||'UTC',
+        from:new Date(fromMs-duration).toISOString(),to:endAt,limit:500,
+      });
+      for(const at of occurrences){
+        const change=changes.get(at.getTime());
+        if(change?.cancelled)continue;
+        const occStart=change?.startAt?Date.parse(change.startAt):at.getTime();
+        const occEnd=change?.endAt?Date.parse(change.endAt):occStart+duration;
+        if(occStart<toMs&&occEnd>fromMs){
+          out.push({id:row.id,kind:row.kind,title:change?.title??row.title,startAt:new Date(occStart).toISOString(),endAt:new Date(occEnd).toISOString(),seriesId:row.id,occurrenceAt:at.toISOString()});
+          if(out.length>=8)return out;
+        }
+      }
+    }
+    return out;
+  };
+
+  const findScheduleConflicts = async (client,session,input={}) => {
+    const [concrete,recurring]=await Promise.all([
+      findConcreteConflicts(client,session,input),
+      findRecurringConflicts(client,session,input),
+    ]);
+    return [...concrete,...recurring].sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt)).slice(0,8);
+  };
+
+  const assertNoScheduleConflict = async (client, session, input) => {
     if (input.allowConflict) return [];
-    const conflicts = await findConcreteConflicts(client, session, input);
+    const conflicts = await findScheduleConflicts(client, session, input);
     if (!conflicts.length) return conflicts;
     const names = conflicts.slice(0, 3).map((event) => event.title).join(', ');
     throw fail(`Время пересекается с календарём: ${names}. Подтвердите сохранение поверх конфликта.`, 'CALENDAR_CONFLICT', 409);
@@ -134,35 +190,22 @@ export function createCalendarRepository(pool, store = null) {
     if(endMs<=dueMs) throw fail('Блок уже заканчивается до обещанного срока','NO_SCHEDULE_IMPACT',409);
 
     const windowStart=new Date(dueMs-14*24*3600*1000).toISOString();
-    const windowEnd=new Date(dueMs).toISOString();
-    const {rows:busy}=await client.query(
-      `SELECT e.id,e.title,e.start_at "startAt",e.end_at "endAt"
-         FROM calendar_events e
-        WHERE e.workspace_id=$1
-          AND e.id<>$2
-          AND e.recurrence_rule IS NULL
-          AND e.end_at IS NOT NULL
-          AND e.start_at < $4
-          AND e.end_at > $3
-          AND (
-            e.owner_id=$5 OR EXISTS(
-              SELECT 1 FROM calendar_event_participants p
-               WHERE p.workspace_id=e.workspace_id
-                 AND p.calendar_event_id=e.id
-                 AND p.user_id=$5
-                 AND p.response_status<>'declined'
-            )
-          )
-        ORDER BY e.start_at,e.id`,
-      [session.workspaceId,eventId,windowStart,windowEnd,event.owner_id],
-    );
 
     let candidateEnd=dueMs,candidateStart=candidateEnd-durationMs,steps=0;
     const collisions=[];
     while(candidateStart>=Date.parse(windowStart)&&steps<500){
-      const hit=busy.find(x=>Date.parse(x.startAt)<candidateEnd&&Date.parse(x.endAt)>candidateStart);
-      if(!hit) break;
-      collisions.push(hit.id);
+      const hits=await findScheduleConflicts(client,session,{
+        startAt:new Date(candidateStart).toISOString(),
+        endAt:new Date(candidateEnd).toISOString(),
+        excludeEventId:eventId,
+        userId:event.owner_id,
+      });
+      if(!hits.length) break;
+      // Move back only as far as necessary. If several events overlap this
+      // candidate, the latest-starting one is the first boundary before the
+      // deadline; the next iteration resolves any earlier overlap.
+      const hit=hits.reduce((latest,item)=>Date.parse(item.startAt)>Date.parse(latest.startAt)?item:latest);
+      collisions.push(hit.seriesId&&hit.occurrenceAt?`${hit.seriesId}@${hit.occurrenceAt}`:hit.id);
       candidateEnd=Date.parse(hit.startAt);
       candidateStart=candidateEnd-durationMs;
       steps+=1;
@@ -240,7 +283,7 @@ export function createCalendarRepository(pool, store = null) {
     async findConflicts(session,{startAt,endAt,excludeEventId=null}={}) {
       const client=await pool.connect();
       try {
-        return await findConcreteConflicts(client,session,{startAt,endAt,excludeEventId});
+        return await findScheduleConflicts(client,session,{startAt,endAt,excludeEventId});
       } finally {
         client.release();
       }
@@ -279,7 +322,7 @@ export function createCalendarRepository(pool, store = null) {
           resolvedStartAt=startAt??proposal.suggestedStartAt;
           resolvedEndAt=endAt??proposal.suggestedEndAt;
           if(!resolvedStartAt||!resolvedEndAt||Date.parse(resolvedEndAt)<=Date.parse(resolvedStartAt)) throw fail('Некорректный предлагаемый слот','INVALID_CALENDAR_RANGE',400);
-          await assertNoConcreteConflict(client,session,{startAt:resolvedStartAt,endAt:resolvedEndAt,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(allowConflict)});
+          await assertNoScheduleConflict(client,session,{startAt:resolvedStartAt,endAt:resolvedEndAt,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(allowConflict)});
           await client.query(
             `UPDATE calendar_events SET start_at=$3,end_at=$4,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
             [session.workspaceId,eventId,resolvedStartAt,resolvedEndAt],
@@ -589,7 +632,11 @@ export function createCalendarRepository(pool, store = null) {
     async createWithParticipants(session, body, userIds = [], { optional = false } = {}) {
       const ids = [...new Set(userIds)].filter(Boolean);
       return tx(async (client) => {
-        await assertNoConcreteConflict(client,session,{startAt:body.startAt,endAt:body.endAt,allowConflict:Boolean(body.allowConflict)});
+        // Validate/normalize the submitted recurrence before conflict lookup.
+        // Invalid input must fail as INVALID_RECURRENCE, not be masked by an
+        // unrelated existing event in the same slot.
+        const recurrenceRule=checkedRule(body.recurrenceRule,body.startAt);
+        await assertNoScheduleConflict(client,session,{startAt:body.startAt,endAt:body.endAt,allowConflict:Boolean(body.allowConflict)});
         const id = randomUUID();
         const { rows } = await client.query(
           `INSERT INTO calendar_events(id,organization_id,workspace_id,kind,title,description,owner_id,start_at,end_at,timezone,all_day,visibility,commitment_id,conversation_id,recurrence_rule)
@@ -600,9 +647,7 @@ export function createCalendarRepository(pool, store = null) {
           [id, session.organizationId, session.workspaceId, body.kind || 'meeting', body.title, body.description,
            session.userId, body.startAt, body.endAt, body.timezone || 'UTC', Boolean(body.allDay),
            body.visibility || 'participants', body.commitmentId ?? null, body.conversationId ?? null,
-           // Разбор здесь, а не в маршруте: негодное правило не должно
-           // доехать до базы ни одним путём.
-           checkedRule(body.recurrenceRule, body.startAt)],
+           recurrenceRule],
         );
         const event = rows[0];
         if (event.kind === 'task_block' && event.commitmentId) {
@@ -719,7 +764,7 @@ export function createCalendarRepository(pool, store = null) {
         const end = patch.endAt === undefined ? event.end_at : patch.endAt;
         if (end && new Date(end) <= new Date(start)) throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');
         if ((fields.includes('startAt')||fields.includes('endAt'))&&end) {
-          await assertNoConcreteConflict(client,session,{startAt:start,endAt:end,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(patch.allowConflict)});
+          await assertNoScheduleConflict(client,session,{startAt:start,endAt:end,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(patch.allowConflict)});
         }
 
         const setters = fields.map((f, i) => `${columns[f]}=$${i + 3}`).join(',');

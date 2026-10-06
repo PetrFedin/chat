@@ -161,6 +161,17 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   });
   assert.equal(focus.response.status,201);
 
+  const recurringFocus=await request(base,'/api/v1/calendar-events',{
+    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Weekly planning series',startAt:'2026-10-01T08:00:00.000Z',endAt:'2026-10-01T09:00:00.000Z',visibility:'private',recurrenceRule:'FREQ=WEEKLY'}
+  });
+  assert.equal(recurringFocus.response.status,201);
+
+  const recurringConflict=await request(base,'/api/v1/calendar-events',{
+    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Should collide with weekly series',startAt:'2026-10-08T08:30:00.000Z',endAt:'2026-10-08T08:45:00.000Z',visibility:'private'}
+  });
+  assert.equal(recurringConflict.response.status,409);
+  assert.equal(recurringConflict.payload.error.code,'CALENDAR_CONFLICT');
+
   const conflictBlock=await request(base,'/api/v1/calendar-events',{
     cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Work on P0 board pack',startAt:'2026-10-07T09:00:00.000Z',endAt:'2026-10-07T10:00:00.000Z',visibility:'private',commitmentId:taskId}
   });

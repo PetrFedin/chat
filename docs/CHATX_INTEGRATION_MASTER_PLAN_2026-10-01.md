@@ -82,12 +82,14 @@ Already proven in P0:
 - changing a task deadline never moves Calendar silently: linked blocks ending after the new promise are surfaced as **Schedule Impact / needs rescheduling** in the task card and remain directly openable for correction;
 - Schedule Impact now has a first-class deterministic reschedule proposal: for a late task block ChatX finds the latest concrete conflict-free slot of the same duration before the promised deadline, shows current vs suggested time, allows the user to edit it, and requires an explicit approve or reject with a reason;
 - proposal resolution is auditable (`calendar.reschedule_proposal_approved` / `calendar.reschedule_proposal_rejected`), approval writes the canonical Calendar move in the same transaction and resets participant responses exactly like a consequential time change;
-- team-calendar authority is respected: when a manager may move another person's task block, collision checks use the block owner's calendar rather than the manager's own schedule.
+- team-calendar authority is respected: when a manager may move another person's task block, collision checks use the block owner's calendar rather than the manager's own schedule;
+- conflict detection now expands recurring RRULE series inside the candidate interval and applies stored occurrence exceptions, so a weekly/monthly series is no longer invisible to create/move/proposal checks;
+- reschedule proposals use the same combined concrete + recurring conflict engine rather than a weaker parallel availability model.
 
-Current proposal boundary is explicit: concrete non-recurring events only, a 14-day lookback window, no working-hours optimisation yet. It is deterministic scheduling assistance, not automatic rescheduling or AI authority.
+Current proposal boundary is explicit: a 14-day lookback window and no working-hours optimisation yet. It is deterministic scheduling assistance, not automatic rescheduling or AI authority.
 
 Remaining Phase 1:
-- recurring-series conflict detection and richer conflict detail for participants/team calendars;
+- richer conflict detail for participant/team calendars and explicit conflict-resolution UI;
 - working-hours / availability-aware proposal scoring beyond the current latest-free-slot rule;
 - replace the temporary browser confirm with a first-class in-app conflict-resolution surface;
 - day/week/agenda interaction hardening on phone/tablet/desktop;
