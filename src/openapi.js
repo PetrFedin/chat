@@ -83,6 +83,20 @@ export const openapi = Object.freeze({
         responses: { '200': { description: 'Task schedule and version updated' }, '400': { description: 'Reason required' }, '403': { description: 'Scheduling authority denied' }, '404': { description: 'Task is not visible' }, '409': { description: 'Stale or terminal task' } }
       }
     },
+    '/api/v1/tasks/{taskId}/schedule-proposal': {
+      get: {
+        tags: ['Workspace'],
+        summary: 'Preview a deterministic conflict-aware replacement slot for a late task block',
+        description: 'Returns the latest concrete conflict-free slot of the same duration before the task promised date. Read-only: Calendar does not move until the user explicitly resolves the proposal.',
+        responses: { '200': { description: 'Reschedule proposal' }, '400': { description: 'Calendar event identifier/date required' }, '403': { description: 'Task or calendar scheduling authority denied' }, '404': { description: 'Task or block is not visible' }, '409': { description: 'No schedule impact or no candidate slot in the current search window' } }
+      },
+      post: {
+        tags: ['Workspace'],
+        summary: 'Approve, edit-and-approve, or reject a task-block reschedule proposal',
+        description: 'Requires a reason and expected task version. Approval writes the canonical Calendar move and proposal audit atomically; rejection writes audit only.',
+        responses: { '200': { description: 'Proposal decision and current calendar event' }, '400': { description: 'Invalid action/range or missing reason' }, '403': { description: 'Task or calendar scheduling authority denied' }, '404': { description: 'Task or block is not visible' }, '409': { description: 'Stale task, conflict, terminal task or no longer impacted' } }
+      }
+    },
     '/api/v1/calendar-events': {
       get: { tags: ['Workspace'], summary: 'List calendar events', responses: { '200': { description: 'Calendar events' } } },
       post: { tags: ['Workspace'], summary: 'Create meeting, focus block, deadline or reminder', responses: { '201': { description: 'Calendar event created' } } }

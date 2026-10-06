@@ -229,6 +229,28 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Задача передана',body:task.title,url:`/#/tasks/${task.id}`,kind:'task.assigned'});
     json(res,200,{task});return true
   }
+  m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule-proposal$`,'i'));
+  if(m&&method==='GET'){
+    const s=await requireSession(req);
+    if(!ctx.calendar?.suggestTaskBlockReschedule)throw Object.assign(new Error('Предложения перепланирования требуют PostgreSQL Calendar'),{code:'POSTGRES_REQUIRED',statusCode:503,expose:true});
+    const task=await store.getTask(s,m[1]);if(!task)throw Object.assign(new Error('Задача не найдена'),{code:'TASK_NOT_FOUND',statusCode:404,expose:true});
+    if(!task.promisedAt)throw Object.assign(new Error('У задачи нет обещанного срока'),{code:'TASK_DEADLINE_REQUIRED',statusCode:409,expose:true});
+    const eventId=url.searchParams.get('eventId');
+    if(!eventId)throw Object.assign(new Error('Не указан блок календаря'),{code:'CALENDAR_EVENT_REQUIRED',statusCode:400,expose:true});
+    const proposal=await ctx.calendar.suggestTaskBlockReschedule(s,eventId,{deadline:task.promisedAt});
+    if(proposal.commitmentId!==task.id)throw Object.assign(new Error('Блок относится к другой задаче'),{code:'TASK_BLOCK_MISMATCH',statusCode:409,expose:true});
+    json(res,200,{proposal});return true
+  }
+  if(m&&method==='POST'){
+    const s=await requireSession(req),b=await readJson(req);
+    if(!ctx.calendar?.resolveTaskBlockReschedule)throw Object.assign(new Error('Предложения перепланирования требуют PostgreSQL Calendar'),{code:'POSTGRES_REQUIRED',statusCode:503,expose:true});
+    const task=await store.getTask(s,m[1]);if(!task)throw Object.assign(new Error('Задача не найдена'),{code:'TASK_NOT_FOUND',statusCode:404,expose:true});
+    if(!task.promisedAt)throw Object.assign(new Error('У задачи нет обещанного срока'),{code:'TASK_DEADLINE_REQUIRED',statusCode:409,expose:true});
+    const result=await ctx.calendar.resolveTaskBlockReschedule(s,b.eventId,{action:b.action,startAt:b.startAt??null,endAt:b.endAt??null,deadline:task.promisedAt,reason:b.reason,expectedVersion:b.expectedVersion,allowConflict:Boolean(b.allowConflict)});
+    hub.broadcastUsers(s.workspaceId,[task.ownerId,task.requesterId,task.acceptorId].filter(Boolean),'calendar.updated',result.event);
+    json(res,200,result);return true
+  }
+
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule$`,'i'));
   if(m&&method==='PATCH'){
     const s=await requireSession(req),b=await readJson(req),task=await store.rescheduleTask(s,m[1],{promisedAt:toDateOrNull(b.promisedAt),forecastAt:toDateOrNull(b.forecastAt),reason:b.reason,expectedVersion:b.expectedVersion});

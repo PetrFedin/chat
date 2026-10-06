@@ -189,6 +189,36 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   assert.equal(taskWithBlock.payload.task.version,version);
   assert.equal(new Date(taskWithBlock.payload.task.calendarBlocks[0].startAt).toISOString(),'2026-10-07T11:00:00.000Z');
 
+  const earlierDeadline=await request(base,`/api/v1/tasks/${taskId}/schedule`,{
+    cookie:worker.cookie,method:'PATCH',body:{promisedAt:'2026-10-07T11:00:00.000Z',reason:'Board review moved earlier',expectedVersion:version}
+  });
+  assert.equal(earlierDeadline.response.status,200);
+  version=earlierDeadline.payload.task.version;
+
+  let proposal=await request(base,`/api/v1/tasks/${taskId}/schedule-proposal?eventId=${encodeURIComponent(blockId)}`,{cookie:worker.cookie});
+  assert.equal(proposal.response.status,200);
+  assert.equal(new Date(proposal.payload.proposal.suggestedStartAt).toISOString(),'2026-10-07T08:00:00.000Z');
+  assert.equal(new Date(proposal.payload.proposal.suggestedEndAt).toISOString(),'2026-10-07T09:30:00.000Z');
+  assert.equal(proposal.payload.proposal.avoidedConflictCount,1);
+
+  const rejectedProposal=await request(base,`/api/v1/tasks/${taskId}/schedule-proposal`,{
+    cookie:worker.cookie,method:'POST',body:{eventId:blockId,action:'reject',reason:'Keep the current slot for now',expectedVersion:version}
+  });
+  assert.equal(rejectedProposal.response.status,200);
+  assert.equal(rejectedProposal.payload.decision,'reject');
+  assert.equal(new Date(rejectedProposal.payload.event.startAt).toISOString(),'2026-10-07T11:00:00.000Z');
+
+  proposal=await request(base,`/api/v1/tasks/${taskId}/schedule-proposal?eventId=${encodeURIComponent(blockId)}`,{cookie:worker.cookie});
+  assert.equal(proposal.response.status,200);
+
+  const approvedProposal=await request(base,`/api/v1/tasks/${taskId}/schedule-proposal`,{
+    cookie:worker.cookie,method:'POST',body:{eventId:blockId,action:'approve',reason:'Move work before the board review',expectedVersion:version}
+  });
+  assert.equal(approvedProposal.response.status,200);
+  assert.equal(approvedProposal.payload.decision,'approve');
+  assert.equal(new Date(approvedProposal.payload.event.startAt).toISOString(),'2026-10-07T08:00:00.000Z');
+  assert.equal(new Date(approvedProposal.payload.event.endAt).toISOString(),'2026-10-07T09:30:00.000Z');
+
   const deletedBlock=await request(base,`/api/v1/calendar-events/${blockId}`,{cookie:worker.cookie,method:'DELETE'});
   assert.equal(deletedBlock.response.status,204);
   taskWithBlock=await request(base,`/api/v1/tasks/${taskId}`,{cookie:worker.cookie});
@@ -196,8 +226,10 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   assert.equal(taskWithBlock.payload.task.version,version);
   assert.equal(taskWithBlock.payload.task.calendarBlocks.length,0);
   const calendarAudit=taskWithBlock.payload.task.audit.filter(event=>event.eventType.startsWith('calendar.block_'));
-  assert.deepEqual(calendarAudit.map(event=>event.eventType),['calendar.block_linked','calendar.block_moved','calendar.block_unlinked']);
+  assert.deepEqual(calendarAudit.map(event=>event.eventType),['calendar.block_linked','calendar.block_moved','calendar.block_moved','calendar.block_unlinked']);
   assert.ok(calendarAudit.every(event=>event.payload.calendarEventId===blockId));
+  const proposalAudit=taskWithBlock.payload.task.audit.filter(event=>event.eventType.startsWith('calendar.reschedule_proposal_'));
+  assert.deepEqual(proposalAudit.map(event=>event.eventType),['calendar.reschedule_proposal_rejected','calendar.reschedule_proposal_approved']);
 
   const started=await request(base,`/api/v1/tasks/${taskId}/transitions`,{
     cookie:worker.cookie,method:'POST',body:{to:'in_progress',expectedVersion:version}

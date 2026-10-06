@@ -744,6 +744,8 @@ const TASK_EVENT={
   'calendar.block_moved':'время в календаре перенесено',
   'calendar.block_updated':'блок календаря изменён',
   'calendar.block_unlinked':'время убрано из календаря',
+  'calendar.reschedule_proposal_approved':'предложенный перенос принят',
+  'calendar.reschedule_proposal_rejected':'предложенный перенос отклонён',
   'evidence.added':'добавлено доказательство',
   'acceptance.recorded':'решение о приёмке',
 };
@@ -5458,7 +5460,7 @@ function taskDetailModal(task){
     ${task.sourceMessageId?`<div class="row"><span><div class="section-title">Из сообщения</div><div class="row-sub">Обсуждение, из которого выросла эта задача</div></span><button class="button small secondary pressable" data-task-source="${esc(task.sourceMessageId)}">Открыть</button></div>`:''}
     <div class="surface"><div class="section-title">Ожидаемый результат</div><p class="muted">${task.outcome?esc(task.outcome):'Не задан. Пока его нет, «сделано» решается спором, а не проверкой.'}</p><div class="row-sub"><span>Ответственный:</span> ${esc(name(task.ownerId))} <span>· Принимает:</span> ${esc(name(task.acceptorId))} <span>· Поставил:</span> ${esc(name(task.requesterId))}</div></div>
     <div><div class="section-title">Время</div><div id="task-time-slot"><span class="muted">загружаем…</span></div></div>
-    <div><div class="section-title">Запланированная работа · ${calendarBlocks.length}</div>${blocksAfterDeadline.length?`<div class="away-notice" data-task-schedule-impact><strong>${esc(T('Нужно перепланировать','Rescheduling needed'))}</strong> · ${blocksAfterDeadline.length} ${esc(T('блок(а) заканчиваются после обещанного срока. Откройте блок и перенесите его — срок задачи календарь сам не двигает.','block(s) end after the promised deadline. Open the block and move it — changing the task deadline does not silently move Calendar.'))}</div>`:''}${calendarBlocks.length?`<div class="stack" style="margin-top:8px">${calendarBlocks.map(block=>`<button type="button" class="row pressable${blocksAfterDeadline.some(x=>x.id===block.id)?' task-overdue':''}" data-task-calendar-block="${esc(block.id)}" style="width:100%;text-align:left"><span>◷</span><span><div class="row-title">${esc(block.title)}</div><div class="row-sub">${esc(dateTime(block.startAt))}${block.endAt?` — ${esc(time(block.endAt))}`:''}${blocksAfterDeadline.some(x=>x.id===block.id)?` · <span class="task-late">${esc(T('после срока','after deadline'))}</span>`:''}</div></span><span class="chip">Календарь</span></button>`).join('')}</div>`:`<div class="empty">${esc(T('Время под эту задачу пока не выделено в календаре.','No calendar time has been allocated to this task yet.'))}</div>`}</div>
+    <div><div class="section-title">Запланированная работа · ${calendarBlocks.length}</div>${blocksAfterDeadline.length?`<div class="away-notice" data-task-schedule-impact><strong>${esc(T('Нужно перепланировать','Rescheduling needed'))}</strong> · ${blocksAfterDeadline.length} ${esc(T('блок(а) заканчиваются после обещанного срока. ChatX может предложить ближайший свободный слот до срока, но перенесёт его только после подтверждения.','block(s) end after the promised deadline. ChatX can suggest the latest free slot before the deadline, but only moves it after approval.'))}</div>`:''}${calendarBlocks.length?`<div class="stack" style="margin-top:8px">${calendarBlocks.map(block=>{const late=blocksAfterDeadline.some(x=>x.id===block.id);return `<div class="row${late?' task-overdue':''}"><button type="button" class="pressable" data-task-calendar-block="${esc(block.id)}" style="border:0;background:transparent;padding:0;text-align:left;flex:1;min-width:0"><div class="row-title">◷ ${esc(block.title)}</div><div class="row-sub">${esc(dateTime(block.startAt))}${block.endAt?` — ${esc(time(block.endAt))}`:''}${late?` · <span class="task-late">${esc(T('после срока','after deadline'))}</span>`:''}</div></button>${late?`<button type="button" class="button small secondary" data-task-reschedule-proposal="${esc(block.id)}">${esc(T('Найти слот','Find slot'))}</button>`:`<span class="chip">Календарь</span>`}</div>`}).join('')}</div>`:`<div class="empty">${esc(T('Время под эту задачу пока не выделено в календаре.','No calendar time has been allocated to this task yet.'))}</div>`}</div>
     <div><div class="section-title">Следующее действие</div>${task.status==='in_progress'&&!evidence.length?'<p class="muted" style="margin:6px 0 0">Чтобы сдать работу на проверку, приложите хотя бы одно доказательство — форма ниже.</p>':''}<div class="inline-actions" style="margin-top:8px">${(task.allowedTransitions||[]).map(to=>`<button class="button ${to==='accepted_result'||to==='closed'?'primary':'secondary'} small" data-task-transition="${esc(to)}" data-skip-autofocus>${esc(taskActionLabel(task,to))}</button>`).join('')||'<span class="muted">Доступных переходов сейчас нет.</span>'}</div></div>
     <form id="task-evidence-form" class="form-stack"><div class="section-title">Добавить результат / доказательство</div><label>Тип<select name="type" class="field"><option value="note">Комментарий / результат</option><option value="url">Ссылка</option><option value="metric">Метрика</option><option value="message">Ссылка на сообщение</option><option value="file">Идентификатор файла</option></select></label><label>Данные<textarea name="value" rows="3" required placeholder="Что сделано, где результат или чем это подтверждается"></textarea></label><button class="button secondary">Добавить доказательство</button></form>
     <button data-task-favour class="button secondary">${S.favourites?.has('task:'+task.id)?'Убрать из избранного':'В избранное'}</button><button data-task-remind class="button secondary">Напомнить о задаче</button>${canReassignTask(task)?'<button data-task-reassign class="button secondary">Передать задачу</button>':''}${canRescheduleTask(task)?'<button class="button secondary" data-task-reschedule>Изменить срок / прогноз</button>':''}
@@ -5515,6 +5517,7 @@ function taskDetailModal(task){
     const id=b.dataset.taskCalendarBlock;
     closeModal();S.view='calendar';render();history.pushState(null,'',`#/calendar/${id}`);void eventPage(id);
   });
+  $$('[data-task-reschedule-proposal]').forEach(b=>b.onclick=()=>taskScheduleProposalModal(task,b.dataset.taskRescheduleProposal));
   $$('[data-task-transition]').forEach(b=>b.onclick=()=>taskTransition(task,b.dataset.taskTransition));
   $('[data-task-labels]').onclick=()=>labelPicker('task',task.id,{title:`Метки: ${task.title}`});
   const form=$('#task-evidence-form');if(form)form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form);try{const r=await api(`/api/v1/tasks/${task.id}/evidence`,{method:'POST',body:JSON.stringify({type:f.get('type'),value:f.get('value'),expectedVersion:task.version})});upsertTask(r.task);toast('Доказательство добавлено');await openTask(task.id);if(S.view==='tasks'){await loadTaskPage();render()}}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}};
@@ -5580,6 +5583,37 @@ function taskReassignModal(task){
 function canReassignTask(task){
   return !['closed','rejected','cancelled'].includes(task.status)
     && (task.requesterId===me().userId||['owner','admin','manager'].includes(me().role));
+}
+
+async function taskScheduleProposalModal(task,eventId){
+  try{
+    const{proposal}=await api(`/api/v1/tasks/${task.id}/schedule-proposal?eventId=${encodeURIComponent(eventId)}`);
+    modal(T('Предложение перепланирования','Reschedule proposal'),`<form id="task-schedule-proposal-form" class="form-stack">
+      <div class="surface"><div class="section-title">${esc(T('Почему этот слот','Why this slot'))}</div><p class="muted">${esc(T('Последний свободный интервал той же длительности до обещанного срока. Никакого автоматического переноса.','Latest free interval of the same duration before the promised deadline. Nothing moves automatically.'))}</p><div class="row-sub">${proposal.durationMinutes} ${esc(T('мин','min'))} · ${proposal.avoidedConflictCount} ${esc(T('конфликтов обойдено','conflicts avoided'))}</div></div>
+      <div><div class="section-title">${esc(T('Сейчас','Current'))}</div><div class="row-sub">${esc(dateTime(proposal.currentStartAt))} — ${esc(dateTime(proposal.currentEndAt))}</div></div>
+      <label>${esc(T('Предлагаемое начало','Suggested start'))}<input name="startAt" type="datetime-local" value="${esc(toLocalInput(proposal.suggestedStartAt))}" required></label>
+      <label>${esc(T('Предлагаемое окончание','Suggested end'))}<input name="endAt" type="datetime-local" value="${esc(toLocalInput(proposal.suggestedEndAt))}" required></label>
+      <label>${esc(T('Причина решения','Decision reason'))}<textarea name="reason" rows="3" required placeholder="${esc(T('Почему переносим или оставляем как есть','Why move it or keep it as-is'))}"></textarea></label>
+      <div class="inline-actions"><button class="button primary" type="submit">${esc(T('Принять перенос','Approve move'))}</button><button class="button secondary" type="button" data-proposal-reject>${esc(T('Оставить как есть','Keep current'))}</button></div>
+    </form>`);
+    const form=$('#task-schedule-proposal-form');
+    const resolve=async(action)=>{
+      const data=new FormData(form),reason=String(data.get('reason')||'').trim();
+      if(!reason){toast(T('Укажите причину решения','Add a decision reason'));return}
+      const payload={eventId,action,reason,expectedVersion:task.version};
+      if(action==='approve'){
+        payload.startAt=new Date(data.get('startAt')).toISOString();
+        payload.endAt=new Date(data.get('endAt')).toISOString();
+      }
+      try{
+        await api(`/api/v1/tasks/${task.id}/schedule-proposal`,{method:'POST',body:JSON.stringify(payload)});
+        toast(action==='approve'?T('Блок перепланирован','Block rescheduled'):T('Предложение отклонено','Proposal rejected'));
+        closeModal();await openTask(task.id);
+      }catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION'){closeModal();await openTask(task.id)}}
+    };
+    form.onsubmit=async e=>{e.preventDefault();await resolve('approve')};
+    $('[data-proposal-reject]')?.addEventListener('click',()=>resolve('reject'));
+  }catch(error){toast(error.message)}
 }
 
 function taskRescheduleModal(task){modal('Изменить срок',`<form id="task-reschedule-form" class="form-stack"><label>Обещанный срок<input name="promisedAt" type="datetime-local" value="${esc(toLocalInput(task.promisedAt))}"></label><label>Прогноз<input name="forecastAt" type="datetime-local" value="${esc(toLocalInput(task.forecastAt))}"></label><label>Причина<textarea name="reason" rows="3" required placeholder="Почему срок или прогноз изменился"></textarea></label><button class="button primary">Сохранить изменение</button></form>`);$('#task-reschedule-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const{task:updated}=await api(`/api/v1/tasks/${task.id}/schedule`,{method:'PATCH',body:JSON.stringify({promisedAt:f.get('promisedAt')?new Date(f.get('promisedAt')).toISOString():null,forecastAt:f.get('forecastAt')?new Date(f.get('forecastAt')).toISOString():null,reason:f.get('reason'),expectedVersion:task.version})});upsertTask(updated);toast('Срок обновлён');await openTask(task.id);if(S.view==='tasks')await loadTaskPage();render()}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}}}

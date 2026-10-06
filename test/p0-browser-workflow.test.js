@@ -176,6 +176,18 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   assert.equal((await rescheduleTask).status(),200);
   await workerPage.locator('[data-task-schedule-impact]').waitFor({state:'visible',timeout:10000});
   await workerPage.getByText('после срока',{exact:true}).waitFor({state:'visible'});
+
+  const proposalRead=workerPage.waitForResponse(r=>r.request().method()==='GET'&&/\/api\/v1\/tasks\/[^/]+\/schedule-proposal$/.test(new URL(r.url()).pathname));
+  await workerPage.locator('[data-task-reschedule-proposal]').click();
+  assert.equal((await proposalRead).status(),200);
+  await workerPage.locator('#task-schedule-proposal-form').waitFor({state:'visible'});
+  assert.equal(await workerPage.locator('#task-schedule-proposal-form [name="startAt"]').inputValue(),'2026-10-07T09:00');
+  assert.equal(await workerPage.locator('#task-schedule-proposal-form [name="endAt"]').inputValue(),'2026-10-07T10:30');
+  await workerPage.locator('#task-schedule-proposal-form [name="reason"]').fill('Move work before the earlier deadline');
+  const proposalApprove=workerPage.waitForResponse(r=>r.request().method()==='POST'&&/\/api\/v1\/tasks\/[^/]+\/schedule-proposal$/.test(new URL(r.url()).pathname));
+  await workerPage.locator('#task-schedule-proposal-form button.button.primary').click();
+  assert.equal((await proposalApprove).status(),200);
+  await workerPage.locator('[data-task-schedule-impact]').waitFor({state:'detached',timeout:10000});
   await workerPage.locator('[data-task-calendar-block]').click();
 
   await workerPage.locator('[data-event-cancel]').waitFor({state:'visible'});

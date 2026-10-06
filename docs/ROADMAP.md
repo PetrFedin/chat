@@ -208,9 +208,13 @@ historical parallel commitment implementation is gone, and both stores use
 blocked with `CALENDAR_CONFLICT` unless the user explicitly confirms an
 override. Deadline changes now surface linked work blocks that end after
 the new promise as an explicit Schedule Impact instead of silently moving
-Calendar. Remaining calendar work is a first-class reschedule proposal/action,
-recurring-series conflict detection and richer phone/tablet/desktop scheduling
-interaction.
+Calendar. Schedule Impact now has a deterministic proposal/approval flow:
+preserve duration, find the latest free concrete slot before the deadline,
+preview/edit/approve/reject, then audit the decision and canonical Calendar
+move. The collision check follows the task-block owner's calendar even when a
+manager performs the move. Remaining calendar work is recurring-series
+conflict detection, working-hours/availability-aware slot scoring and richer
+phone/tablet/desktop scheduling interaction.
 
 For local product QA, `/preview.html` provides a development-only device
 switcher for 390x844 phone, 834x1112 tablet and 1440x900 monitor viewports.

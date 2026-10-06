@@ -5,6 +5,7 @@ import { holidaysBetween, upcomingBirthdays } from './holidays.js';
 
 const ANSWERS = new Set(['accepted', 'tentative', 'declined']);
 import { Permission, hasPermission } from '../rbac.js';
+import { assertTaskScheduleAuthority } from '../task/task-authority.js';
 
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode, expose: true });
 
@@ -86,7 +87,7 @@ export function createCalendarRepository(pool, store = null) {
    * collision expansion is intentionally a later slice; this query only claims
    * coverage for concrete rows and says so in the returned metadata.
    */
-  const findConcreteConflicts = async (client, session, { startAt, endAt, excludeEventId = null } = {}) => {
+  const findConcreteConflicts = async (client, session, { startAt, endAt, excludeEventId = null, userId = session.userId } = {}) => {
     if (!startAt || !endAt) return [];
     const { rows } = await client.query(
       `SELECT DISTINCT e.id,e.kind,e.title,e.start_at "startAt",e.end_at "endAt"
@@ -108,7 +109,7 @@ export function createCalendarRepository(pool, store = null) {
           )
         ORDER BY e.start_at,e.id
         LIMIT 8`,
-      [session.workspaceId, startAt, endAt, session.userId, excludeEventId],
+      [session.workspaceId, startAt, endAt, userId, excludeEventId],
     );
     return rows;
   };
@@ -119,6 +120,62 @@ export function createCalendarRepository(pool, store = null) {
     if (!conflicts.length) return conflicts;
     const names = conflicts.slice(0, 3).map((event) => event.title).join(', ');
     throw fail(`Время пересекается с календарём: ${names}. Подтвердите сохранение поверх конфликта.`, 'CALENDAR_CONFLICT', 409);
+  };
+
+  const buildTaskBlockRescheduleProposal = async (client,session,eventId,deadline) => {
+    const dueMs=Date.parse(deadline??'');
+    if(!Number.isFinite(dueMs)) throw fail('Нужен корректный срок задачи','INVALID_DATE',400);
+    const event=await loadEvent(client,session,eventId);
+    assertMayRun(session,event,'Перепланировать блок может его владелец или тот, кто ведёт чужие встречи');
+    if(event.kind!=='task_block'||!event.commitment_id) throw fail('Это не блок работы по задаче','TASK_BLOCK_REQUIRED',409);
+    if(!event.end_at) throw fail('У блока работы нет времени окончания','CALENDAR_END_REQUIRED',400);
+    const startMs=Date.parse(event.start_at),endMs=Date.parse(event.end_at),durationMs=endMs-startMs;
+    if(!(durationMs>0)) throw fail('Некорректная длительность блока','INVALID_CALENDAR_RANGE',400);
+    if(endMs<=dueMs) throw fail('Блок уже заканчивается до обещанного срока','NO_SCHEDULE_IMPACT',409);
+
+    const windowStart=new Date(dueMs-14*24*3600*1000).toISOString();
+    const windowEnd=new Date(dueMs).toISOString();
+    const {rows:busy}=await client.query(
+      `SELECT e.id,e.title,e.start_at "startAt",e.end_at "endAt"
+         FROM calendar_events e
+        WHERE e.workspace_id=$1
+          AND e.id<>$2
+          AND e.recurrence_rule IS NULL
+          AND e.end_at IS NOT NULL
+          AND e.start_at < $4
+          AND e.end_at > $3
+          AND (
+            e.owner_id=$5 OR EXISTS(
+              SELECT 1 FROM calendar_event_participants p
+               WHERE p.workspace_id=e.workspace_id
+                 AND p.calendar_event_id=e.id
+                 AND p.user_id=$5
+                 AND p.response_status<>'declined'
+            )
+          )
+        ORDER BY e.start_at,e.id`,
+      [session.workspaceId,eventId,windowStart,windowEnd,event.owner_id],
+    );
+
+    let candidateEnd=dueMs,candidateStart=candidateEnd-durationMs,steps=0;
+    const collisions=[];
+    while(candidateStart>=Date.parse(windowStart)&&steps<500){
+      const hit=busy.find(x=>Date.parse(x.startAt)<candidateEnd&&Date.parse(x.endAt)>candidateStart);
+      if(!hit) break;
+      collisions.push(hit.id);
+      candidateEnd=Date.parse(hit.startAt);
+      candidateStart=candidateEnd-durationMs;
+      steps+=1;
+    }
+    if(candidateStart<Date.parse(windowStart)) throw fail('До срока не найден свободный слот той же длительности','NO_RESCHEDULE_SLOT',409);
+    return {
+      eventId:event.id,commitmentId:event.commitment_id,
+      currentStartAt:new Date(startMs).toISOString(),currentEndAt:new Date(endMs).toISOString(),
+      suggestedStartAt:new Date(candidateStart).toISOString(),suggestedEndAt:new Date(candidateEnd).toISOString(),
+      deadline:new Date(dueMs).toISOString(),durationMinutes:Math.round(durationMs/60000),
+      avoidedConflictCount:new Set(collisions).size,
+      rationale:'latest_conflict_free_slot_before_deadline',
+    };
   };
 
   /**
@@ -187,6 +244,69 @@ export function createCalendarRepository(pool, store = null) {
       } finally {
         client.release();
       }
+    },
+
+    /**
+     * Deterministic schedule proposal for a task block that now sits after a
+     * task promise. Calendar remains authority: this returns a preview only.
+     * The latest conflict-free slot of the same duration before the deadline
+     * wins; no write happens until the user explicitly approves/edits it.
+     */
+    async suggestTaskBlockReschedule(session,eventId,{deadline}={}) {
+      const client=await pool.connect();
+      try { return await buildTaskBlockRescheduleProposal(client,session,eventId,deadline); }
+      finally { client.release(); }
+    },
+
+    async resolveTaskBlockReschedule(session,eventId,{action,startAt=null,endAt=null,deadline,reason,expectedVersion,allowConflict=false}={}) {
+      if(!['approve','reject'].includes(action)) throw fail('Нужно принять или отклонить предложение','INVALID_PROPOSAL_ACTION',400);
+      return tx(async (client)=>{
+        const event=await loadEvent(client,session,eventId);
+        assertMayRun(session,event,'Перепланировать блок может его владелец или тот, кто ведёт чужие встречи');
+        if(event.kind!=='task_block'||!event.commitment_id) throw fail('Это не блок работы по задаче','TASK_BLOCK_REQUIRED',409);
+        const {rows:tasks}=await client.query(
+          `SELECT id,organization_id "organizationId",workspace_id "workspaceId",title,outcome,owner_id "ownerId",requester_id "requesterId",acceptor_id "acceptorId",source_message_id "sourceMessageId",status,priority,promised_at "promisedAt",forecast_at "forecastAt",version,created_at "createdAt",updated_at "updatedAt"
+             FROM commitments WHERE workspace_id=$1 AND id=$2 FOR UPDATE`,
+          [session.workspaceId,event.commitment_id],
+        );
+        const task=tasks[0];
+        if(!task) throw fail('Задача не найдена','TASK_NOT_FOUND',404);
+        const normalizedReason=assertTaskScheduleAuthority(task,session,{expectedVersion,reason});
+        const proposal=await buildTaskBlockRescheduleProposal(client,session,eventId,deadline??task.promisedAt);
+
+        let resolvedStartAt=null,resolvedEndAt=null;
+        if(action==='approve'){
+          resolvedStartAt=startAt??proposal.suggestedStartAt;
+          resolvedEndAt=endAt??proposal.suggestedEndAt;
+          if(!resolvedStartAt||!resolvedEndAt||Date.parse(resolvedEndAt)<=Date.parse(resolvedStartAt)) throw fail('Некорректный предлагаемый слот','INVALID_CALENDAR_RANGE',400);
+          await assertNoConcreteConflict(client,session,{startAt:resolvedStartAt,endAt:resolvedEndAt,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(allowConflict)});
+          await client.query(
+            `UPDATE calendar_events SET start_at=$3,end_at=$4,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
+            [session.workspaceId,eventId,resolvedStartAt,resolvedEndAt],
+          );
+          const {rows:attendees}=await client.query(
+            "UPDATE calendar_event_participants SET response_status='invited',responded_at=NULL WHERE workspace_id=$1 AND calendar_event_id=$2 AND response_status<>'invited' RETURNING user_id",
+            [session.workspaceId,eventId],
+          );
+          await notify(client,session,{recipients:attendees.map(x=>x.user_id),type:'calendar.updated',eventId,title:event.title,body:'Время блока изменилось — подтвердите участие заново'});
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'commitment',$3,'calendar.block_moved',$4,$5)`,
+            [session.organizationId,session.workspaceId,event.commitment_id,session.userId,{calendarEventId:eventId,previousStartAt:event.start_at,previousEndAt:event.end_at,startAt:resolvedStartAt,endAt:resolvedEndAt,source:'schedule_proposal'}],
+          );
+        }
+
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'commitment',$3,$4,$5,$6)`,
+          [session.organizationId,session.workspaceId,event.commitment_id,action==='approve'?'calendar.reschedule_proposal_approved':'calendar.reschedule_proposal_rejected',session.userId,{
+            calendarEventId:eventId,deadline:proposal.deadline,
+            suggestedStartAt:proposal.suggestedStartAt,suggestedEndAt:proposal.suggestedEndAt,
+            resolvedStartAt,resolvedEndAt,reason:normalizedReason,rationale:proposal.rationale,
+          }],
+        );
+        return {decision:action,proposal,eventId};
+      }).then(async result=>({...result,event:await repository.getEvent(session,eventId)}));
     },
 
     /** One event with everything a person needs before deciding to attend. */
@@ -599,7 +719,7 @@ export function createCalendarRepository(pool, store = null) {
         const end = patch.endAt === undefined ? event.end_at : patch.endAt;
         if (end && new Date(end) <= new Date(start)) throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');
         if ((fields.includes('startAt')||fields.includes('endAt'))&&end) {
-          await assertNoConcreteConflict(client,session,{startAt:start,endAt:end,excludeEventId:eventId,allowConflict:Boolean(patch.allowConflict)});
+          await assertNoConcreteConflict(client,session,{startAt:start,endAt:end,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(patch.allowConflict)});
         }
 
         const setters = fields.map((f, i) => `${columns[f]}=$${i + 3}`).join(',');
