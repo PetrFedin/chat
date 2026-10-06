@@ -1043,3 +1043,110 @@ Marketplace billing state remains separate from Task/Project authority.
 
 **Commercial framing:** third parties can build on ChatX, creating ecosystem lock-in and distribution while the core retains high-trust authority boundaries.
 
+## Defensibility wave — Execution Receipt Standard and verified extension ecosystem
+
+This wave creates a proprietary evidence format for work execution and a trust system for third-party extensions without converting ChatX into a black-box employee scoring tool.
+
+### Execution Receipt Standard — ADOPT
+
+For an important completed business action, generate a structured receipt:
+
+- organisation/workspace;
+- originating decision/request/task;
+- responsible actor/role;
+- action performed;
+- source version;
+- result;
+- evidence/attachment IDs;
+- approval/acceptance state;
+- timestamp;
+- workflow/standard version;
+- receipt hash/version.
+
+Examples:
+
+- decision implemented;
+- deliverable accepted;
+- request approved/completed;
+- external workroom deliverable signed off;
+- meeting commitment converted and completed.
+
+### Receipt Evidence Levels — ADOPT
+
+Explicit levels may distinguish:
+
+- self-declared completion;
+- source-linked completion;
+- reviewer-approved;
+- external/bilateral acceptance;
+- system/provider-verified.
+
+No generic "trust score".
+
+### Workflow Certification Profile — ADOPT
+
+Define reusable workflow profiles such as:
+
+- Decision-to-Execution;
+- Request-to-Approval;
+- Deliverable-to-Acceptance;
+- Meeting-to-Action;
+- External Workroom Handoff.
+
+A profile states required entities/events/evidence.
+
+Organisations can use these as operating standards.
+
+### Verified Extension Status — ADOPT
+
+For marketplace extensions, show factual statuses:
+
+- publisher identity verified;
+- manifest/scopes reviewed;
+- sandbox contract passed;
+- tenant-isolation tests passed;
+- privacy/DLP declaration reviewed;
+- current version compatible;
+- last review date.
+
+Do not imply external security certification unless one exists.
+
+### Publisher Reputation Graph — ADOPT
+
+Graph:
+
+publisher -> extension -> versions -> certification results -> incidents -> organisation installs -> support lifecycle
+
+Useful dimensions:
+
+- verified identity;
+- reviewed extension count;
+- unresolved incident state;
+- compatibility maintenance;
+- support responsiveness where explicitly tracked.
+
+No popularity-only trust score.
+
+### Portable Receipt / Credential — CONDITIONAL
+
+For cross-company workflows, a bounded execution receipt may be exportable/verifiable without exposing internal workspace content.
+
+Examples:
+
+- deliverable accepted;
+- compliance step completed;
+- integration qualified.
+
+### Additional acceptance
+
+- receipt resolves to canonical source/action/evidence;
+- receipt cannot be generated for an uncompleted/unauthorised workflow state;
+- receipt export minimizes hidden/internal data;
+- extension status is factual and version-specific;
+- publisher reputation preserves incident/revocation history;
+- no employee performance score is derived from receipts.
+
+**Sequencing:** Work Graph + External Workrooms + Extension Marketplace -> receipt standard -> workflow profiles -> verified extension registry -> publisher graph.
+
+**Moat:** ChatX can become a trusted execution network where work completion and extension quality are independently verifiable rather than merely asserted.
+
