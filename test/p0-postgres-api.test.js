@@ -51,6 +51,7 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
 
   const worker=await invite(base,ownerCookie,`worker-${suffix}@p0.test`,'Worker');
   const reviewer=await invite(base,ownerCookie,`reviewer-${suffix}@p0.test`,'Reviewer');
+  const observer=await invite(base,ownerCookie,`observer-${suffix}@p0.test`,'Observer');
 
   const group=await request(base,'/api/v1/conversations',{
     cookie:ownerCookie,method:'POST',
@@ -58,6 +59,18 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   });
   assert.equal(group.response.status,201);
   const groupId=group.payload.conversation.id;
+
+  const addObserver=await request(base,`/api/v1/conversations/${groupId}/members`,{
+    cookie:ownerCookie,method:'POST',body:{userIds:[observer.userId]}
+  });
+  assert.equal(addObserver.response.status,200);
+  assert.ok(addObserver.payload.items.some(item=>item.userId===observer.userId));
+
+  const removeObserver=await request(base,`/api/v1/conversations/${groupId}/members/${observer.userId}`,{
+    cookie:ownerCookie,method:'DELETE'
+  });
+  assert.equal(removeObserver.response.status,200);
+  assert.ok(!removeObserver.payload.items.some(item=>item.userId===observer.userId));
 
   const source=await request(base,`/api/v1/conversations/${groupId}/messages`,{
     cookie:ownerCookie,method:'POST',body:{body:'Prepare the board pack and return an accepted result.'}
@@ -86,6 +99,33 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   });
   assert.equal(forwarded.response.status,201);
   assert.equal(forwarded.payload.message.forwardedFrom.messageId,sourceId);
+
+  const fileUpload=await fetch(`${base}/api/v1/files`,{
+    method:'POST',
+    headers:{cookie:worker.cookie,'content-type':'text/plain','x-file-name':encodeURIComponent('p0-board-pack.txt')},
+    body:Buffer.from('P0 board pack evidence file','utf8')
+  });
+  assert.equal(fileUpload.status,201);
+  const uploadedFile=(await fileUpload.json()).file;
+
+  const fileMessage=await request(base,`/api/v1/conversations/${groupId}/messages`,{
+    cookie:worker.cookie,method:'POST',
+    body:{kind:'file',metadata:{fileId:uploadedFile.id,name:'p0-board-pack.txt',mimeType:'text/plain',size:uploadedFile.sizeBytes}}
+  });
+  assert.equal(fileMessage.response.status,201);
+  assert.equal(fileMessage.payload.message.metadata.fileId,uploadedFile.id);
+
+  const fileRead=await fetch(`${base}${uploadedFile.contentUrl}`,{headers:{cookie:reviewer.cookie}});
+  assert.equal(fileRead.status,200);
+  assert.equal(await fileRead.text(),'P0 board pack evidence file');
+
+  const voiceUpload=await fetch(`${base}/api/v1/conversations/${groupId}/voice?durationMs=1250`,{
+    method:'POST',headers:{cookie:worker.cookie,'content-type':'audio/webm'},body:Buffer.from([1,2,3,4,5,6])
+  });
+  assert.equal(voiceUpload.status,201);
+  const voicePayload=await voiceUpload.json();
+  assert.equal(voicePayload.message.kind,'voice');
+  assert.equal(voicePayload.voice.durationMs,1250);
 
   const created=await request(base,'/api/v1/tasks',{
     cookie:ownerCookie,method:'POST',
@@ -179,11 +219,17 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
 
   const reviewerInbox=await request(base,'/api/v1/notifications',{cookie:reviewer.cookie});
   assert.equal(reviewerInbox.response.status,200);
-  assert.ok(reviewerInbox.payload.items.some(item=>item.type==='review.requested'&&item.commitmentId===taskId));
+  const reviewNotice=reviewerInbox.payload.items.find(item=>item.type==='review.requested'&&item.commitmentId===taskId);
+  assert.ok(reviewNotice);
+  assert.equal(reviewNotice.url,`/#/tasks/${taskId}`);
+  assert.ok(reviewerInbox.payload.items.some(item=>item.messageId===fileMessage.payload.message.id&&item.url===`/#/chats/${groupId}?message=${fileMessage.payload.message.id}`));
+  assert.ok(reviewerInbox.payload.items.some(item=>item.messageId===voicePayload.message.id&&item.url===`/#/chats/${groupId}?message=${voicePayload.message.id}`));
 
   const workerInbox=await request(base,'/api/v1/notifications',{cookie:worker.cookie});
   assert.equal(workerInbox.response.status,200);
-  assert.ok(workerInbox.payload.items.some(item=>item.commitmentId===taskId));
+  const workerTaskNotice=workerInbox.payload.items.find(item=>item.commitmentId===taskId);
+  assert.ok(workerTaskNotice);
+  assert.equal(workerTaskNotice.url,`/#/tasks/${taskId}`);
 
   const detail=await request(base,`/api/v1/tasks/${taskId}`,{cookie:ownerCookie});
   assert.equal(detail.response.status,200);

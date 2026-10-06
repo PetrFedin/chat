@@ -65,7 +65,9 @@ test('P0 browser boots against PostgreSQL on desktop and mobile',{skip:!database
   t.after(()=>app.close());
   const base=`http://127.0.0.1:${app.server.address().port}`;
 
-  const browser=await chromium.launch();
+  const headed=process.env.P0_HEADED==='true';
+  const slowMo=Math.max(0,Number(process.env.P0_SLOW_MO??0)||0);
+  const browser=await chromium.launch({headless:!headed,slowMo});
   t.after(()=>browser.close());
 
   const desktop=await openRegisteredWorkspace(browser,base,{label:'desktop'});
