@@ -151,7 +151,10 @@ async function buildWorld(base, actors, stranger, actor) {
   const event = async (title) =>
     (await S('/api/v1/calendar-events', {
       method: 'POST',
-      body: { title, startAt: iso(864e5), endAt: iso(864e5 + 36e5), visibility: 'workspace' },
+      // Permission fixtures intentionally share a slot: this matrix tests
+      // authorization, not scheduling. Explicitly bypass the product's
+      // double-booking guard instead of weakening that guard globally.
+      body: { title, startAt: iso(864e5), endAt: iso(864e5 + 36e5), visibility: 'workspace', allowConflict: true },
     })).payload?.event ?? null;
   const foreignEvent = await event(`Чужая встреча ${rnd()}`);
   const foreignEventToCancel = await event(`Чужая встреча отмена ${rnd()}`);

@@ -76,11 +76,14 @@ Already proven in P0:
 - moving a task block updates Calendar while leaving task status/version unchanged;
 - deleting a task block removes scheduling context while leaving task execution state unchanged;
 - link/move/unlink events are written into the task audit trail;
-- the browser workflow creates, opens, moves and removes a task block through the UI.
+- the browser workflow creates, opens, moves and removes a task block through the UI;
+- concrete non-recurring collisions are rejected with `409 CALENDAR_CONFLICT`;
+- the user must explicitly confirm `allowConflict` before saving over an existing personal calendar block.
 
 Remaining Phase 1:
 - deadline-change -> reschedule/proposal UX;
-- conflict detection and explicit conflict resolution;
+- recurring-series conflict detection and richer conflict detail for participants/team calendars;
+- replace the temporary browser confirm with a first-class in-app conflict-resolution surface;
 - day/week/agenda interaction hardening on phone/tablet/desktop;
 - drag/move semantics where supported, with auditable reason for consequential changes;
 - later external interchange/sync per the calendar integration phases.

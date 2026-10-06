@@ -156,8 +156,19 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   assert.equal(orphanBlock.response.status,400);
   assert.equal(orphanBlock.payload.error.code,'TASK_BLOCK_TASK_REQUIRED');
 
-  const linkedBlock=await request(base,'/api/v1/calendar-events',{
+  const focus=await request(base,'/api/v1/calendar-events',{
+    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Existing focus block',startAt:'2026-10-07T09:30:00.000Z',endAt:'2026-10-07T10:30:00.000Z',visibility:'private'}
+  });
+  assert.equal(focus.response.status,201);
+
+  const conflictBlock=await request(base,'/api/v1/calendar-events',{
     cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Work on P0 board pack',startAt:'2026-10-07T09:00:00.000Z',endAt:'2026-10-07T10:00:00.000Z',visibility:'private',commitmentId:taskId}
+  });
+  assert.equal(conflictBlock.response.status,409);
+  assert.equal(conflictBlock.payload.error.code,'CALENDAR_CONFLICT');
+
+  const linkedBlock=await request(base,'/api/v1/calendar-events',{
+    cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Work on P0 board pack',startAt:'2026-10-07T09:00:00.000Z',endAt:'2026-10-07T10:00:00.000Z',visibility:'private',commitmentId:taskId,allowConflict:true}
   });
   assert.equal(linkedBlock.response.status,201);
   const blockId=linkedBlock.payload.event.id;

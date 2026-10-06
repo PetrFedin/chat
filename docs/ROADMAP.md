@@ -202,10 +202,13 @@ isolated commitment model. It covers membership mutations, reply/pin/
 forward, file and voice messages, task execution/review/rework/closure,
 deep-links and a linked Calendar task block. The task block can be
 created, moved and deleted while task status/version remain authoritative
-and unchanged by Calendar. The remaining foundational gap is no longer
-"does the main path work?"; it is collapsing the duplicate task authority
-into one implementation and then hardening deadline/reschedule/conflict
-UX across phone/tablet/desktop.
+and unchanged by Calendar. Single Task Authority is also verified: the
+historical parallel commitment implementation is gone, and both stores use
+`src/task/task-authority.js`. Concrete non-recurring double-booking is now
+blocked with `CALENDAR_CONFLICT` unless the user explicitly confirms an
+override. Remaining calendar work is recurring-series conflict detection,
+deadline/reschedule proposal UX and richer phone/tablet/desktop scheduling
+interaction.
 
 For local product QA, `/preview.html` provides a development-only device
 switcher for 390x844 phone, 834x1112 tablet and 1440x900 monitor viewports.
