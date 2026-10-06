@@ -1150,3 +1150,129 @@ Examples:
 
 **Moat:** ChatX can become a trusted execution network where work completion and extension quality are independently verifiable rather than merely asserted.
 
+
+
+## Institutional adoption wave — Inter-company Execution Network
+
+This wave turns ChatX's Execution Receipt Standard, workflow profiles and verified extension layer into shared infrastructure for work that crosses organisational boundaries.
+
+### Execution Receipt Interchange Specification — ADOPT
+
+Define a versioned portable schema for:
+
+- originating request/decision;
+- organisation identities;
+- workflow/profile;
+- actor/role;
+- action;
+- evidence references;
+- approval/acceptance state;
+- timestamp;
+- receipt hash/version;
+- disclosure/minimum-view policy.
+
+The specification supports verification without exposing the originating workspace.
+
+### Reference Cross-company Workflow — ADOPT
+
+Publish a synthetic example:
+
+`client request -> supplier workspace -> deliverable -> reviewer acceptance -> execution receipt -> external verification`
+
+No real company/user data.
+
+### External Organisation Identity — ADOPT
+
+Create scoped organisation identities for:
+
+- customer;
+- supplier;
+- agency;
+- contractor;
+- auditor/reviewer;
+- implementation partner.
+
+Identity is separate from a user's personal account and from extension-publisher identity.
+
+### Bilateral / Multi-party Acceptance — ADOPT
+
+Support receipts where completion requires explicit acceptance by:
+
+- requester;
+- supplier;
+- reviewer;
+- multiple parties where contractually required.
+
+No party can silently forge the other's acceptance.
+
+### Verified Workflow Network — ADOPT
+
+Organisations may advertise support for exact profiles such as:
+
+- Decision-to-Execution;
+- Client Request-to-Acceptance;
+- External Workroom Handoff;
+- Evidence Review;
+- Integration Qualification.
+
+This is workflow compatibility, not general company reputation.
+
+### Federated Workrooms — CONDITIONAL
+
+Allow controlled inter-company workrooms with:
+
+- scoped membership;
+- bounded data projection;
+- explicit retention/export;
+- external receipt generation;
+- tenant-isolated internal work.
+
+A federated workroom must not become an accidental shared database.
+
+### Enterprise / OEM Distribution — ADOPT
+
+Potential packages:
+
+- Enterprise Work Graph;
+- External Workrooms;
+- Execution Receipt API;
+- Workflow Certification;
+- Extension Marketplace;
+- Embedded approval/request components.
+
+### Partner Contribution / Template Marketplace — ADOPT
+
+Approved partners can publish:
+
+- workflow templates;
+- extension packages;
+- receipt profiles;
+- integration adapters.
+
+Every publication is versioned, scoped and reviewable.
+
+### Legitimate Switching Cost — ADOPT
+
+Compounding value:
+
+- decision/action lineage;
+- acceptance history;
+- reusable workflow templates;
+- partner integrations;
+- external organisation graph;
+- receipt verification history;
+- extension compatibility history.
+
+Data remains exportable; continuity and network integration create retention.
+
+### Additional acceptance
+
+- portable receipt reveals only explicitly allowed fields;
+- bilateral acceptance is cryptographically/auditably attributable where implemented;
+- organisation trust is never reduced to an opaque universal score;
+- federated workrooms preserve tenant authority boundaries;
+- third-party templates cannot bypass capability/security policy.
+
+**Sequencing:** Execution Receipt Standard -> interchange schema -> reference workflow -> organisation identities -> bilateral acceptance -> federated workrooms -> enterprise network.
+
+**Moat:** ChatX evolves from internal collaboration software into a verifiable cross-company execution rail.
