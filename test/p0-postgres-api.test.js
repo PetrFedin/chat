@@ -36,7 +36,7 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   const store=new PostgresStore(pool);
   const app=await createChatServer({store});
   await new Promise(resolve=>app.server.listen(0,'127.0.0.1',resolve));
-  t.after(async()=>{ await app.close(); await pool.end(); });
+  t.after(()=>app.close());
   const base=`http://127.0.0.1:${app.server.address().port}`;
   const suffix=randomUUID().slice(0,8);
 

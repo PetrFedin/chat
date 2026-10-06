@@ -142,7 +142,14 @@ function pushConfig(){const publicKey=process.env.VAPID_PUBLIC_KEY??null,private
 
 export async function createChatServer(options={}){
   await mkdir(uploadsRoot,{recursive:true});
-  const defaults=options.store?{store:options.store,pool:options.pool??null,mode:'custom'}:defaultStore(options.databaseUrl??process.env.DATABASE_URL);
+  // Tests and embedded deployments may inject an already constructed store.
+  // A PostgresStore carries its pool; dropping that pool here silently disables
+  // every repository built alongside the store (calendar participation, marks,
+  // labels, personal planning, vault, etc.) and misreports persistence as custom.
+  const injectedPool=options.pool??options.store?.pool??null;
+  const defaults=options.store
+    ? {store:options.store,pool:injectedPool,mode:options.mode??(injectedPool?'postgres':'custom')}
+    : defaultStore(options.databaseUrl??process.env.DATABASE_URL);
   const {store,pool,mode}=defaults;
   const objectStore=options.objectStore??createObjectStore({uploadsRoot});
   const persistenceStatus=()=>{
