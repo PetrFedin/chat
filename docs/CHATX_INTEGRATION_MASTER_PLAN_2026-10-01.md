@@ -898,3 +898,148 @@ Internal organisation content cannot leak into an external AI-generated brief.
 
 **Commercial framing:** opens agency-client, supplier, professional-services and enterprise project collaboration markets without turning ChatX into an insecure guest-enabled messenger.
 
+## Platform economics wave — Extension SDK, sandboxed runtime and App Marketplace
+
+This wave turns ChatX into an extensible Work OS platform where partners and customers can build governed capabilities without forking the core product.
+
+### Extension Manifest — ADOPT
+
+Every extension declares:
+
+- extension ID/version;
+- publisher;
+- requested capabilities/scopes;
+- UI surfaces;
+- event subscriptions;
+- commands/actions;
+- storage needs;
+- network destinations;
+- organisation/workspace eligibility;
+- minimum ChatX version;
+- privacy/security metadata.
+
+No undeclared capability access.
+
+### Extension SDK — ADOPT
+
+Provide typed interfaces for:
+
+- read workspace context;
+- create proposal/draft;
+- register command;
+- subscribe to approved events;
+- render panel/card/action;
+- call external service through approved connector;
+- store tenant-scoped extension state.
+
+No direct DB access.
+
+### Sandboxed Extension Runtime — ADOPT/ADAPT
+
+References:
+
+- https://github.com/extism/extism
+- https://github.com/bytecodealliance/wasmtime
+
+Evaluate a WebAssembly/WASI-style runtime for third-party compute where it fits the Node architecture.
+
+Goals:
+
+- bounded memory/time;
+- explicit host functions;
+- no arbitrary filesystem/network access;
+- deterministic capability grant;
+- kill/timeout isolation.
+
+Not every extension needs WASM; trusted first-party integrations may remain ordinary services.
+
+### Capability Gateway — ADOPT
+
+Host functions are explicitly granted, e.g.:
+
+- search.read;
+- task.propose;
+- task.write;
+- calendar.read;
+- decision.read;
+- file.read;
+- notification.send.
+
+High-risk write scopes require organisation admin approval and normal domain permission checks.
+
+### Extension Event Bus — ADOPT
+
+Versioned events:
+
+- task changed;
+- project milestone changed;
+- decision confirmed;
+- meeting completed;
+- request approved;
+- file review requested.
+
+Extensions cannot mutate state by replying to events; they use authenticated commands.
+
+### App Marketplace — ADOPT
+
+Marketplace record:
+
+- publisher;
+- description;
+- scopes;
+- pricing;
+- privacy/security statement;
+- supported tenants;
+- certification state;
+- versions/changelog;
+- install count/usage aggregates;
+- support contact.
+
+Installation requires explicit organisation admin action.
+
+### Extension Certification — ADOPT
+
+Before marketplace publication test:
+
+- manifest/scopes;
+- tenant isolation;
+- secret handling;
+- webhook signatures;
+- latency/resource limits;
+- UI safety;
+- uninstall cleanup;
+- data retention;
+- malicious/forbidden calls.
+
+Labels can be "reviewed" / "verified contract" / "first-party"; never claim broad security certification without basis.
+
+### Revenue / Usage Metering — ADAPT
+
+Reference:
+
+https://github.com/openmeterio/openmeter
+
+Possible economics:
+
+- paid extension;
+- per-seat;
+- per-workspace;
+- metered action/AI usage;
+- revenue share.
+
+Marketplace billing state remains separate from Task/Project authority.
+
+### Additional acceptance
+
+- extension has no DB access;
+- all capabilities are declared and server-enforced;
+- sandbox limits are testable;
+- uninstall revokes future access;
+- cross-tenant state leakage is impossible by contract/tests;
+- marketplace publication requires review;
+- core ChatX works with all third-party extensions disabled.
+
+**Sequencing:** stable APIs/events + OpenFGA + AI Privacy Gateway -> manifest/SDK -> capability gateway -> sandbox runtime -> certification -> marketplace -> metering.
+
+**Commercial framing:** third parties can build on ChatX, creating ecosystem lock-in and distribution while the core retains high-trust authority boundaries.
+
