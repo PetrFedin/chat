@@ -1,4 +1,4 @@
-import { DomainError } from './commitment.js';
+import { DomainError } from './error.js';
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_VOICE_DURATION_MS = 60 * 60 * 1000;

@@ -1,4 +1,4 @@
-import { DomainError } from './commitment.js';
+import { DomainError } from './error.js';
 
 export const ConversationKind = Object.freeze({
   DIRECT: 'direct',

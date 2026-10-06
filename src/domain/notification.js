@@ -1,4 +1,4 @@
-import { DomainError } from './commitment.js';
+import { DomainError } from './error.js';
 
 export const NotificationType = Object.freeze({
   MESSAGE_CREATED: 'message.created',

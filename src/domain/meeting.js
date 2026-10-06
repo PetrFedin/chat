@@ -1,4 +1,4 @@
-import { DomainError } from './commitment.js';
+import { DomainError } from './error.js';
 
 export const CallMode = Object.freeze({ AUDIO: 'audio', VIDEO: 'video' });
 export const CallState = Object.freeze({ SCHEDULED: 'scheduled', RINGING: 'ringing', ACTIVE: 'active', ENDED: 'ended', CANCELLED: 'cancelled' });
