@@ -79,6 +79,49 @@ export function createCalendarRepository(pool, store = null) {
   };
 
   /**
+   * Concrete-event collision guard.
+   *
+   * Calendar owns time, therefore it must reject an accidental double-booking
+   * before a task block or meeting becomes canonical. Recurring-series
+   * collision expansion is intentionally a later slice; this query only claims
+   * coverage for concrete rows and says so in the returned metadata.
+   */
+  const findConcreteConflicts = async (client, session, { startAt, endAt, excludeEventId = null } = {}) => {
+    if (!startAt || !endAt) return [];
+    const { rows } = await client.query(
+      `SELECT DISTINCT e.id,e.kind,e.title,e.start_at "startAt",e.end_at "endAt"
+         FROM calendar_events e
+        WHERE e.workspace_id=$1
+          AND e.end_at IS NOT NULL
+          AND e.recurrence_rule IS NULL
+          AND ($5::uuid IS NULL OR e.id<>$5::uuid)
+          AND e.start_at < $3
+          AND e.end_at > $2
+          AND (
+            e.owner_id=$4 OR EXISTS(
+              SELECT 1 FROM calendar_event_participants p
+               WHERE p.workspace_id=e.workspace_id
+                 AND p.calendar_event_id=e.id
+                 AND p.user_id=$4
+                 AND p.response_status<>'declined'
+            )
+          )
+        ORDER BY e.start_at,e.id
+        LIMIT 8`,
+      [session.workspaceId, startAt, endAt, session.userId, excludeEventId],
+    );
+    return rows;
+  };
+
+  const assertNoConcreteConflict = async (client, session, input) => {
+    if (input.allowConflict) return [];
+    const conflicts = await findConcreteConflicts(client, session, input);
+    if (!conflicts.length) return conflicts;
+    const names = conflicts.slice(0, 3).map((event) => event.title).join(', ');
+    throw fail(`Время пересекается с календарём: ${names}. Подтвердите сохранение поверх конфликта.`, 'CALENDAR_CONFLICT', 409);
+  };
+
+  /**
    * Кто видит встречу: организатор, весь штат для общей, приглашённый,
    * участник связанной комнаты — и тот, кому доверены чужие встречи (кроме
    * личных: «личная» значит только своя).
@@ -137,6 +180,15 @@ export function createCalendarRepository(pool, store = null) {
   };
 
   const repository = {
+    async findConflicts(session,{startAt,endAt,excludeEventId=null}={}) {
+      const client=await pool.connect();
+      try {
+        return await findConcreteConflicts(client,session,{startAt,endAt,excludeEventId});
+      } finally {
+        client.release();
+      }
+    },
+
     /** One event with everything a person needs before deciding to attend. */
     async getEvent(session, id) {
       if (!(await maySee(session, id))) throw fail('Event not found', 'CALENDAR_EVENT_NOT_FOUND', 404);
@@ -417,6 +469,7 @@ export function createCalendarRepository(pool, store = null) {
     async createWithParticipants(session, body, userIds = [], { optional = false } = {}) {
       const ids = [...new Set(userIds)].filter(Boolean);
       return tx(async (client) => {
+        await assertNoConcreteConflict(client,session,{startAt:body.startAt,endAt:body.endAt,allowConflict:Boolean(body.allowConflict)});
         const id = randomUUID();
         const { rows } = await client.query(
           `INSERT INTO calendar_events(id,organization_id,workspace_id,kind,title,description,owner_id,start_at,end_at,timezone,all_day,visibility,commitment_id,conversation_id,recurrence_rule)
@@ -432,6 +485,13 @@ export function createCalendarRepository(pool, store = null) {
            checkedRule(body.recurrenceRule, body.startAt)],
         );
         const event = rows[0];
+        if (event.kind === 'task_block' && event.commitmentId) {
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'commitment',$3,'calendar.block_linked',$4,$5)`,
+            [session.organizationId,session.workspaceId,event.commitmentId,session.userId,{calendarEventId:event.id,startAt:event.startAt,endAt:event.endAt}],
+          );
+        }
         if (!ids.length) return { event, invited: 0 };
 
         const { rows: staff } = await client.query(
@@ -538,6 +598,9 @@ export function createCalendarRepository(pool, store = null) {
         const start = patch.startAt ?? event.start_at;
         const end = patch.endAt === undefined ? event.end_at : patch.endAt;
         if (end && new Date(end) <= new Date(start)) throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');
+        if ((fields.includes('startAt')||fields.includes('endAt'))&&end) {
+          await assertNoConcreteConflict(client,session,{startAt:start,endAt:end,excludeEventId:eventId,allowConflict:Boolean(patch.allowConflict)});
+        }
 
         const setters = fields.map((f, i) => `${columns[f]}=$${i + 3}`).join(',');
         const { rows } = await client.query(
@@ -545,6 +608,13 @@ export function createCalendarRepository(pool, store = null) {
           [session.workspaceId, eventId, ...fields.map((f) => patch[f])],
         );
         const timeChanged = fields.includes('startAt') || fields.includes('endAt');
+        if (event.kind === 'task_block' && event.commitment_id) {
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'commitment',$3,$4,$5,$6)`,
+            [session.organizationId,session.workspaceId,event.commitment_id,timeChanged?'calendar.block_moved':'calendar.block_updated',session.userId,{calendarEventId:eventId,previousStartAt:event.start_at,previousEndAt:event.end_at,startAt:rows[0].start_at,endAt:rows[0].end_at}],
+          );
+        }
         if (timeChanged) {
           // A moved meeting invalidates the answers people already gave.
           const { rows: attendees } = await client.query(
@@ -632,6 +702,13 @@ export function createCalendarRepository(pool, store = null) {
           recipients: attendees.map((a) => a.user_id), type: 'calendar.cancelled', eventId,
           title: event.title, body: 'Встреча отменена',
         });
+        if (event.kind === 'task_block' && event.commitment_id) {
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'commitment',$3,'calendar.block_unlinked',$4,$5)`,
+            [session.organizationId,session.workspaceId,event.commitment_id,session.userId,{calendarEventId:eventId,startAt:event.start_at,endAt:event.end_at}],
+          );
+        }
         await client.query('DELETE FROM calendar_events WHERE workspace_id=$1 AND id=$2', [session.workspaceId, eventId]);
         return { cancelled: true };
       });

@@ -52,7 +52,9 @@ async function login(page,base,email,password){
 }
 
 async function openTask(page,title){
+  const loaded=page.waitForResponse(r=>{const url=new URL(r.url());return r.request().method()==='GET'&&url.pathname==='/api/v1/tasks'&&url.searchParams.get('counts')==='1'&&url.searchParams.get('status')==='active'});
   await page.locator('[data-nav="tasks"]:visible').first().click();
+  assert.equal((await loaded).status(),200);
   const row=page.locator('[data-task-open]').filter({hasText:title}).first();
   await row.waitFor({state:'visible',timeout:10000});
   await row.click();
@@ -76,8 +78,10 @@ async function addEvidence(page,value){
   const form=page.locator('#task-evidence-form');
   await form.locator('textarea[name="value"]').fill(value);
   const response=page.waitForResponse(r=>r.request().method()==='POST'&&/\/api\/v1\/tasks\/[^/]+\/evidence$/.test(new URL(r.url()).pathname));
+  const refresh=page.waitForResponse(r=>r.request().method()==='GET'&&/\/api\/v1\/tasks\/[^/]+$/.test(new URL(r.url()).pathname));
   await form.locator('button.button.secondary').click();
   assert.equal((await response).status(),201);
+  assert.equal((await refresh).status(),200);
   await page.locator('[data-task-transition="in_review"]').waitFor({state:'visible',timeout:10000});
 }
 
@@ -130,6 +134,46 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await openTask(workerPage,'P0 UI task');
 
   await transition(workerPage,'accepted');
+
+  // Calendar owns the time block; the task keeps its own status/version.
+  await workerPage.keyboard.press('Escape');
+  await workerPage.locator('[data-nav="calendar"]:visible').first().click();
+  await workerPage.locator('[data-action="event"]:visible').click();
+  await workerPage.locator('#event-form [name="title"]').fill('P0 UI work block');
+  await workerPage.locator('#event-form [name="kind"]').selectOption('task_block');
+  await workerPage.locator('#event-task-row').waitFor({state:'visible'});
+  await workerPage.locator('#event-form [name="commitmentId"]').selectOption({label:'P0 UI task'});
+  await workerPage.locator('#event-form [name="start"]').fill('2026-10-07T09:00');
+  await workerPage.locator('#event-form [name="end"]').fill('2026-10-07T10:00');
+  const createBlock=workerPage.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
+  const calendarRefresh=workerPage.waitForResponse(r=>r.request().method()==='GET'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
+  await workerPage.locator('#event-form button.button.primary').click();
+  assert.equal((await createBlock).status(),201);
+  assert.equal((await calendarRefresh).status(),200);
+  await workerPage.locator('#event-form').waitFor({state:'detached',timeout:10000});
+  await workerPage.locator('[data-nav="calendar"].active:visible').first().waitFor({state:'visible',timeout:10000});
+
+  await openTask(workerPage,'P0 UI task');
+  await workerPage.getByText('Запланированная работа · 1',{exact:true}).waitFor({state:'visible'});
+  await workerPage.locator('#modal-root .section-title').getByText('Принята',{exact:true}).waitFor({state:'visible'});
+  await workerPage.locator('[data-task-calendar-block]').click();
+  await workerPage.locator('[data-event-edit]').waitFor({state:'visible'});
+  await workerPage.locator('[data-event-edit]').click();
+  await workerPage.locator('#event-edit [name="start"]').fill('2026-10-07T11:00');
+  await workerPage.locator('#event-edit [name="end"]').fill('2026-10-07T12:30');
+  const moveBlock=workerPage.waitForResponse(r=>r.request().method()==='PATCH'&&/\/api\/v1\/calendar-events\/[^/]+$/.test(new URL(r.url()).pathname));
+  await workerPage.locator('#event-edit button.button.primary').click();
+  assert.equal((await moveBlock).status(),200);
+  await workerPage.locator('[data-event-cancel]').waitFor({state:'visible'});
+  await workerPage.locator('[data-event-cancel]').click();
+  const deleteBlock=workerPage.waitForResponse(r=>r.request().method()==='DELETE'&&/\/api\/v1\/calendar-events\/[^/]+$/.test(new URL(r.url()).pathname));
+  await workerPage.locator('#confirm-cancel-event').click();
+  assert.equal((await deleteBlock).status(),204);
+
+  await openTask(workerPage,'P0 UI task');
+  await workerPage.getByText('Запланированная работа · 0',{exact:true}).waitFor({state:'visible'});
+  await workerPage.locator('#modal-root .section-title').getByText('Принята',{exact:true}).waitFor({state:'visible'});
+
   await transition(workerPage,'in_progress');
   await transition(workerPage,'blocked','Waiting for UI fixture');
   await transition(workerPage,'in_progress');
@@ -158,4 +202,6 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
 
   await workerContext.close();
   await ownerContext.close();
+  // Let cancelled browser requests drain before the server closes its PG pool.
+  await new Promise(resolve=>setTimeout(resolve,150));
 });

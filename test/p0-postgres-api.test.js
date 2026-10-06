@@ -150,6 +150,44 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   assert.equal(accepted.response.status,200);
   version=accepted.payload.task.version;
 
+  const orphanBlock=await request(base,'/api/v1/calendar-events',{
+    cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Orphan work block',startAt:'2026-10-07T09:00:00.000Z',endAt:'2026-10-07T10:00:00.000Z',visibility:'private'}
+  });
+  assert.equal(orphanBlock.response.status,400);
+  assert.equal(orphanBlock.payload.error.code,'TASK_BLOCK_TASK_REQUIRED');
+
+  const linkedBlock=await request(base,'/api/v1/calendar-events',{
+    cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Work on P0 board pack',startAt:'2026-10-07T09:00:00.000Z',endAt:'2026-10-07T10:00:00.000Z',visibility:'private',commitmentId:taskId}
+  });
+  assert.equal(linkedBlock.response.status,201);
+  const blockId=linkedBlock.payload.event.id;
+
+  let taskWithBlock=await request(base,`/api/v1/tasks/${taskId}`,{cookie:worker.cookie});
+  assert.equal(taskWithBlock.response.status,200);
+  assert.equal(taskWithBlock.payload.task.status,'accepted');
+  assert.equal(taskWithBlock.payload.task.version,version);
+  assert.equal(taskWithBlock.payload.task.calendarBlocks.length,1);
+  assert.equal(taskWithBlock.payload.task.calendarBlocks[0].id,blockId);
+
+  const movedBlock=await request(base,`/api/v1/calendar-events/${blockId}`,{
+    cookie:worker.cookie,method:'PATCH',body:{startAt:'2026-10-07T11:00:00.000Z',endAt:'2026-10-07T12:30:00.000Z'}
+  });
+  assert.equal(movedBlock.response.status,200);
+  taskWithBlock=await request(base,`/api/v1/tasks/${taskId}`,{cookie:worker.cookie});
+  assert.equal(taskWithBlock.payload.task.status,'accepted');
+  assert.equal(taskWithBlock.payload.task.version,version);
+  assert.equal(new Date(taskWithBlock.payload.task.calendarBlocks[0].startAt).toISOString(),'2026-10-07T11:00:00.000Z');
+
+  const deletedBlock=await request(base,`/api/v1/calendar-events/${blockId}`,{cookie:worker.cookie,method:'DELETE'});
+  assert.equal(deletedBlock.response.status,204);
+  taskWithBlock=await request(base,`/api/v1/tasks/${taskId}`,{cookie:worker.cookie});
+  assert.equal(taskWithBlock.payload.task.status,'accepted');
+  assert.equal(taskWithBlock.payload.task.version,version);
+  assert.equal(taskWithBlock.payload.task.calendarBlocks.length,0);
+  const calendarAudit=taskWithBlock.payload.task.audit.filter(event=>event.eventType.startsWith('calendar.block_'));
+  assert.deepEqual(calendarAudit.map(event=>event.eventType),['calendar.block_linked','calendar.block_moved','calendar.block_unlinked']);
+  assert.ok(calendarAudit.every(event=>event.payload.calendarEventId===blockId));
+
   const started=await request(base,`/api/v1/tasks/${taskId}/transitions`,{
     cookie:worker.cookie,method:'POST',body:{to:'in_progress',expectedVersion:version}
   });

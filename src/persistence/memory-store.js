@@ -607,7 +607,12 @@ export class MemoryStore {
 
   async getTaskDetail(session,id){
     const task=this.taskView(session,this.tasks.get(id));if(!task)return null;
-    return {...task,evidence:clone(this.taskEvidenceRows(id)),acceptances:clone(this.taskAcceptances.get(id)??[]),audit:clone(this.taskAudit.get(id)??[])};
+    const calendarBlocks=[...this.calendarEvents.values()].filter(event=>event.workspaceId===session.workspaceId&&event.commitmentId===id&&event.kind==='task_block'&&(
+      event.ownerId===session.userId||
+      (event.visibility==='workspace'&&session.role!=='guest')||
+      event.visibility==='participants'
+    )).sort((a,b)=>String(a.startAt).localeCompare(String(b.startAt))).map(clone);
+    return {...task,evidence:clone(this.taskEvidenceRows(id)),acceptances:clone(this.taskAcceptances.get(id)??[]),audit:clone(this.taskAudit.get(id)??[]),calendarBlocks};
   }
 
   async addTaskEvidence(session,id,{type,value,expectedVersion}){

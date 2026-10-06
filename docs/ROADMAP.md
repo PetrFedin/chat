@@ -196,6 +196,22 @@ mode rather than a second, untested code path.
 Ordered by how much it costs the product that it's missing, not by how
 hard it is to build.
 
+**Golden Path / Task-Calendar status, verified 2026-10-06.** The release
+gate now runs against real PostgreSQL and Chromium instead of only the
+isolated commitment model. It covers membership mutations, reply/pin/
+forward, file and voice messages, task execution/review/rework/closure,
+deep-links and a linked Calendar task block. The task block can be
+created, moved and deleted while task status/version remain authoritative
+and unchanged by Calendar. The remaining foundational gap is no longer
+"does the main path work?"; it is collapsing the duplicate task authority
+into one implementation and then hardening deadline/reschedule/conflict
+UX across phone/tablet/desktop.
+
+For local product QA, `/preview.html` provides a development-only device
+switcher for 390x844 phone, 834x1112 tablet and 1440x900 monitor viewports.
+It embeds the real application and therefore must never acquire business
+logic of its own.
+
 - **External calendar sync: export exists (ICS subscription), import/OAuth does not.**
   Any person can get a private `.ics` subscription link (personal
   token, revocable, visibility-filtered the same way the in-app

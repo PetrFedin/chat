@@ -251,11 +251,13 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     // раньше человек узнавал о нём фразой «A value failed a validation
     // rule» из базы, хотя в форме поле не помечено обязательным.
     const needsEnd=['meeting','focus','task_block'].includes(b.kind??'meeting');
-    if(needsEnd&&!endAt)throw Object.assign(new Error('У встречи должно быть время окончания'),{code:'CALENDAR_END_REQUIRED',statusCode:400,expose:true});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Встреча должна закончиться после начала'),{code:'INVALID_CALENDAR_RANGE',statusCode:400,expose:true});// Встречу нельзя «подсадить» в чужую беседу или привязать к задаче, которой человек не видит:
+    if(needsEnd&&!endAt)throw Object.assign(new Error('У встречи должно быть время окончания'),{code:'CALENDAR_END_REQUIRED',statusCode:400,expose:true});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Встреча должна закончиться после начала'),{code:'INVALID_CALENDAR_RANGE',statusCode:400,expose:true});
+    if((b.kind??'meeting')==='task_block'&&!b.commitmentId)throw Object.assign(new Error('Блок работы должен быть привязан к задаче'),{code:'TASK_BLOCK_TASK_REQUIRED',statusCode:400,expose:true});
+    // Встречу нельзя «подсадить» в чужую беседу или привязать к задаче, которой человек не видит:
     // иначе она попадала в календари участников чужой переписки, а название задачи читалось вслепую.
     if(b.conversationId&&!(await store.canAccessConversation(s,String(b.conversationId))))throw Object.assign(new Error('Беседа не найдена'),{code:'NOT_FOUND',statusCode:404,expose:true});
     if(b.commitmentId&&!(await store.getTask(s,String(b.commitmentId))))throw Object.assign(new Error('Задача не найдена'),{code:'NOT_FOUND',statusCode:404,expose:true});
-    const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:(()=>{const tz=b.timezone??'UTC';if(!validTimezone(tz))throw Object.assign(new Error('Такого часового пояса нет'),{code:'INVALID_TIMEZONE',statusCode:400,expose:true});return tz})(),allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null,recurrenceRule:b.recurrenceRule??null};
+    const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:(()=>{const tz=b.timezone??'UTC';if(!validTimezone(tz))throw Object.assign(new Error('Такого часового пояса нет'),{code:'INVALID_TIMEZONE',statusCode:400,expose:true});return tz})(),allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null,recurrenceRule:b.recurrenceRule??null,allowConflict:Boolean(b.allowConflict)};
     const wanted=Array.isArray(b.participantIds)?b.participantIds.filter(Boolean):[];
     // Встреча и приглашения — одно решение, поэтому и одна транзакция: иначе
     // в календаре оставалась встреча, на которую никого не позвали.
@@ -266,14 +268,23 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
       hub.broadcastUsers(s.workspaceId,[s.userId,...wanted.map(w=>w.userId??w)],'calendar.created',created.event);
       json(res,201,created);return true;
     }
-    // Повторение живёт в репозитории календаря: базовое хранилище про
-    // правило не знает и молча потеряло бы его — встреча завелась бы
-    // одиночной, и человек узнал бы об этом через неделю.
-    if(draft.recurrenceRule){
-      if(!ctx.calendar?.createWithParticipants)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
-      const created=await ctx.calendar.createWithParticipants(s,draft,[]);
-      hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',created.event);
-      json(res,201,created);return true;
+    // Task block and recurrence use the calendar repository even without invitees:
+    // the repository owns calendar audit/recurrence semantics; the base store does not.
+    if(draft.kind==='task_block'||draft.recurrenceRule){
+      if(!ctx.calendar?.createWithParticipants){
+        if(draft.recurrenceRule)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
+      }else{
+        const created=await ctx.calendar.createWithParticipants(s,draft,[]);
+        hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',created.event);
+        json(res,201,created);return true;
+      }
+    }
+    if(endAt&&ctx.calendar?.findConflicts&&!draft.allowConflict){
+      const conflicts=await ctx.calendar.findConflicts(s,{startAt,endAt});
+      if(conflicts.length){
+        const names=conflicts.slice(0,3).map(event=>event.title).join(', ');
+        throw Object.assign(new Error(`Время пересекается с календарём: ${names}. Подтвердите сохранение поверх конфликта.`),{code:'CALENDAR_CONFLICT',statusCode:409,expose:true});
+      }
     }
     const event=await store.createCalendarEvent(s,draft);hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',event);
     json(res,201,{event,invited:0});return true}

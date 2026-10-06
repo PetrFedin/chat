@@ -36,13 +36,54 @@ Meeting Intelligence stays frozen except bug/security fixes until these gates ar
 | External PM | Plane/Vikunja | REFERENCE |
 
 ## Phase 0 — Golden Path and single task authority
-Run:
+
+**Implementation status (2026-10-06): Golden Path GREEN; Single Task Authority GREEN.**
+
+The canonical P0 is now exercised against the real application and PostgreSQL rather than only the isolated `commitment.js` domain model:
+
 `registration -> employees -> group -> membership -> message -> reply/pin/forward/file/voice -> task -> accept -> start -> block/resume -> evidence -> review -> return -> resubmit -> accept result -> close -> notifications/deep links`
 
-Then collapse current duplicate task truth into one domain model.
+Current proof:
+- API + PostgreSQL Golden Path is mandatory in `npm run test:p0`;
+- real Chromium boot is verified against PostgreSQL on desktop and mobile viewports;
+- a multi-session browser workflow drives owner and worker through group -> message -> task -> return -> resubmit -> accepted result -> close;
+- unexpected API `5xx` responses fail the browser gate;
+- group creation is now reachable from the Messages UI instead of existing only as dormant modal code;
+- file and voice payloads, membership add/remove and exact message/task deep-links are covered by the same P0 contract.
+
+Local visual QA uses `/preview.html` with live **Phone 390x844 / Tablet 834x1112 / Monitor 1440x900** shells. This is a development/QA surface only; it must not become a separate product UI or source of responsive truth.
+
+Single Task Authority proof:
+- the historical parallel `commitment.js` implementation no longer exists in the repository;
+- transition graph, actor permissions, evidence gate, reason rules and optimistic-version checks are canonical in `src/task/task-authority.js`;
+- both memory and PostgreSQL stores call that authority rather than maintaining independent transition tables;
+- UI renders server-provided `allowedTransitions`; its local reason prompt is presentation only and server validation remains decisive.
+
+Remaining Phase 0 work:
+1. keep the browser Golden Path as a mandatory release gate;
+2. prevent future transition/state-machine duplication with authority-focused tests/code review;
+3. preserve one canonical transition/evidence/acceptance model across PostgreSQL, API and UI.
 
 ## Phase 1 — Task <-> Calendar
+
+**Implementation status (2026-10-06): core authority slice GREEN; scheduling UX expansion remains open.**
+
 Task may propose/own scheduling context; Calendar owns time blocks/events. Move/delete/reschedule are audited. Calendar status never becomes a second task status. Add ICS interoperability later via ical.js.
+
+Already proven in P0:
+- `task_block` cannot exist without a canonical `commitmentId`;
+- a task exposes its linked calendar blocks without copying calendar state into task status;
+- moving a task block updates Calendar while leaving task status/version unchanged;
+- deleting a task block removes scheduling context while leaving task execution state unchanged;
+- link/move/unlink events are written into the task audit trail;
+- the browser workflow creates, opens, moves and removes a task block through the UI.
+
+Remaining Phase 1:
+- deadline-change -> reschedule/proposal UX;
+- conflict detection and explicit conflict resolution;
+- day/week/agenda interaction hardening on phone/tablet/desktop;
+- drag/move semantics where supported, with auditable reason for consequential changes;
+- later external interchange/sync per the calendar integration phases.
 
 ## Phase 2 — Projects
 Native project, milestone, dependency, checklist and collaborator entities reference existing tasks/files/channels/decisions. Plane/Vikunja are design references only.

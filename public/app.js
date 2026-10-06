@@ -740,6 +740,10 @@ const TASK_EVENT={
   'commitment.transitioned':'смена состояния',
   'commitment.rescheduled':'перенос срока',
   'commitment.reassigned':'передана другому',
+  'calendar.block_linked':'время выделено в календаре',
+  'calendar.block_moved':'время в календаре перенесено',
+  'calendar.block_updated':'блок календаря изменён',
+  'calendar.block_unlinked':'время убрано из календаря',
   'evidence.added':'добавлено доказательство',
   'acceptance.recorded':'решение о приёмке',
 };
@@ -1281,10 +1285,14 @@ function eventEditModal(event){
       const endAt=endRaw?new Date(endRaw):null;
       if(endAt&&endAt<=startAt)return toast('Окончание должно быть позже начала');
       try{
-        await api(`/api/v1/calendar-events/${event.id}`,{method:'PATCH',body:JSON.stringify({
-          title:form.get('title'),description:form.get('description')||null,
-          startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
-        })});
+        const payload={title:form.get('title'),description:form.get('description')||null,
+          startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null};
+        const save=allowConflict=>api(`/api/v1/calendar-events/${event.id}`,{method:'PATCH',body:JSON.stringify({...payload,allowConflict})});
+        try{await save(false)}
+        catch(error){
+          if(error.code!=='CALENDAR_CONFLICT'||!confirm(error.message))throw error;
+          await save(true);
+        }
         toast('Встреча изменена');closeModal();
         await loadCalendarRange();render();await eventPage(event.id);
       }catch(error){toast(error.message)}
@@ -5426,7 +5434,7 @@ function taskStructureSection(task){
 }
 
 function taskDetailModal(task){
-  const evidence=task.evidence||[],acceptances=task.acceptances||[],audit=task.audit||[];
+  const evidence=task.evidence||[],acceptances=task.acceptances||[],audit=task.audit||[],calendarBlocks=task.calendarBlocks||[];
   // Labels are read when the card opens: the list screen would need one
   // request per row to show them, and that is not worth the round trips.
   let labelsCache=null;
@@ -5448,6 +5456,7 @@ function taskDetailModal(task){
     ${task.sourceMessageId?`<div class="row"><span><div class="section-title">Из сообщения</div><div class="row-sub">Обсуждение, из которого выросла эта задача</div></span><button class="button small secondary pressable" data-task-source="${esc(task.sourceMessageId)}">Открыть</button></div>`:''}
     <div class="surface"><div class="section-title">Ожидаемый результат</div><p class="muted">${task.outcome?esc(task.outcome):'Не задан. Пока его нет, «сделано» решается спором, а не проверкой.'}</p><div class="row-sub"><span>Ответственный:</span> ${esc(name(task.ownerId))} <span>· Принимает:</span> ${esc(name(task.acceptorId))} <span>· Поставил:</span> ${esc(name(task.requesterId))}</div></div>
     <div><div class="section-title">Время</div><div id="task-time-slot"><span class="muted">загружаем…</span></div></div>
+    <div><div class="section-title">Запланированная работа · ${calendarBlocks.length}</div>${calendarBlocks.length?`<div class="stack" style="margin-top:8px">${calendarBlocks.map(block=>`<button type="button" class="row pressable" data-task-calendar-block="${esc(block.id)}" style="width:100%;text-align:left"><span>◷</span><span><div class="row-title">${esc(block.title)}</div><div class="row-sub">${esc(dateTime(block.startAt))}${block.endAt?` — ${esc(time(block.endAt))}`:''}</div></span><span class="chip">Календарь</span></button>`).join('')}</div>`:`<div class="empty">${esc(T('Время под эту задачу пока не выделено в календаре.','No calendar time has been allocated to this task yet.'))}</div>`}</div>
     <div><div class="section-title">Следующее действие</div>${task.status==='in_progress'&&!evidence.length?'<p class="muted" style="margin:6px 0 0">Чтобы сдать работу на проверку, приложите хотя бы одно доказательство — форма ниже.</p>':''}<div class="inline-actions" style="margin-top:8px">${(task.allowedTransitions||[]).map(to=>`<button class="button ${to==='accepted_result'||to==='closed'?'primary':'secondary'} small" data-task-transition="${esc(to)}" data-skip-autofocus>${esc(taskActionLabel(task,to))}</button>`).join('')||'<span class="muted">Доступных переходов сейчас нет.</span>'}</div></div>
     <form id="task-evidence-form" class="form-stack"><div class="section-title">Добавить результат / доказательство</div><label>Тип<select name="type" class="field"><option value="note">Комментарий / результат</option><option value="url">Ссылка</option><option value="metric">Метрика</option><option value="message">Ссылка на сообщение</option><option value="file">Идентификатор файла</option></select></label><label>Данные<textarea name="value" rows="3" required placeholder="Что сделано, где результат или чем это подтверждается"></textarea></label><button class="button secondary">Добавить доказательство</button></form>
     <button data-task-favour class="button secondary">${S.favourites?.has('task:'+task.id)?'Убрать из избранного':'В избранное'}</button><button data-task-remind class="button secondary">Напомнить о задаче</button>${canReassignTask(task)?'<button data-task-reassign class="button secondary">Передать задачу</button>':''}${canRescheduleTask(task)?'<button class="button secondary" data-task-reschedule>Изменить срок / прогноз</button>':''}
@@ -5500,6 +5509,10 @@ function taskDetailModal(task){
     catch(error){toast(error.message)}
   });
   $$('[data-link-open]').forEach(b=>b.onclick=()=>{closeModal();openTask(b.dataset.linkOpen)});
+  $$('[data-task-calendar-block]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.taskCalendarBlock;
+    closeModal();S.view='calendar';render();history.pushState(null,'',`#/calendar/${id}`);void eventPage(id);
+  });
   $$('[data-task-transition]').forEach(b=>b.onclick=()=>taskTransition(task,b.dataset.taskTransition));
   $('[data-task-labels]').onclick=()=>labelPicker('task',task.id,{title:`Метки: ${task.title}`});
   const form=$('#task-evidence-form');if(form)form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form);try{const r=await api(`/api/v1/tasks/${task.id}/evidence`,{method:'POST',body:JSON.stringify({type:f.get('type'),value:f.get('value'),expectedVersion:task.version})});upsertTask(r.task);toast('Доказательство добавлено');await openTask(task.id);if(S.view==='tasks'){await loadTaskPage();render()}}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}};
@@ -5617,6 +5630,7 @@ function eventModal(prefill=''){
     <label>Тип<select name="kind" class="field">
       ${EVENT_KIND_CHOICES.map(([value,caption])=>`<option value="${value}">${caption}</option>`).join('')}
     </select></label>
+    <label id="event-task-row" hidden>Задача<select name="commitmentId" class="field"><option value="">${esc(T('Выберите задачу','Select a task'))}</option>${(S.tasks||[]).filter(t=>!['closed','cancelled','rejected'].includes(t.status)).map(t=>`<option value="${esc(t.id)}">${esc(t.title)}</option>`).join('')}</select><span class="row-sub">${esc(T('Календарь хранит время работы, задача — свой статус и ответственность.','Calendar owns work time; the task owns its status and accountability.'))}</span></label>
     <label class="switch-row"><input type="checkbox" name="allDay">
       <span><span class="section-title">Весь день</span><span class="row-sub">Без конкретного часа — на день или на несколько дней подряд</span></span></label>
     <label>Начало<input name="start" type="datetime-local" required value="${esc(toLocalInput(start.toISOString()))}"></label>
@@ -5637,6 +5651,8 @@ function eventModal(prefill=''){
   </form>`,()=>{
     const form=$('#event-form');
     const kindField=form.querySelector('[name="kind"]');
+    const taskRow=form.querySelector('#event-task-row');
+    const taskField=form.querySelector('[name="commitmentId"]');
     const allDayField=form.querySelector('[name="allDay"]');
     const startField=form.querySelector('[name="start"]');
     const endField=form.querySelector('[name="end"]');
@@ -5660,6 +5676,10 @@ function eventModal(prefill=''){
       // сервере — иначе человек либо видит лишнюю звёздочку, либо не
       // видит нужную.
       endField.required=EVENT_KINDS_NEEDING_END.has(kindField.value);
+      const taskBlock=kindField.value==='task_block';
+      taskRow.hidden=!taskBlock;
+      taskField.required=taskBlock;
+      if(!taskBlock)taskField.value='';
     };
     allDayField.onchange=syncFields;
     kindField.onchange=syncFields;
@@ -5679,20 +5699,27 @@ function eventModal(prefill=''){
       const endAt=parseField(data.get('end'),true);
       if(endAt&&endAt<=startAt)return toast('Окончание должно быть позже начала');
       const invited=data.getAll('guest');
+      const payload={
+        title:data.get('title'),kind:data.get('kind'),allDay:wholeDay,
+        commitmentId:data.get('kind')==='task_block'?data.get('commitmentId')||null:null,
+        visibility:data.get('visibility'),
+        description:data.get('description')||null,
+        startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
+        timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // «Каждую неделю» без дня недели значило бы «в тот же день, что
+        // и первая встреча» — но человек выбирает день, ставя дату
+        // начала, и правило обязано её повторить, а не гадать.
+        recurrenceRule:repeatRule(data.get('repeat'),startAt),
+        participantIds:invited,
+      };
       try{
         // Встреча и приглашения — одним запросом, без половинчатого результата.
-        await api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({
-          title:data.get('title'),kind:data.get('kind'),allDay:wholeDay,
-          visibility:data.get('visibility'),
-          description:data.get('description')||null,
-          startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
-          timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
-          // «Каждую неделю» без дня недели значило бы «в тот же день, что
-          // и первая встреча» — но человек выбирает день, ставя дату
-          // начала, и правило обязано её повторить, а не гадать.
-          recurrenceRule:repeatRule(data.get('repeat'),startAt),
-          participantIds:invited,
-        })});
+        const create=allowConflict=>api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({...payload,allowConflict})});
+        try{await create(false)}
+        catch(error){
+          if(error.code!=='CALENDAR_CONFLICT'||!confirm(error.message))throw error;
+          await create(true);
+        }
         // Land on the day the event is on, or the person stares at a week
         // that does not contain what they just made.
         S.cal=S.cal||{view:'week',cursor:new Date(),selected:null};

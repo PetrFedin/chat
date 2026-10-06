@@ -120,6 +120,7 @@ export function createCalendarHandler() {
       if (body.visibility !== undefined) patch.visibility = body.visibility;
       if (body.kind !== undefined) patch.kind = body.kind;
       if (body.allDay !== undefined) patch.allDay = Boolean(body.allDay);
+      if (body.allowConflict !== undefined) patch.allowConflict = Boolean(body.allowConflict);
       // Пустая строка — это «больше не повторять», и её надо отличать от
       // «не трогай правило».
       if (body.recurrenceRule !== undefined) patch.recurrenceRule = body.recurrenceRule || null;
