@@ -78,10 +78,11 @@ Already proven in P0:
 - link/move/unlink events are written into the task audit trail;
 - the browser workflow creates, opens, moves and removes a task block through the UI;
 - concrete non-recurring collisions are rejected with `409 CALENDAR_CONFLICT`;
-- the user must explicitly confirm `allowConflict` before saving over an existing personal calendar block.
+- the user must explicitly confirm `allowConflict` before saving over an existing personal calendar block;
+- changing a task deadline never moves Calendar silently: linked blocks ending after the new promise are surfaced as **Schedule Impact / needs rescheduling** in the task card and remain directly openable for correction.
 
 Remaining Phase 1:
-- deadline-change -> reschedule/proposal UX;
+- turn Schedule Impact into a first-class reschedule proposal/action (suggested new slot, explicit approve/reject, audit);
 - recurring-series conflict detection and richer conflict detail for participants/team calendars;
 - replace the temporary browser confirm with a first-class in-app conflict-resolution surface;
 - day/week/agenda interaction hardening on phone/tablet/desktop;

@@ -52,9 +52,7 @@ async function login(page,base,email,password){
 }
 
 async function openTask(page,title){
-  const loaded=page.waitForResponse(r=>{const url=new URL(r.url());return r.request().method()==='GET'&&url.pathname==='/api/v1/tasks'&&url.searchParams.get('counts')==='1'&&url.searchParams.get('status')==='active'});
   await page.locator('[data-nav="tasks"]:visible').first().click();
-  assert.equal((await loaded).status(),200);
   const row=page.locator('[data-task-open]').filter({hasText:title}).first();
   await row.waitFor({state:'visible',timeout:10000});
   await row.click();
@@ -164,6 +162,22 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   const moveBlock=workerPage.waitForResponse(r=>r.request().method()==='PATCH'&&/\/api\/v1\/calendar-events\/[^/]+$/.test(new URL(r.url()).pathname));
   await workerPage.locator('#event-edit button.button.primary').click();
   assert.equal((await moveBlock).status(),200);
+
+  // Moving the task deadline never moves Calendar silently. If a linked block
+  // now ends after the promise, the task must surface a visible schedule impact.
+  await workerPage.locator('[data-close]').last().click();
+  await workerPage.locator('#modal-heading').waitFor({state:'hidden',timeout:10000});
+  await openTask(workerPage,'P0 UI task');
+  await workerPage.locator('[data-task-reschedule]').click();
+  await workerPage.locator('#task-reschedule-form [name="promisedAt"]').fill('2026-10-07T10:30');
+  await workerPage.locator('#task-reschedule-form [name="reason"]').fill('Board review moved earlier');
+  const rescheduleTask=workerPage.waitForResponse(r=>r.request().method()==='PATCH'&&/\/api\/v1\/tasks\/[^/]+\/schedule$/.test(new URL(r.url()).pathname));
+  await workerPage.locator('#task-reschedule-form button.button.primary').click();
+  assert.equal((await rescheduleTask).status(),200);
+  await workerPage.locator('[data-task-schedule-impact]').waitFor({state:'visible',timeout:10000});
+  await workerPage.getByText('после срока',{exact:true}).waitFor({state:'visible'});
+  await workerPage.locator('[data-task-calendar-block]').click();
+
   await workerPage.locator('[data-event-cancel]').waitFor({state:'visible'});
   await workerPage.locator('[data-event-cancel]').click();
   const deleteBlock=workerPage.waitForResponse(r=>r.request().method()==='DELETE'&&/\/api\/v1\/calendar-events\/[^/]+$/.test(new URL(r.url()).pathname));

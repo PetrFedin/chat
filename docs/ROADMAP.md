@@ -206,8 +206,10 @@ and unchanged by Calendar. Single Task Authority is also verified: the
 historical parallel commitment implementation is gone, and both stores use
 `src/task/task-authority.js`. Concrete non-recurring double-booking is now
 blocked with `CALENDAR_CONFLICT` unless the user explicitly confirms an
-override. Remaining calendar work is recurring-series conflict detection,
-deadline/reschedule proposal UX and richer phone/tablet/desktop scheduling
+override. Deadline changes now surface linked work blocks that end after
+the new promise as an explicit Schedule Impact instead of silently moving
+Calendar. Remaining calendar work is a first-class reschedule proposal/action,
+recurring-series conflict detection and richer phone/tablet/desktop scheduling
 interaction.
 
 For local product QA, `/preview.html` provides a development-only device
