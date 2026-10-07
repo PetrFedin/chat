@@ -214,8 +214,11 @@ preview/edit/approve/reject, then audit the decision and canonical Calendar
 move. The collision check follows the task-block owner's calendar even when a
 manager performs the move. The same conflict engine now expands RRULE series
 and applies occurrence exceptions, so recurring meetings constrain both manual
-moves and generated proposals. Remaining calendar work is richer conflict
-resolution, working-hours/availability-aware slot scoring and stronger
+moves and generated proposals. Conflict handling is now first-class in the
+app: create/edit shows concrete overlapping events, including recurring
+occurrences, lets the user return to change time, or explicitly approve an
+overlap; the browser Golden Path proves that flow. Remaining calendar work is
+working-hours/availability-aware slot scoring and stronger
 phone/tablet/desktop scheduling interaction.
 
 For local product QA, `/preview.html` provides a development-only device

@@ -1270,6 +1270,40 @@ async function eventPage(id){
  * самого начала, а в интерфейсе не было ни одной кнопки: договорённость
  * жила в календаре как высеченная.
  */
+async function calendarConflictDecision({startAt,endAt,eventId=null,message=''}){
+  let conflicts=[];
+  try{
+    const query=new URLSearchParams({startAt,endAt});
+    if(eventId)query.set('eventId',eventId);
+    conflicts=(await api(`/api/v1/calendar-conflicts?${query}`)).items||[];
+  }catch(error){
+    toast(error.message);
+    return false;
+  }
+  return await new Promise((resolve)=>{
+    let settled=false;
+    modal(T('Конфликт времени','Time conflict'),`<div class="stack" data-calendar-conflict-dialog>
+      <div class="away-notice"><strong>${esc(T('Это время уже занято','This time is already occupied'))}</strong><div class="row-sub" style="margin-top:4px">${esc(message||T('Выберите другое время или подтвердите наложение осознанно.','Choose another time or explicitly approve the overlap.'))}</div></div>
+      <div><div class="section-title">${esc(T('Пересечения','Conflicts'))} · ${conflicts.length}</div>
+        <div class="stack" style="margin-top:8px">${conflicts.map(item=>`<div class="row"><span>◷</span><span><div class="row-title">${esc(item.title||T('Занято','Busy'))}</div><div class="row-sub">${esc(dateTime(item.startAt))} — ${esc(time(item.endAt))}${item.occurrenceAt?` · ${esc(T('повторяющаяся серия','recurring series'))}`:''}</div></span></div>`).join('')||`<div class="empty">${esc(T('Конфликт уже изменился. Вернитесь и повторите сохранение.','The conflict has changed. Go back and retry saving.'))}</div>`}</div>
+      </div>
+      <p class="muted">${esc(T('Сохранение поверх конфликта не отменяет и не переносит существующие события.','Saving over the conflict does not cancel or move existing events.'))}</p>
+      <div class="inline-actions"><button type="button" class="button primary" data-conflict-edit>${esc(T('Изменить время','Change time'))}</button><button type="button" class="button secondary" data-conflict-override>${esc(T('Сохранить всё равно','Save anyway'))}</button></div>
+    </div>`,()=>{
+      const entry=overlayStack[overlayStack.length-1];
+      const finish=(answer)=>{
+        if(settled)return;
+        settled=true;
+        history.back();
+        resolve(answer);
+      };
+      if(entry)entry.onPop=()=>{if(!settled){settled=true;resolve(false)}};
+      $('[data-conflict-edit]')?.addEventListener('click',()=>finish(false));
+      $('[data-conflict-override]')?.addEventListener('click',()=>finish(true));
+    });
+  });
+}
+
 function eventEditModal(event){
   modal('Изменить встречу',`<form id="event-edit" class="form-stack">
     <label>Название<input name="title" required maxlength="240" value="${esc(event.title||'')}"></label>
@@ -1292,7 +1326,8 @@ function eventEditModal(event){
         const save=allowConflict=>api(`/api/v1/calendar-events/${event.id}`,{method:'PATCH',body:JSON.stringify({...payload,allowConflict})});
         try{await save(false)}
         catch(error){
-          if(error.code!=='CALENDAR_CONFLICT'||!confirm(error.message))throw error;
+          if(error.code!=='CALENDAR_CONFLICT')throw error;
+          if(!await calendarConflictDecision({startAt:payload.startAt,endAt:payload.endAt,eventId:event.id,message:error.message}))return;
           await save(true);
         }
         toast('Встреча изменена');closeModal();
@@ -5753,7 +5788,8 @@ function eventModal(prefill=''){
         const create=allowConflict=>api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({...payload,allowConflict})});
         try{await create(false)}
         catch(error){
-          if(error.code!=='CALENDAR_CONFLICT'||!confirm(error.message))throw error;
+          if(error.code!=='CALENDAR_CONFLICT')throw error;
+          if(!await calendarConflictDecision({startAt:payload.startAt,endAt:payload.endAt,message:error.message}))return;
           await create(true);
         }
         // Land on the day the event is on, or the person stares at a week

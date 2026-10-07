@@ -136,6 +136,18 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   // Calendar owns the time block; the task keeps its own status/version.
   await workerPage.keyboard.press('Escape');
   await workerPage.locator('[data-nav="calendar"]:visible').first().click();
+  // Seed a real busy slot so the browser must use ChatX's own conflict
+  // resolution surface instead of a native confirm() dialog.
+  await workerPage.locator('[data-action="event"]:visible').click();
+  await workerPage.locator('#event-form [name="title"]').fill('P0 UI focus conflict');
+  await workerPage.locator('#event-form [name="kind"]').selectOption('focus');
+  await workerPage.locator('#event-form [name="start"]').fill('2026-10-07T09:30');
+  await workerPage.locator('#event-form [name="end"]').fill('2026-10-07T10:30');
+  const createFocus=workerPage.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
+  await workerPage.locator('#event-form button.button.primary').click();
+  assert.equal((await createFocus).status(),201);
+  await workerPage.locator('#event-form').waitFor({state:'detached',timeout:10000});
+
   await workerPage.locator('[data-action="event"]:visible').click();
   await workerPage.locator('#event-form [name="title"]').fill('P0 UI work block');
   await workerPage.locator('#event-form [name="kind"]').selectOption('task_block');
@@ -143,9 +155,14 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await workerPage.locator('#event-form [name="commitmentId"]').selectOption({label:'P0 UI task'});
   await workerPage.locator('#event-form [name="start"]').fill('2026-10-07T09:00');
   await workerPage.locator('#event-form [name="end"]').fill('2026-10-07T10:00');
-  const createBlock=workerPage.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
-  const calendarRefresh=workerPage.waitForResponse(r=>r.request().method()==='GET'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
+  const conflictResponse=workerPage.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/v1/calendar-events'&&r.status()===409);
   await workerPage.locator('#event-form button.button.primary').click();
+  assert.equal((await conflictResponse).status(),409);
+  await workerPage.locator('[data-calendar-conflict-dialog]').waitFor({state:'visible',timeout:10000});
+  await workerPage.locator('#modal-root').getByText('P0 UI focus conflict',{exact:true}).waitFor({state:'visible'});
+  const createBlock=workerPage.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/v1/calendar-events'&&r.status()===201);
+  const calendarRefresh=workerPage.waitForResponse(r=>r.request().method()==='GET'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
+  await workerPage.locator('[data-conflict-override]').click();
   assert.equal((await createBlock).status(),201);
   assert.equal((await calendarRefresh).status(),200);
   await workerPage.locator('#event-form').waitFor({state:'detached',timeout:10000});
@@ -181,8 +198,8 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await workerPage.locator('[data-task-reschedule-proposal]').click();
   assert.equal((await proposalRead).status(),200);
   await workerPage.locator('#task-schedule-proposal-form').waitFor({state:'visible'});
-  assert.equal(await workerPage.locator('#task-schedule-proposal-form [name="startAt"]').inputValue(),'2026-10-07T09:00');
-  assert.equal(await workerPage.locator('#task-schedule-proposal-form [name="endAt"]').inputValue(),'2026-10-07T10:30');
+  assert.equal(await workerPage.locator('#task-schedule-proposal-form [name="startAt"]').inputValue(),'2026-10-07T08:00');
+  assert.equal(await workerPage.locator('#task-schedule-proposal-form [name="endAt"]').inputValue(),'2026-10-07T09:30');
   await workerPage.locator('#task-schedule-proposal-form [name="reason"]').fill('Move work before the earlier deadline');
   const proposalApprove=workerPage.waitForResponse(r=>r.request().method()==='POST'&&/\/api\/v1\/tasks\/[^/]+\/schedule-proposal$/.test(new URL(r.url()).pathname));
   await workerPage.locator('#task-schedule-proposal-form button.button.primary').click();

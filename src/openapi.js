@@ -97,9 +97,17 @@ export const openapi = Object.freeze({
         responses: { '200': { description: 'Proposal decision and current calendar event' }, '400': { description: 'Invalid action/range or missing reason' }, '403': { description: 'Task or calendar scheduling authority denied' }, '404': { description: 'Task or block is not visible' }, '409': { description: 'Stale task, conflict, terminal task or no longer impacted' } }
       }
     },
+    '/api/v1/calendar-conflicts': {
+      get: {
+        tags: ['Workspace'],
+        summary: 'Preview concrete and recurring calendar conflicts for an interval',
+        description: 'Read-only conflict detail used by the in-app resolution surface. When eventId is supplied, authority and availability are evaluated against that event owner so team-calendar edits match the write-time conflict gate.',
+        responses: { '200': { description: 'Visible overlapping concrete events and expanded recurring occurrences' }, '400': { description: 'Invalid interval' }, '403': { description: 'Calendar authority denied for the edited event' }, '404': { description: 'Edited event is not visible' } }
+      }
+    },
     '/api/v1/calendar-events': {
       get: { tags: ['Workspace'], summary: 'List calendar events', responses: { '200': { description: 'Calendar events' } } },
-      post: { tags: ['Workspace'], summary: 'Create meeting, focus block, deadline or reminder', responses: { '201': { description: 'Calendar event created' } } }
+      post: { tags: ['Workspace'], summary: 'Create meeting, focus block, deadline or reminder', responses: { '201': { description: 'Calendar event created' }, '409': { description: 'Calendar conflict unless the user explicitly approves an overlap' } } }
     },
     '/api/v1/conversations': {
       get: { tags: ['Messaging'], summary: 'List visible conversations with computed unread and mention counts', responses: { '200': { description: 'Conversation list' } } },

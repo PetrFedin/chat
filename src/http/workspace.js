@@ -263,6 +263,15 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
       body:`${task.title}: ${when}${why}`});
     await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{kind:'task.rescheduled',title:'Срок задачи изменён',body:task.title,url:`/#/tasks/${task.id}`});json(res,200,{task});return true
   }
+  if(path==='/api/v1/calendar-conflicts'&&method==='GET'){
+    const s=await requireSession(req);
+    if(!ctx.calendar?.findConflicts)throw Object.assign(new Error('Проверка конфликтов требует PostgreSQL Calendar'),{code:'POSTGRES_REQUIRED',statusCode:503,expose:true});
+    const startAt=toDateOrNull(url.searchParams.get('startAt')),endAt=toDateOrNull(url.searchParams.get('endAt'));
+    if(!startAt||!endAt||Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Нужен корректный интервал'),{code:'INVALID_CALENDAR_RANGE',statusCode:400,expose:true});
+    const excludeEventId=url.searchParams.get('eventId')||null;
+    const items=await ctx.calendar.findConflicts(s,{startAt,endAt,excludeEventId});
+    json(res,200,{items});return true
+  }
   if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=toDateOrNull(url.searchParams.get('from')),to=toDateOrNull(url.searchParams.get('to'));json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to}):await store.listCalendar(s,from,to)});return true}
   if(path==='/api/v1/calendar-events'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.CALENDAR_CREATE);const b=await readJson(req);
     // Раньше здесь стоял голый new Date: `null` давал первое января

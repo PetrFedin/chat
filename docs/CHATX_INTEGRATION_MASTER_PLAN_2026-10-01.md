@@ -84,14 +84,15 @@ Already proven in P0:
 - proposal resolution is auditable (`calendar.reschedule_proposal_approved` / `calendar.reschedule_proposal_rejected`), approval writes the canonical Calendar move in the same transaction and resets participant responses exactly like a consequential time change;
 - team-calendar authority is respected: when a manager may move another person's task block, collision checks use the block owner's calendar rather than the manager's own schedule;
 - conflict detection now expands recurring RRULE series inside the candidate interval and applies stored occurrence exceptions, so a weekly/monthly series is no longer invisible to create/move/proposal checks;
-- reschedule proposals use the same combined concrete + recurring conflict engine rather than a weaker parallel availability model.
+- reschedule proposals use the same combined concrete + recurring conflict engine rather than a weaker parallel availability model;
+- create/edit conflicts now open a first-class ChatX conflict-resolution surface instead of a native browser confirm: the user sees every visible overlapping event with exact time and recurring-series context, then either returns to edit the time or explicitly chooses Save anyway;
+- conflict preview is a read-only API contract (GET /api/v1/calendar-conflicts) backed by the same concrete + RRULE + occurrence-exception engine as the write-time gate, including correct task-block-owner availability when a manager edits another person's calendar block;
+- the headed PostgreSQL browser Golden Path proves the full collision flow: busy event -> 409 CALENDAR_CONFLICT -> in-app conflict detail -> explicit override -> canonical event creation.
 
 Current proposal boundary is explicit: a 14-day lookback window and no working-hours optimisation yet. It is deterministic scheduling assistance, not automatic rescheduling or AI authority.
 
 Remaining Phase 1:
-- richer conflict detail for participant/team calendars and explicit conflict-resolution UI;
 - working-hours / availability-aware proposal scoring beyond the current latest-free-slot rule;
-- replace the temporary browser confirm with a first-class in-app conflict-resolution surface;
 - day/week/agenda interaction hardening on phone/tablet/desktop;
 - drag/move semantics where supported, with auditable reason for consequential changes;
 - later external interchange/sync per the calendar integration phases.

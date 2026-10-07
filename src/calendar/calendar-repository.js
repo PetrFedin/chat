@@ -283,7 +283,13 @@ export function createCalendarRepository(pool, store = null) {
     async findConflicts(session,{startAt,endAt,excludeEventId=null}={}) {
       const client=await pool.connect();
       try {
-        return await findScheduleConflicts(client,session,{startAt,endAt,excludeEventId});
+        let userId=session.userId;
+        if(excludeEventId){
+          const event=await loadEvent(client,session,excludeEventId);
+          assertMayRun(session,event,'Проверить перенос может владелец встречи или тот, кто ведёт чужие встречи');
+          userId=event.owner_id;
+        }
+        return await findScheduleConflicts(client,session,{startAt,endAt,excludeEventId,userId});
       } finally {
         client.release();
       }
