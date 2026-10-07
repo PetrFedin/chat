@@ -1488,6 +1488,20 @@ function projectProgress(project){
     <div class="project-kpi-strip"><span><small>${T('Время · 30 дней','Time · 30 days')}</small><strong class="mono">${formatDuration(Number(m.trackedSeconds||0))}</strong></span><span><small>${T('Закрыто · 30 дней','Closed · 30 days')}</small><strong class="mono">${Number(m.throughput30d||0)}</strong></span></div>
   </section>`;
 }
+function projectRisk(project){
+  const m=project.metrics||{},next=m.nextMilestone;
+  const signals=[
+    [Number(m.overdue||0)>0,`${Number(m.overdue||0)} ${T('просрочено','overdue')}`],
+    [Number(m.dependencyBlocked||0)>0,`${Number(m.dependencyBlocked||0)} ${T('ждут зависимость','waiting on dependency')}`],
+    [Number(m.forecastRisk||0)>0,`${Number(m.forecastRisk||0)} ${T('рискуют выйти за обещанный срок','forecast beyond promise')}`],
+    [Boolean(m.projectTargetRisk),T('есть задача позже целевой даты проекта','work extends beyond project target')],
+  ].filter(([on])=>on).map(([,label])=>label);
+  return `<section class="surface project-risk-card">
+    <div class="section-head"><div><h3>${T('Риск исполнения','Execution risk')}</h3><p class="muted">${T('Сигналы из задач и вех, без отдельного project score','Signals from tasks and milestones, without a separate project score')}</p></div><span class="chip ${signals.length?'danger':''}">${signals.length?T('Нужно внимание','Needs attention'):T('Без явных рисков','No explicit risks')}</span></div>
+    ${signals.length?`<div class="stack compact">${signals.map(s=>`<div class="row-sub">• ${esc(s)}</div>`).join('')}</div>`:`<div class="row-sub">${T('Просрочек, незакрытых зависимостей и превышения прогноза сейчас не видно.','No overdue work, unresolved dependencies or forecast overruns are currently visible.')}</div>`}
+    ${next?`<div class="project-next-milestone"><small>${T('Ближайшая веха','Next milestone')}</small><strong>${esc(next.title)}</strong><span class="row-sub">${esc(dateTime(next.targetAt))}</span></div>`:''}
+  </section>`;
+}
 function projectWorkload(project){
   const rows=project.workload||[];
   return `<section class="surface"><div class="section-head"><div><h3>${T('Нагрузка','Workload')}</h3><p class="muted">${T('Только работа, которую вам разрешено видеть','Only work you are allowed to see')}</p></div></div>
@@ -1604,6 +1618,7 @@ function projects(){
   return `<div class="stack project-home">
     <section class="surface project-hero"><div class="section-head"><div><button class="text-button" data-project-back>← ${T('Все проекты','All projects')}</button><h2>${esc(p.name)}</h2><p class="muted">${esc(p.goal||T('Цель не описана','No goal set'))}</p></div><div class="inline-actions"><span class="chip">${esc(p.status)}</span>${p.canContribute?`<button class="button secondary small" data-project-task-new>＋ ${T('Задача','Task')}</button><button class="button secondary small" data-project-milestone-new>＋ ${T('Веха','Milestone')}</button>`:''}${p.canManage?`<button class="button secondary small" data-project-member-new>＋ ${T('Участник','Member')}</button>`:''}</div></div></section>
     <div class="project-operating-grid">${projectProgress(p)}${projectWorkload(p)}</div>
+    ${projectRisk(p)}
     ${projectBoard(p)}
     <div class="page-grid project-grid"><section class="surface"><div class="section-head"><h3>${T('Вехи','Milestones')}</h3></div>${(p.milestones||[]).map(m=>`<div class="row"><span>◆</span><span><div class="row-title">${esc(m.title)}</div><div class="row-sub">${esc(dateTime(m.targetAt))}</div></span></div>`).join('')||`<div class="empty">${T('Вех пока нет','No milestones yet')}</div>`}</section><section class="surface"><div class="section-head"><h3>${T('Команда','Team')}</h3></div>${(p.members||[]).map(m=>`<div class="row"><span>${personAvatar(m.userId,m.displayName)}</span><span><div class="row-title">${esc(m.displayName)}</div><div class="row-sub">${esc(m.role)}</div></span></div>`).join('')}</section></div>
   </div>`;
