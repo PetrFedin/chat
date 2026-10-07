@@ -1532,6 +1532,64 @@ function projectTaskTransition(task,to){
   executeProjectTaskTransition(task,to,null);
 }
 
+function projectTaskModal(){
+  const project=S.projectDetail;
+  if(!project)return;
+  const staff=colleagues();
+  modal(T('Задача проекта','Project task'),`<form id="project-task-form" class="form-stack">
+    <label>${T('Задача','Task')}<input name="title" maxlength="200" required></label>
+    <label>${T('Результат','Outcome')}<textarea name="outcome" maxlength="2000"></textarea></label>
+    <div class="quiet-row"><label>${T('Ответственный','Owner')}<select name="ownerId">${staff.map(p=>`<option value="${esc(p.userId)}">${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>${T('Принимает результат','Acceptor')}<select name="acceptorId">${staff.map(p=>`<option value="${esc(p.userId)}">${esc(p.displayName||p.email)}</option>`).join('')}</select></label></div>
+    <div class="quiet-row"><label>${T('Срок','Due')}<input name="promisedAt" type="datetime-local"></label><label>${T('Приоритет','Priority')}<select name="priority"><option value="normal">${T('Обычный','Normal')}</option><option value="high">${T('Высокий','High')}</option><option value="urgent">${T('Срочный','Urgent')}</option></select></label></div>
+    <button class="button primary" type="submit">${T('Создать задачу','Create task')}</button>
+  </form>`,()=>{
+    $('#project-task-form').onsubmit=async event=>{
+      event.preventDefault();
+      const body=Object.fromEntries(new FormData(event.currentTarget));
+      if(body.promisedAt)body.promisedAt=new Date(body.promisedAt).toISOString();else delete body.promisedAt;
+      if(!body.outcome)delete body.outcome;
+      try{
+        await api(`/api/v1/projects/${project.id}/tasks`,{method:'POST',body:JSON.stringify(body)});
+        closeModal();
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}`);S.projectDetail=fresh;render();toast(T('Задача добавлена в проект','Task added to project'));
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+function projectMilestoneModal(){
+  const project=S.projectDetail;
+  if(!project)return;
+  modal(T('Новая веха','New milestone'),`<form id="project-milestone-form" class="form-stack">
+    <label>${T('Название','Title')}<input name="title" maxlength="200" required></label>
+    <label>${T('Описание','Description')}<textarea name="description" maxlength="2000"></textarea></label>
+    <label>${T('Дата и время','Date and time')}<input name="targetAt" type="datetime-local" required></label>
+    <button class="button primary" type="submit">${T('Добавить веху','Add milestone')}</button>
+  </form>`,()=>{
+    $('#project-milestone-form').onsubmit=async event=>{
+      event.preventDefault();
+      const body=Object.fromEntries(new FormData(event.currentTarget));body.targetAt=new Date(body.targetAt).toISOString();if(!body.description)delete body.description;
+      try{await api(`/api/v1/projects/${project.id}/milestones`,{method:'POST',body:JSON.stringify(body)});closeModal();const{project:fresh}=await api(`/api/v1/projects/${project.id}`);S.projectDetail=fresh;render();toast(T('Веха добавлена','Milestone added'))}catch(error){toast(error.message)}
+    };
+  });
+}
+function projectMemberModal(){
+  const project=S.projectDetail;
+  if(!project)return;
+  const existing=new Set((project.members||[]).map(m=>m.userId));
+  const staff=colleagues().filter(p=>!existing.has(p.userId));
+  if(!staff.length)return toast(T('Все сотрудники уже в проекте','All staff are already in the project'));
+  modal(T('Добавить в проект','Add to project'),`<form id="project-member-form" class="form-stack">
+    <label>${T('Сотрудник','Person')}<select name="userId">${staff.map(p=>`<option value="${esc(p.userId)}">${esc(p.displayName||p.email)}</option>`).join('')}</select></label>
+    <label>${T('Роль','Role')}<select name="role"><option value="member">${T('Участник','Member')}</option><option value="lead">${T('Лид','Lead')}</option><option value="observer">${T('Наблюдатель','Observer')}</option></select></label>
+    <button class="button primary" type="submit">${T('Добавить','Add')}</button>
+  </form>`,()=>{
+    $('#project-member-form').onsubmit=async event=>{
+      event.preventDefault();const body=Object.fromEntries(new FormData(event.currentTarget));
+      try{const{project:fresh}=await api(`/api/v1/projects/${project.id}/members`,{method:'POST',body:JSON.stringify(body)});closeModal();S.projectDetail=fresh;render();toast(T('Участник добавлен','Member added'))}catch(error){toast(error.message)}
+    };
+  });
+}
+
 function projectCreateModal(){
   modal(T('Новый проект','New project'),`<form id="project-form" class="form-stack">
     <label>${T('Название','Name')}<input name="name" maxlength="160" required></label>
@@ -1544,7 +1602,7 @@ function projects(){
   const p=S.projectDetail&&S.projectSelected===S.projectDetail.id?S.projectDetail:null;
   if(!p)return `<div class="stack"><section class="surface"><div class="section-head"><div><h2>${T('Проекты','Projects')}</h2><p class="muted">${T('Цель, ответственность, сроки и доказуемое исполнение в одном контексте','Goal, accountability, timing and verifiable execution in one context')}</p></div>${can('project.create')?`<button class="button primary small pressable" data-project-new>＋ ${T('Проект','Project')}</button>`:''}</div></section>${S.projects.length?S.projects.map(projectCard).join(''):`<div class="empty"><strong>${T('Проектов пока нет','No projects yet')}</strong>${T('Создайте первый рабочий контекст','Create the first work context')}</div>`}</div>`;
   return `<div class="stack project-home">
-    <section class="surface project-hero"><div class="section-head"><div><button class="text-button" data-project-back>← ${T('Все проекты','All projects')}</button><h2>${esc(p.name)}</h2><p class="muted">${esc(p.goal||T('Цель не описана','No goal set'))}</p></div><span class="chip">${esc(p.status)}</span></div></section>
+    <section class="surface project-hero"><div class="section-head"><div><button class="text-button" data-project-back>← ${T('Все проекты','All projects')}</button><h2>${esc(p.name)}</h2><p class="muted">${esc(p.goal||T('Цель не описана','No goal set'))}</p></div><div class="inline-actions"><span class="chip">${esc(p.status)}</span>${p.canContribute?`<button class="button secondary small" data-project-task-new>＋ ${T('Задача','Task')}</button><button class="button secondary small" data-project-milestone-new>＋ ${T('Веха','Milestone')}</button>`:''}${p.canManage?`<button class="button secondary small" data-project-member-new>＋ ${T('Участник','Member')}</button>`:''}</div></div></section>
     <div class="project-operating-grid">${projectProgress(p)}${projectWorkload(p)}</div>
     ${projectBoard(p)}
     <div class="page-grid project-grid"><section class="surface"><div class="section-head"><h3>${T('Вехи','Milestones')}</h3></div>${(p.milestones||[]).map(m=>`<div class="row"><span>◆</span><span><div class="row-title">${esc(m.title)}</div><div class="row-sub">${esc(dateTime(m.targetAt))}</div></span></div>`).join('')||`<div class="empty">${T('Вех пока нет','No milestones yet')}</div>`}</section><section class="surface"><div class="section-head"><h3>${T('Команда','Team')}</h3></div>${(p.members||[]).map(m=>`<div class="row"><span>${personAvatar(m.userId,m.displayName)}</span><span><div class="row-title">${esc(m.displayName)}</div><div class="row-sub">${esc(m.role)}</div></span></div>`).join('')}</section></div>
