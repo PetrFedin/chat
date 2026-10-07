@@ -1208,8 +1208,33 @@ export class PostgresStore {
   }
 
   async getTask(s,id){const{rows}=await this.pool.query(`${this.taskSelect()} WHERE c.workspace_id=$1 AND c.id=$2`,[s.workspaceId,id]);return this.taskView(s,rows[0])}
-  async createTask(s,v){if(v.sourceMessageId){const conversationId=await this.messageConversation(s,v.sourceMessageId);if(!conversationId||!await this.canAccessConversation(s,conversationId))throw Object.assign(new Error('Task source message not found'),{code:'TASK_SOURCE_NOT_FOUND',statusCode:404})}return this.tx(async c=>{const ownerId=v.ownerId||s.userId,acceptorId=v.acceptorId||s.userId;for(const userId of new Set([ownerId,acceptorId,s.userId])){const{rows:member}=await c.query('SELECT m.role,u.disabled_at FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=$2',[s.workspaceId,userId]);if(!member.length)throw Object.assign(new Error('Task participant must belong to the workspace'),{code:'INVALID_TASK_MEMBER',statusCode:400});if(member[0].role===GUEST_ROLE)throw Object.assign(new Error('A guest cannot carry a commitment'),{code:'GUEST_CANNOT_HOLD_TASK',statusCode:400});if(member[0].disabled_at)throw Object.assign(new Error('Этот сотрудник уволен: задачу ему поручить нельзя'),{code:'PERSON_DEACTIVATED',statusCode:409,expose:true})}const id=randomUUID(),{rows}=await c.query(`INSERT INTO commitments(id,organization_id,workspace_id,title,outcome,owner_id,requester_id,acceptor_id,source_message_id,status,priority,promised_at,forecast_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'proposed',$10,$11,$12) RETURNING id,organization_id "organizationId",workspace_id "workspaceId",title,outcome,owner_id "ownerId",requester_id "requesterId",acceptor_id "acceptorId",source_message_id "sourceMessageId",status,priority,promised_at "promisedAt",forecast_at "forecastAt",version,created_at "createdAt",updated_at "updatedAt"`,[id,s.organizationId,s.workspaceId,v.title,v.outcome||v.title,ownerId,s.userId,acceptorId,v.sourceMessageId,v.priority||'normal',v.promisedAt,v.forecastAt]);await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload) VALUES($1,$2,'commitment',$3,'commitment.created',$4,$5)`,[s.organizationId,s.workspaceId,id,s.userId,{ownerId,acceptorId,sourceMessageId:v.sourceMessageId??null}]);
-    await c.query(`INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload) VALUES($1,$2,'task.created',$3,$4)`,[s.organizationId,s.workspaceId,id,{taskId:id,ownerId,acceptorId,requesterId:s.userId,status:rows[0].status,promisedAt:rows[0].promisedAt??null}]);return this.taskView(s,{...rows[0],evidenceCount:0})})}
+  async createTaskInDb(c,s,v){
+    const ownerId=v.ownerId||s.userId,acceptorId=v.acceptorId||s.userId;
+    for(const userId of new Set([ownerId,acceptorId,s.userId])){
+      const{rows:member}=await c.query('SELECT m.role,u.disabled_at FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=$2',[s.workspaceId,userId]);
+      if(!member.length)throw Object.assign(new Error('Task participant must belong to the workspace'),{code:'INVALID_TASK_MEMBER',statusCode:400});
+      if(member[0].role===GUEST_ROLE)throw Object.assign(new Error('A guest cannot carry a commitment'),{code:'GUEST_CANNOT_HOLD_TASK',statusCode:400});
+      if(member[0].disabled_at)throw Object.assign(new Error('Этот сотрудник уволен: задачу ему поручить нельзя'),{code:'PERSON_DEACTIVATED',statusCode:409,expose:true});
+    }
+    const id=randomUUID(),{rows}=await c.query(
+      `INSERT INTO commitments(id,organization_id,workspace_id,title,outcome,owner_id,requester_id,acceptor_id,source_message_id,status,priority,promised_at,forecast_at)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'proposed',$10,$11,$12)
+       RETURNING id,organization_id "organizationId",workspace_id "workspaceId",title,outcome,owner_id "ownerId",requester_id "requesterId",acceptor_id "acceptorId",source_message_id "sourceMessageId",status,priority,promised_at "promisedAt",forecast_at "forecastAt",version,created_at "createdAt",updated_at "updatedAt"`,
+      [id,s.organizationId,s.workspaceId,v.title,v.outcome||v.title,ownerId,s.userId,acceptorId,v.sourceMessageId,v.priority||'normal',v.promisedAt,v.forecastAt]);
+    await c.query(`INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload) VALUES($1,$2,'commitment',$3,'commitment.created',$4,$5)`,
+      [s.organizationId,s.workspaceId,id,s.userId,{ownerId,acceptorId,sourceMessageId:v.sourceMessageId??null}]);
+    await c.query(`INSERT INTO outbox_events(organization_id,workspace_id,topic,aggregate_id,payload) VALUES($1,$2,'task.created',$3,$4)`,
+      [s.organizationId,s.workspaceId,id,{taskId:id,ownerId,acceptorId,requesterId:s.userId,status:rows[0].status,promisedAt:rows[0].promisedAt??null}]);
+    return this.taskView(s,{...rows[0],evidenceCount:0});
+  }
+  async createTask(s,v,{client=null}={}){
+    if(v.sourceMessageId){
+      const conversationId=await this.messageConversation(s,v.sourceMessageId);
+      if(!conversationId||!await this.canAccessConversation(s,conversationId))throw Object.assign(new Error('Task source message not found'),{code:'TASK_SOURCE_NOT_FOUND',statusCode:404});
+    }
+    if(client)return this.createTaskInDb(client,s,v);
+    return this.tx(c=>this.createTaskInDb(c,s,v));
+  }
   /**
    * Шаги внутри обязательства.
    *
