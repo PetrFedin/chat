@@ -47,6 +47,15 @@ export function createProjectRepository({pool,store}={}){
          FROM project_milestones WHERE project_id=$1 ORDER BY target_at,id`,[projectId])
   ).rows;
 
+  const assertTaskParticipantsInProject=async(projectId,taskLike)=>{
+    const participantIds=[taskLike.ownerId,taskLike.requesterId,taskLike.acceptorId].filter(Boolean);
+    if(!participantIds.length)return;
+    const{rows}=await pool.query('SELECT user_id FROM project_members WHERE project_id=$1 AND user_id=ANY($2::uuid[])',[projectId,[...new Set(participantIds)]]);
+    const admitted=new Set(rows.map(r=>r.user_id));
+    const missing=[...new Set(participantIds)].filter(id=>!admitted.has(id));
+    if(missing.length)throw fail('Task participants must belong to the project first','TASK_PARTICIPANT_OUTSIDE_PROJECT',409);
+  };
+
   const visibleTasks=async(session,projectId)=>{
     const links=(await pool.query('SELECT commitment_id FROM project_tasks WHERE project_id=$1 ORDER BY linked_at,commitment_id',[projectId])).rows;
     const tasks=(await Promise.all(links.map(link=>store.getTask(session,link.commitment_id)))).filter(Boolean);
@@ -245,6 +254,7 @@ export function createProjectRepository({pool,store}={}){
     async createTask(session,id,input){
       const project=await row(session,id);
       assertProjectContribute(project,session);
+      await assertTaskParticipantsInProject(id,{ownerId:input.ownerId||session.userId,requesterId:session.userId,acceptorId:input.acceptorId||session.userId});
       return tx(async client=>{
         const task=await store.createTask(session,input,{client});
         await client.query(
@@ -264,6 +274,7 @@ export function createProjectRepository({pool,store}={}){
       assertProjectContribute(project,session);
       const task=await store.getTask(session,taskId);
       if(!task)throw fail('Task not found','TASK_NOT_FOUND',404);
+      await assertTaskParticipantsInProject(id,task);
       try{
         await pool.query(
           `INSERT INTO project_tasks(project_id,workspace_id,commitment_id,linked_by) VALUES($1,$2,$3,$4)`,
