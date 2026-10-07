@@ -339,7 +339,7 @@ export function createCalendarRepository(pool, store = null) {
     if (row.ownerId === session.userId || participant || hasPermission(session.role, Permission.CALENDAR_MANAGE_TEAM)) return row;
     return {
       ...row, title: 'Занято', description: null, busyOnly: true, conversationId: null, conversationTitle: null,
-      commitmentId: null, commitmentTitle: null, participantCount: 0, fileCount: 0,
+      commitmentId: null, commitmentTitle: null, projectId: null, projectName: null, participantCount: 0, fileCount: 0,
     };
   };
 
@@ -493,13 +493,23 @@ export function createCalendarRepository(pool, store = null) {
      * A range read that also says, per event, whether this viewer still owes
      * an answer — which is what the month and week grids mark.
      */
-    async listRange(session, { from = null, to = null, limit = 2000 } = {}) {
+    async listRange(session, { from = null, to = null, limit = 2000, projectId = null } = {}) {
       // Без диапазона сервер честно собирал всю историю: пять лет работы —
       // это девять тысяч событий в одном ответе. Календарь всегда смотрят
       // вокруг какой-то даты, поэтому умолчание — три месяца в обе стороны.
       const since = from ?? new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
       const until = to ?? new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
       const size = Math.min(Math.max(Number(limit) || 2000, 1), 5000);
+      if(projectId){
+        const visible=await pool.query(
+          `SELECT 1
+             FROM projects p
+             LEFT JOIN project_members pm ON pm.project_id=p.id AND pm.user_id=$3
+            WHERE p.workspace_id=$1 AND p.id=$2
+              AND (p.visibility='workspace' OR p.owner_id=$3 OR pm.user_id IS NOT NULL)`,
+          [session.workspaceId,projectId,session.userId]);
+        if(!visible.rowCount)throw fail('Project not found','PROJECT_NOT_FOUND',404);
+      }
       const { rows } = await pool.query(
         `SELECT e.id,e.kind,e.title,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",e.all_day "allDay",
                 -- Пояс встречи нужен сетке: «весь день» — это календарная
@@ -509,11 +519,14 @@ export function createCalendarRepository(pool, store = null) {
                 -- оказывался тридцатым.
                 e.timezone,
                 e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
+                pt.project_id "projectId",p.name "projectName",
                 pa.response_status "myResponse",
                 (SELECT count(*)::int FROM calendar_event_participants x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id) "participantCount",
                 (SELECT count(*)::int FROM calendar_event_files ef WHERE ef.workspace_id=e.workspace_id AND ef.calendar_event_id=e.id) "fileCount"
          FROM calendar_events e
          LEFT JOIN calendar_event_participants pa ON pa.workspace_id=e.workspace_id AND pa.calendar_event_id=e.id AND pa.user_id=$4
+         LEFT JOIN project_tasks pt ON pt.workspace_id=e.workspace_id AND pt.commitment_id=e.commitment_id
+         LEFT JOIN projects p ON p.id=pt.project_id AND p.workspace_id=e.workspace_id
          WHERE e.workspace_id=$1
            -- Серия сюда не попадает: её первая встреча — такое же
            -- вхождение, как остальные, и приходит раскрытой. Иначе
@@ -525,15 +538,17 @@ export function createCalendarRepository(pool, store = null) {
                 OR (e.visibility='workspace' AND $5<>'guest')
                 OR (e.visibility='participants' AND (pa.user_id IS NOT NULL
                     OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$4))))
+           AND ($7::uuid IS NULL OR pt.project_id=$7)
          ORDER BY e.start_at, e.id
          LIMIT $6`,
-        [session.workspaceId, since, until, session.userId, session.role, size],
+        [session.workspaceId, since, until, session.userId, session.role, size, projectId],
       );
       const single = rows.map((row) => ({ ...busyOnly(session, row, row.myResponse != null), needsMyAnswer: row.myResponse === 'invited' }));
-      const series = await repository.expandSeries(session, { since, until, size });
-      const layers = await repository.calendarLayers(session, { since, until });
-      // Одиночные и вхождения серий — один список, отсортированный по
-      // времени: сетке календаря всё равно, чем встреча была в базе.
+      const series = await repository.expandSeries(session, { since, until, size, projectId });
+      const milestones = await repository.projectMilestoneLayers(session, { since, until, projectId });
+      const layers = projectId ? milestones : [...await repository.calendarLayers(session, { since, until }), ...milestones];
+      // Milestones are read-only Project projections. Task blocks remain
+      // canonical Calendar events; neither side copies the other's authority.
       return [...single, ...series, ...layers].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)).slice(0, size);
     },
 
@@ -549,10 +564,11 @@ export function createCalendarRepository(pool, store = null) {
      * отличает одну планёрку от другой, а сервер понимает, о каком
      * вхождении речь, когда его просят отменить.
      */
-    async expandSeries(session, { since, until, size }) {
+    async expandSeries(session, { since, until, size, projectId = null }) {
       const { rows } = await pool.query(
         `SELECT e.id,e.kind,e.title,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",e.all_day "allDay",
                 e.timezone,e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
+                pt.project_id "projectId",p.name "projectName",
                 e.recurrence_rule "recurrenceRule",
                 pa.response_status "myResponse",
                 (SELECT count(*)::int FROM calendar_event_participants x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id) "participantCount",
@@ -562,13 +578,16 @@ export function createCalendarRepository(pool, store = null) {
                   WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id),'[]') "exceptions"
          FROM calendar_events e
          LEFT JOIN calendar_event_participants pa ON pa.workspace_id=e.workspace_id AND pa.calendar_event_id=e.id AND pa.user_id=$3
+         LEFT JOIN project_tasks pt ON pt.workspace_id=e.workspace_id AND pt.commitment_id=e.commitment_id
+         LEFT JOIN projects p ON p.id=pt.project_id AND p.workspace_id=e.workspace_id
          WHERE e.workspace_id=$1 AND e.recurrence_rule IS NOT NULL
            AND e.start_at <= $2
            AND (e.owner_id=$3
                 OR (e.visibility='workspace' AND $4<>'guest')
                 OR (e.visibility='participants' AND (pa.user_id IS NOT NULL
-                    OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))))`,
-        [session.workspaceId, until, session.userId, session.role],
+                    OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))))
+           AND ($5::uuid IS NULL OR pt.project_id=$5)`,
+        [session.workspaceId, until, session.userId, session.role, projectId],
       );
 
       const out = [];
@@ -615,6 +634,30 @@ export function createCalendarRepository(pool, store = null) {
      * попадают в отчёты о встречах — но в сетке календаря быть обязаны,
      * иначе планёрку назначают на 9 мая.
      */
+    async projectMilestoneLayers(session,{since,until,projectId=null}={}){
+      if(session.role==='guest')return[];
+      const {rows}=await pool.query(
+        `SELECT m.id "milestoneId",m.project_id "projectId",m.title,m.target_at "startAt",
+                p.name "projectName",p.owner_id "ownerId"
+           FROM project_milestones m
+           JOIN projects p ON p.id=m.project_id AND p.workspace_id=m.workspace_id
+           LEFT JOIN project_members pm ON pm.project_id=p.id AND pm.user_id=$4
+          WHERE m.workspace_id=$1
+            AND m.status='planned'
+            AND m.target_at >= $2::timestamptz AND m.target_at <= $3::timestamptz
+            AND (p.visibility='workspace' OR p.owner_id=$4 OR pm.user_id IS NOT NULL)
+            AND ($5::uuid IS NULL OR p.id=$5)
+          ORDER BY m.target_at,m.id`,
+        [session.workspaceId,since,until,session.userId,projectId]);
+      return rows.map(row=>({
+        id:`project-milestone@${row.milestoneId}`,
+        milestoneId:row.milestoneId,projectId:row.projectId,projectName:row.projectName,
+        kind:'milestone',title:row.title,startAt:new Date(row.startAt).toISOString(),endAt:null,
+        allDay:false,timezone:'UTC',visibility:'project',ownerId:row.ownerId,
+        participantCount:0,fileCount:0,needsMyAnswer:false,readOnly:true,projectProjection:true,
+      }));
+    },
+
     async calendarLayers(session, { since, until }) {
       const { rows: settings } = await pool.query(
         'SELECT show_birthdays "showBirthdays", show_holidays "showHolidays" FROM workspaces WHERE id=$1',
