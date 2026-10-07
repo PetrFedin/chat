@@ -732,3 +732,8 @@ h4{font-size:15px;font-weight:700}
 .project-kpi-strip>span{display:grid;gap:3px;padding:9px 10px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface-2)}
 .project-kpi-strip small{color:var(--muted);font-size:11px}
 .project-kpi-strip strong{font-size:15px}
+
+
+.project-kanban-open{display:grid;gap:6px;width:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left}
+.project-task-actions{display:flex;gap:6px;flex-wrap:wrap;padding-top:8px;margin-top:8px;border-top:1px solid var(--line)}
+.project-task-actions .text-button{font-size:11px}
