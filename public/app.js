@@ -1121,7 +1121,7 @@ function calendar(){
       <span class="chip">${esc(new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'short'}))}</span>
     </div>`:`<button class="calendar-event pressable ${esc(e.kind)} ${e.needsMyAnswer?'needs-answer':''}" data-cal-event="${esc(e.id)}" data-cal-drag="${esc(e.id)}">
       <strong>${e.allDay?'весь день':esc(time(e.startAt))}${(c.view!=='day'&&!c.selected)?`<i class="event-day">${esc(new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',c.view==='month'?{day:'numeric',month:'short'}:{weekday:'short',day:'numeric'}))}</i>`:''}</strong><span class="event-line"></span>
-      <div><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(KIND_LABEL[e.kind]||e.kind)}${e.participantCount?` · ${e.participantCount} участн.`:''}${e.fileCount?` · ${e.fileCount} файл.`:''}</div></div>
+      <div><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(KIND_LABEL[e.kind]||e.kind)}${e.projectName?` · ${esc(e.projectName)}`:''}${e.participantCount?` · ${e.participantCount} участн.`:''}${e.fileCount?` · ${e.fileCount} файл.`:''}</div></div>
       ${e.needsMyAnswer?'<span class="chip pulse">нужен ответ</span>':`<span class="chip warm">${e.allDay?esc(T('весь день','all day')):e.endAt?esc(time(e.endAt)):'—'}</span>`}
     </button>`).join(''):'<div class="surface empty"><strong>Здесь пусто</strong></div>';
 
