@@ -518,12 +518,11 @@ function shell(){const s=me();$('#profile-card').innerHTML=`${personAvatar(s.use
 
 /** What the workspace actually is, since the switcher implies there is more than one. */
 function navMarkup(items){return items.map(([id,i,l])=>`<button class="nav-item pressable ${S.view===id?'active':''}" data-nav="${id}"${S.view===id?' aria-current="page"':''}><span class="nav-icon">${i}</span><span>${l}</span></button>`).join('')}
-function navs(){
-  const mobile=visibleNav();
-  const desktop=[...mobile];
+function navs(){const html=visibleNav().map(([id,i,l])=>`<button class="nav-item pressable ${S.view===id?'active':''}" data-nav="${id}"${S.view===id?' aria-current="page"':''}><span class="nav-icon">${i}</span><span>${l}</span></button>`).join('');
+  $('#mobile-nav').innerHTML=html;
+  const desktop=[...visibleNav()];
   if(!guestShell()&&!S.projectsUnavailable)desktop.splice(Math.max(0,desktop.length-1),0,['projects',navIcon.projects,T('Проекты','Projects')]);
   $('#desktop-nav').innerHTML=navMarkup(desktop);
-  $('#mobile-nav').innerHTML=navMarkup(mobile);
 }
 function lists(){const channels=S.conversations.filter(c=>['channel','team','project'].includes(c.kind)),dm=S.conversations.filter(c=>['direct','group'].includes(c.kind));$('#channel-list').innerHTML=channels.map(c=>side(c,'#')).join('');$('#direct-list').innerHTML=dm.map(c=>side(c,'')).join('')}
 function side(c,prefix){return `<button class="sidebar-row pressable ${S.selected===c.id?'active':''}" data-conversation="${c.id}"><span>${prefix||'<span class="presence-dot online"></span>'}</span><span class="label">${esc(c.title||'Диалог')}</span></button>`}
