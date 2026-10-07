@@ -41,7 +41,9 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
   const ownerCookie=owner.cookie;
   const lead=await invite(base,ownerCookie,`lead-${suffix}@projects.test`,'Lead','manager');
   const member=await invite(base,ownerCookie,`member-${suffix}@projects.test`,'Member');
+  const observer=await invite(base,ownerCookie,`observer-${suffix}@projects.test`,'Observer');
   const outsider=await invite(base,ownerCookie,`outside-${suffix}@projects.test`,'Outside');
+  const guest=await invite(base,ownerCookie,`guest-${suffix}@projects.test`,'Guest','guest');
 
   const projectCreated=await request(base,'/api/v1/projects',{cookie:ownerCookie,method:'POST',body:{
     name:'Investor readiness',goal:'Close the execution loop for the investor demo',visibility:'members',status:'active',
@@ -57,6 +59,22 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
   assert.equal(addLead.response.status,200);
   const addMember=await request(base,`/api/v1/projects/${projectId}/members`,{cookie:lead.cookie,method:'POST',body:{userId:member.userId,role:'member'}});
   assert.equal(addMember.response.status,200);
+  const addObserver=await request(base,`/api/v1/projects/${projectId}/members`,{cookie:lead.cookie,method:'POST',body:{userId:observer.userId,role:'observer'}});
+  assert.equal(addObserver.response.status,200);
+
+  const observerView=await request(base,`/api/v1/projects/${projectId}`,{cookie:observer.cookie});
+  assert.equal(observerView.response.status,200);
+  assert.equal(observerView.payload.project.canContribute,false);
+  const observerMilestone=await request(base,`/api/v1/projects/${projectId}/milestones`,{cookie:observer.cookie,method:'POST',body:{title:'Must be refused',targetAt:'2026-10-21T12:00:00.000Z'}});
+  assert.equal(observerMilestone.response.status,403);
+  assert.equal(observerMilestone.payload.error.code,'PROJECT_FORBIDDEN');
+
+  const memberManage=await request(base,`/api/v1/projects/${projectId}/members`,{cookie:member.cookie,method:'POST',body:{userId:outsider.userId,role:'member'}});
+  assert.equal(memberManage.response.status,403);
+  assert.equal(memberManage.payload.error.code,'PROJECT_FORBIDDEN');
+
+  const guestList=await request(base,'/api/v1/projects',{cookie:guest.cookie});
+  assert.equal(guestList.response.status,404);
 
   const milestone=await request(base,`/api/v1/projects/${projectId}/milestones`,{cookie:lead.cookie,method:'POST',body:{title:'Golden path accepted',targetAt:'2026-10-20T12:00:00.000Z'}});
   assert.equal(milestone.response.status,201);
@@ -84,6 +102,15 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
   assert.equal(detail.payload.project.analytics.closed30d.length,30);
   assert.ok(detail.payload.project.workload.some(row=>row.userId===member.userId&&row.total===1));
   assert.ok(detail.payload.project.milestones.some(row=>row.id===milestone.payload.milestone.id));
+  assert.ok(detail.payload.project.activity.some(row=>row.eventType==='project.task_linked'));
+
+  const milestoneUpdate=await request(base,`/api/v1/projects/${projectId}/milestones/${milestone.payload.milestone.id}`,{
+    cookie:lead.cookie,method:'PATCH',body:{status:'reached',expectedVersion:milestone.payload.milestone.version}
+  });
+  assert.equal(milestoneUpdate.response.status,200);
+  assert.equal(milestoneUpdate.payload.milestone.status,'reached');
+  const afterMilestone=await request(base,`/api/v1/projects/${projectId}`,{cookie:lead.cookie});
+  assert.ok(afterMilestone.payload.project.activity.some(row=>row.eventType==='project.milestone_updated'));
 
   const taskDetail=await request(base,`/api/v1/tasks/${taskId}`,{cookie:member.cookie});
   assert.equal(taskDetail.response.status,200);
