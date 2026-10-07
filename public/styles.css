@@ -741,3 +741,5 @@ h4{font-size:15px;font-weight:700}
 .project-next-milestone{display:grid;gap:3px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
 .project-next-milestone small{color:var(--muted);font-size:11px}
 .project-risk-card .compact{gap:4px}
+
+.project-task-meta{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
