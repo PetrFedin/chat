@@ -233,7 +233,8 @@ export function createProjectRepository({pool,store}={}){
       const project=await row(session,id);
       assertProjectManage(project,session);
       if(userId===project.ownerId)throw fail('Project owner cannot be removed','PROJECT_OWNER_REQUIRED',409);
-      await pool.query('DELETE FROM project_members WHERE project_id=$1 AND user_id=$2',[id,userId]);
+      const removed=await pool.query('DELETE FROM project_members WHERE project_id=$1 AND user_id=$2 RETURNING user_id',[id,userId]);
+      if(!removed.rowCount)throw fail('Project member not found','PROJECT_MEMBER_NOT_FOUND',404);
       await pool.query(
         `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
          VALUES($1,$2,'project',$3,'project.member_removed',$4,$5)`,
@@ -271,13 +272,22 @@ export function createProjectRepository({pool,store}={}){
         if(error.code==='23505')throw fail('Task already belongs to a project','TASK_ALREADY_IN_PROJECT',409);
         throw error;
       }
+      await pool.query(
+        `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+         VALUES($1,$2,'project',$3,'project.task_linked',$4,$5)`,
+        [session.organizationId,session.workspaceId,id,session.userId,{taskId,source:'existing'}]);
       return this.get(session,id);
     },
 
     async unlinkTask(session,id,taskId){
       const project=await row(session,id);
       assertProjectManage(project,session);
-      await pool.query('DELETE FROM project_tasks WHERE project_id=$1 AND commitment_id=$2',[id,taskId]);
+      const removed=await pool.query('DELETE FROM project_tasks WHERE project_id=$1 AND commitment_id=$2 RETURNING commitment_id',[id,taskId]);
+      if(!removed.rowCount)throw fail('Project task link not found','PROJECT_TASK_NOT_FOUND',404);
+      await pool.query(
+        `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+         VALUES($1,$2,'project',$3,'project.task_unlinked',$4,$5)`,
+        [session.organizationId,session.workspaceId,id,session.userId,{taskId}]);
       return this.get(session,id);
     },
 
@@ -313,6 +323,10 @@ export function createProjectRepository({pool,store}={}){
           RETURNING id,project_id "projectId",title,description,target_at "targetAt",status,version,created_by "createdBy",created_at "createdAt",updated_at "updatedAt"`,
         [id,milestoneId,expected,patch.title??current.title,patch.description!==undefined?patch.description:current.description,patch.targetAt??current.targetAt,patch.status??current.status]);
       if(!rows[0])throw fail('Milestone changed in another session','MILESTONE_VERSION_CONFLICT',409);
+      await pool.query(
+        `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+         VALUES($1,$2,'project',$3,'project.milestone_updated',$4,$5)`,
+        [session.organizationId,session.workspaceId,id,session.userId,{milestoneId,from:{status:current.status,targetAt:current.targetAt},to:{status:rows[0].status,targetAt:rows[0].targetAt},version:rows[0].version}]);
       return rows[0];
     }
   };
