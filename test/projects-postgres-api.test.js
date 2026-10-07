@@ -79,6 +79,12 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
   const milestone=await request(base,`/api/v1/projects/${projectId}/milestones`,{cookie:lead.cookie,method:'POST',body:{title:'Golden path accepted',targetAt:'2026-10-20T12:00:00.000Z'}});
   assert.equal(milestone.response.status,201);
 
+  const outsideTask=await request(base,`/api/v1/projects/${projectId}/tasks`,{cookie:lead.cookie,method:'POST',body:{
+    title:'Must not escape project team',ownerId:outsider.userId,acceptorId:lead.userId
+  }});
+  assert.equal(outsideTask.response.status,409);
+  assert.equal(outsideTask.payload.error.code,'TASK_PARTICIPANT_OUTSIDE_PROJECT');
+
   const createdTask=await request(base,`/api/v1/projects/${projectId}/tasks`,{cookie:lead.cookie,method:'POST',body:{
     title:'Prepare investor walkthrough',outcome:'Walkthrough is accepted by owner',ownerId:member.userId,acceptorId:lead.userId,priority:'high',
     promisedAt:'2026-10-18T12:00:00.000Z'
@@ -118,6 +124,8 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
 
   const secondProject=await request(base,'/api/v1/projects',{cookie:ownerCookie,method:'POST',body:{name:'Second context',goal:'Must not steal the same task'}});
   assert.equal(secondProject.response.status,201);
+  await request(base,`/api/v1/projects/${secondProject.payload.project.id}/members`,{cookie:ownerCookie,method:'POST',body:{userId:lead.userId,role:'lead'}});
+  await request(base,`/api/v1/projects/${secondProject.payload.project.id}/members`,{cookie:ownerCookie,method:'POST',body:{userId:member.userId,role:'member'}});
   const duplicateLink=await request(base,`/api/v1/projects/${secondProject.payload.project.id}/tasks`,{cookie:ownerCookie,method:'POST',body:{taskId}});
   assert.equal(duplicateLink.response.status,409);
   assert.equal(duplicateLink.payload.error.code,'TASK_ALREADY_IN_PROJECT');
