@@ -123,7 +123,12 @@ Current implementation on `feat/projects-operating-cockpit`:
 - a task belongs to at most one Project context in the first version, preventing contradictory portfolio ownership;
 - project milestones are native project target points with their own optimistic version;
 - project detail projects visible canonical tasks into progress, blocked/overdue counts and workload;
-- Project Operating Cockpit exposes portfolio -> project -> progress -> workload -> execution board -> milestones -> team;
+- Project Operating Cockpit exposes portfolio -> project -> progress -> workload -> execution risk -> execution board -> milestones -> team;
+- Project Home can create canonical tasks, milestones and members directly; these actions call server authorities rather than keeping client-only state;
+- Project risk is explainable rather than scored: overdue work, unresolved task dependencies, forecast beyond promise and work beyond the project target are derived from canonical Task/Milestone data;
+- Project analytics now derives 30-day tracked time and throughput from existing time entries and task closure data;
+- monitor/tablet expose Projects in the left work rail; phone preserves the five-item bottom navigation and reaches Projects through More;
+- a dedicated PostgreSQL browser E2E covers create project -> milestone -> canonical task -> planned board -> canonical Task detail plus tablet/phone navigation;
 - Kanban columns are a read-only projection of canonical task states. Card movement must not be enabled until it invokes the normal Task Authority transition contract;
 - members-only projects return 404 to non-members instead of leaking that a private project exists;
 - guests cannot enter the Projects module.
@@ -174,6 +179,15 @@ These capabilities should gain project-scoped views/links rather than new parall
 5. governed board transition proposal calls Task Authority and handles invalid transitions honestly;
 6. responsive phone/tablet/monitor UI without duplicate mobile business logic;
 7. roadmap and OpenAPI updated in the same change.
+
+**Still intentionally open after this slice**
+
+- Calendar-wide projection/filtering of project milestones and project task blocks;
+- explicit Project <-> Files / Discussion / Decision relations;
+- richer portfolio cross-project capacity/critical-path analysis;
+- reference-video personalisation: accent palette and first-day-of-week preference.
+
+These remain below the authority/browser release gate and must not delay a green Project execution loop.
 
 
 ## Phase 3 — Pages/wiki
