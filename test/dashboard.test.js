@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createChatServer } from '../src/server.js';
+import { MemoryStore } from '../src/persistence/store.js';
 
 const DATABASE_URL = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 
