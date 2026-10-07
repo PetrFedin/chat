@@ -373,7 +373,7 @@ async function routeFromHash(){
   const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?');
   const parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);
   if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);if(!document.querySelector('#modal-heading'))history.replaceState(null,'','#/tasks');return}
-  if(parts[0]==='projects'&&parts[1]){await openProject(parts[1],{silent:true});return}
+  if(parts[0]==='projects'&&parts[1]){if(guestShell()){go('today',{silent:true});return}await openProject(parts[1],{silent:true});return}
   if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}
   // У задачи и беседы адрес был, у встречи — нет: уведомление «вас позвали»
   // вело в общий календарь, и человек искал нужную встречу глазами.
