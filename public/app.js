@@ -1062,7 +1062,8 @@ function calendar(){
       :fmt({month:'long',year:'numeric'}).format(base);
     return `<div class="calendar-toolbar">
       <div><h2>${esc(label)}</h2></div>
-      <div class="inline-actions">
+      <div class="inline-actions calendar-toolbar-actions">
+        ${S.projects?.length?`<label class="calendar-project-filter"><span>${esc(T('Проект','Project'))}</span><select data-calendar-project-filter><option value="">${esc(T('Все проекты','All projects'))}</option>${S.projects.map(p=>`<option value="${esc(p.id)}"${c.projectId===p.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
         <button data-action="calendar-subscribe" class="button secondary small pressable">Подписка</button>
         ${can('calendar.create')?'<button data-action="event" class="button primary small pressable">＋ Событие</button>':''}
       </div>
@@ -1114,9 +1115,9 @@ function calendar(){
   // Праздники и дни рождения — не встречи: их никто не заводил, открыть
   // у них нечего, и кнопкой они быть не должны. Строка, а не карточка.
   const rows=shown.length?shown.map(e=>e.readOnly?`<div class="calendar-event layer ${esc(e.kind)}">
-      <strong>${e.kind==='birthday'?'🎂':(e.dayOff?'☼':'◔')}</strong>
+      <strong>${e.kind==='birthday'?'🎂':e.kind==='milestone'?'◆':(e.dayOff?'☼':'◔')}</strong>
       <div><div class="row-title">${esc(e.title)}</div>
-        <div class="row-sub">${e.kind==='birthday'?'поздравьте коллегу':(e.dayOff?'нерабочий день':'сокращённый день')}</div></div>
+        <div class="row-sub">${e.kind==='milestone'?`${esc(T('Веха проекта','Project milestone'))}${e.projectName?` · ${esc(e.projectName)}`:''}`:e.kind==='birthday'?T('Поздравьте коллегу','Congratulate your colleague'):(e.dayOff?T('Нерабочий день','Non-working day'):T('Сокращённый день','Short day'))}</div></div>
       <span class="chip">${esc(new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'short'}))}</span>
     </div>`:`<button class="calendar-event pressable ${esc(e.kind)} ${e.needsMyAnswer?'needs-answer':''}" data-cal-event="${esc(e.id)}" data-cal-drag="${esc(e.id)}">
       <strong>${e.allDay?'весь день':esc(time(e.startAt))}${(c.view!=='day'&&!c.selected)?`<i class="event-day">${esc(new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',c.view==='month'?{day:'numeric',month:'short'}:{weekday:'short',day:'numeric'}))}</i>`:''}</strong><span class="event-line"></span>
@@ -1206,6 +1207,8 @@ function bindCalendar(){
     else d.setDate(d.getDate()+step);
     c.cursor=d;c.selected=null;await loadCalendarRange();render();
   });
+  const projectFilter=$('[data-calendar-project-filter]');
+  if(projectFilter)projectFilter.onchange=async()=>{c.projectId=projectFilter.value||null;c.selected=null;await loadCalendarRange();render()};
   const todayButton=$('[data-cal-today]');
   if(todayButton)todayButton.onclick=async()=>{c.cursor=new Date();c.selected=null;await loadCalendarRange();render()};
   $$('[data-cal-day]').forEach(b=>b.onclick=()=>{
@@ -1256,7 +1259,7 @@ async function loadCalendarRange(){
   const c=S.cal||(S.cal={view:(window.matchMedia&&window.matchMedia('(max-width:700px)').matches)?'agenda':'week',cursor:new Date(),selected:null});
   const from=new Date(c.cursor),to=new Date(c.cursor);
   from.setDate(from.getDate()-45);to.setDate(to.getDate()+45);
-  try{S.calendar=((await api(`/api/v1/calendar-events?from=${from.toISOString()}&to=${to.toISOString()}`)).items||[]).map(e=>e.busyOnly?{...e,title:T('Занято','Busy')}:e)}catch{}
+  try{const query=new URLSearchParams({from:from.toISOString(),to:to.toISOString()});if(c.projectId)query.set('projectId',c.projectId);S.calendar=((await api(`/api/v1/calendar-events?${query}`)).items||[]).map(e=>e.busyOnly?{...e,title:T('Занято','Busy')}:e)}catch{}
 }
 
 const RESPONSE_LABEL={invited:'ждёт ответа',accepted:'придёт',tentative:'под вопросом',declined:'не придёт'};
