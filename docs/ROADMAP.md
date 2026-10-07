@@ -191,6 +191,25 @@ GET/HEAD before it reaches a route handler. Revocation is immediate
 recent integrations (Telegram, the .ics feed): honest `503` in memory
 mode rather than a second, untested code path.
 
+**Native Projects / Project Operating Cockpit (2026-10-07, in progress)**  
+A native Project Authority is being added without creating a second task engine.
+Project metadata/membership/milestones live in PostgreSQL; project tasks are only
+relations to ordinary canonical commitments. Project Home computes progress,
+blocked/overdue mix and workload from tasks the viewer is already allowed to
+see, and its Kanban is deliberately a projection rather than a writable status
+store. The supplied project-management reference video has been folded into the
+design selectively: first-class Projects, compact project KPIs, execution board,
+workload, milestone/time adjacency and later project analytics are adopted;
+existing ChatX Dashboard/Team/Calendar/Time/Search/Notifications are reused
+rather than rebuilt. The current slice now also derives explainable execution-risk signals (overdue,
+unresolved dependencies, forecast over promise, work beyond target), 30-day
+project time and throughput, and lets Project Home create canonical tasks,
+milestones and members. A PostgreSQL browser E2E covers the user route rather
+than treating the API test as sufficient proof. Accent colour and week-start
+preferences remain useful but lower priority; Calendar-wide milestone projection
+and explicit Project <-> Files/Discussion/Decision relations are the next
+Project-layer gaps after the release gate is green.
+
 ## Gaps — real, scoped, not yet done
 
 Ordered by how much it costs the product that it's missing, not by how
