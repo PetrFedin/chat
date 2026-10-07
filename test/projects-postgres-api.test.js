@@ -74,6 +74,10 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
   assert.equal(detail.payload.project.metrics.visibleTasks,1);
   assert.equal(detail.payload.project.metrics.done,0);
   assert.equal(detail.payload.project.metrics.progress,0);
+  assert.equal(detail.payload.project.metrics.trackedSeconds,0);
+  assert.equal(detail.payload.project.metrics.throughput30d,0);
+  assert.equal(detail.payload.project.analytics.time30d.length,30);
+  assert.equal(detail.payload.project.analytics.closed30d.length,30);
   assert.ok(detail.payload.project.workload.some(row=>row.userId===member.userId&&row.total===1));
   assert.ok(detail.payload.project.milestones.some(row=>row.id===milestone.payload.milestone.id));
 
