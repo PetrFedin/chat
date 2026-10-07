@@ -110,7 +110,71 @@ Remaining Phase 1 boundary:
 **Phase 1 status: GREEN for the internal Task <-> Calendar authority and interaction loop.**
 
 ## Phase 2 — Projects
-Native project, milestone, dependency, checklist and collaborator entities reference existing tasks/files/channels/decisions. Plane/Vikunja are design references only.
+
+**Implementation status (2026-10-07): native Project Authority and Operating Cockpit IN PROGRESS.**
+
+Native project, milestone, dependency, checklist and collaborator entities reference existing tasks/files/channels/decisions. Plane/Vikunja and the 2026-10-07 product-reference video are design/interaction references only.
+
+Current implementation on `feat/projects-operating-cockpit`:
+
+- PostgreSQL Project Authority: project metadata, visibility, owner, members and optimistic version;
+- project-task relation references canonical `commitments`; task status is never copied into Project;
+- creating a task from Project uses the same PostgresStore Task Authority inside the same database transaction as the project link;
+- a task belongs to at most one Project context in the first version, preventing contradictory portfolio ownership;
+- project milestones are native project target points with their own optimistic version;
+- project detail projects visible canonical tasks into progress, blocked/overdue counts and workload;
+- Project Operating Cockpit exposes portfolio -> project -> progress -> workload -> execution board -> milestones -> team;
+- Kanban columns are a read-only projection of canonical task states. Card movement must not be enabled until it invokes the normal Task Authority transition contract;
+- members-only projects return 404 to non-members instead of leaking that a private project exists;
+- guests cannot enter the Projects module.
+
+### 2026-10-07 reference-video integration matrix
+
+The supplied MP4 was reviewed from the source file, not only from screenshots. Its useful pattern is a compact project-management operating surface with first-class Projects, project KPIs, board execution, people/workload, calendar/time adjacency and appearance preferences.
+
+**ADOPT / integrate into ChatX**
+
+- first-class Projects navigation on monitor/tablet;
+- compact project portfolio and Project Home;
+- project KPI/progress surface derived from canonical work;
+- Kanban execution board derived from Task Authority;
+- project team/workload view;
+- milestone and schedule adjacency;
+- project-scoped time and throughput analytics;
+- compact information density for monitor/tablet;
+- later: accent colour preference and first-day-of-week preference.
+
+**ALREADY STRONGER IN CHATX — do not duplicate**
+
+- Tasks with accountable owner/acceptor, evidence, review, return/resubmit and closure;
+- Calendar with conflict authority, working schedule and audited move/reschedule;
+- Team/people and organisation structure;
+- Time tracking and time report;
+- Dashboard metrics;
+- notifications/mentions;
+- search;
+- messaging/calls/files.
+
+These capabilities should gain project-scoped views/links rather than new parallel systems.
+
+**DO NOT COPY**
+
+- a second task status machine owned by a Kanban board;
+- a separate project calendar truth;
+- a second time-tracking engine;
+- dashboard numbers stored independently from Task/Time authorities;
+- cosmetic drag-and-drop that bypasses transition permissions, evidence gates or audit.
+
+**NEXT acceptance for Phase 2**
+
+1. PostgreSQL/API Project test green for owner/lead/member/outsider;
+2. project create -> member -> milestone -> task -> task transition -> updated project projection;
+3. project board cards open the canonical Task;
+4. project-scoped time/throughput analytics use existing time-entry/task-report sources;
+5. governed board transition proposal calls Task Authority and handles invalid transitions honestly;
+6. responsive phone/tablet/monitor UI without duplicate mobile business logic;
+7. roadmap and OpenAPI updated in the same change.
+
 
 ## Phase 3 — Pages/wiki
 Use Tiptap with hierarchy, links, mentions, history, ACL and relations to project/task/meeting/channel. Critical task state never lives only in page text.
