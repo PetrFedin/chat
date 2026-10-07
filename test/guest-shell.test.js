@@ -87,7 +87,8 @@ test('гостю не показывают то, чего сервер ему н
     'нижнее меню снова строится из полного списка разделов');
 
   // Адрес — тоже вход: по #/tasks гость попадал на вечно пустой экран.
-  assert.match(app, /if\(guestShell\(\)&&\(GUEST_HIDDEN_VIEWS\.has\(v\)\|\|v==='projects'\)\)\{v='today'/);\n  assert.match(app, /if\(parts\[0\]==='projects'&&parts\[1\]\)\{if\(guestShell\(\)\)\{go\('today'/);
+  assert.match(app, /if\(guestShell\(\)&&\(GUEST_HIDDEN_VIEWS\.has\(v\)\|\|v==='projects'\)\)\{v='today'/);
+  assert.match(app, /if\(parts\[0\]==='projects'&&parts\[1\]\)\{if\(guestShell\(\)\)\{go\('today'/);
 
   // Строки быстрого захвата на главной больше нет: на телефоне у неё
   // пряталась кнопка, и панель выглядела нерабочей. Создание живёт в
