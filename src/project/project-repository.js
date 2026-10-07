@@ -198,16 +198,18 @@ export function createProjectRepository({pool,store}={}){
     async createTask(session,id,input){
       const project=await row(session,id);
       assertProjectContribute(project,session);
-      const task=await store.createTask(session,input);
-      await pool.query(
-        `INSERT INTO project_tasks(project_id,workspace_id,commitment_id,linked_by)
-         VALUES($1,$2,$3,$4)`,
-        [id,session.workspaceId,task.id,session.userId]);
-      await pool.query(
-        `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
-         VALUES($1,$2,'project',$3,'project.task_linked',$4,$5)`,
-        [session.organizationId,session.workspaceId,id,session.userId,{taskId:task.id}]);
-      return task;
+      return tx(async client=>{
+        const task=await store.createTask(session,input,{client});
+        await client.query(
+          `INSERT INTO project_tasks(project_id,workspace_id,commitment_id,linked_by)
+           VALUES($1,$2,$3,$4)`,
+          [id,session.workspaceId,task.id,session.userId]);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'project',$3,'project.task_linked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{taskId:task.id}]);
+        return task;
+      });
     },
 
     async linkTask(session,id,taskId){
