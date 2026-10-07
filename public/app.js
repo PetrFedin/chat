@@ -1498,9 +1498,41 @@ function projectWorkload(project){
 function projectBoard(project){
   const tasks=project.tasks||[];
   return `<section class="surface"><div class="section-head"><div><h3>${T('Доска исполнения','Execution board')}</h3><p class="muted">${T('Это представление Task Authority, а не отдельная система статусов','A projection of Task Authority, not a second status system')}</p></div></div>
-    <div class="project-kanban">${PROJECT_COLUMNS.map(([key,label,statuses])=>{const items=tasks.filter(t=>statuses.has(t.status));return `<section class="project-kanban-column" data-project-column="${key}"><div class="project-kanban-head"><strong>${esc(label)}</strong><span class="chip">${items.length}</span></div><div class="project-kanban-list">${items.map(t=>`<button class="project-kanban-card pressable${taskOverdue(t)?' overdue':''}" data-task-open="${esc(t.id)}"><span class="row-title">${esc(t.title)}</span><span class="row-sub">${esc(name(t.ownerId))}${t.promisedAt?` · ${esc(dateTime(t.promisedAt))}`:''}</span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`).join('')||`<div class="project-kanban-empty">${T('Пусто','Empty')}</div>`}</div></section>`}).join('')}</div>
+    <div class="project-kanban">${PROJECT_COLUMNS.map(([key,label,statuses])=>{const items=tasks.filter(t=>statuses.has(t.status));return `<section class="project-kanban-column" data-project-column="${key}"><div class="project-kanban-head"><strong>${esc(label)}</strong><span class="chip">${items.length}</span></div><div class="project-kanban-list">${items.map(t=>`<article class="project-kanban-card${taskOverdue(t)?' overdue':''}">
+          <button class="project-kanban-open pressable" data-task-open="${esc(t.id)}"><span class="row-title">${esc(t.title)}</span><span class="row-sub">${esc(name(t.ownerId))}${t.promisedAt?` · ${esc(dateTime(t.promisedAt))}`:''}</span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>
+          ${(t.allowedTransitions||[]).length?`<div class="project-task-actions">${(t.allowedTransitions||[]).map(to=>`<button class="text-button" data-project-task-transition="${esc(t.id)}" data-project-task-to="${esc(to)}">${esc(taskActionLabel(t,to))}</button>`).join('')}</div>`:''}
+        </article>`).join('')||`<div class="project-kanban-empty">${T('Пусто','Empty')}</div>`}</div></section>`}).join('')}</div>
   </section>`;
 }
+async function executeProjectTaskTransition(task,to,reason){
+  try{
+    const{task:updated}=await api(`/api/v1/tasks/${task.id}/transitions`,{method:'POST',body:JSON.stringify({to,reason,expectedVersion:task.version})});
+    upsertTask(updated);
+    if(S.projectSelected){
+      const{project}=await api(`/api/v1/projects/${S.projectSelected}`);
+      S.projectDetail=project;
+    }
+    toast(TASK_STATUS[updated.status]||T('Задача обновлена','Task updated'));
+    render();
+  }catch(error){
+    toast(error.message);
+    if(error.code==='STALE_TASK_ACTION'&&S.projectSelected){
+      const current=await api(`/api/v1/projects/${S.projectSelected}`).catch(()=>null);
+      if(current?.project)S.projectDetail=current.project;
+      render();
+    }
+  }
+}
+function projectTaskTransition(task,to){
+  if(taskReasonRequired(task,to)){
+    modal(taskActionLabel(task,to),`<form id="project-task-transition-form" class="form-stack"><p class="muted">${T('Причина будет сохранена в истории канонической задачи.','The reason will be stored in the canonical task history.')}</p><label>${T('Причина','Reason')}<textarea name="reason" rows="4" required></textarea></label><button class="button primary">${esc(taskActionLabel(task,to))}</button></form>`,()=>{
+      $('#project-task-transition-form').onsubmit=async event=>{event.preventDefault();const reason=new FormData(event.currentTarget).get('reason');closeModal();await executeProjectTaskTransition(task,to,reason)};
+    });
+    return;
+  }
+  executeProjectTaskTransition(task,to,null);
+}
+
 function projectCreateModal(){
   modal(T('Новый проект','New project'),`<form id="project-form" class="form-stack">
     <label>${T('Название','Name')}<input name="name" maxlength="160" required></label>
@@ -1527,7 +1559,12 @@ function bind(){
   $('[data-project-open]').forEach(b=>b.onclick=()=>openProject(b.dataset.projectOpen));
   $('[data-project-new]').forEach(b=>b.onclick=projectCreateModal);
   $('[data-project-back]').forEach(b=>b.onclick=()=>{S.projectSelected=null;S.projectDetail=null;go('projects')});
-    $('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
+  $('[data-project-task-transition]').forEach(b=>b.onclick=event=>{
+    event.stopPropagation();
+    const task=(S.projectDetail?.tasks||[]).find(t=>t.id===b.dataset.projectTaskTransition);
+    if(task)projectTaskTransition(task,b.dataset.projectTaskTo);
+  });
+  $('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
   $$('[data-task-filter]').forEach(b=>b.onclick=async()=>{
     S.taskFilter=b.dataset.taskFilter;S.tasksCursor=null;
     await loadTaskPage();render();
