@@ -26,7 +26,8 @@ export const openapi = Object.freeze({
     { name: 'Chat Assistant' },
     { name: 'Wiki' },
     { name: 'Time Tracking' },
-    { name: 'Dashboard' }
+    { name: 'Dashboard' },
+    { name: 'Projects' }
   ],
   components: {
     securitySchemes: {
@@ -48,6 +49,33 @@ export const openapi = Object.freeze({
     '/api/v1/notifications/{notificationId}/read': { post: { tags: ['Attention'], summary: 'Mark one notification as read', responses: { '200': { description: 'Notification read state' }, '404': { description: 'Notification not visible' } } } },
     '/api/v1/mentions': { get: { tags: ['Attention'], summary: 'List current user mentions', responses: { '200': { description: 'Mention notification list' } } } },
     '/api/v1/search': { get: { tags: ['Search'], summary: 'Search accessible messages, conversations, tasks, files, people and calendar events', description: 'Files match on their name and on their text: plain text, docx, xlsx, pptx and PDFs with a text layer are read on upload. Scans and password-protected files are not indexed — the first needs recognition, the second cannot be opened, and pretending they are searchable is worse than saying so. A hit inside a file carries insideFile:true and a snippet where the matched word is wrapped in \\u0002 and \\u0003 rather than markup.', responses: { '200': { description: 'Permission-filtered search results' } } } },
+    '/api/v1/projects': {
+      get: { tags: ['Projects'], summary: 'List projects visible to the current user', responses: { '200': { description: 'Permission-filtered projects' } } },
+      post: { tags: ['Projects'], summary: 'Create a native project work context', description: 'Project metadata is authoritative only for the project itself. Task and Calendar state remain in their own authorities.', responses: { '201': { description: 'Project created' }, '403': { description: 'Project creation permission denied' } } }
+    },
+    '/api/v1/projects/{projectId}': {
+      get: { tags: ['Projects'], summary: 'Get a project operating cockpit', description: 'Returns members, milestones, visible canonical tasks, progress/workload metrics and recent project/task activity. Metrics are projections, not stored task state.', responses: { '200': { description: 'Project detail' }, '404': { description: 'Project is not visible' } } },
+      patch: { tags: ['Projects'], summary: 'Update project metadata with optimistic versioning', responses: { '200': { description: 'Project updated' }, '403': { description: 'Project management authority denied' }, '409': { description: 'Stale project version' } } }
+    },
+    '/api/v1/projects/{projectId}/members': {
+      post: { tags: ['Projects'], summary: 'Add or update a project member role', description: 'Only active workspace staff can be project members; guests cannot be added.', responses: { '200': { description: 'Project membership updated' }, '403': { description: 'Project management authority denied' } } }
+    },
+    '/api/v1/projects/{projectId}/members/{userId}': {
+      delete: { tags: ['Projects'], summary: 'Remove a project member', responses: { '200': { description: 'Member removed' }, '409': { description: 'Project owner cannot be removed' } } }
+    },
+    '/api/v1/projects/{projectId}/tasks': {
+      post: { tags: ['Projects'], summary: 'Create or link a canonical task to a project', description: 'Creating a task and project relation is atomic. The project never copies task status; Kanban/progress are computed projections.', responses: { '201': { description: 'Canonical task created and linked' }, '200': { description: 'Existing visible task linked' }, '409': { description: 'Task already belongs to another project' } } }
+    },
+    '/api/v1/projects/{projectId}/tasks/{taskId}': {
+      delete: { tags: ['Projects'], summary: 'Unlink a task from a project without deleting the task', responses: { '200': { description: 'Task relation removed' } } }
+    },
+    '/api/v1/projects/{projectId}/milestones': {
+      post: { tags: ['Projects'], summary: 'Create a project milestone', description: 'A milestone is a project target point. Calendar may project it later but Calendar does not own milestone status.', responses: { '201': { description: 'Milestone created' } } }
+    },
+    '/api/v1/projects/{projectId}/milestones/{milestoneId}': {
+      patch: { tags: ['Projects'], summary: 'Update a milestone with optimistic versioning', responses: { '200': { description: 'Milestone updated' }, '409': { description: 'Stale milestone version' } } }
+    },
+
     '/api/v1/tasks': {
       get: { tags: ['Workspace'], summary: 'List tasks visible to the current accountable workflow participant',
         parameters: [
