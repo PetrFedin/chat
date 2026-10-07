@@ -67,7 +67,7 @@ test('дашборд отдаёт дневной ряд и совпадает п
 });
 
 test('без базы дашборд честно отвечает 503, а не тихо молчит', async (t) => {
-  const app = await createChatServer({ startMeetingWorker: false });
+  const app = await createChatServer({ store:new MemoryStore(),mode:'memory',startMeetingWorker:false });
   await new Promise((resolve) => app.server.listen(0, '127.0.0.1', resolve));
   t.after(() => app.close());
   const base = `http://127.0.0.1:${app.server.address().port}`;
