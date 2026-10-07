@@ -201,8 +201,14 @@ store. The supplied project-management reference video has been folded into the
 design selectively: first-class Projects, compact project KPIs, execution board,
 workload, milestone/time adjacency and later project analytics are adopted;
 existing ChatX Dashboard/Team/Calendar/Time/Search/Notifications are reused
-rather than rebuilt. Accent colour and week-start preferences are useful but
-lower priority than closing the execution cockpit.
+rather than rebuilt. The current slice now also derives explainable execution-risk signals (overdue,
+unresolved dependencies, forecast over promise, work beyond target), 30-day
+project time and throughput, and lets Project Home create canonical tasks,
+milestones and members. A PostgreSQL browser E2E covers the user route rather
+than treating the API test as sufficient proof. Accent colour and week-start
+preferences remain useful but lower priority; Calendar-wide milestone projection
+and explicit Project <-> Files/Discussion/Decision relations are the next
+Project-layer gaps after the release gate is green.
 
 ## Gaps — real, scoped, not yet done
 
