@@ -48,11 +48,7 @@ export function createProjectRepository({pool,store}={}){
   ).rows;
 
   const visibleTasks=async(session,projectId)=>{
-    const links=(await pool.query('SELECT commitment_id FROM project_tasks WHERE project_id=$1 ORDER BY linked_at,id',[projectId]).catch(async(error)=>{
-      // project_tasks has no id column by design; keep order stable on commitment id.
-      if(error.code!=='42703')throw error;
-      return pool.query('SELECT commitment_id FROM project_tasks WHERE project_id=$1 ORDER BY linked_at,commitment_id',[projectId]);
-    })).rows;
+    const links=(await pool.query('SELECT commitment_id FROM project_tasks WHERE project_id=$1 ORDER BY linked_at,commitment_id',[projectId])).rows;
     const tasks=(await Promise.all(links.map(link=>store.getTask(session,link.commitment_id)))).filter(Boolean);
     return tasks;
   };
