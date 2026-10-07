@@ -1809,6 +1809,7 @@ function go(v,{silent=false}={}){
   // заводил задачу, шёл в «Задачи» — и видел «здесь пусто»: список был
   // тот же, что при входе. Входя на экран, перечитываем его.
   if(v==='tasks')loadTaskPage().then(()=>render());
+  if(v==='calendar')loadCalendarRange().then(()=>render());
   if(v==='projects'){S.projectSelected=null;S.projectDetail=null;loadProjects().then(()=>render())}
   if(v!=='chats')S.mobileChat=false;
   // A screen opened after scrolling another one started halfway down it: the
