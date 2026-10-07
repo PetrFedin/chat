@@ -69,6 +69,16 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
   await card.locator('[data-task-open]').click();
   await page.locator('#modal-heading').waitFor({state:'visible',timeout:5000});
   assert.match(await page.locator('#modal-heading').textContent(),/Prepare investor walkthrough/);
+  await page.locator('[data-close]').first().click();
+
+  await page.locator('#desktop-nav [data-nav="calendar"]').click();
+  const projectFilter=page.locator('[data-calendar-project-filter]');
+  await projectFilter.waitFor({state:'visible',timeout:5000});
+  await projectFilter.selectOption({label:'Investor Readiness'});
+  const milestoneRow=page.locator('.calendar-event.layer.milestone').filter({hasText:'Golden path accepted'});
+  await milestoneRow.waitFor({state:'visible',timeout:10000});
+  assert.match(await milestoneRow.textContent(),/Investor Readiness/);
+  assert.equal(await milestoneRow.locator('button').count(),0,'milestone projection must remain read-only in Calendar');
 
   assert.deepEqual(pageErrors,[],`page errors: ${pageErrors.join(' | ')}`);
   assert.deepEqual(consoleErrors,[],`console errors: ${consoleErrors.join(' | ')}`);
