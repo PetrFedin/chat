@@ -1486,6 +1486,7 @@ function projectProgress(project){
     <div class="section-head"><div><h3>${T('Прогресс','Progress')}</h3><p class="muted">${T('По доступным вам каноническим задачам','From canonical tasks visible to you')}</p></div><strong class="project-progress-value">${Number(m.progress||0)}%</strong></div>
     <div class="project-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Number(m.progress||0)}"><span style="width:${Number(m.progress||0)}%"></span></div>
     <div class="project-progress-legend"><span>${Number(m.active||0)} ${T('активно','active')}</span><span>${Number(m.done||0)} ${T('готово','done')}</span><span>${Number(m.blocked||0)} ${T('заблокировано','blocked')}</span><span>${Number(m.overdue||0)} ${T('просрочено','overdue')}</span></div>
+    <div class="project-kpi-strip"><span><small>${T('Время · 30 дней','Time · 30 days')}</small><strong class="mono">${formatDuration(Number(m.trackedSeconds||0))}</strong></span><span><small>${T('Закрыто · 30 дней','Closed · 30 days')}</small><strong class="mono">${Number(m.throughput30d||0)}</strong></span></div>
   </section>`;
 }
 function projectWorkload(project){
