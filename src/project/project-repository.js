@@ -65,6 +65,40 @@ export function createProjectRepository({pool,store}={}){
       [session.workspaceId,ids])).rows;
   };
 
+  const analytics=async(session,projectId,visibleTaskIds)=>{
+    if(!visibleTaskIds.length)return{trackedSeconds:0,throughput30d:0,closed30d:[],time30d:[]};
+    const from=new Date(Date.now()-29*86400000);from.setUTCHours(0,0,0,0);
+    const to=new Date();to.setUTCHours(23,59,59,999);
+    const params=[session.workspaceId,visibleTaskIds,from.toISOString(),to.toISOString()];
+    const [time,closed]=await Promise.all([
+      pool.query(
+        `WITH days AS (SELECT generate_series($3::date,$4::date,interval '1 day') d),
+             scoped AS (
+               SELECT t.started_at,t.ended_at FROM time_entries t
+               WHERE t.workspace_id=$1 AND t.task_id=ANY($2::uuid[]) AND t.ended_at IS NOT NULL
+             )
+         SELECT days.d::date "date",
+                COALESCE(sum(extract(epoch FROM (LEAST(scoped.ended_at,days.d+interval '1 day')-GREATEST(scoped.started_at,days.d))))
+                  FILTER(WHERE scoped.started_at<days.d+interval '1 day' AND scoped.ended_at>days.d),0)::bigint "seconds"
+           FROM days LEFT JOIN scoped ON scoped.started_at<days.d+interval '1 day' AND scoped.ended_at>days.d
+          GROUP BY days.d ORDER BY days.d`,params),
+      pool.query(
+        `WITH days AS (SELECT generate_series($3::date,$4::date,interval '1 day') d)
+         SELECT days.d::date "date",
+                count(c.id) FILTER(WHERE c.closed_at>=days.d AND c.closed_at<days.d+interval '1 day')::int "closed"
+           FROM days
+           LEFT JOIN commitments c ON c.workspace_id=$1 AND c.id=ANY($2::uuid[])
+          GROUP BY days.d ORDER BY days.d`,params),
+    ]);
+    const time30d=time.rows.map(r=>({date:r.date,seconds:Number(r.seconds||0)}));
+    const closed30d=closed.rows.map(r=>({date:r.date,closed:Number(r.closed||0)}));
+    return{
+      trackedSeconds:time30d.reduce((sum,r)=>sum+r.seconds,0),
+      throughput30d:closed30d.reduce((sum,r)=>sum+r.closed,0),
+      time30d,closed30d,
+    };
+  };
+
   const enrich=async(session,project)=>{
     const [team,marks,tasks]=await Promise.all([members(project.id),milestones(project.id),visibleTasks(session,project.id)]);
     const active=tasks.filter(t=>ACTIVE_TASK.has(t.status));
@@ -81,8 +115,11 @@ export function createProjectRepository({pool,store}={}){
       if(task.promisedAt&&Date.parse(task.promisedAt)<Date.now())item.overdue+=1;
       workload.set(key,item);
     }
+    const projectAnalytics=await analytics(session,project.id,tasks.map(t=>t.id));
     return{...project,members:team,milestones:marks,tasks,
-      metrics:{visibleTasks:tasks.length,active:active.length,done:done.length,blocked:blocked.length,overdue:overdue.length,progress},
+      metrics:{visibleTasks:tasks.length,active:active.length,done:done.length,blocked:blocked.length,overdue:overdue.length,progress,
+        trackedSeconds:projectAnalytics.trackedSeconds,throughput30d:projectAnalytics.throughput30d},
+      analytics:projectAnalytics,
       workload:[...workload.values()].map(item=>({...item,displayName:item.userId==='unassigned'?'':(team.find(m=>m.userId===item.userId)?.displayName??item.userId)})),
       activity:await activity(session,project.id,tasks.map(t=>t.id)),
       canManage:project.ownerId===session.userId||project.memberRole==='lead'||['owner','admin'].includes(session.role),
