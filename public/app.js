@@ -1549,7 +1549,8 @@ function projectTaskTransition(task,to){
 function projectTaskModal(){
   const project=S.projectDetail;
   if(!project)return;
-  const staff=colleagues();
+  const admitted=new Set((project.members||[]).map(m=>m.userId));
+  const staff=colleagues().filter(p=>admitted.has(p.userId));
   modal(T('Задача проекта','Project task'),`<form id="project-task-form" class="form-stack">
     <label>${T('Задача','Task')}<input name="title" maxlength="200" required></label>
     <label>${T('Результат','Outcome')}<textarea name="outcome" maxlength="2000"></textarea></label>
