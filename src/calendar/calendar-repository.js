@@ -501,6 +501,7 @@ export function createCalendarRepository(pool, store = null) {
       const until = to ?? new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
       const size = Math.min(Math.max(Number(limit) || 2000, 1), 5000);
       if(projectId){
+        if(session.role==='guest')throw fail('Project not found','PROJECT_NOT_FOUND',404);
         const visible=await pool.query(
           `SELECT 1
              FROM projects p
@@ -519,7 +520,8 @@ export function createCalendarRepository(pool, store = null) {
                 -- оказывался тридцатым.
                 e.timezone,
                 e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
-                pt.project_id "projectId",p.name "projectName",
+                CASE WHEN p.visibility='workspace' OR p.owner_id=$4 OR ppm.user_id IS NOT NULL THEN pt.project_id ELSE NULL END "projectId",
+                CASE WHEN p.visibility='workspace' OR p.owner_id=$4 OR ppm.user_id IS NOT NULL THEN p.name ELSE NULL END "projectName",
                 pa.response_status "myResponse",
                 (SELECT count(*)::int FROM calendar_event_participants x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id) "participantCount",
                 (SELECT count(*)::int FROM calendar_event_files ef WHERE ef.workspace_id=e.workspace_id AND ef.calendar_event_id=e.id) "fileCount"
@@ -527,6 +529,7 @@ export function createCalendarRepository(pool, store = null) {
          LEFT JOIN calendar_event_participants pa ON pa.workspace_id=e.workspace_id AND pa.calendar_event_id=e.id AND pa.user_id=$4
          LEFT JOIN project_tasks pt ON pt.workspace_id=e.workspace_id AND pt.commitment_id=e.commitment_id
          LEFT JOIN projects p ON p.id=pt.project_id AND p.workspace_id=e.workspace_id
+         LEFT JOIN project_members ppm ON ppm.project_id=p.id AND ppm.user_id=$4
          WHERE e.workspace_id=$1
            -- Серия сюда не попадает: её первая встреча — такое же
            -- вхождение, как остальные, и приходит раскрытой. Иначе
@@ -568,7 +571,8 @@ export function createCalendarRepository(pool, store = null) {
       const { rows } = await pool.query(
         `SELECT e.id,e.kind,e.title,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",e.all_day "allDay",
                 e.timezone,e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
-                pt.project_id "projectId",p.name "projectName",
+                CASE WHEN p.visibility='workspace' OR p.owner_id=$3 OR ppm.user_id IS NOT NULL THEN pt.project_id ELSE NULL END "projectId",
+                CASE WHEN p.visibility='workspace' OR p.owner_id=$3 OR ppm.user_id IS NOT NULL THEN p.name ELSE NULL END "projectName",
                 e.recurrence_rule "recurrenceRule",
                 pa.response_status "myResponse",
                 (SELECT count(*)::int FROM calendar_event_participants x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id) "participantCount",
@@ -580,6 +584,7 @@ export function createCalendarRepository(pool, store = null) {
          LEFT JOIN calendar_event_participants pa ON pa.workspace_id=e.workspace_id AND pa.calendar_event_id=e.id AND pa.user_id=$3
          LEFT JOIN project_tasks pt ON pt.workspace_id=e.workspace_id AND pt.commitment_id=e.commitment_id
          LEFT JOIN projects p ON p.id=pt.project_id AND p.workspace_id=e.workspace_id
+         LEFT JOIN project_members ppm ON ppm.project_id=p.id AND ppm.user_id=$3
          WHERE e.workspace_id=$1 AND e.recurrence_rule IS NOT NULL
            AND e.start_at <= $2
            AND (e.owner_id=$3
