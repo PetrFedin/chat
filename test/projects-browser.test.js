@@ -56,7 +56,7 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
   await page.locator('#project-milestone-form [name="title"]').fill('Golden path accepted');
   await page.locator('#project-milestone-form [name="targetAt"]').fill('2026-10-20T12:00');
   await page.locator('#project-milestone-form button[type="submit"]').click();
-  await page.getByText('Golden path accepted',{exact:true}).waitFor({state:'visible',timeout:5000});
+  await page.locator('.project-grid').getByText('Golden path accepted',{exact:true}).waitFor({state:'visible',timeout:5000});
 
   await page.locator('[data-project-task-new]').click();
   await page.locator('#project-task-form [name="title"]').fill('Prepare investor walkthrough');
