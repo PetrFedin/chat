@@ -981,7 +981,7 @@ async function loadTaskPage({append=false}={}){
   }catch(error){toast(error.message)}
 }
 function calendar(){
-  const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
+  const c=S.cal||(S.cal={view:(window.matchMedia&&window.matchMedia('(max-width:700px)').matches)?'agenda':'week',cursor:new Date(),selected:null});
   const base=new Date(c.cursor);
   const fmt=(o)=>new Intl.DateTimeFormat(locale()==='en'?'en-GB':'ru',o);
   const sameDay=(a,b)=>a.toDateString()===b.toDateString();
@@ -1035,6 +1035,7 @@ function calendar(){
   const header=()=>{
     const label=c.view==='day'?fmt({day:'numeric',month:'long',year:'numeric'}).format(base)
       :c.view==='week'?`${fmt({day:'numeric',month:'short'}).format(weekStart())} — ${fmt({day:'numeric',month:'short',year:'numeric'}).format(new Date(weekStart().getTime()+6*864e5))}`
+      :c.view==='agenda'?`${fmt({day:'numeric',month:'short'}).format(base)} — ${fmt({day:'numeric',month:'short',year:'numeric'}).format(new Date(base.getTime()+13*864e5))}`
       :fmt({month:'long',year:'numeric'}).format(base);
     return `<div class="calendar-toolbar">
       <div><h2>${esc(label)}</h2></div>
@@ -1044,7 +1045,7 @@ function calendar(){
       </div>
     </div>
     <div class="cal-controls">
-      <div class="cal-switch">${['day','week','month'].map(v=>`<button class="cal-tab ${c.view===v?'active':''}" data-cal-view="${v}">${v==='day'?'День':v==='week'?'Неделя':'Месяц'}</button>`).join('')}</div>
+      <div class="cal-switch">${['day','week','agenda','month'].map(v=>`<button class="cal-tab ${c.view===v?'active':''}" data-cal-view="${v}">${v==='day'?'День':v==='week'?'Неделя':v==='agenda'?'Повестка':'Месяц'}</button>`).join('')}</div>
       <div class="cal-nav"><button data-cal-step="-1" class="round-button pressable" aria-label="Назад">‹</button><button data-cal-today class="button secondary small pressable">Сегодня</button><button data-cal-step="1" class="round-button pressable" aria-label="Вперёд">›</button></div>
     </div>`;
   };
@@ -1081,11 +1082,12 @@ function calendar(){
     const d=eventDay(e);
     if(c.view==='day')return eventsOn(base).includes(e);
     if(c.view==='week'){const s0=weekStart();return overlaps(e,s0,new Date(s0.getTime()+7*864e5))}
+    if(c.view==='agenda'){const s0=new Date(base);s0.setHours(0,0,0,0);return overlaps(e,s0,new Date(s0.getTime()+14*864e5))}
     return overlaps(e,new Date(base.getFullYear(),base.getMonth(),1),new Date(base.getFullYear(),base.getMonth()+1,1));
   };
   const onSelectedDay=(e)=>{const [y,m,d]=String(c.selected).split('-').map(Number);return eventsOn(new Date(y,m,d)).includes(e)};
   const shown=(S.calendar||[]).filter(e=>c.selected?onSelectedDay(e):inPeriod(e));
-  const heading=c.selected?'Выбранный день':(c.view==='day'?'События дня':c.view==='week'?'События недели':'События месяца');
+  const heading=c.selected?'Выбранный день':(c.view==='day'?'События дня':c.view==='week'?'События недели':c.view==='agenda'?'Повестка на 14 дней':'События месяца');
   // Праздники и дни рождения — не встречи: их никто не заводил, открыть
   // у них нечего, и кнопкой они быть не должны. Строка, а не карточка.
   const rows=shown.length?shown.map(e=>e.readOnly?`<div class="calendar-event layer ${esc(e.kind)}">
@@ -1093,7 +1095,7 @@ function calendar(){
       <div><div class="row-title">${esc(e.title)}</div>
         <div class="row-sub">${e.kind==='birthday'?'поздравьте коллегу':(e.dayOff?'нерабочий день':'сокращённый день')}</div></div>
       <span class="chip">${esc(new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'short'}))}</span>
-    </div>`:`<button class="calendar-event pressable ${esc(e.kind)} ${e.needsMyAnswer?'needs-answer':''}" data-cal-event="${esc(e.id)}">
+    </div>`:`<button class="calendar-event pressable ${esc(e.kind)} ${e.needsMyAnswer?'needs-answer':''}" data-cal-event="${esc(e.id)}" data-cal-drag="${esc(e.id)}">
       <strong>${e.allDay?'весь день':esc(time(e.startAt))}${(c.view!=='day'&&!c.selected)?`<i class="event-day">${esc(new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',c.view==='month'?{day:'numeric',month:'short'}:{weekday:'short',day:'numeric'}))}</i>`:''}</strong><span class="event-line"></span>
       <div><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(KIND_LABEL[e.kind]||e.kind)}${e.participantCount?` · ${e.participantCount} участн.`:''}${e.fileCount?` · ${e.fileCount} файл.`:''}</div></div>
       ${e.needsMyAnswer?'<span class="chip pulse">нужен ответ</span>':`<span class="chip warm">${e.allDay?esc(T('весь день','all day')):e.endAt?esc(time(e.endAt)):'—'}</span>`}
@@ -1104,6 +1106,46 @@ function calendar(){
     <div class="calendar-list">${rows}</div>`;
 }
 const KIND_LABEL={meeting:'Встреча',focus:'Фокус',task_block:'Работа над задачей',deadline:'Дедлайн',reminder:'Напоминание',milestone:'Веха',other:'Событие'};
+
+async function calendarMoveModal(eventId,targetDate){
+  try{
+    const result=await api('/api/v1/calendar-events/'+encodeURIComponent(eventId)+'/move-preview?targetDate='+encodeURIComponent(targetDate));
+    const preview=result.preview,conflicts=preview.conflicts||[],hasConflicts=conflicts.length>0;
+    const conflictHtml=hasConflicts
+      ? `<div class="away-notice"><strong>${esc(T('Есть конфликт','There is a conflict'))}</strong><div class="stack" style="margin-top:8px">${conflicts.map(item=>`<div class="row"><span>◷</span><span><div class="row-title">${esc(item.title)}</div><div class="row-sub">${esc(dateTime(item.startAt))} — ${esc(time(item.endAt))}${item.occurrenceAt?` · ${esc(T('повторяющаяся серия','recurring series'))}`:''}</div></span></div>`).join('')}</div></div>`
+      : '';
+    const overlapHtml=hasConflicts
+      ? `<label class="checkline"><input type="checkbox" name="allowConflict"> <span>${esc(T('Сохранить несмотря на показанный конфликт','Save despite the shown conflict'))}</span></label>`
+      : '';
+    modal(T('Перенести событие','Move event'),`<form id="calendar-move-form" class="form-stack">
+      <div class="surface"><div class="section-title">${esc(preview.title)}</div>
+        <div class="row-sub">${esc(T('Сейчас','Current'))}: ${esc(dateTime(preview.currentStartAt))}${preview.currentEndAt?` — ${esc(time(preview.currentEndAt))}`:''}</div>
+        <div class="row-sub">${esc(T('Будет','New'))}: ${esc(dateTime(preview.startAt))}${preview.endAt?` — ${esc(time(preview.endAt))}`:''} · ${esc(preview.timezone||'UTC')}</div>
+      </div>
+      ${conflictHtml}
+      <label>${esc(T('Причина переноса','Move reason'))}<textarea name="reason" rows="3" required minlength="3" maxlength="500" placeholder="${esc(T('Почему меняется время','Why the time is changing'))}"></textarea></label>
+      ${overlapHtml}
+      <div class="inline-actions"><button class="button primary" type="submit">${esc(T('Перенести','Move'))}</button><button class="button secondary" type="button" data-close>${esc(T('Отмена','Cancel'))}</button></div>
+    </form>`);
+    const form=$('#calendar-move-form');
+    form.onsubmit=async event=>{
+      event.preventDefault();
+      const data=new FormData(form),reason=String(data.get('reason')||'').trim();
+      if(reason.length<3){toast(T('Укажите причину переноса','Add a move reason'));return}
+      if(hasConflicts&&!data.get('allowConflict')){toast(T('Подтвердите конфликт или выберите другой день','Confirm the conflict or choose another day'));return}
+      try{
+        await api('/api/v1/calendar-events/'+encodeURIComponent(eventId),{method:'PATCH',body:JSON.stringify({
+          targetDate,moveReason:reason,changeSource:'drag',allowConflict:Boolean(data.get('allowConflict')),
+        })});
+        toast(T('Событие перенесено','Event moved'));
+        closeModal();await loadCalendarRange();render();
+      }catch(error){
+        toast(error.message);
+        if(error.code==='CALENDAR_CONFLICT'){closeModal();await calendarMoveModal(eventId,targetDate)}
+      }
+    };
+  }catch(error){toast(error.message)}
+}
 
 // Bindings for the calendar grid, re-attached on every render.
 function bindCalendar(){
@@ -1137,6 +1179,7 @@ function bindCalendar(){
     const step=Number(b.dataset.calStep),d=new Date(c.cursor);
     if(c.view==='month')d.setMonth(d.getMonth()+step);
     else if(c.view==='week')d.setDate(d.getDate()+7*step);
+    else if(c.view==='agenda')d.setDate(d.getDate()+14*step);
     else d.setDate(d.getDate()+step);
     c.cursor=d;c.selected=null;await loadCalendarRange();render();
   });
@@ -1147,7 +1190,30 @@ function bindCalendar(){
     if(c.view==='day'){c.cursor=d}else{const key=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;c.selected=c.selected===key?null:key}
     render();
   });
-  $$('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
+  const dragEnabled=Boolean(window.matchMedia&&window.matchMedia('(pointer:fine)').matches&&(c.view==='week'||c.view==='month'));
+  $$('[data-cal-event]').forEach(b=>{
+    b.onclick=()=>eventPage(b.dataset.calEvent);
+    b.draggable=dragEnabled;
+    if(dragEnabled)b.ondragstart=(event)=>{
+      event.dataTransfer.effectAllowed='move';
+      event.dataTransfer.setData('text/plain',b.dataset.calEvent);
+      b.classList.add('dragging');
+    };
+    b.ondragend=()=>b.classList.remove('dragging');
+  });
+  $$('[data-cal-day]').forEach(day=>{
+    if(!dragEnabled)return;
+    day.ondragover=(event)=>{event.preventDefault();event.dataTransfer.dropEffect='move';day.classList.add('drop-target')};
+    day.ondragleave=()=>day.classList.remove('drop-target');
+    day.ondrop=(event)=>{
+      event.preventDefault();day.classList.remove('drop-target');
+      const eventId=event.dataTransfer.getData('text/plain');
+      if(!eventId)return;
+      const d=new Date(day.dataset.calDay);
+      const targetDate=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      void calendarMoveModal(eventId,targetDate);
+    };
+  });
 }
 
 /** Кружки людей: клик и клавиша открывают карточку. */
@@ -1164,7 +1230,7 @@ function bindPeopleAvatars(){
 // Load a window wide enough for the current view, so the grid never shows a
 // month with events missing from its edges.
 async function loadCalendarRange(){
-  const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
+  const c=S.cal||(S.cal={view:(window.matchMedia&&window.matchMedia('(max-width:700px)').matches)?'agenda':'week',cursor:new Date(),selected:null});
   const from=new Date(c.cursor),to=new Date(c.cursor);
   from.setDate(from.getDate()-45);to.setDate(to.getDate()+45);
   try{S.calendar=((await api(`/api/v1/calendar-events?from=${from.toISOString()}&to=${to.toISOString()}`)).items||[]).map(e=>e.busyOnly?{...e,title:T('Занято','Busy')}:e)}catch{}

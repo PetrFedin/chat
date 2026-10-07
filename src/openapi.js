@@ -287,8 +287,16 @@ export const openapi = Object.freeze({
     '/api/v1/labelled/{targetType}/{targetId}': { get: { tags: ['Labels'], summary: 'What is on one object, importance first', responses: { '200': { description: 'Labels on the target' } } } },
     '/api/v1/calendar-events/{id}': {
       get: { tags: ['Calendar'], summary: 'One event with participants, answers and attachments', responses: { '200': { description: 'Event detail' }, '404': { description: 'Not visible to you' } } },
-      patch: { tags: ['Calendar'], summary: 'Edit the event; moving it re-asks everyone', description: 'Organiser only. Changing startAt or endAt resets every answer to invited and notifies the attendees: an answer to the old time is not an answer to the new one.', responses: { '200': { description: 'Event updated' }, '403': { description: 'Not the organiser' }, '400': { description: 'The event must end after it starts' } } },
+      patch: { tags: ['Calendar'], summary: 'Edit or move the event; moving it re-asks everyone', description: 'Changing startAt/endAt resets attendee answers. A calendar drag uses targetDate + mandatory moveReason: the server preserves wall-clock time in the event timezone, runs the canonical conflict gate and writes calendar.event_moved audit with reason/source.', responses: { '200': { description: 'Event updated' }, '400': { description: 'Invalid range/date or move reason required' }, '403': { description: 'Not allowed to edit the event' }, '409': { description: 'Calendar conflict unless explicitly approved' } } },
       delete: { tags: ['Calendar'], summary: 'Cancel the event and tell the attendees', responses: { '204': { description: 'Cancelled' }, '403': { description: 'Not the organiser' } } }
+    },
+    '/api/v1/calendar-events/{id}/move-preview': {
+      get: {
+        tags: ['Calendar'],
+        summary: 'Preview an auditable drag move to another calendar date',
+        description: 'Read-only. Preserves the event wall-clock time and duration in its timezone, then returns the target interval and concrete/recurring conflicts before any write occurs.',
+        responses: { '200': { description: 'Move preview with target time and conflicts' }, '400': { description: 'targetDate must be YYYY-MM-DD' }, '403': { description: 'Calendar authority denied' }, '404': { description: 'Event not visible' } }
+      }
     },
     '/api/v1/calendar-events/{id}/participants': { post: { tags: ['Calendar'], summary: 'Invite staff; guests are refused', responses: { '201': { description: 'Invited' }, '409': { description: 'NOT_WORKSPACE_STAFF' } } } },
     '/api/v1/calendar-events/{id}/participants/{userId}': { delete: { tags: ['Calendar'], summary: 'Remove somebody from the guest list', responses: { '204': { description: 'Removed' } } } },

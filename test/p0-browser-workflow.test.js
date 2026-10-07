@@ -171,19 +171,25 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await openTask(workerPage,'P0 UI task');
   await workerPage.getByText('Запланированная работа · 1',{exact:true}).waitFor({state:'visible'});
   await workerPage.locator('#modal-root .section-title').getByText('Принята',{exact:true}).waitFor({state:'visible'});
-  await workerPage.locator('[data-task-calendar-block]').click();
-  await workerPage.locator('[data-event-edit]').waitFor({state:'visible'});
-  await workerPage.locator('[data-event-edit]').click();
-  await workerPage.locator('#event-edit [name="start"]').fill('2026-10-08T11:00');
-  await workerPage.locator('#event-edit [name="end"]').fill('2026-10-08T12:30');
+  await workerPage.locator('[data-close]').last().click();
+  await workerPage.locator('#modal-heading').waitFor({state:'hidden',timeout:10000});
+  await workerPage.locator('[data-nav="calendar"]:visible').first().click();
+  await workerPage.locator('[data-cal-view="week"].active').waitFor({state:'visible',timeout:10000});
+  const dragSource=workerPage.locator('[data-cal-drag]').filter({hasText:'P0 UI work block'}).first();
+  const targetDay=workerPage.locator('[data-cal-day]').nth(4);
+  await dragSource.waitFor({state:'visible',timeout:10000});
+  assert.match(await targetDay.innerText(),/9/);
+  const movePreview=workerPage.waitForResponse(r=>r.request().method()==='GET'&&/\/api\/v1\/calendar-events\/[^/]+\/move-preview$/.test(new URL(r.url()).pathname));
+  await dragSource.dragTo(targetDay);
+  assert.equal((await movePreview).status(),200);
+  await workerPage.locator('#calendar-move-form').waitFor({state:'visible',timeout:10000});
+  await workerPage.locator('#calendar-move-form [name="reason"]').fill('Move work to Friday after schedule review');
   const moveBlock=workerPage.waitForResponse(r=>r.request().method()==='PATCH'&&/\/api\/v1\/calendar-events\/[^/]+$/.test(new URL(r.url()).pathname));
-  await workerPage.locator('#event-edit button.button.primary').click();
+  await workerPage.locator('#calendar-move-form button.button.primary').click();
   assert.equal((await moveBlock).status(),200);
 
   // Moving the task deadline never moves Calendar silently. If a linked block
   // now ends after the promise, the task must surface a visible schedule impact.
-  await workerPage.locator('[data-close]').last().click();
-  await workerPage.locator('#modal-heading').waitFor({state:'hidden',timeout:10000});
   await openTask(workerPage,'P0 UI task');
   await workerPage.locator('[data-task-reschedule]').click();
   await workerPage.locator('#task-reschedule-form [name="promisedAt"]').fill('2026-10-08T10:30');

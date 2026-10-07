@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { parseRecurrence, formatRecurrence, expandOccurrences, describeRecurrence, wallClock } from './recurrence.js';
+import { parseRecurrence, formatRecurrence, expandOccurrences, describeRecurrence, wallClock, instantOf } from './recurrence.js';
 import { holidaysBetween, upcomingBirthdays } from './holidays.js';
 
 const ANSWERS = new Set(['accepted', 'tentative', 'declined']);
@@ -87,6 +87,19 @@ export function createCalendarRepository(pool, store = null) {
    * collision expansion is intentionally a later slice; this query only claims
    * coverage for concrete rows and says so in the returned metadata.
    */
+  const movedTimesForDate = (event,targetDate) => {
+    const match=String(targetDate??'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(!match) throw fail('Дата переноса должна быть YYYY-MM-DD','INVALID_DATE',400);
+    const [,y,m,d]=match.map(Number);
+    const tz=event.timezone||'UTC';
+    const current=wallClock(new Date(event.start_at),tz);
+    const nextStart=instantOf({year:y,month:m,day:d,hour:current.hour,minute:current.minute,second:current.second},tz);
+    const duration=event.end_at?Date.parse(event.end_at)-Date.parse(event.start_at):0;
+    if(duration<0) throw fail('Некорректная длительность события','INVALID_CALENDAR_RANGE',400);
+    const nextEnd=event.end_at?new Date(nextStart.getTime()+duration):null;
+    return {startAt:nextStart.toISOString(),endAt:nextEnd?.toISOString()??null,timezone:tz};
+  };
+
   const findConcreteConflicts = async (client, session, { startAt, endAt, excludeEventId = null, userId = session.userId } = {}) => {
     if (!startAt || !endAt) return [];
     const { rows } = await client.query(
@@ -344,6 +357,24 @@ export function createCalendarRepository(pool, store = null) {
       } finally {
         client.release();
       }
+    },
+
+    async previewMove(session,eventId,{targetDate}={}) {
+      const client=await pool.connect();
+      try {
+        const event=await loadEvent(client,session,eventId);
+        assertMayRun(session,event,'Перенести событие может владелец или тот, кто ведёт чужие встречи');
+        const moved=movedTimesForDate(event,targetDate);
+        const conflicts=moved.endAt?await findScheduleConflicts(client,session,{
+          startAt:moved.startAt,endAt:moved.endAt,excludeEventId:eventId,userId:event.owner_id,
+        }):[];
+        return {
+          eventId:event.id,title:event.title,kind:event.kind,
+          currentStartAt:new Date(event.start_at).toISOString(),
+          currentEndAt:event.end_at?new Date(event.end_at).toISOString():null,
+          ...moved,targetDate,conflicts,
+        };
+      } finally { client.release(); }
     },
 
     /**
@@ -810,6 +841,15 @@ export function createCalendarRepository(pool, store = null) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
         assertMayRun(session, event, 'Править встречу может организатор или тот, кто ведёт чужие встречи');
+        if(patch.targetDate!==undefined){
+          const reason=String(patch.moveReason??'').trim();
+          if(reason.length<3)throw fail('Для переноса укажите причину','CALENDAR_MOVE_REASON_REQUIRED',400);
+          const moved=movedTimesForDate(event,patch.targetDate);
+          patch.startAt=moved.startAt;
+          patch.endAt=moved.endAt;
+          patch.changeSource=patch.changeSource||'move';
+          patch.moveReason=reason;
+        }
         const columns = { title: 'title', description: 'description', startAt: 'start_at', endAt: 'end_at', visibility: 'visibility', kind: 'kind', recurrenceRule: 'recurrence_rule', allDay: 'all_day' };
         const fields = Object.keys(columns).filter((f) => patch[f] !== undefined);
         if (!fields.length) throw fail('Nothing to update', 'EMPTY_PATCH');
@@ -830,11 +870,22 @@ export function createCalendarRepository(pool, store = null) {
           [session.workspaceId, eventId, ...fields.map((f) => patch[f])],
         );
         const timeChanged = fields.includes('startAt') || fields.includes('endAt');
+        if(timeChanged&&patch.moveReason){
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'calendar_event',$3,'calendar.event_moved',$4,$5)`,
+            [session.organizationId,session.workspaceId,eventId,session.userId,{
+              previousStartAt:event.start_at,previousEndAt:event.end_at,
+              startAt:rows[0].start_at,endAt:rows[0].end_at,
+              reason:patch.moveReason,source:patch.changeSource||'move',
+            }],
+          );
+        }
         if (event.kind === 'task_block' && event.commitment_id) {
           await client.query(
             `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
              VALUES($1,$2,'commitment',$3,$4,$5,$6)`,
-            [session.organizationId,session.workspaceId,event.commitment_id,timeChanged?'calendar.block_moved':'calendar.block_updated',session.userId,{calendarEventId:eventId,previousStartAt:event.start_at,previousEndAt:event.end_at,startAt:rows[0].start_at,endAt:rows[0].end_at}],
+            [session.organizationId,session.workspaceId,event.commitment_id,timeChanged?'calendar.block_moved':'calendar.block_updated',session.userId,{calendarEventId:eventId,previousStartAt:event.start_at,previousEndAt:event.end_at,startAt:rows[0].start_at,endAt:rows[0].end_at,reason:patch.moveReason??null,source:patch.changeSource??null}],
           );
         }
         if (timeChanged) {

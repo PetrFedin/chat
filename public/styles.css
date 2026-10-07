@@ -203,6 +203,8 @@ button{border:0;background:transparent;color:inherit}button:focus-visible,input:
 .cal-daycol.chosen .cal-wd{color:var(--bg);opacity:.72}
 .cal-wd{font-size:11px;text-transform:uppercase;color:var(--muted-2)}
 .cal-daycol strong{font-size:15px;font-variant-numeric:tabular-nums}
+.cal-cell.drop-target,.cal-daycol.drop-target{outline:2px solid var(--warm);outline-offset:2px;background:var(--warm-soft)}
+.calendar-event[draggable="true"]{cursor:grab}.calendar-event.dragging{opacity:.45;cursor:grabbing}
 .cal-dots{display:flex;align-items:center;gap:3px;min-height:8px;flex-wrap:wrap;justify-content:center}
 /* Цвет по виду события — один и тот же у точки в сетке и у полоски в
    карточке. Раньше полоска у всех была тёплой, и по ней нельзя было
@@ -621,6 +623,12 @@ h4{font-size:15px;font-weight:700}
   .button.small,.chipbtn,.cal-tab,.dwc-filter,.dwc-tab,.mi-filter,.text-button,.reaction-button{min-height:40px}
   .text-button{display:inline-flex;align-items:center;padding-inline:8px}
   #top-avatar,.avatar-button{min-width:40px;min-height:40px}
+}
+@media (max-width:700px){
+  .cal-controls{align-items:stretch}
+  .cal-switch{width:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+  .cal-tab{padding-inline:5px}
+  .cal-nav{width:100%;justify-content:space-between}
 }
 
 /* Карточка задачи — кнопка, а у кнопок по умолчанию текст по центру: заголовок расходился с остальным текстом. */

@@ -45,6 +45,9 @@ async function openRegisteredWorkspace(browser,base,{viewport={width:1440,height
     await page.locator(`[data-nav="${view}"]:visible`).first().click();
     await page.locator(`[data-nav="${view}"].active:visible`).first().waitFor({state:'visible',timeout:5000});
   }
+  const expectedCalendarView=label==='phone'?'agenda':'week';
+  await page.locator(`[data-cal-view="${expectedCalendarView}"].active`).waitFor({state:'visible',timeout:5000});
+  assert.equal(await page.locator('[data-cal-view]').count(),4,`${label}: calendar exposes day/week/agenda/month`);
 
   const overflow=await page.evaluate(()=>({innerWidth:window.innerWidth,scrollWidth:document.documentElement.scrollWidth,bodyScrollWidth:document.body.scrollWidth}));
   assert.ok(overflow.scrollWidth<=overflow.innerWidth+1,`${label}: document horizontal overflow ${overflow.scrollWidth}px > ${overflow.innerWidth}px`);

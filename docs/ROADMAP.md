@@ -222,9 +222,15 @@ explicit profile data (days + one daily interval in the person's timezone),
 and reschedule proposals search future slots only, inside that schedule, while
 respecting declared operational absence and the same concrete/RRULE conflict
 engine. The proposal UI explains skipped conflicts/off-hours/absence rather
-than hiding the ranking logic. Remaining calendar work is stronger
-phone/tablet/desktop scheduling interaction, auditable drag/move semantics and
-later richer multi-person/resource availability.
+than hiding the ranking logic. The internal calendar interaction loop is now
+complete at the current scope: Day/Week/Agenda/Month share one authority,
+phone defaults to a 14-day Agenda, tablet/desktop to Week, and fine-pointer
+Week/Month supports drag-to-date only through move preview -> conflict detail
+-> mandatory human reason -> canonical server move -> audit. Touch/mobile
+keeps explicit actions rather than pretending HTML drag is a reliable gesture.
+Remaining calendar expansion is external two-way sync and later richer
+split-shift/resource/multi-person availability, not another task or calendar
+authority.
 
 For local product QA, `/preview.html` provides a development-only device
 switcher for 390x844 phone, 834x1112 tablet and 1440x900 monitor viewports.

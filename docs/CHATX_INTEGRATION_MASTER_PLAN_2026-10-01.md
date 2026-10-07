@@ -95,10 +95,19 @@ Already proven in P0:
 
 Current proposal boundary is explicit: one working interval per day and a 14-day search window. Split shifts, per-day hours, resource calendars and richer multi-person optimisation are not claimed yet. This remains deterministic scheduling assistance, not automatic rescheduling or AI authority.
 
-Remaining Phase 1:
-- day/week/agenda interaction hardening on phone/tablet/desktop;
-- drag/move semantics where supported, with auditable reason for consequential changes;
-- later external interchange/sync per the calendar integration phases.
+Phase 1 interaction proof:
+- Calendar now exposes Day / Week / Agenda / Month as one responsive surface; phone defaults to a 14-day Agenda while tablet/desktop default to Week, with the same canonical event data and no parallel mobile calendar model;
+- the P0 viewport gate proves phone 390x844, tablet 834x1112 and monitor 1440x900 without horizontal overflow and with the expected calendar mode;
+- fine-pointer Week/Month views support drag-to-date as a proposal, not a blind mutation: the client first requests a read-only move preview, preserves the event wall-clock time/duration in its timezone, shows resulting conflicts, and requires an explicit human reason before write;
+- the server recomputes the move, runs the canonical concrete + RRULE conflict gate, resets participant responses for a consequential time change and records `calendar.event_moved` audit with previous/new interval, actor, reason and source;
+- task blocks continue to write their existing `calendar.block_moved` task audit as well, so calendar interaction never becomes a second task state machine;
+- touch/mobile does not pretend HTML drag is reliable: Agenda remains the primary phone interaction and ordinary edit/reschedule actions remain available.
+
+Remaining Phase 1 boundary:
+- later external calendar import/two-way sync per the integration phases;
+- richer split-shift/per-day/resource/multi-person availability can extend the deterministic proposal engine later without changing Calendar authority.
+
+**Phase 1 status: GREEN for the internal Task <-> Calendar authority and interaction loop.**
 
 ## Phase 2 — Projects
 Native project, milestone, dependency, checklist and collaborator entities reference existing tasks/files/channels/decisions. Plane/Vikunja are design references only.

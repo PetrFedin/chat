@@ -181,6 +181,37 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   });
   assert.equal(focus.response.status,201);
 
+  const dragCandidate=await request(base,'/api/v1/calendar-events',{
+    cookie:worker.cookie,method:'POST',body:{kind:'meeting',title:'Drag rehearsal',startAt:'2026-10-07T14:00:00.000Z',endAt:'2026-10-07T15:00:00.000Z',visibility:'private',timezone:'UTC'}
+  });
+  assert.equal(dragCandidate.response.status,201);
+  const dragId=dragCandidate.payload.event.id;
+
+  const dragPreview=await request(base,`/api/v1/calendar-events/${dragId}/move-preview?targetDate=2026-10-08`,{cookie:worker.cookie});
+  assert.equal(dragPreview.response.status,200);
+  assert.equal(new Date(dragPreview.payload.preview.startAt).toISOString(),'2026-10-08T14:00:00.000Z');
+  assert.equal(new Date(dragPreview.payload.preview.endAt).toISOString(),'2026-10-08T15:00:00.000Z');
+  assert.equal(dragPreview.payload.preview.conflicts.length,0);
+
+  const dragWithoutReason=await request(base,`/api/v1/calendar-events/${dragId}`,{
+    cookie:worker.cookie,method:'PATCH',body:{targetDate:'2026-10-08',changeSource:'drag'}
+  });
+  assert.equal(dragWithoutReason.response.status,400);
+  assert.equal(dragWithoutReason.payload.error.code,'CALENDAR_MOVE_REASON_REQUIRED');
+
+  const dragged=await request(base,`/api/v1/calendar-events/${dragId}`,{
+    cookie:worker.cookie,method:'PATCH',body:{targetDate:'2026-10-08',moveReason:'Move planning to Thursday',changeSource:'drag'}
+  });
+  assert.equal(dragged.response.status,200);
+  assert.equal(new Date(dragged.payload.event.startAt).toISOString(),'2026-10-08T14:00:00.000Z');
+  const {rows:dragAudit}=await pool.query(
+    "SELECT payload FROM audit_events WHERE workspace_id=$1 AND aggregate_type='calendar_event' AND aggregate_id=$2 AND event_type='calendar.event_moved' ORDER BY created_at DESC LIMIT 1",
+    [ownerBoot.payload.session.workspaceId,dragId],
+  );
+  assert.equal(dragAudit.length,1);
+  assert.equal(dragAudit[0].payload.reason,'Move planning to Thursday');
+  assert.equal(dragAudit[0].payload.source,'drag');
+
   const recurringFocus=await request(base,'/api/v1/calendar-events',{
     cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Weekly planning series',startAt:'2026-10-01T08:00:00.000Z',endAt:'2026-10-01T09:00:00.000Z',visibility:'private',recurrenceRule:'FREQ=WEEKLY'}
   });

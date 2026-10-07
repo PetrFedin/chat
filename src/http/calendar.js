@@ -2,6 +2,7 @@ import { cleanText, json, noContent, readJson } from './helpers.js';
 
 const ID = '([0-9a-f-]{36})';
 const EVENT = new RegExp(`^/api/v1/calendar-events/${ID}$`, 'i');
+const MOVE_PREVIEW = new RegExp(`^/api/v1/calendar-events/${ID}/move-preview$`, 'i');
 const RESPOND = new RegExp(`^/api/v1/calendar-events/${ID}/respond$`, 'i');
 const PARTICIPANTS = new RegExp(`^/api/v1/calendar-events/${ID}/participants$`, 'i');
 const PARTICIPANT = new RegExp(`^/api/v1/calendar-events/${ID}/participants/${ID}$`, 'i');
@@ -108,7 +109,14 @@ export function createCalendarHandler() {
       return true;
     }
 
-    let m = path.match(EVENT);
+    let m = path.match(MOVE_PREVIEW);
+    if (m && method === 'GET') {
+      const targetDate=url.searchParams.get('targetDate');
+      json(res,200,{preview:await calendar.previewMove(session,m[1],{targetDate})});
+      return true;
+    }
+
+    m = path.match(EVENT);
     if (m && method === 'GET') { json(res, 200, { event: await calendar.getEvent(session, m[1]) }); return true; }
     if (m && method === 'PATCH') {
       const body = await readJson(req);
@@ -121,6 +129,9 @@ export function createCalendarHandler() {
       if (body.kind !== undefined) patch.kind = body.kind;
       if (body.allDay !== undefined) patch.allDay = Boolean(body.allDay);
       if (body.allowConflict !== undefined) patch.allowConflict = Boolean(body.allowConflict);
+      if (body.targetDate !== undefined) patch.targetDate = String(body.targetDate);
+      if (body.moveReason !== undefined) patch.moveReason = cleanText(body.moveReason,500);
+      if (body.changeSource !== undefined) patch.changeSource = cleanText(body.changeSource,40);
       // Пустая строка — это «больше не повторять», и её надо отличать от
       // «не трогай правило».
       if (body.recurrenceRule !== undefined) patch.recurrenceRule = body.recurrenceRule || null;
