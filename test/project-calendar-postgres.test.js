@@ -66,7 +66,7 @@ test('Project milestones project into Calendar while task blocks stay Calendar a
   const block=await request(base,'/api/v1/calendar-events',{cookie:lead.cookie,method:'POST',body:{
     kind:'task_block',title:'Acceptance pack work',commitmentId:taskId,
     startAt:'2026-10-19T09:00:00.000Z',endAt:'2026-10-19T11:00:00.000Z',
-    timezone:'UTC',visibility:'participants'
+    timezone:'UTC',visibility:'participants',participantIds:[outsider.userId]
   }});
   assert.equal(block.response.status,201);
   const blockId=block.payload.event.id;
@@ -86,6 +86,12 @@ test('Project milestones project into Calendar while task blocks stay Calendar a
   assert.equal(taskBlock.commitmentId,taskId);
   assert.equal(taskBlock.projectId,projectId);
   assert.equal(taskBlock.projectName,'Calendar authority project');
+
+  const outsiderCalendar=await request(base,'/api/v1/calendar-events?from=2026-10-18T00:00:00.000Z&to=2026-10-23T23:59:59.000Z',{cookie:outsider.cookie});
+  const outsiderBlock=outsiderCalendar.payload.items.find(item=>item.id===blockId);
+  assert.ok(outsiderBlock,'calendar participation may expose the block itself');
+  assert.equal(outsiderBlock.projectId,null,'private project id must not leak through a visible calendar block');
+  assert.equal(outsiderBlock.projectName,null,'private project name must not leak through a visible calendar block');
 
   const outsiderFiltered=await request(base,`/api/v1/calendar-events?from=2026-10-18T00:00:00.000Z&to=2026-10-23T23:59:59.000Z&projectId=${projectId}`,{cookie:outsider.cookie});
   assert.equal(outsiderFiltered.response.status,404);
