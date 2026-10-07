@@ -141,8 +141,8 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await workerPage.locator('[data-action="event"]:visible').click();
   await workerPage.locator('#event-form [name="title"]').fill('P0 UI focus conflict');
   await workerPage.locator('#event-form [name="kind"]').selectOption('focus');
-  await workerPage.locator('#event-form [name="start"]').fill('2026-10-07T09:30');
-  await workerPage.locator('#event-form [name="end"]').fill('2026-10-07T10:30');
+  await workerPage.locator('#event-form [name="start"]').fill('2026-10-08T09:30');
+  await workerPage.locator('#event-form [name="end"]').fill('2026-10-08T10:30');
   const createFocus=workerPage.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
   await workerPage.locator('#event-form button.button.primary').click();
   assert.equal((await createFocus).status(),201);
@@ -153,8 +153,8 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await workerPage.locator('#event-form [name="kind"]').selectOption('task_block');
   await workerPage.locator('#event-task-row').waitFor({state:'visible'});
   await workerPage.locator('#event-form [name="commitmentId"]').selectOption({label:'P0 UI task'});
-  await workerPage.locator('#event-form [name="start"]').fill('2026-10-07T09:00');
-  await workerPage.locator('#event-form [name="end"]').fill('2026-10-07T10:00');
+  await workerPage.locator('#event-form [name="start"]').fill('2026-10-08T09:00');
+  await workerPage.locator('#event-form [name="end"]').fill('2026-10-08T10:00');
   const conflictResponse=workerPage.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/v1/calendar-events'&&r.status()===409);
   await workerPage.locator('#event-form button.button.primary').click();
   assert.equal((await conflictResponse).status(),409);
@@ -174,8 +174,8 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await workerPage.locator('[data-task-calendar-block]').click();
   await workerPage.locator('[data-event-edit]').waitFor({state:'visible'});
   await workerPage.locator('[data-event-edit]').click();
-  await workerPage.locator('#event-edit [name="start"]').fill('2026-10-07T11:00');
-  await workerPage.locator('#event-edit [name="end"]').fill('2026-10-07T12:30');
+  await workerPage.locator('#event-edit [name="start"]').fill('2026-10-08T11:00');
+  await workerPage.locator('#event-edit [name="end"]').fill('2026-10-08T12:30');
   const moveBlock=workerPage.waitForResponse(r=>r.request().method()==='PATCH'&&/\/api\/v1\/calendar-events\/[^/]+$/.test(new URL(r.url()).pathname));
   await workerPage.locator('#event-edit button.button.primary').click();
   assert.equal((await moveBlock).status(),200);
@@ -186,7 +186,7 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await workerPage.locator('#modal-heading').waitFor({state:'hidden',timeout:10000});
   await openTask(workerPage,'P0 UI task');
   await workerPage.locator('[data-task-reschedule]').click();
-  await workerPage.locator('#task-reschedule-form [name="promisedAt"]').fill('2026-10-07T10:30');
+  await workerPage.locator('#task-reschedule-form [name="promisedAt"]').fill('2026-10-08T10:30');
   await workerPage.locator('#task-reschedule-form [name="reason"]').fill('Board review moved earlier');
   const rescheduleTask=workerPage.waitForResponse(r=>r.request().method()==='PATCH'&&/\/api\/v1\/tasks\/[^/]+\/schedule$/.test(new URL(r.url()).pathname));
   await workerPage.locator('#task-reschedule-form button.button.primary').click();
@@ -196,10 +196,16 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
 
   const proposalRead=workerPage.waitForResponse(r=>r.request().method()==='GET'&&/\/api\/v1\/tasks\/[^/]+\/schedule-proposal$/.test(new URL(r.url()).pathname));
   await workerPage.locator('[data-task-reschedule-proposal]').click();
-  assert.equal((await proposalRead).status(),200);
+  const proposalResponse=await proposalRead;
+  assert.equal(proposalResponse.status(),200);
+  const proposalPayload=await proposalResponse.json();
+  assert.ok(Date.parse(proposalPayload.proposal.suggestedStartAt)>Date.now());
+  assert.equal(proposalPayload.proposal.workingSchedule.workdayStart,'09:00');
+  assert.equal(proposalPayload.proposal.workingSchedule.workdayEnd,'18:00');
+  assert.ok(proposalPayload.proposal.outsideWorkingHoursSkipped>0);
   await workerPage.locator('#task-schedule-proposal-form').waitFor({state:'visible'});
-  assert.equal(await workerPage.locator('#task-schedule-proposal-form [name="startAt"]').inputValue(),'2026-10-07T08:00');
-  assert.equal(await workerPage.locator('#task-schedule-proposal-form [name="endAt"]').inputValue(),'2026-10-07T09:30');
+  assert.ok(await workerPage.locator('#task-schedule-proposal-form [name="startAt"]').inputValue());
+  assert.ok(await workerPage.locator('#task-schedule-proposal-form [name="endAt"]').inputValue());
   await workerPage.locator('#task-schedule-proposal-form [name="reason"]').fill('Move work before the earlier deadline');
   const proposalApprove=workerPage.waitForResponse(r=>r.request().method()==='POST'&&/\/api\/v1\/tasks\/[^/]+\/schedule-proposal$/.test(new URL(r.url()).pathname));
   await workerPage.locator('#task-schedule-proposal-form button.button.primary').click();

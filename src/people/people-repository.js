@@ -1,11 +1,12 @@
 import { avatarUrlSql } from '../media/avatar.js';
 import { Permission, hasPermission } from '../rbac.js';
-const PROFILE_FIELDS = ['displayName', 'title', 'department', 'phone', 'about', 'location', 'startedOn', 'timezone', 'statusText', 'birthDay', 'birthMonth', 'avatarFileId'];
+const PROFILE_FIELDS = ['displayName', 'title', 'department', 'phone', 'about', 'location', 'startedOn', 'timezone', 'statusText', 'birthDay', 'birthMonth', 'avatarFileId', 'workingDays', 'workdayStart', 'workdayEnd'];
 
 const COLUMN = {
   displayName: 'display_name', title: 'title', department: 'department', phone: 'phone',
   about: 'about', location: 'location', startedOn: 'started_on', timezone: 'timezone', statusText: 'status_text',
   birthDay: 'birth_day', birthMonth: 'birth_month', avatarFileId: 'avatar_file_id',
+  workingDays: 'working_days', workdayStart: 'workday_start', workdayEnd: 'workday_end',
 };
 
 // Audit rows are machine names; a person's page needs a sentence.
@@ -82,6 +83,7 @@ export function createPeopleRepository(pool, org = null) {
               -- ответе 1 марта становилось 29 февраля 21:00, а карточка
               -- печатала первые десять знаков — то есть день раньше.
               to_char(p.started_on,'YYYY-MM-DD') "startedOn", p.timezone, p.locale, p.status_text "statusText",
+              p.working_days "workingDays", to_char(p.workday_start,'HH24:MI') "workdayStart", to_char(p.workday_end,'HH24:MI') "workdayEnd",
               ${avatarUrlSql('p.avatar_file_id')} "avatarUrl",
               p.birth_day "birthDay", p.birth_month "birthMonth", m.access_until "accessUntil",
               pr.state "presenceState", pr.last_seen_at "lastSeenAt",

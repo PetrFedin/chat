@@ -86,8 +86,8 @@ export const openapi = Object.freeze({
     '/api/v1/tasks/{taskId}/schedule-proposal': {
       get: {
         tags: ['Workspace'],
-        summary: 'Preview a deterministic conflict-aware replacement slot for a late task block',
-        description: 'Returns the latest concrete conflict-free slot of the same duration before the task promised date. Read-only: Calendar does not move until the user explicitly resolves the proposal.',
+        summary: 'Preview a deterministic conflict- and availability-aware replacement slot for a late task block',
+        description: 'Returns the latest future slot of the same duration before the task promised date that fits the block owner\'s working days/hours, operational absence and concrete/recurring calendar conflicts. Read-only: Calendar does not move until the user explicitly resolves the proposal.',
         responses: { '200': { description: 'Reschedule proposal' }, '400': { description: 'Calendar event identifier/date required' }, '403': { description: 'Task or calendar scheduling authority denied' }, '404': { description: 'Task or block is not visible' }, '409': { description: 'No schedule impact or no candidate slot in the current search window' } }
       },
       post: {
@@ -352,7 +352,7 @@ export const openapi = Object.freeze({
     '/api/v1/people': { get: { tags: ['People'], summary: 'Staff directory. A guest sees only the people they share a room with.', responses: { '200': { description: 'People' } } } },
     '/api/v1/people/{userId}': {
       get: { tags: ['People'], summary: 'One person: profile, units, reporting line, workload and recent activity', responses: { '200': { description: 'Person' }, '404': { description: 'Not visible' } } },
-      patch: { tags: ['People'], summary: 'Edit own card, or anybody\u2019s with member.manage', responses: { '200': { description: 'Updated' }, '403': { description: 'Somebody else\u2019s card' } } },
+      patch: { tags: ['People'], summary: 'Edit own card, timezone and working schedule, or anybody\u2019s with member.manage', description: 'Working schedule is explicit profile data (workingDays + workdayStart/workdayEnd) used only for scheduling proposals; quiet hours remain a separate notification preference.', responses: { '200': { description: 'Updated' }, '400': { description: 'Invalid working days/hours or profile data' }, '403': { description: 'Somebody else\u2019s card' } } },
     },
     '/api/v1/people/{userId}/activity': { get: { tags: ['People'], summary: 'What this person has been doing, from the audit trail', responses: { '200': { description: 'Activity' } } } },
     '/api/v1/people/{userId}/deactivate': { post: { tags: ['People'], summary: 'Dismiss an employee: access closes immediately, work history stays', description: 'Requires member.manage and a lower place on the role ladder. The owner and yourself cannot be dismissed.', responses: { '200': { description: 'Dismissed' }, '403': { description: 'Not allowed' } } } },

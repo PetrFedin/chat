@@ -4273,12 +4273,20 @@ function editProfile(person){
       if(!zones.includes(chosen))zones=[chosen,...zones];
       return `<label class="field-group"><span>${T('Часовой пояс','Time zone')}</span><select name="timezone" class="field">${zones.map(z=>`<option value="${esc(z)}"${z===chosen?' selected':''}>${esc(z)}${z===here?` — ${T('как в этом браузере','this browser')}`:''}</option>`).join('')}</select></label>
       <p class="muted" style="margin:-4px 0 0;font-size:12px">${T('От него зависят тихие часы, час сводки и тексты напоминаний.','It sets quiet hours, the digest hour and reminder texts.')}</p>`})()}
+    <div class="surface"><div class="section-title">${T('Рабочий график','Working schedule')}</div>
+      <div class="chip-row" style="margin-top:8px">${[[1,'Пн','Mon'],[2,'Вт','Tue'],[3,'Ср','Wed'],[4,'Чт','Thu'],[5,'Пт','Fri'],[6,'Сб','Sat'],[0,'Вс','Sun']].map(([value,ru,en])=>`<label class="chipbtn"><input type="checkbox" name="workingDay" value="${value}" ${(person.workingDays||[1,2,3,4,5]).includes(value)?'checked':''}> ${T(ru,en)}</label>`).join('')}</div>
+      <div class="form-grid" style="margin-top:10px"><label class="field-group"><span>${T('Начало дня','Day starts')}</span><input type="time" name="workdayStart" value="${esc(person.workdayStart||'09:00')}" required></label><label class="field-group"><span>${T('Конец дня','Day ends')}</span><input type="time" name="workdayEnd" value="${esc(person.workdayEnd||'18:00')}" required></label></div>
+      <p class="muted" style="margin:8px 0 0;font-size:12px">${T('Этот график используется только для предложений времени. Calendar ничего не переносит автоматически.','This schedule is used only for time proposals. Calendar never moves anything automatically.')}</p>
+    </div>
     <label class="field-group"><span>О себе</span><textarea name="about" rows="3" maxlength="2000">${esc(person.about??'')}</textarea></label>
     <button class="button primary" type="submit">Сохранить</button>
   </form>`,()=>{
     $('#profile-form').onsubmit=async(event)=>{
       event.preventDefault();
-      const data=Object.fromEntries(new FormData(event.target).entries());
+      const formData=new FormData(event.target);
+      const data=Object.fromEntries(formData.entries());
+      data.workingDays=formData.getAll('workingDay').map(Number);
+      delete data.workingDay;
       try{
         await api(`/api/v1/people/${person.userId}`,{method:'PATCH',body:JSON.stringify(data)});
         toast('Карточка обновлена');
@@ -5624,7 +5632,7 @@ async function taskScheduleProposalModal(task,eventId){
   try{
     const{proposal}=await api(`/api/v1/tasks/${task.id}/schedule-proposal?eventId=${encodeURIComponent(eventId)}`);
     modal(T('Предложение перепланирования','Reschedule proposal'),`<form id="task-schedule-proposal-form" class="form-stack">
-      <div class="surface"><div class="section-title">${esc(T('Почему этот слот','Why this slot'))}</div><p class="muted">${esc(T('Последний свободный интервал той же длительности до обещанного срока. Никакого автоматического переноса.','Latest free interval of the same duration before the promised deadline. Nothing moves automatically.'))}</p><div class="row-sub">${proposal.durationMinutes} ${esc(T('мин','min'))} · ${proposal.avoidedConflictCount} ${esc(T('конфликтов обойдено','conflicts avoided'))}</div></div>
+      <div class="surface"><div class="section-title">${esc(T('Почему этот слот','Why this slot'))}</div><p class="muted">${esc(T('Последний свободный интервал той же длительности до обещанного срока внутри рабочего графика. Никакого автоматического переноса.','Latest free interval of the same duration before the promised deadline, inside the working schedule. Nothing moves automatically.'))}</p><div class="row-sub">${proposal.durationMinutes} ${esc(T('мин','min'))} · ${proposal.avoidedConflictCount} ${esc(T('конфликтов обойдено','conflicts avoided'))} · ${proposal.outsideWorkingHoursSkipped||0} ${esc(T('нерабочих окон пропущено','off-hours candidates skipped'))}${proposal.availabilitySkipped?` · ${proposal.availabilitySkipped} ${esc(T('окон недоступности пропущено','availability candidates skipped'))}`:''}</div><div class="row-sub" style="margin-top:4px">${esc(T('График','Schedule'))}: ${esc((proposal.workingSchedule?.workingDays||[]).join(', '))} · ${esc(proposal.workingSchedule?.workdayStart||'09:00')}–${esc(proposal.workingSchedule?.workdayEnd||'18:00')} · ${esc(proposal.workingSchedule?.timezone||'UTC')}</div></div>
       <div><div class="section-title">${esc(T('Сейчас','Current'))}</div><div class="row-sub">${esc(dateTime(proposal.currentStartAt))} — ${esc(dateTime(proposal.currentEndAt))}</div></div>
       <label>${esc(T('Предлагаемое начало','Suggested start'))}<input name="startAt" type="datetime-local" value="${esc(toLocalInput(proposal.suggestedStartAt))}" required></label>
       <label>${esc(T('Предлагаемое окончание','Suggested end'))}<input name="endAt" type="datetime-local" value="${esc(toLocalInput(proposal.suggestedEndAt))}" required></label>

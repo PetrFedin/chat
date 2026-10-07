@@ -53,6 +53,26 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   const reviewer=await invite(base,ownerCookie,`reviewer-${suffix}@p0.test`,'Reviewer');
   const observer=await invite(base,ownerCookie,`observer-${suffix}@p0.test`,'Observer');
 
+  const workingSchedule=await request(base,`/api/v1/people/${worker.userId}`,{
+    cookie:worker.cookie,method:'PATCH',body:{timezone:'UTC',workingDays:[1,2,3,4,5],workdayStart:'09:00',workdayEnd:'18:00'}
+  });
+  assert.equal(workingSchedule.response.status,200);
+  assert.deepEqual(workingSchedule.payload.person.workingDays,[1,2,3,4,5]);
+  assert.equal(workingSchedule.payload.person.workdayStart,'09:00');
+  assert.equal(workingSchedule.payload.person.workdayEnd,'18:00');
+
+  const invalidSchedule=await request(base,`/api/v1/people/${worker.userId}`,{
+    cookie:worker.cookie,method:'PATCH',body:{workingDays:[],workdayStart:'18:00',workdayEnd:'09:00'}
+  });
+  assert.equal(invalidSchedule.response.status,400);
+  assert.ok(['INVALID_WORKING_DAYS','INVALID_WORKING_HOURS'].includes(invalidSchedule.payload.error.code));
+
+  const partialSchedule=await request(base,`/api/v1/people/${worker.userId}`,{
+    cookie:worker.cookie,method:'PATCH',body:{workdayStart:'10:00'}
+  });
+  assert.equal(partialSchedule.response.status,400);
+  assert.equal(partialSchedule.payload.error.code,'INVALID_WORKING_HOURS');
+
   const group=await request(base,'/api/v1/conversations',{
     cookie:ownerCookie,method:'POST',
     body:{kind:'group',title:'P0 execution room',participantIds:[worker.userId,reviewer.userId]}
@@ -172,6 +192,11 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   assert.equal(recurringConflict.response.status,409);
   assert.equal(recurringConflict.payload.error.code,'CALENDAR_CONFLICT');
 
+  const futureFocus=await request(base,'/api/v1/calendar-events',{
+    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Tomorrow focus block',startAt:'2026-10-08T09:30:00.000Z',endAt:'2026-10-08T10:30:00.000Z',visibility:'private'}
+  });
+  assert.equal(futureFocus.response.status,201);
+
   const conflictBlock=await request(base,'/api/v1/calendar-events',{
     cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Work on P0 board pack',startAt:'2026-10-07T09:00:00.000Z',endAt:'2026-10-07T10:00:00.000Z',visibility:'private',commitmentId:taskId}
   });
@@ -192,32 +217,34 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   assert.equal(taskWithBlock.payload.task.calendarBlocks[0].id,blockId);
 
   const movedBlock=await request(base,`/api/v1/calendar-events/${blockId}`,{
-    cookie:worker.cookie,method:'PATCH',body:{startAt:'2026-10-07T11:00:00.000Z',endAt:'2026-10-07T12:30:00.000Z'}
+    cookie:worker.cookie,method:'PATCH',body:{startAt:'2026-10-08T11:00:00.000Z',endAt:'2026-10-08T12:30:00.000Z'}
   });
   assert.equal(movedBlock.response.status,200);
   taskWithBlock=await request(base,`/api/v1/tasks/${taskId}`,{cookie:worker.cookie});
   assert.equal(taskWithBlock.payload.task.status,'accepted');
   assert.equal(taskWithBlock.payload.task.version,version);
-  assert.equal(new Date(taskWithBlock.payload.task.calendarBlocks[0].startAt).toISOString(),'2026-10-07T11:00:00.000Z');
+  assert.equal(new Date(taskWithBlock.payload.task.calendarBlocks[0].startAt).toISOString(),'2026-10-08T11:00:00.000Z');
 
   const earlierDeadline=await request(base,`/api/v1/tasks/${taskId}/schedule`,{
-    cookie:worker.cookie,method:'PATCH',body:{promisedAt:'2026-10-07T11:00:00.000Z',reason:'Board review moved earlier',expectedVersion:version}
+    cookie:worker.cookie,method:'PATCH',body:{promisedAt:'2026-10-08T11:00:00.000Z',reason:'Board review moved earlier',expectedVersion:version}
   });
   assert.equal(earlierDeadline.response.status,200);
   version=earlierDeadline.payload.task.version;
 
   let proposal=await request(base,`/api/v1/tasks/${taskId}/schedule-proposal?eventId=${encodeURIComponent(blockId)}`,{cookie:worker.cookie});
   assert.equal(proposal.response.status,200);
-  assert.equal(new Date(proposal.payload.proposal.suggestedStartAt).toISOString(),'2026-10-07T08:00:00.000Z');
-  assert.equal(new Date(proposal.payload.proposal.suggestedEndAt).toISOString(),'2026-10-07T09:30:00.000Z');
+  assert.equal(new Date(proposal.payload.proposal.suggestedStartAt).toISOString(),'2026-10-07T16:30:00.000Z');
+  assert.equal(new Date(proposal.payload.proposal.suggestedEndAt).toISOString(),'2026-10-07T18:00:00.000Z');
   assert.equal(proposal.payload.proposal.avoidedConflictCount,1);
+  assert.ok(proposal.payload.proposal.outsideWorkingHoursSkipped>0);
+  assert.deepEqual(proposal.payload.proposal.workingSchedule,{timezone:'UTC',workingDays:[1,2,3,4,5],workdayStart:'09:00',workdayEnd:'18:00'});
 
   const rejectedProposal=await request(base,`/api/v1/tasks/${taskId}/schedule-proposal`,{
     cookie:worker.cookie,method:'POST',body:{eventId:blockId,action:'reject',reason:'Keep the current slot for now',expectedVersion:version}
   });
   assert.equal(rejectedProposal.response.status,200);
   assert.equal(rejectedProposal.payload.decision,'reject');
-  assert.equal(new Date(rejectedProposal.payload.event.startAt).toISOString(),'2026-10-07T11:00:00.000Z');
+  assert.equal(new Date(rejectedProposal.payload.event.startAt).toISOString(),'2026-10-08T11:00:00.000Z');
 
   proposal=await request(base,`/api/v1/tasks/${taskId}/schedule-proposal?eventId=${encodeURIComponent(blockId)}`,{cookie:worker.cookie});
   assert.equal(proposal.response.status,200);
@@ -227,8 +254,8 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   });
   assert.equal(approvedProposal.response.status,200);
   assert.equal(approvedProposal.payload.decision,'approve');
-  assert.equal(new Date(approvedProposal.payload.event.startAt).toISOString(),'2026-10-07T08:00:00.000Z');
-  assert.equal(new Date(approvedProposal.payload.event.endAt).toISOString(),'2026-10-07T09:30:00.000Z');
+  assert.equal(new Date(approvedProposal.payload.event.startAt).toISOString(),'2026-10-07T16:30:00.000Z');
+  assert.equal(new Date(approvedProposal.payload.event.endAt).toISOString(),'2026-10-07T18:00:00.000Z');
 
   const deletedBlock=await request(base,`/api/v1/calendar-events/${blockId}`,{cookie:worker.cookie,method:'DELETE'});
   assert.equal(deletedBlock.response.status,204);

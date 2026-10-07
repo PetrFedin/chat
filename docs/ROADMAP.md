@@ -217,9 +217,14 @@ and applies occurrence exceptions, so recurring meetings constrain both manual
 moves and generated proposals. Conflict handling is now first-class in the
 app: create/edit shows concrete overlapping events, including recurring
 occurrences, lets the user return to change time, or explicitly approve an
-overlap; the browser Golden Path proves that flow. Remaining calendar work is
-working-hours/availability-aware slot scoring and stronger
-phone/tablet/desktop scheduling interaction.
+overlap; the browser Golden Path proves that flow. Working Schedule is now
+explicit profile data (days + one daily interval in the person's timezone),
+and reschedule proposals search future slots only, inside that schedule, while
+respecting declared operational absence and the same concrete/RRULE conflict
+engine. The proposal UI explains skipped conflicts/off-hours/absence rather
+than hiding the ranking logic. Remaining calendar work is stronger
+phone/tablet/desktop scheduling interaction, auditable drag/move semantics and
+later richer multi-person/resource availability.
 
 For local product QA, `/preview.html` provides a development-only device
 switcher for 390x844 phone, 834x1112 tablet and 1440x900 monitor viewports.

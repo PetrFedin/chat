@@ -87,12 +87,15 @@ Already proven in P0:
 - reschedule proposals use the same combined concrete + recurring conflict engine rather than a weaker parallel availability model;
 - create/edit conflicts now open a first-class ChatX conflict-resolution surface instead of a native browser confirm: the user sees every visible overlapping event with exact time and recurring-series context, then either returns to edit the time or explicitly chooses Save anyway;
 - conflict preview is a read-only API contract (GET /api/v1/calendar-conflicts) backed by the same concrete + RRULE + occurrence-exception engine as the write-time gate, including correct task-block-owner availability when a manager edits another person's calendar block;
-- the headed PostgreSQL browser Golden Path proves the full collision flow: busy event -> 409 CALENDAR_CONFLICT -> in-app conflict detail -> explicit override -> canonical event creation.
+- the headed PostgreSQL browser Golden Path proves the full collision flow: busy event -> 409 CALENDAR_CONFLICT -> in-app conflict detail -> explicit override -> canonical event creation;
+- Working Schedule is now explicit canonical profile data: working days plus workday start/end use the person's existing timezone. Quiet hours remain a separate notification preference rather than being reused as work availability;
+- deterministic reschedule proposals now search only future candidate intervals and require the entire block to fit the task-block owner's Working Schedule;
+- operational absence is layered on top of the schedule: vacation/sick/trip block proposals until the declared return (or indefinitely while active), while away/lunch only constrain scheduling when a concrete back-at time exists;
+- proposal scoring still uses the same concrete + recurring conflict engine and exposes explainability metadata in the UI: working schedule, calendar conflicts avoided, off-hours candidates skipped and availability candidates skipped.
 
-Current proposal boundary is explicit: a 14-day lookback window and no working-hours optimisation yet. It is deterministic scheduling assistance, not automatic rescheduling or AI authority.
+Current proposal boundary is explicit: one working interval per day and a 14-day search window. Split shifts, per-day hours, resource calendars and richer multi-person optimisation are not claimed yet. This remains deterministic scheduling assistance, not automatic rescheduling or AI authority.
 
 Remaining Phase 1:
-- working-hours / availability-aware proposal scoring beyond the current latest-free-slot rule;
 - day/week/agenda interaction hardening on phone/tablet/desktop;
 - drag/move semantics where supported, with auditable reason for consequential changes;
 - later external interchange/sync per the calendar integration phases.

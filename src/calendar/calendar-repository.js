@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { parseRecurrence, formatRecurrence, expandOccurrences, describeRecurrence } from './recurrence.js';
+import { parseRecurrence, formatRecurrence, expandOccurrences, describeRecurrence, wallClock } from './recurrence.js';
 import { holidaysBetween, upcomingBirthdays } from './holidays.js';
 
 const ANSWERS = new Set(['accepted', 'tentative', 'declined']);
@@ -189,11 +189,59 @@ export function createCalendarRepository(pool, store = null) {
     if(!(durationMs>0)) throw fail('Некорректная длительность блока','INVALID_CALENDAR_RANGE',400);
     if(endMs<=dueMs) throw fail('Блок уже заканчивается до обещанного срока','NO_SCHEDULE_IMPACT',409);
 
-    const windowStart=new Date(dueMs-14*24*3600*1000).toISOString();
+    const windowStartMs=Math.max(dueMs-14*24*3600*1000,Date.now());
+    const windowStart=new Date(windowStartMs).toISOString();
+    const {rows:[scheduleRow]}=await client.query(
+      `SELECT p.timezone,p.working_days "workingDays",
+              to_char(p.workday_start,'HH24:MI') "workdayStart",
+              to_char(p.workday_end,'HH24:MI') "workdayEnd",
+              CASE WHEN pr.back_at IS NOT NULL AND pr.back_at<=now() THEN 'available'
+                   ELSE COALESCE(pr.availability,'available') END availability,
+              CASE WHEN pr.back_at IS NOT NULL AND pr.back_at<=now() THEN NULL ELSE pr.back_at END "backAt"
+         FROM workspace_profiles p
+         LEFT JOIN user_presence pr ON pr.workspace_id=p.workspace_id AND pr.user_id=p.user_id
+        WHERE p.workspace_id=$1 AND p.user_id=$2`,
+      [session.workspaceId,event.owner_id],
+    );
+    const schedule=scheduleRow??{timezone:'UTC',workingDays:[1,2,3,4,5],workdayStart:'09:00',workdayEnd:'18:00',availability:'available',backAt:null};
+    const minuteOf=(value)=>{const [h,m]=String(value??'').split(':').map(Number);return h*60+m};
+    const workStart=minuteOf(schedule.workdayStart),workEnd=minuteOf(schedule.workdayEnd);
+    const withinWorkingSchedule=(fromMs,toMs)=>{
+      const from=wallClock(new Date(fromMs),schedule.timezone||'UTC');
+      const to=wallClock(new Date(toMs),schedule.timezone||'UTC');
+      if(from.year!==to.year||from.month!==to.month||from.day!==to.day)return false;
+      const weekday=new Date(Date.UTC(from.year,from.month-1,from.day)).getUTCDay();
+      if(!(schedule.workingDays??[1,2,3,4,5]).includes(weekday))return false;
+      const startMinute=from.hour*60+from.minute,endMinute=to.hour*60+to.minute;
+      return startMinute>=workStart&&endMinute<=workEnd;
+    };
+    const absenceBlocks=(fromMs,toMs)=>{
+      const kind=schedule.availability;
+      if(!['vacation','sick','trip','away','lunch'].includes(kind))return false;
+      const now=Date.now(),back=schedule.backAt?Date.parse(schedule.backAt):null;
+      if(['away','lunch'].includes(kind)&&!back)return false;
+      const absenceEnd=back??Number.POSITIVE_INFINITY;
+      return toMs>now&&fromMs<absenceEnd;
+    };
 
     let candidateEnd=dueMs,candidateStart=candidateEnd-durationMs,steps=0;
     const collisions=[];
-    while(candidateStart>=Date.parse(windowStart)&&steps<500){
+    let outsideWorkingHoursSkipped=0,availabilitySkipped=0;
+    while(candidateStart>=Date.parse(windowStart)&&steps<700){
+      if(!withinWorkingSchedule(candidateStart,candidateEnd)){
+        candidateEnd-=30*60*1000;
+        candidateStart=candidateEnd-durationMs;
+        outsideWorkingHoursSkipped+=1;
+        steps+=1;
+        continue;
+      }
+      if(absenceBlocks(candidateStart,candidateEnd)){
+        candidateEnd-=30*60*1000;
+        candidateStart=candidateEnd-durationMs;
+        availabilitySkipped+=1;
+        steps+=1;
+        continue;
+      }
       const hits=await findScheduleConflicts(client,session,{
         startAt:new Date(candidateStart).toISOString(),
         endAt:new Date(candidateEnd).toISOString(),
@@ -210,14 +258,17 @@ export function createCalendarRepository(pool, store = null) {
       candidateStart=candidateEnd-durationMs;
       steps+=1;
     }
-    if(candidateStart<Date.parse(windowStart)) throw fail('До срока не найден свободный слот той же длительности','NO_RESCHEDULE_SLOT',409);
+    if(candidateStart<Date.parse(windowStart)) throw fail('До срока не найден свободный слот той же длительности в рабочем графике','NO_RESCHEDULE_SLOT',409);
     return {
       eventId:event.id,commitmentId:event.commitment_id,
       currentStartAt:new Date(startMs).toISOString(),currentEndAt:new Date(endMs).toISOString(),
       suggestedStartAt:new Date(candidateStart).toISOString(),suggestedEndAt:new Date(candidateEnd).toISOString(),
       deadline:new Date(dueMs).toISOString(),durationMinutes:Math.round(durationMs/60000),
       avoidedConflictCount:new Set(collisions).size,
-      rationale:'latest_conflict_free_slot_before_deadline',
+      outsideWorkingHoursSkipped,availabilitySkipped,
+      workingSchedule:{timezone:schedule.timezone||'UTC',workingDays:schedule.workingDays??[1,2,3,4,5],workdayStart:schedule.workdayStart??'09:00',workdayEnd:schedule.workdayEnd??'18:00'},
+      availability:schedule.availability??'available',availabilityBackAt:schedule.backAt??null,
+      rationale:'latest_available_working_slot_before_deadline',
     };
   };
 
