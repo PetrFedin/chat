@@ -205,10 +205,13 @@ rather than rebuilt. The current slice now also derives explainable execution-ri
 unresolved dependencies, forecast over promise, work beyond target), 30-day
 project time and throughput, and lets Project Home create canonical tasks,
 milestones and members. A PostgreSQL browser E2E covers the user route rather
-than treating the API test as sufficient proof. Accent colour and week-start
-preferences remain useful but lower priority; Calendar-wide milestone projection
-and explicit Project <-> Files/Discussion/Decision relations are the next
-Project-layer gaps after the release gate is green.
+than treating the API test as sufficient proof. Accent colour and week-start preferences remain useful but lower priority.
+Project ↔ Calendar authority is now an active slice: milestones are projected
+read-only from Project Authority, canonical task blocks are annotated through
+project_tasks, and Calendar can be filtered by a visible project without
+copying either milestone dates or task state. Explicit Project <->
+Files/Discussion/Decision relations are the next Project-layer gap after this
+projection passes PostgreSQL/API/browser release gates.
 
 ## Gaps — real, scoped, not yet done
 

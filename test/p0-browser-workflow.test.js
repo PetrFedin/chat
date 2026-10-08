@@ -92,12 +92,23 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   const base=`http://127.0.0.1:${app.server.address().port}`;
   const suffix=randomUUID().slice(0,8);
 
+  // Keep the browser scheduling journey in the next full working week.
+  // Fixed calendar dates made the Golden Path expire while the product itself
+  // correctly refused to propose or approve work in the past.
+  const today=new Date();today.setUTCHours(0,0,0,0);
+  const currentMonday=new Date(today);
+  currentMonday.setUTCDate(currentMonday.getUTCDate()-((currentMonday.getUTCDay()+6)%7));
+  const nextMonday=new Date(currentMonday);nextMonday.setUTCDate(nextMonday.getUTCDate()+7);
+  const nextThursday=new Date(nextMonday);nextThursday.setUTCDate(nextThursday.getUTCDate()+3);
+  const nextFriday=new Date(nextMonday);nextFriday.setUTCDate(nextFriday.getUTCDate()+4);
+  const inputAt=(date,hour,minute=0)=>new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate(),hour,minute)).toISOString().slice(0,16);
+
   const headed=process.env.P0_HEADED==='true';
   const slowMo=Math.max(0,Number(process.env.P0_SLOW_MO??0)||0);
   const browser=await chromium.launch({headless:!headed,slowMo});
   t.after(()=>browser.close());
 
-  const ownerContext=await browser.newContext({viewport:{width:1440,height:1000}});
+  const ownerContext=await browser.newContext({viewport:{width:1440,height:1000},timezoneId:'UTC'});
   const ownerPage=await ownerContext.newPage();
   await registerOwner(ownerPage,base,suffix);
 
@@ -126,7 +137,7 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await ownerPage.locator('#quick-task button.button.primary').click();
   await ownerPage.locator('#modal-heading').waitFor({state:'hidden'});
 
-  const workerContext=await browser.newContext({viewport:{width:1280,height:900}});
+  const workerContext=await browser.newContext({viewport:{width:1280,height:900},timezoneId:'UTC'});
   const workerPage=await workerContext.newPage();
   await login(workerPage,base,worker.email,worker.password);
   await openTask(workerPage,'P0 UI task');
@@ -136,13 +147,19 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   // Calendar owns the time block; the task keeps its own status/version.
   await workerPage.keyboard.press('Escape');
   await workerPage.locator('[data-nav="calendar"]:visible').first().click();
+  await workerPage.locator('[data-cal-view="week"].active').waitFor({state:'visible',timeout:10000});
+  const nextWeekRefresh=workerPage.waitForResponse(r=>r.request().method()==='GET'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
+  await workerPage.locator('[data-cal-step="1"]').click();
+  assert.equal((await nextWeekRefresh).status(),200);
+  await workerPage.locator('[data-cal-day]').nth(3).filter({hasText:String(nextThursday.getUTCDate())}).waitFor({state:'visible',timeout:10000});
+  assert.match(await workerPage.locator('[data-cal-day]').nth(3).innerText(),new RegExp(`\\b${nextThursday.getUTCDate()}\\b`));
   // Seed a real busy slot so the browser must use ChatX's own conflict
   // resolution surface instead of a native confirm() dialog.
   await workerPage.locator('[data-action="event"]:visible').click();
   await workerPage.locator('#event-form [name="title"]').fill('P0 UI focus conflict');
   await workerPage.locator('#event-form [name="kind"]').selectOption('focus');
-  await workerPage.locator('#event-form [name="start"]').fill('2026-10-08T09:30');
-  await workerPage.locator('#event-form [name="end"]').fill('2026-10-08T10:30');
+  await workerPage.locator('#event-form [name="start"]').fill(inputAt(nextThursday,9,30));
+  await workerPage.locator('#event-form [name="end"]').fill(inputAt(nextThursday,10,30));
   const createFocus=workerPage.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
   await workerPage.locator('#event-form button.button.primary').click();
   assert.equal((await createFocus).status(),201);
@@ -153,8 +170,8 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await workerPage.locator('#event-form [name="kind"]').selectOption('task_block');
   await workerPage.locator('#event-task-row').waitFor({state:'visible'});
   await workerPage.locator('#event-form [name="commitmentId"]').selectOption({label:'P0 UI task'});
-  await workerPage.locator('#event-form [name="start"]').fill('2026-10-08T09:00');
-  await workerPage.locator('#event-form [name="end"]').fill('2026-10-08T10:00');
+  await workerPage.locator('#event-form [name="start"]').fill(inputAt(nextThursday,9));
+  await workerPage.locator('#event-form [name="end"]').fill(inputAt(nextThursday,10));
   const conflictResponse=workerPage.waitForResponse(r=>r.request().method()==='POST'&&new URL(r.url()).pathname==='/api/v1/calendar-events'&&r.status()===409);
   await workerPage.locator('#event-form button.button.primary').click();
   assert.equal((await conflictResponse).status(),409);
@@ -178,7 +195,7 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   const dragSource=workerPage.locator('[data-cal-drag]').filter({hasText:'P0 UI work block'}).first();
   const targetDay=workerPage.locator('[data-cal-day]').nth(4);
   await dragSource.waitFor({state:'visible',timeout:10000});
-  assert.match(await targetDay.innerText(),/9/);
+  assert.match(await targetDay.innerText(),new RegExp(`\\b${nextFriday.getUTCDate()}\\b`));
   const movePreview=workerPage.waitForResponse(r=>r.request().method()==='GET'&&/\/api\/v1\/calendar-events\/[^/]+\/move-preview$/.test(new URL(r.url()).pathname));
   await dragSource.dragTo(targetDay);
   assert.equal((await movePreview).status(),200);
@@ -192,7 +209,7 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   // now ends after the promise, the task must surface a visible schedule impact.
   await openTask(workerPage,'P0 UI task');
   await workerPage.locator('[data-task-reschedule]').click();
-  await workerPage.locator('#task-reschedule-form [name="promisedAt"]').fill('2026-10-08T10:30');
+  await workerPage.locator('#task-reschedule-form [name="promisedAt"]').fill(inputAt(nextThursday,10,30));
   await workerPage.locator('#task-reschedule-form [name="reason"]').fill('Board review moved earlier');
   const rescheduleTask=workerPage.waitForResponse(r=>r.request().method()==='PATCH'&&/\/api\/v1\/tasks\/[^/]+\/schedule$/.test(new URL(r.url()).pathname));
   await workerPage.locator('#task-reschedule-form button.button.primary').click();

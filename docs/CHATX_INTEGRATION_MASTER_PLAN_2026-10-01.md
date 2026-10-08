@@ -180,9 +180,23 @@ These capabilities should gain project-scoped views/links rather than new parall
 6. responsive phone/tablet/monitor UI without duplicate mobile business logic;
 7. roadmap and OpenAPI updated in the same change.
 
+**Project ↔ Calendar authority (2026-10-07, IN PROGRESS)**
+
+The first Calendar integration deliberately avoids a second date authority:
+
+- project milestones stay authoritative in `project_milestones`;
+- Calendar reads them as read-only virtual milestone layers, so changing a milestone date in Project is visible on the next Calendar read without synchronisation jobs or copied rows;
+- canonical Calendar task blocks keep owning their scheduled time and receive `projectId/projectName` through the existing `project_tasks -> commitments` relation;
+- `GET /api/v1/calendar-events?projectId=<uuid>` returns only task blocks linked to that visible project plus that project's milestone projections;
+- private project filters return 404 to outsiders; guest users receive no project milestone layer;
+- unfiltered Calendar shows milestones for all projects already visible to the viewer;
+- moving a task block still uses Calendar conflict/move/audit authority and never mutates task deadline or milestone target;
+- milestone projections are read-only and cannot be dragged or edited from Calendar.
+
+Acceptance proof lives in `test/project-calendar-postgres.test.js`: project -> milestone -> canonical task -> task block -> filtered Calendar -> outsider 404 -> milestone target update -> Calendar immediately reflects the new target exactly once.
+
 **Still intentionally open after this slice**
 
-- Calendar-wide projection/filtering of project milestones and project task blocks;
 - explicit Project <-> Files / Discussion / Decision relations;
 - richer portfolio cross-project capacity/critical-path analysis;
 - reference-video personalisation: accent palette and first-day-of-week preference.

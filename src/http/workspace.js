@@ -272,7 +272,7 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     const items=await ctx.calendar.findConflicts(s,{startAt,endAt,excludeEventId});
     json(res,200,{items});return true
   }
-  if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=toDateOrNull(url.searchParams.get('from')),to=toDateOrNull(url.searchParams.get('to'));json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to}):await store.listCalendar(s,from,to)});return true}
+  if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=toDateOrNull(url.searchParams.get('from')),to=toDateOrNull(url.searchParams.get('to')),projectId=url.searchParams.get('projectId')||null;if(projectId&&!/^[0-9a-f-]{36}$/i.test(projectId))throw Object.assign(new Error('Invalid project id'),{code:'INVALID_PROJECT_ID',statusCode:400,expose:true});json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to,projectId}):await store.listCalendar(s,from,to)});return true}
   if(path==='/api/v1/calendar-events'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.CALENDAR_CREATE);const b=await readJson(req);
     // Раньше здесь стоял голый new Date: `null` давал первое января
     // 1970-го, а несуществующий день молча съезжал на следующий.

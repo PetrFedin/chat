@@ -16,9 +16,19 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
   t.after(()=>app.close());
   const base=`http://127.0.0.1:${app.server.address().port}`;
 
+  // Keep the project milestone inside the calendar week that the browser opens.
+  // This verifies visible projection instead of accidentally testing an off-screen date.
+  const today=new Date();today.setUTCHours(0,0,0,0);
+  const monday=new Date(today);monday.setUTCDate(monday.getUTCDate()-((monday.getUTCDay()+6)%7));
+  const thursday=new Date(monday);thursday.setUTCDate(thursday.getUTCDate()+3);
+  if(thursday<today)thursday.setUTCDate(thursday.getUTCDate()+7);
+  const projectStart=today.toISOString().slice(0,10);
+  const projectTarget=new Date(today);projectTarget.setUTCDate(projectTarget.getUTCDate()+45);
+  const milestoneInput=new Date(Date.UTC(thursday.getUTCFullYear(),thursday.getUTCMonth(),thursday.getUTCDate(),12,0)).toISOString().slice(0,16);
+
   const browser=await chromium.launch();
   t.after(()=>browser.close());
-  const context=await browser.newContext({viewport:{width:1440,height:900}});
+  const context=await browser.newContext({viewport:{width:1440,height:900},timezoneId:'UTC'});
   t.after(()=>context.close());
   const page=await context.newPage();
   const pageErrors=[],consoleErrors=[],serverErrors=[];
@@ -43,8 +53,8 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
   await page.locator('[data-project-new]').click();
   await page.locator('#project-form [name="name"]').fill('Investor Readiness');
   await page.locator('#project-form [name="goal"]').fill('Prove the complete corporate execution loop');
-  await page.locator('#project-form [name="startAt"]').fill('2026-10-07');
-  await page.locator('#project-form [name="targetAt"]').fill('2026-11-15');
+  await page.locator('#project-form [name="startAt"]').fill(projectStart);
+  await page.locator('#project-form [name="targetAt"]').fill(projectTarget.toISOString().slice(0,10));
   await page.locator('#project-form button[type="submit"]').click();
 
   await page.locator('.project-home h2').filter({hasText:'Investor Readiness'}).waitFor({state:'visible',timeout:10000});
@@ -54,7 +64,7 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
 
   await page.locator('[data-project-milestone-new]').click();
   await page.locator('#project-milestone-form [name="title"]').fill('Golden path accepted');
-  await page.locator('#project-milestone-form [name="targetAt"]').fill('2026-10-20T12:00');
+  await page.locator('#project-milestone-form [name="targetAt"]').fill(milestoneInput);
   await page.locator('#project-milestone-form button[type="submit"]').click();
   await page.locator('.project-grid').getByText('Golden path accepted',{exact:true}).waitFor({state:'visible',timeout:5000});
 
@@ -69,6 +79,16 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
   await card.locator('[data-task-open]').click();
   await page.locator('#modal-heading').waitFor({state:'visible',timeout:5000});
   assert.match(await page.locator('#modal-heading').textContent(),/Prepare investor walkthrough/);
+  await page.locator('[data-close]').first().click();
+
+  await page.locator('#desktop-nav [data-nav="calendar"]').click();
+  const projectFilter=page.locator('[data-calendar-project-filter]');
+  await projectFilter.waitFor({state:'visible',timeout:5000});
+  await projectFilter.selectOption({label:'Investor Readiness'});
+  const milestoneRow=page.locator('.calendar-event.layer.milestone').filter({hasText:'Golden path accepted'});
+  await milestoneRow.waitFor({state:'visible',timeout:10000});
+  assert.match(await milestoneRow.textContent(),/Investor Readiness/);
+  assert.equal(await milestoneRow.locator('button').count(),0,'milestone projection must remain read-only in Calendar');
 
   assert.deepEqual(pageErrors,[],`page errors: ${pageErrors.join(' | ')}`);
   assert.deepEqual(consoleErrors,[],`console errors: ${consoleErrors.join(' | ')}`);

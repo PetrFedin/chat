@@ -134,7 +134,17 @@ export const openapi = Object.freeze({
       }
     },
     '/api/v1/calendar-events': {
-      get: { tags: ['Workspace'], summary: 'List calendar events', responses: { '200': { description: 'Calendar events' } } },
+      get: {
+        tags: ['Workspace'],
+        summary: 'List calendar events and read-only project milestone projections',
+        description: 'Calendar owns event time. Project milestones remain Project Authority and are projected read-only into the calendar response. projectId narrows the range to visible milestone projections plus canonical task blocks linked to that project.',
+        parameters: [
+          { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' } },
+          { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
+          { name: 'projectId', in: 'query', schema: { type: 'string', format: 'uuid' }, description: 'Optional visible Project context. Private projects return 404 to outsiders.' }
+        ],
+        responses: { '200': { description: 'Calendar events and visible project milestone projections' }, '400': { description: 'Malformed project id or range' }, '404': { description: 'Filtered project is not visible' } }
+      },
       post: { tags: ['Workspace'], summary: 'Create meeting, focus block, deadline or reminder', responses: { '201': { description: 'Calendar event created' }, '409': { description: 'Calendar conflict unless the user explicitly approves an overlap' } } }
     },
     '/api/v1/conversations': {

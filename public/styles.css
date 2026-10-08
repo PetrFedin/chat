@@ -743,3 +743,12 @@ h4{font-size:15px;font-weight:700}
 .project-risk-card .compact{gap:4px}
 
 .project-task-meta{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+
+.calendar-toolbar-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.calendar-project-filter{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:13px}
+.calendar-project-filter select{min-width:170px;max-width:260px;padding:8px 30px 8px 10px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface-2);color:var(--text)}
+@media (max-width:699px){
+  .calendar-toolbar-actions{width:100%;justify-content:flex-start}
+  .calendar-project-filter{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr)}
+  .calendar-project-filter select{min-width:0;max-width:none;width:100%}
+}

@@ -40,6 +40,17 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   const base=`http://127.0.0.1:${app.server.address().port}`;
   const suffix=randomUUID().slice(0,8);
 
+  // The scheduling part of this Golden Path must stay in the future.
+  // Fixed October 2026 timestamps made the same valid workflow start failing
+  // later that day because Calendar correctly refuses to propose past work.
+  const wednesday=new Date(Date.now()+21*86400000);
+  wednesday.setUTCHours(0,0,0,0);
+  while(wednesday.getUTCDay()!==3)wednesday.setUTCDate(wednesday.getUTCDate()+1);
+  const thursday=new Date(wednesday);thursday.setUTCDate(thursday.getUTCDate()+1);
+  const previousThursday=new Date(thursday);previousThursday.setUTCDate(previousThursday.getUTCDate()-7);
+  const at=(date,hour,minute=0)=>new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate(),hour,minute)).toISOString();
+  const day=(date)=>date.toISOString().slice(0,10);
+
   const owner=await request(base,'/api/v1/auth/register-company',{
     method:'POST',
     body:{companyName:`P0 ${suffix}`,ownerName:'Owner',email:`owner-${suffix}@p0.test`,password:'OwnerPassword42'}
@@ -155,7 +166,7 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
       ownerId:worker.userId,
       acceptorId:reviewer.userId,
       priority:'urgent',
-      promisedAt:'2026-10-08T12:00:00.000Z',
+      promisedAt:at(thursday,12),
       sourceMessageId:sourceId
     }
   });
@@ -171,39 +182,39 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   version=accepted.payload.task.version;
 
   const orphanBlock=await request(base,'/api/v1/calendar-events',{
-    cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Orphan work block',startAt:'2026-10-07T09:00:00.000Z',endAt:'2026-10-07T10:00:00.000Z',visibility:'private'}
+    cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Orphan work block',startAt:at(wednesday,9),endAt:at(wednesday,10),visibility:'private'}
   });
   assert.equal(orphanBlock.response.status,400);
   assert.equal(orphanBlock.payload.error.code,'TASK_BLOCK_TASK_REQUIRED');
 
   const focus=await request(base,'/api/v1/calendar-events',{
-    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Existing focus block',startAt:'2026-10-07T09:30:00.000Z',endAt:'2026-10-07T10:30:00.000Z',visibility:'private'}
+    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Existing focus block',startAt:at(wednesday,9,30),endAt:at(wednesday,10,30),visibility:'private'}
   });
   assert.equal(focus.response.status,201);
 
   const dragCandidate=await request(base,'/api/v1/calendar-events',{
-    cookie:worker.cookie,method:'POST',body:{kind:'meeting',title:'Drag rehearsal',startAt:'2026-10-07T14:00:00.000Z',endAt:'2026-10-07T15:00:00.000Z',visibility:'private',timezone:'UTC'}
+    cookie:worker.cookie,method:'POST',body:{kind:'meeting',title:'Drag rehearsal',startAt:at(wednesday,14),endAt:at(wednesday,15),visibility:'private',timezone:'UTC'}
   });
   assert.equal(dragCandidate.response.status,201);
   const dragId=dragCandidate.payload.event.id;
 
-  const dragPreview=await request(base,`/api/v1/calendar-events/${dragId}/move-preview?targetDate=2026-10-08`,{cookie:worker.cookie});
+  const dragPreview=await request(base,`/api/v1/calendar-events/${dragId}/move-preview?targetDate=${day(thursday)}`,{cookie:worker.cookie});
   assert.equal(dragPreview.response.status,200);
-  assert.equal(new Date(dragPreview.payload.preview.startAt).toISOString(),'2026-10-08T14:00:00.000Z');
-  assert.equal(new Date(dragPreview.payload.preview.endAt).toISOString(),'2026-10-08T15:00:00.000Z');
+  assert.equal(new Date(dragPreview.payload.preview.startAt).toISOString(),at(thursday,14));
+  assert.equal(new Date(dragPreview.payload.preview.endAt).toISOString(),at(thursday,15));
   assert.equal(dragPreview.payload.preview.conflicts.length,0);
 
   const dragWithoutReason=await request(base,`/api/v1/calendar-events/${dragId}`,{
-    cookie:worker.cookie,method:'PATCH',body:{targetDate:'2026-10-08',changeSource:'drag'}
+    cookie:worker.cookie,method:'PATCH',body:{targetDate:day(thursday),changeSource:'drag'}
   });
   assert.equal(dragWithoutReason.response.status,400);
   assert.equal(dragWithoutReason.payload.error.code,'CALENDAR_MOVE_REASON_REQUIRED');
 
   const dragged=await request(base,`/api/v1/calendar-events/${dragId}`,{
-    cookie:worker.cookie,method:'PATCH',body:{targetDate:'2026-10-08',moveReason:'Move planning to Thursday',changeSource:'drag'}
+    cookie:worker.cookie,method:'PATCH',body:{targetDate:day(thursday),moveReason:'Move planning to Thursday',changeSource:'drag'}
   });
   assert.equal(dragged.response.status,200);
-  assert.equal(new Date(dragged.payload.event.startAt).toISOString(),'2026-10-08T14:00:00.000Z');
+  assert.equal(new Date(dragged.payload.event.startAt).toISOString(),at(thursday,14));
   const {rows:dragAudit}=await pool.query(
     "SELECT payload FROM audit_events WHERE workspace_id=$1 AND aggregate_type='calendar_event' AND aggregate_id=$2 AND event_type='calendar.event_moved' ORDER BY created_at DESC LIMIT 1",
     [ownerBoot.payload.session.workspaceId,dragId],
@@ -213,29 +224,29 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   assert.equal(dragAudit[0].payload.source,'drag');
 
   const recurringFocus=await request(base,'/api/v1/calendar-events',{
-    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Weekly planning series',startAt:'2026-10-01T08:00:00.000Z',endAt:'2026-10-01T09:00:00.000Z',visibility:'private',recurrenceRule:'FREQ=WEEKLY'}
+    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Weekly planning series',startAt:at(previousThursday,8),endAt:at(previousThursday,9),visibility:'private',recurrenceRule:'FREQ=WEEKLY'}
   });
   assert.equal(recurringFocus.response.status,201);
 
   const recurringConflict=await request(base,'/api/v1/calendar-events',{
-    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Should collide with weekly series',startAt:'2026-10-08T08:30:00.000Z',endAt:'2026-10-08T08:45:00.000Z',visibility:'private'}
+    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Should collide with weekly series',startAt:at(thursday,8,30),endAt:at(thursday,8,45),visibility:'private'}
   });
   assert.equal(recurringConflict.response.status,409);
   assert.equal(recurringConflict.payload.error.code,'CALENDAR_CONFLICT');
 
   const futureFocus=await request(base,'/api/v1/calendar-events',{
-    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Tomorrow focus block',startAt:'2026-10-08T09:30:00.000Z',endAt:'2026-10-08T10:30:00.000Z',visibility:'private'}
+    cookie:worker.cookie,method:'POST',body:{kind:'focus',title:'Tomorrow focus block',startAt:at(thursday,9,30),endAt:at(thursday,10,30),visibility:'private'}
   });
   assert.equal(futureFocus.response.status,201);
 
   const conflictBlock=await request(base,'/api/v1/calendar-events',{
-    cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Work on P0 board pack',startAt:'2026-10-07T09:00:00.000Z',endAt:'2026-10-07T10:00:00.000Z',visibility:'private',commitmentId:taskId}
+    cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Work on P0 board pack',startAt:at(wednesday,9),endAt:at(wednesday,10),visibility:'private',commitmentId:taskId}
   });
   assert.equal(conflictBlock.response.status,409);
   assert.equal(conflictBlock.payload.error.code,'CALENDAR_CONFLICT');
 
   const linkedBlock=await request(base,'/api/v1/calendar-events',{
-    cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Work on P0 board pack',startAt:'2026-10-07T09:00:00.000Z',endAt:'2026-10-07T10:00:00.000Z',visibility:'private',commitmentId:taskId,allowConflict:true}
+    cookie:worker.cookie,method:'POST',body:{kind:'task_block',title:'Work on P0 board pack',startAt:at(wednesday,9),endAt:at(wednesday,10),visibility:'private',commitmentId:taskId,allowConflict:true}
   });
   assert.equal(linkedBlock.response.status,201);
   const blockId=linkedBlock.payload.event.id;
@@ -248,24 +259,24 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   assert.equal(taskWithBlock.payload.task.calendarBlocks[0].id,blockId);
 
   const movedBlock=await request(base,`/api/v1/calendar-events/${blockId}`,{
-    cookie:worker.cookie,method:'PATCH',body:{startAt:'2026-10-08T11:00:00.000Z',endAt:'2026-10-08T12:30:00.000Z'}
+    cookie:worker.cookie,method:'PATCH',body:{startAt:at(thursday,11),endAt:at(thursday,12,30)}
   });
   assert.equal(movedBlock.response.status,200);
   taskWithBlock=await request(base,`/api/v1/tasks/${taskId}`,{cookie:worker.cookie});
   assert.equal(taskWithBlock.payload.task.status,'accepted');
   assert.equal(taskWithBlock.payload.task.version,version);
-  assert.equal(new Date(taskWithBlock.payload.task.calendarBlocks[0].startAt).toISOString(),'2026-10-08T11:00:00.000Z');
+  assert.equal(new Date(taskWithBlock.payload.task.calendarBlocks[0].startAt).toISOString(),at(thursday,11));
 
   const earlierDeadline=await request(base,`/api/v1/tasks/${taskId}/schedule`,{
-    cookie:worker.cookie,method:'PATCH',body:{promisedAt:'2026-10-08T11:00:00.000Z',reason:'Board review moved earlier',expectedVersion:version}
+    cookie:worker.cookie,method:'PATCH',body:{promisedAt:at(thursday,11),reason:'Board review moved earlier',expectedVersion:version}
   });
   assert.equal(earlierDeadline.response.status,200);
   version=earlierDeadline.payload.task.version;
 
   let proposal=await request(base,`/api/v1/tasks/${taskId}/schedule-proposal?eventId=${encodeURIComponent(blockId)}`,{cookie:worker.cookie});
   assert.equal(proposal.response.status,200);
-  assert.equal(new Date(proposal.payload.proposal.suggestedStartAt).toISOString(),'2026-10-07T16:30:00.000Z');
-  assert.equal(new Date(proposal.payload.proposal.suggestedEndAt).toISOString(),'2026-10-07T18:00:00.000Z');
+  assert.equal(new Date(proposal.payload.proposal.suggestedStartAt).toISOString(),at(wednesday,16,30));
+  assert.equal(new Date(proposal.payload.proposal.suggestedEndAt).toISOString(),at(wednesday,18));
   assert.equal(proposal.payload.proposal.avoidedConflictCount,1);
   assert.ok(proposal.payload.proposal.outsideWorkingHoursSkipped>0);
   assert.deepEqual(proposal.payload.proposal.workingSchedule,{timezone:'UTC',workingDays:[1,2,3,4,5],workdayStart:'09:00',workdayEnd:'18:00'});
@@ -275,7 +286,7 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   });
   assert.equal(rejectedProposal.response.status,200);
   assert.equal(rejectedProposal.payload.decision,'reject');
-  assert.equal(new Date(rejectedProposal.payload.event.startAt).toISOString(),'2026-10-08T11:00:00.000Z');
+  assert.equal(new Date(rejectedProposal.payload.event.startAt).toISOString(),at(thursday,11));
 
   proposal=await request(base,`/api/v1/tasks/${taskId}/schedule-proposal?eventId=${encodeURIComponent(blockId)}`,{cookie:worker.cookie});
   assert.equal(proposal.response.status,200);
@@ -285,8 +296,8 @@ test('P0 PostgreSQL API golden path closes the corporate work loop',{skip:!datab
   });
   assert.equal(approvedProposal.response.status,200);
   assert.equal(approvedProposal.payload.decision,'approve');
-  assert.equal(new Date(approvedProposal.payload.event.startAt).toISOString(),'2026-10-07T16:30:00.000Z');
-  assert.equal(new Date(approvedProposal.payload.event.endAt).toISOString(),'2026-10-07T18:00:00.000Z');
+  assert.equal(new Date(approvedProposal.payload.event.startAt).toISOString(),at(wednesday,16,30));
+  assert.equal(new Date(approvedProposal.payload.event.endAt).toISOString(),at(wednesday,18));
 
   const deletedBlock=await request(base,`/api/v1/calendar-events/${blockId}`,{cookie:worker.cookie,method:'DELETE'});
   assert.equal(deletedBlock.response.status,204);
