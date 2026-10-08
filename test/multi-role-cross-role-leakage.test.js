@@ -127,6 +127,7 @@ test('Cross-role Leakage: stale IDs and deep links reveal no inaccessible work m
     body:{type:'note',value:`${secret} evidence payload`,
       expectedVersion:started.payload.task.version}});
   assert.equal(evidence.status,201);
+  const evidenceVersion=evidence.payload.task.version;
   const protectedTask=await request(base,`/api/v1/tasks/${taskId}`,{cookie:lead.cookie});
   assert.equal(protectedTask.status,200);
   assert.ok(protectedTask.payload.task.evidence.some(item=>item.value===`${secret} evidence payload`),
@@ -188,6 +189,15 @@ test('Cross-role Leakage: stale IDs and deep links reveal no inaccessible work m
 
     const history=await request(base,`/api/v1/conversations/${conversationId}/messages?around=${messageId}`,{cookie});
     assert.equal(history.status,404,`${label}: stale message history/deep link`);
+
+    const messageDirect=await request(base,`/api/v1/messages/${messageId}/reactions`,{
+      cookie,method:'POST',body:{emoji:'👍'}});
+    assert.equal(messageDirect.status,404,`${label}: stale message id`);
+
+    const evidenceDirect=await request(base,`/api/v1/tasks/${taskId}/evidence`,{
+      cookie,method:'POST',
+      body:{type:'note',value:'unauthorised stale-id probe',expectedVersion:evidenceVersion}});
+    assert.equal(evidenceDirect.status,404,`${label}: stale task evidence route`);
 
     const content=await fetch(`${base}/api/v1/files/${fileId}/content`,{headers:{cookie}});
     assert.equal(content.status,404,`${label}: stale file route`);
