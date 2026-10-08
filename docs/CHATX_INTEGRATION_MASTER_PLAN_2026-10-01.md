@@ -195,14 +195,16 @@ The first Calendar integration deliberately avoids a second date authority:
 
 Acceptance proof lives in `test/project-calendar-postgres.test.js`: project -> milestone -> canonical task -> task block -> filtered Calendar -> outsider 404 -> milestone target update -> Calendar immediately reflects the new target exactly once.
 
-**Tenant-simulation release gate (2026-10-08): IN PROGRESS**
+**Tenant-simulation release gate (2026-10-08): COMPLETE / GREEN**
 
 Project/Task/Calendar authority is now exercised as a company rather than only as isolated modules:
-- multi-role tenant flow covers Owner/Admin/Manager/Employee/Reviewer/Observer/Guest in one PostgreSQL workspace;
+- Multi-role Tenant v1 covers Owner/Admin/Manager/Employee/Reviewer/Observer/Guest in one PostgreSQL workspace;
 - Parallel Workday covers concurrent work across multiple people and projects;
 - Failure & Recovery covers idempotent retry after a lost response, stale-version recovery, expired sessions and membership changes;
-- Project membership is now serialized with project task admission/removal: a person with unfinished canonical project work cannot be removed, preventing Project and Task authorities from contradicting each other under concurrent requests;
-- the next security slice is Cross-role Leakage: guests, observers and removed members must not recover private project/task/message/calendar/search metadata through stale IDs or deep links.
+- Project membership is serialized with project task admission/removal: a person with unfinished canonical project work cannot be removed, preventing Project and Task authorities from contradicting each other under concurrent requests;
+- Cross-role Leakage now attacks Guest / Observer / removed-member access through stale Project ID, Task ID, Message ID, message deep links/history, Calendar project filters, unfiltered milestone projection, Search results, file list/content/preview, notification links and canonical task evidence. Where the object is outside the caller's authority, the direct route returns 404 and discovery surfaces omit the object and its private metadata.
+
+Exact-head acceptance: CI #323 on `8f51d04d0186aa1610e4258ea989d24b61b7f1a0` passed domain tests, all PostgreSQL constraint gates and the full PostgreSQL suite (1315/1315). `postgres-webhook-fairness` also passed, and the run contained no `deadlock detected`, `lock timeout` or `could not obtain lock` signal.
 
 This tenant simulation is a permanent release gate for future execution-layer work, not a temporary test fixture.
 
