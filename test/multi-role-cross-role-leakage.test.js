@@ -200,7 +200,16 @@ test('Cross-role Leakage: stale IDs and deep links reveal no inaccessible work m
     assert.equal(evidenceDirect.status,404,`${label}: stale task evidence route`);
 
     const content=await fetch(`${base}/api/v1/files/${fileId}/content`,{headers:{cookie}});
-    assert.equal(content.status,404,`${label}: stale file route`);
+    assert.equal(content.status,404,`${label}: stale file content route`);
+    const preview=await fetch(`${base}/api/v1/files/${fileId}/preview`,{headers:{cookie}});
+    assert.equal(preview.status,404,`${label}: stale file preview route`);
+
+    const calendar=await request(base,
+      `/api/v1/calendar-events?from=${encodeURIComponent(new Date(Date.now()-864e5).toISOString())}&to=${encodeURIComponent(new Date(Date.now()+10*864e5).toISOString())}`,
+      {cookie});
+    assert.equal(calendar.status,200,`${label}: Calendar remains usable`);
+    assertNoRefs(calendar.payload?.items??[],{projectId,taskId,conversationId,messageId,fileId,secret},
+      `${label} unfiltered Calendar/project milestones`);
 
     const filtered=await request(base,
       `/api/v1/calendar-events?projectId=${projectId}&from=${encodeURIComponent(new Date(Date.now()-864e5).toISOString())}&to=${encodeURIComponent(new Date(Date.now()+10*864e5).toISOString())}`,
