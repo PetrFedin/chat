@@ -213,6 +213,23 @@ copying either milestone dates or task state. Explicit Project <->
 Files/Discussion/Decision relations are the next Project-layer gap after this
 projection passes PostgreSQL/API/browser release gates.
 
+## Execution reliability release gate — tenant simulation
+
+**Status: IN PROGRESS (2026-10-08).**
+
+A permanent PostgreSQL-backed tenant simulation now complements the browser Golden Path. It models a real customer workspace with multiple roles working on the same canonical objects rather than testing each module in isolation.
+
+Built/verified so far:
+- Multi-role Tenant v1: role changes/session invalidation, private project containment, conversation -> project task provenance, idempotency, optimistic concurrency, Project <-> Calendar projection, evidence/review/return/resubmit/acceptance, notification deep links and guest non-leakage;
+- Parallel Workday: concurrent projects, concurrent workers, same-time work by different people, cross-project double-booking prevention and project metrics;
+- Failure & Recovery: lost-response retry, stale-tab recovery, session expiry/re-login and membership changes;
+- Project Authority now blocks removal of a member who remains owner/requester/acceptor of unfinished canonical project work, and serializes membership removal with create/link-task admission to prevent race-created authority contradictions.
+
+Next gate:
+1. Failure & Recovery exact-head GREEN;
+2. Cross-role Leakage across stale IDs/deep links/search/calendar/project/task/message surfaces;
+3. only then continue with Project <-> Files / Discussion / Decision relations.
+
 ## Gaps — real, scoped, not yet done
 
 Ordered by how much it costs the product that it's missing, not by how
