@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join as pathJoin } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { createChatServer } from '../src/server.js';
@@ -57,7 +57,7 @@ function assertNoRefs(payload,{projectId,taskId,conversationId,messageId,fileId,
 test('Cross-role Leakage: stale IDs and deep links reveal no inaccessible work metadata',
   {skip:!databaseUrl},async(t)=>{
   const pool=new pg.Pool({connectionString:databaseUrl});
-  const uploads=await mkdtemp(join(tmpdir(),'chatx-cross-role-'));
+  const uploads=await mkdtemp(pathJoin(tmpdir(),'chatx-cross-role-'));
   const app=await createChatServer({
     store:new PostgresStore(pool),uploadsRoot:uploads,startMeetingWorker:false
   });
