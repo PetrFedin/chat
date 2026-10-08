@@ -215,20 +215,24 @@ projection passes PostgreSQL/API/browser release gates.
 
 ## Execution reliability release gate — tenant simulation
 
-**Status: IN PROGRESS (2026-10-08).**
+**Status: COMPLETE / GREEN (2026-10-08).**
 
 A permanent PostgreSQL-backed tenant simulation now complements the browser Golden Path. It models a real customer workspace with multiple roles working on the same canonical objects rather than testing each module in isolation.
 
-Built/verified so far:
+Verified:
 - Multi-role Tenant v1: role changes/session invalidation, private project containment, conversation -> project task provenance, idempotency, optimistic concurrency, Project <-> Calendar projection, evidence/review/return/resubmit/acceptance, notification deep links and guest non-leakage;
 - Parallel Workday: concurrent projects, concurrent workers, same-time work by different people, cross-project double-booking prevention and project metrics;
 - Failure & Recovery: lost-response retry, stale-tab recovery, session expiry/re-login and membership changes;
-- Project Authority now blocks removal of a member who remains owner/requester/acceptor of unfinished canonical project work, and serializes membership removal with create/link-task admission to prevent race-created authority contradictions.
+- Project Authority blocks removal of a member who remains owner/requester/acceptor of unfinished canonical project work, and serializes membership removal with create/link-task admission to prevent race-created authority contradictions;
+- Cross-role Leakage: Guest / Observer / removed member are exercised against stale Project ID, Task ID, Message ID, message history/deep links, Calendar project filtering, unfiltered milestone projection, Search, file list/content/preview, notification links and canonical task evidence. Inaccessible direct objects use existence-hiding 404 semantics; discovery surfaces omit private IDs and metadata.
 
-Next gate:
-1. Failure & Recovery exact-head GREEN;
-2. Cross-role Leakage across stale IDs/deep links/search/calendar/project/task/message surfaces;
-3. only then continue with Project <-> Files / Discussion / Decision relations.
+Exact-head proof: CI #323 on `8f51d04d0186aa1610e4258ea989d24b61b7f1a0` passed both jobs, every PostgreSQL constraint check and the full PostgreSQL suite (1315/1315). The webhook fairness test passed in the same full-suite run, with no observed deadlock/lock-timeout signal.
+
+Next Project-layer gap:
+1. explicit Project <-> Files relations;
+2. explicit Project <-> Discussion relations;
+3. explicit Project <-> Decision relations;
+4. keep these relations on existing File/Conversation/Decision authorities rather than creating parallel state.
 
 ## Gaps — real, scoped, not yet done
 
