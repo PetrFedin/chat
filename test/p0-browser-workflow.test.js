@@ -147,6 +147,10 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   // Calendar owns the time block; the task keeps its own status/version.
   await workerPage.keyboard.press('Escape');
   await workerPage.locator('[data-nav="calendar"]:visible').first().click();
+  await workerPage.locator('[data-cal-view="week"].active').waitFor({state:'visible',timeout:10000});
+  await workerPage.locator('[data-cal-step="1"]').click();
+  await workerPage.locator('[data-cal-day]').nth(3).waitFor({state:'visible',timeout:10000});
+  assert.match(await workerPage.locator('[data-cal-day]').nth(3).innerText(),new RegExp(`\\b${nextThursday.getUTCDate()}\\b`));
   // Seed a real busy slot so the browser must use ChatX's own conflict
   // resolution surface instead of a native confirm() dialog.
   await workerPage.locator('[data-action="event"]:visible').click();
@@ -186,7 +190,6 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await workerPage.locator('#modal-heading').waitFor({state:'hidden',timeout:10000});
   await workerPage.locator('[data-nav="calendar"]:visible').first().click();
   await workerPage.locator('[data-cal-view="week"].active').waitFor({state:'visible',timeout:10000});
-  await workerPage.locator('[data-cal-step="1"]').click();
   const dragSource=workerPage.locator('[data-cal-drag]').filter({hasText:'P0 UI work block'}).first();
   const targetDay=workerPage.locator('[data-cal-day]').nth(4);
   await dragSource.waitFor({state:'visible',timeout:10000});
