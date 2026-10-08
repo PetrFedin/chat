@@ -148,8 +148,10 @@ test('P0 headed UI workflow: group -> message -> task -> return -> resubmit -> c
   await workerPage.keyboard.press('Escape');
   await workerPage.locator('[data-nav="calendar"]:visible').first().click();
   await workerPage.locator('[data-cal-view="week"].active').waitFor({state:'visible',timeout:10000});
+  const nextWeekRefresh=workerPage.waitForResponse(r=>r.request().method()==='GET'&&new URL(r.url()).pathname==='/api/v1/calendar-events');
   await workerPage.locator('[data-cal-step="1"]').click();
-  await workerPage.locator('[data-cal-day]').nth(3).waitFor({state:'visible',timeout:10000});
+  assert.equal((await nextWeekRefresh).status(),200);
+  await workerPage.locator('[data-cal-day]').nth(3).filter({hasText:String(nextThursday.getUTCDate())}).waitFor({state:'visible',timeout:10000});
   assert.match(await workerPage.locator('[data-cal-day]').nth(3).innerText(),new RegExp(`\\b${nextThursday.getUTCDate()}\\b`));
   // Seed a real busy slot so the browser must use ChatX's own conflict
   // resolution surface instead of a native confirm() dialog.
