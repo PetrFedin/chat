@@ -111,6 +111,25 @@ test('Cross-role Leakage: stale IDs and deep links reveal no inaccessible work m
   assert.equal(task.status,201);
   const taskId=task.payload.task.id;
 
+  // Evidence must really exist before we test non-disclosure. Otherwise a 404 on
+  // the task would prove only that no task is visible, not that its submitted
+  // result is protected as part of the same authority boundary.
+  const accepted=await request(base,`/api/v1/tasks/${taskId}/transitions`,{
+    cookie:lead.cookie,method:'POST',
+    body:{to:'accepted',expectedVersion:task.payload.task.version}});
+  assert.equal(accepted.status,200);
+  const started=await request(base,`/api/v1/tasks/${taskId}/transitions`,{
+    cookie:lead.cookie,method:'POST',
+    body:{to:'in_progress',expectedVersion:accepted.payload.task.version}});
+  assert.equal(started.status,200);
+  const evidence=await request(base,`/api/v1/tasks/${taskId}/evidence`,{
+    cookie:lead.cookie,method:'POST',
+    body:{type:'note',value:`${secret} evidence payload`,
+      expectedVersion:started.payload.task.version}});
+  assert.equal(evidence.status,201);
+  assert.ok(evidence.payload.task.evidence.some(item=>item.value===`${secret} evidence payload`),
+    'precondition: canonical task really contains protected evidence');
+
   const milestone=await request(base,`/api/v1/projects/${projectId}/milestones`,{
     cookie:lead.cookie,method:'POST',
     body:{title:`${secret} milestone`,targetAt:new Date(Date.now()+7*864e5).toISOString()}});
