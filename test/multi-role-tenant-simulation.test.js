@@ -160,11 +160,20 @@ test('Multi-role tenant simulation v1: customer team executes work without autho
     body:{kind:'task_block',title:'Work on launch pack',startAt:at(nextWednesday,10),
       endAt:at(nextWednesday,12),visibility:'private',commitmentId:taskId}});
   assert.equal(block.status,201);
-  const projectCalendar=await request(base,
+  const employeeProjectCalendar=await request(base,
+    `/api/v1/calendar-events?projectId=${projectId}&from=${encodeURIComponent(at(nextWednesday,0))}&to=${encodeURIComponent(at(nextThursday,23,59))}`,
+    {cookie:employeeCookie});
+  assert.equal(employeeProjectCalendar.status,200);
+  assert.ok(employeeProjectCalendar.payload.items.some(item=>
+    item.id===block.payload.event.id&&item.projectId===projectId),
+    'the task owner sees their private block annotated with project context');
+
+  const leadProjectCalendar=await request(base,
     `/api/v1/calendar-events?projectId=${projectId}&from=${encodeURIComponent(at(nextWednesday,0))}&to=${encodeURIComponent(at(nextThursday,23,59))}`,
     {cookie:lead.cookie});
-  assert.equal(projectCalendar.status,200);
-  assert.ok(projectCalendar.payload.items.some(item=>item.id===block.payload.event.id&&item.projectId===projectId));
+  assert.equal(leadProjectCalendar.status,200);
+  assert.ok(!leadProjectCalendar.payload.items.some(item=>item.id===block.payload.event.id),
+    'project membership must not reveal another employee private time block');
 
   const milestone=await request(base,`/api/v1/projects/${projectId}/milestones`,{
     cookie:lead.cookie,method:'POST',body:{title:'Launch accepted',targetAt:at(nextThursday,17)}});
