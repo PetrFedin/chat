@@ -195,6 +195,17 @@ The first Calendar integration deliberately avoids a second date authority:
 
 Acceptance proof lives in `test/project-calendar-postgres.test.js`: project -> milestone -> canonical task -> task block -> filtered Calendar -> outsider 404 -> milestone target update -> Calendar immediately reflects the new target exactly once.
 
+**Tenant-simulation release gate (2026-10-08): IN PROGRESS**
+
+Project/Task/Calendar authority is now exercised as a company rather than only as isolated modules:
+- multi-role tenant flow covers Owner/Admin/Manager/Employee/Reviewer/Observer/Guest in one PostgreSQL workspace;
+- Parallel Workday covers concurrent work across multiple people and projects;
+- Failure & Recovery covers idempotent retry after a lost response, stale-version recovery, expired sessions and membership changes;
+- Project membership is now serialized with project task admission/removal: a person with unfinished canonical project work cannot be removed, preventing Project and Task authorities from contradicting each other under concurrent requests;
+- the next security slice is Cross-role Leakage: guests, observers and removed members must not recover private project/task/message/calendar/search metadata through stale IDs or deep links.
+
+This tenant simulation is a permanent release gate for future execution-layer work, not a temporary test fixture.
+
 **Still intentionally open after this slice**
 
 - explicit Project <-> Files / Discussion / Decision relations;
