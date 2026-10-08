@@ -127,8 +127,10 @@ test('Cross-role Leakage: stale IDs and deep links reveal no inaccessible work m
     body:{type:'note',value:`${secret} evidence payload`,
       expectedVersion:started.payload.task.version}});
   assert.equal(evidence.status,201);
-  assert.ok(evidence.payload.task.evidence.some(item=>item.value===`${secret} evidence payload`),
-    'precondition: canonical task really contains protected evidence');
+  const protectedTask=await request(base,`/api/v1/tasks/${taskId}`,{cookie:lead.cookie});
+  assert.equal(protectedTask.status,200);
+  assert.ok(protectedTask.payload.task.evidence.some(item=>item.value===`${secret} evidence payload`),
+    'precondition: canonical task detail really contains protected evidence');
 
   const milestone=await request(base,`/api/v1/projects/${projectId}/milestones`,{
     cookie:lead.cookie,method:'POST',
