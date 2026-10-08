@@ -199,7 +199,7 @@ test('Cross-role Leakage: stale IDs and deep links reveal no inaccessible work m
 
     const search=await request(base,`/api/v1/search?q=${encodeURIComponent(secret)}`,{cookie});
     assert.equal(search.status,200,`${label}: search endpoint remains usable`);
-    assertNoRefs(search.payload,{projectId,taskId,conversationId,messageId,fileId,secret},`${label} search`);
+    assertNoRefs(search.payload?.items??[],{projectId,taskId,conversationId,messageId,fileId,secret},`${label} search results`);
 
     const files=await request(base,`/api/v1/files?q=${encodeURIComponent(secret)}`,{cookie});
     assert.equal(files.status,200,`${label}: file list remains usable`);
@@ -214,7 +214,7 @@ test('Cross-role Leakage: stale IDs and deep links reveal no inaccessible work m
   // authorities must disappear from discovery surfaces.
   const observerSearch=await request(base,`/api/v1/search?q=${encodeURIComponent(secret)}`,{cookie:observer.cookie});
   assert.equal(observerSearch.status,200);
-  assertNoRefs(observerSearch.payload,{taskId,conversationId,messageId,fileId,secret:`${secret} confidential`},'observer search');
+  assertNoRefs(observerSearch.payload?.items??[],{taskId,conversationId,messageId,fileId,secret:`${secret} confidential`},'observer search results');
   const observerNotices=await request(base,'/api/v1/notifications',{cookie:observer.cookie});
   assert.equal(observerNotices.status,200);
   assertNoRefs(observerNotices.payload,{taskId,conversationId,messageId,fileId,secret:`${secret} confidential`},'observer notifications');
