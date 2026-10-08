@@ -232,8 +232,14 @@ test('Multi-role tenant simulation v1: customer team executes work without autho
     cookie:reviewer.cookie,method:'POST',body:{to:'accepted_result',expectedVersion:version}});
   assert.equal(changed.status,200); version=changed.payload.task.version;
 
-  const closed=await request(base,`/api/v1/tasks/${taskId}/transitions`,{
+  const ownerOverride=await request(base,`/api/v1/tasks/${taskId}/transitions`,{
     cookie:ownerCookie,method:'POST',body:{to:'closed',expectedVersion:version}});
+  assert.equal(ownerOverride.status,403);
+  assert.equal(ownerOverride.code,'TASK_ACTION_FORBIDDEN',
+    'workspace ownership must not override the requester/acceptor accountability chain');
+
+  const closed=await request(base,`/api/v1/tasks/${taskId}/transitions`,{
+    cookie:lead.cookie,method:'POST',body:{to:'closed',expectedVersion:version}});
   assert.equal(closed.status,200);
 
   const reviewerInbox=await request(base,'/api/v1/notifications',{cookie:reviewer.cookie});
