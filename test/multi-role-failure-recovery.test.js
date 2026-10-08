@@ -140,7 +140,10 @@ test('Failure & Recovery: retries, stale tabs, session expiry and project remova
 
   // Expired browser session is refused on the next request, not after a background sweep.
   await pool.query(
-    'UPDATE user_sessions SET expires_at=now()-interval \'1 minute\' WHERE user_id=$1 AND revoked_at IS NULL',
+    `UPDATE user_sessions
+        SET created_at=now()-interval '2 minutes',
+            expires_at=now()-interval '1 minute'
+      WHERE user_id=$1 AND revoked_at IS NULL`,
     [worker.userId]);
   assert.equal((await request(base,'/api/v1/me',{cookie:worker.cookie})).status,401);
 
