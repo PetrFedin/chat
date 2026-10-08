@@ -47,14 +47,38 @@ export function createProjectRepository({pool,store}={}){
          FROM project_milestones WHERE project_id=$1 ORDER BY target_at,id`,[projectId])
   ).rows;
 
-  const assertTaskParticipantsInProject=async(projectId,taskLike)=>{
+  const assertTaskParticipantsInProject=async(projectId,taskLike,db=pool)=>{
     const participantIds=[taskLike.ownerId,taskLike.requesterId,taskLike.acceptorId].filter(Boolean);
     if(!participantIds.length)return;
-    const{rows}=await pool.query('SELECT user_id FROM project_members WHERE project_id=$1 AND user_id=ANY($2::uuid[])',[projectId,[...new Set(participantIds)]]);
+    const{rows}=await db.query('SELECT user_id FROM project_members WHERE project_id=$1 AND user_id=ANY($2::uuid[])',[projectId,[...new Set(participantIds)]]);
     const admitted=new Set(rows.map(r=>r.user_id));
     const missing=[...new Set(participantIds)].filter(id=>!admitted.has(id));
     if(missing.length)throw fail('Task participants must belong to the project first','TASK_PARTICIPANT_OUTSIDE_PROJECT',409);
   };
+
+  // Membership and task admission share one project-level serialization point.
+  // Without it, one request can remove a person immediately after another
+  // request verified their membership but before it links the canonical task,
+  // leaving Project and Task authorities in contradictory states.
+  const lockProject=async(db,session,id)=>{
+    const locked=await db.query(
+      'SELECT id FROM projects WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+      [session.workspaceId,id]);
+    if(!locked.rowCount)throw fail('Project not found','PROJECT_NOT_FOUND',404);
+  };
+
+  const unfinishedTaskForMember=async(db,projectId,userId)=>(
+    await db.query(
+      `SELECT c.id,c.title,c.status
+         FROM project_tasks pt
+         JOIN commitments c ON c.workspace_id=pt.workspace_id AND c.id=pt.commitment_id
+        WHERE pt.project_id=$1
+          AND c.status NOT IN ('closed','rejected','cancelled')
+          AND (c.owner_id=$2 OR c.requester_id=$2 OR c.acceptor_id=$2)
+        ORDER BY c.created_at,c.id
+        LIMIT 1`,
+      [projectId,userId])
+  ).rows[0]??null;
 
   const visibleTasks=async(session,projectId)=>{
     const links=(await pool.query('SELECT commitment_id FROM project_tasks WHERE project_id=$1 ORDER BY linked_at,commitment_id',[projectId])).rows;
@@ -239,23 +263,38 @@ export function createProjectRepository({pool,store}={}){
     },
 
     async removeMember(session,id,userId){
-      const project=await row(session,id);
-      assertProjectManage(project,session);
-      if(userId===project.ownerId)throw fail('Project owner cannot be removed','PROJECT_OWNER_REQUIRED',409);
-      const removed=await pool.query('DELETE FROM project_members WHERE project_id=$1 AND user_id=$2 RETURNING user_id',[id,userId]);
-      if(!removed.rowCount)throw fail('Project member not found','PROJECT_MEMBER_NOT_FOUND',404);
-      await pool.query(
-        `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
-         VALUES($1,$2,'project',$3,'project.member_removed',$4,$5)`,
-        [session.organizationId,session.workspaceId,id,session.userId,{userId}]);
-      return this.get(session,id);
+      return tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectManage(project,session);
+        if(userId===project.ownerId)throw fail('Project owner cannot be removed','PROJECT_OWNER_REQUIRED',409);
+
+        const blocker=await unfinishedTaskForMember(client,id,userId);
+        if(blocker)throw fail(
+          'Finish, reassign or unlink this person\'s active project work before removing them',
+          'PROJECT_MEMBER_HAS_ACTIVE_TASKS',409);
+
+        const removed=await client.query(
+          'DELETE FROM project_members WHERE project_id=$1 AND user_id=$2 RETURNING user_id',
+          [id,userId]);
+        if(!removed.rowCount)throw fail('Project member not found','PROJECT_MEMBER_NOT_FOUND',404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'project',$3,'project.member_removed',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{userId}]);
+        return this.get(session,id);
+      });
     },
 
     async createTask(session,id,input){
-      const project=await row(session,id);
-      assertProjectContribute(project,session);
-      await assertTaskParticipantsInProject(id,{ownerId:input.ownerId||session.userId,requesterId:session.userId,acceptorId:input.acceptorId||session.userId});
       return tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectContribute(project,session);
+        await assertTaskParticipantsInProject(
+          id,
+          {ownerId:input.ownerId||session.userId,requesterId:session.userId,acceptorId:input.acceptorId||session.userId},
+          client);
         const task=await store.createTask(session,input,{client});
         await client.query(
           `INSERT INTO project_tasks(project_id,workspace_id,commitment_id,linked_by)
@@ -270,24 +309,27 @@ export function createProjectRepository({pool,store}={}){
     },
 
     async linkTask(session,id,taskId){
-      const project=await row(session,id);
-      assertProjectContribute(project,session);
       const task=await store.getTask(session,taskId);
       if(!task)throw fail('Task not found','TASK_NOT_FOUND',404);
-      await assertTaskParticipantsInProject(id,task);
-      try{
-        await pool.query(
-          `INSERT INTO project_tasks(project_id,workspace_id,commitment_id,linked_by) VALUES($1,$2,$3,$4)`,
-          [id,session.workspaceId,taskId,session.userId]);
-      }catch(error){
-        if(error.code==='23505')throw fail('Task already belongs to a project','TASK_ALREADY_IN_PROJECT',409);
-        throw error;
-      }
-      await pool.query(
-        `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
-         VALUES($1,$2,'project',$3,'project.task_linked',$4,$5)`,
-        [session.organizationId,session.workspaceId,id,session.userId,{taskId,source:'existing'}]);
-      return this.get(session,id);
+      return tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectContribute(project,session);
+        await assertTaskParticipantsInProject(id,task,client);
+        try{
+          await client.query(
+            `INSERT INTO project_tasks(project_id,workspace_id,commitment_id,linked_by) VALUES($1,$2,$3,$4)`,
+            [id,session.workspaceId,taskId,session.userId]);
+        }catch(error){
+          if(error.code==='23505')throw fail('Task already belongs to a project','TASK_ALREADY_IN_PROJECT',409);
+          throw error;
+        }
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'project',$3,'project.task_linked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{taskId,source:'existing'}]);
+        return this.get(session,id);
+      });
     },
 
     async unlinkTask(session,id,taskId){
