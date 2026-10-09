@@ -8,6 +8,8 @@ DECLARE
   u2 uuid := gen_random_uuid();
   conv uuid := gen_random_uuid();
   msg uuid := gen_random_uuid();
+  pf_project uuid := gen_random_uuid();
+  pf_file uuid := gen_random_uuid();
 BEGIN
   INSERT INTO organizations(id, name) VALUES (org, 'Platform Test');
   INSERT INTO workspaces(id, organization_id, name) VALUES (ws, org, 'Main');
@@ -40,6 +42,20 @@ BEGIN
     RAISE EXCEPTION 'blank text message unexpectedly accepted';
   EXCEPTION WHEN check_violation THEN NULL;
   END;
+
+  INSERT INTO projects(id,organization_id,workspace_id,name,owner_id,created_by)
+    VALUES(pf_project,org,ws,'Project files invariant',u1,u1);
+  INSERT INTO files(id,organization_id,workspace_id,uploaded_by,name,mime_type,size_bytes,storage_key,status)
+    VALUES(pf_file,org,ws,u1,'project.txt','text/plain',1,'project-file','ready');
+  INSERT INTO project_files(project_id,workspace_id,file_id,linked_by)
+    VALUES(pf_project,ws,pf_file,u1);
+  IF NOT EXISTS(SELECT 1 FROM project_files WHERE project_id=pf_project AND file_id=pf_file) THEN
+    RAISE EXCEPTION 'project file relation did not persist';
+  END IF;
+  DELETE FROM projects WHERE id=pf_project;
+  IF EXISTS(SELECT 1 FROM project_files WHERE file_id=pf_file) THEN
+    RAISE EXCEPTION 'project file relation did not cascade with project deletion';
+  END IF;
 END $$;
 
 ROLLBACK;
