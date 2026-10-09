@@ -1592,6 +1592,13 @@ async function projectDiscussionOpen(conversationId){
     try{S.conversations=(await api('/api/v1/conversations')).items||[]}
     catch(error){toast(error.message);return}
   }
+  // openChat uses replaceState for cross-surface jumps. From a Project that
+  // would erase the Project URL and make Back skip the context we came from.
+  // Add the canonical Chats history entry first; Conversation Authority still
+  // owns the room, messages and selected conversation state.
+  if(location.hash!=='#/chats'){
+    try{history.pushState(null,'','#/chats')}catch{}
+  }
   await openChatAtMessage(conversationId);
 }
 
