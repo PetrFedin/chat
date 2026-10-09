@@ -763,7 +763,6 @@ export class PostgresMeetingRepository {
     return rows;
   }
 }
-}
 
 export function createMeetingRepository(pool = null) {
   return pool ? new PostgresMeetingRepository(pool) : new MemoryMeetingRepository();
