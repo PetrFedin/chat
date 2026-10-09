@@ -209,9 +209,11 @@ than treating the API test as sufficient proof. Accent colour and week-start pre
 Project ↔ Calendar authority is now an active slice: milestones are projected
 read-only from Project Authority, canonical task blocks are annotated through
 project_tasks, and Calendar can be filtered by a visible project without
-copying either milestone dates or task state. Explicit Project <->
-Files/Discussion/Decision relations are the next Project-layer gap after this
-projection passes PostgreSQL/API/browser release gates.
+copying either milestone dates or task state. Project ↔ Files and Project ↔
+Discussion are now admitted composition layers over their existing
+authorities; Project ↔ Decision remains open because the current accepted
+decision feed does not yet give every manual meeting-note decision its own
+stable canonical identifier.
 
 ## Execution reliability release gate — tenant simulation
 
@@ -228,11 +230,26 @@ Verified:
 
 Exact-head proof: CI #323 on `8f51d04d0186aa1610e4258ea989d24b61b7f1a0` passed both jobs, every PostgreSQL constraint check and the full PostgreSQL suite (1315/1315). The webhook fairness test passed in the same full-suite run, with no observed deadlock/lock-timeout signal.
 
+### Project composition relations — Files + Discussion
+
+**Status: COMPLETE / GREEN (2026-10-09).**
+
+Project is now a composition context instead of a second owner of collaboration state:
+
+- **Project <-> Files:** `project_files` stores only the relation. File bytes, metadata, preview/content routes, text search and deletion stay in File Authority. Linking requires the actor to already see the canonical file, project visibility becomes one valid File Authority access path, removing project membership revokes that path, and canonical file deletion removes the relation.
+- **Project <-> Discussion:** `project_discussions` stores only the relation. Conversation membership, visibility, messages, archive state and moderation stay in Conversation Authority. A linked private conversation is omitted from Project for viewers who cannot already open it; project membership alone never grants conversation access.
+- both relations enforce workspace identity in PostgreSQL with composite foreign keys and reject cross-workspace links;
+- Project Home exposes the relations without duplicating file or message state; opening a discussion enters the canonical Chats surface and browser Back returns to the Project context;
+- outsider/Guest/Observer/revoked-member security paths are covered by PostgreSQL tests rather than inferred from UI hiding.
+
+Exact-head acceptance: CI #350 on `b9491db4bb04f97e1f94a8b9343ab895e89c77c9` passed domain tests, every PostgreSQL constraint gate and the full PostgreSQL suite. The run explicitly passed `Project <-> Files composes canonical File Authority without duplicating ACL`, `Project <-> Discussion keeps Conversation Authority canonical`, and the browser flow `create -> file -> discussion -> milestone -> task -> board -> canonical task`.
+
 Next Project-layer gap:
-1. explicit Project <-> Files relations;
-2. explicit Project <-> Discussion relations;
-3. explicit Project <-> Decision relations;
-4. keep these relations on existing File/Conversation/Decision authorities rather than creating parallel state.
+1. Project <-> Files — **COMPLETE / GREEN**;
+2. Project <-> Discussion — **COMPLETE / GREEN**;
+3. establish a stable canonical identity for every accepted decision, including decisions entered through manual meeting notes;
+4. only then add explicit Project <-> Decision relation over that Decision Authority;
+5. keep all Project relations on existing File/Conversation/Decision authorities rather than creating parallel state.
 
 ## Gaps — real, scoped, not yet done
 
