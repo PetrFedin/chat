@@ -7,36 +7,9 @@ const PROJECT=new RegExp(`^/api/v1/projects/${ID}$`,'i');
 const MEMBERS=new RegExp(`^/api/v1/projects/${ID}/members$`,'i');
 const MEMBER=new RegExp(`^/api/v1/projects/${ID}/members/${ID}$`,'i');
 const TASKS=new RegExp(`^/api/v1/projects/${ID}/tasks$`,'i');
-const TASK=new RegExp(`^/api/v1/projects/${ID}/tasks/${ID}import { Permission,requirePermission } from '../rbac.js';
-import { json,readJson } from './helpers.js';
-import { isGuest } from '../persistence/visibility.js';
-
-const ID='([0-9a-f-]{36})';
-const PROJECT=new RegExp(`^/api/v1/projects/${ID}$`,'i');
-const MEMBERS=new RegExp(`^/api/v1/projects/${ID}/members$`,'i');
-const MEMBER=new RegExp(`^/api/v1/projects/${ID}/members/${ID}$`,'i');
-const TASKS=new RegExp(`^/api/v1/projects/${ID}/tasks$`,'i');
-,'i');
-const FILES=new RegExp(`^/api/v1/projects/${ID}/filesimport { Permission,requirePermission } from '../rbac.js';
-import { json,readJson } from './helpers.js';
-import { isGuest } from '../persistence/visibility.js';
-
-const ID='([0-9a-f-]{36})';
-const PROJECT=new RegExp(`^/api/v1/projects/${ID}$`,'i');
-const MEMBERS=new RegExp(`^/api/v1/projects/${ID}/members$`,'i');
-const MEMBER=new RegExp(`^/api/v1/projects/${ID}/members/${ID}$`,'i');
-const TASKS=new RegExp(`^/api/v1/projects/${ID}/tasks$`,'i');
-,'i');
-const FILE=new RegExp(`^/api/v1/projects/${ID}/files/${ID}import { Permission,requirePermission } from '../rbac.js';
-import { json,readJson } from './helpers.js';
-import { isGuest } from '../persistence/visibility.js';
-
-const ID='([0-9a-f-]{36})';
-const PROJECT=new RegExp(`^/api/v1/projects/${ID}$`,'i');
-const MEMBERS=new RegExp(`^/api/v1/projects/${ID}/members$`,'i');
-const MEMBER=new RegExp(`^/api/v1/projects/${ID}/members/${ID}$`,'i');
-const TASKS=new RegExp(`^/api/v1/projects/${ID}/tasks$`,'i');
-,'i');
+const TASK=new RegExp(`^/api/v1/projects/${ID}/tasks/${ID}$`,'i');
+const FILES=new RegExp(`^/api/v1/projects/${ID}/files$`,'i');
+const FILE=new RegExp(`^/api/v1/projects/${ID}/files/${ID}$`,'i');
 const MILESTONES=new RegExp(`^/api/v1/projects/${ID}/milestones$`,'i');
 const MILESTONE=new RegExp(`^/api/v1/projects/${ID}/milestones/${ID}$`,'i');
 
