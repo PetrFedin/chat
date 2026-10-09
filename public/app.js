@@ -180,9 +180,9 @@ const ERROR_MESSAGE={
   NOT_A_PLAYER:'Вы не играете в этой партии.',
   LABEL_NOT_FOUND:'Метка недоступна.',
   TARGET_NOT_FOUND:'Объект недоступен.',
-  FILE_NOT_FOUND:'Файл недоступен или у вас больше нет к нему доступа.',
-  PROJECT_FILE_ALREADY_LINKED:'Этот файл уже связан с проектом.',
-  PROJECT_FILE_NOT_FOUND:'Связь с файлом уже удалена.',
+  FILE_NOT_FOUND:T('Файл недоступен или у вас больше нет к нему доступа.','The file is unavailable or you no longer have access to it.'),
+  PROJECT_FILE_ALREADY_LINKED:T('Этот файл уже связан с проектом.','This file is already linked to the project.'),
+  PROJECT_FILE_NOT_FOUND:T('Связь с файлом уже удалена.','The project file link has already been removed.'),
 };
 
 /**
