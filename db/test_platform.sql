@@ -10,6 +10,8 @@ DECLARE
   msg uuid := gen_random_uuid();
   pf_project uuid := gen_random_uuid();
   pf_file uuid := gen_random_uuid();
+  pf_other_ws uuid := gen_random_uuid();
+  pf_foreign_file uuid := gen_random_uuid();
 BEGIN
   INSERT INTO organizations(id, name) VALUES (org, 'Platform Test');
   INSERT INTO workspaces(id, organization_id, name) VALUES (ws, org, 'Main');
@@ -52,6 +54,16 @@ BEGIN
   IF NOT EXISTS(SELECT 1 FROM project_files WHERE project_id=pf_project AND file_id=pf_file) THEN
     RAISE EXCEPTION 'project file relation did not persist';
   END IF;
+  INSERT INTO workspaces(id,organization_id,name)
+    VALUES(pf_other_ws,org,'Other workspace');
+  INSERT INTO files(id,organization_id,workspace_id,uploaded_by,name,mime_type,size_bytes,storage_key,status)
+    VALUES(pf_foreign_file,org,pf_other_ws,u1,'foreign.txt','text/plain',1,'foreign-project-file','ready');
+  BEGIN
+    INSERT INTO project_files(project_id,workspace_id,file_id,linked_by)
+      VALUES(pf_project,ws,pf_foreign_file,u1);
+    RAISE EXCEPTION 'cross-workspace project file relation unexpectedly accepted';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
   DELETE FROM projects WHERE id=pf_project;
   IF EXISTS(SELECT 1 FROM project_files WHERE file_id=pf_file) THEN
     RAISE EXCEPTION 'project file relation did not cascade with project deletion';
