@@ -4,6 +4,7 @@ import { normalizeProject,normalizeProjectMember,normalizeMilestone,canViewProje
 const fail=(message,code,statusCode=400)=>Object.assign(new Error(message),{code,statusCode,expose:true});
 const ACTIVE_TASK=new Set(['proposed','accepted','scheduled','in_progress','blocked','in_review','deferred','clarify','inbox']);
 const DONE_TASK=new Set(['accepted_result','closed']);
+const PREVIEWABLE=/^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/i;
 
 export function createProjectRepository({pool,store}={}){
   if(!pool||!store)return null;
@@ -46,6 +47,28 @@ export function createProjectRepository({pool,store}={}){
               created_by "createdBy",created_at "createdAt",updated_at "updatedAt"
          FROM project_milestones WHERE project_id=$1 ORDER BY target_at,id`,[projectId])
   ).rows;
+
+  // Project owns only the relation. File metadata and bytes stay canonical in
+  // File Authority, so rename/delete/storage state can never drift into a copy.
+  const projectFiles=async(session,projectId)=>{
+    const{rows}=await pool.query(
+      `SELECT f.id,f.name,f.mime_type "mimeType",f.size_bytes "sizeBytes",f.sha256,f.status,
+              f.created_at "createdAt",f.uploaded_by "uploadedBy",
+              pf.linked_by "linkedBy",pf.linked_at "linkedAt",
+              COALESCE(wp.display_name,wp.email,f.uploaded_by::text) "uploaderName"
+         FROM project_files pf
+         JOIN files f ON f.workspace_id=pf.workspace_id AND f.id=pf.file_id
+         LEFT JOIN workspace_profiles wp ON wp.workspace_id=f.workspace_id AND wp.user_id=f.uploaded_by
+        WHERE pf.workspace_id=$1 AND pf.project_id=$2
+          AND f.deleted_at IS NULL AND f.status<>'deleted'
+        ORDER BY pf.linked_at DESC,f.id DESC`,
+      [session.workspaceId,projectId]);
+    return rows.map(file=>({
+      ...file,
+      contentUrl:`/api/v1/files/${file.id}/content`,
+      previewUrl:PREVIEWABLE.test(file.mimeType??'')?`/api/v1/files/${file.id}/preview`:null,
+    }));
+  };
 
   const assertTaskParticipantsInProject=async(projectId,taskLike,db=pool)=>{
     const participantIds=[taskLike.ownerId,taskLike.requesterId,taskLike.acceptorId].filter(Boolean);
@@ -133,7 +156,7 @@ export function createProjectRepository({pool,store}={}){
   };
 
   const enrich=async(session,project)=>{
-    const [team,marks,tasks]=await Promise.all([members(project.id),milestones(project.id),visibleTasks(session,project.id)]);
+    const [team,marks,tasks,files]=await Promise.all([members(project.id),milestones(project.id),visibleTasks(session,project.id),projectFiles(session,project.id)]);
     const active=tasks.filter(t=>ACTIVE_TASK.has(t.status));
     const done=tasks.filter(t=>DONE_TASK.has(t.status));
     const blocked=tasks.filter(t=>t.status==='blocked');
@@ -157,7 +180,7 @@ export function createProjectRepository({pool,store}={}){
       workload.set(key,item);
     }
     const projectAnalytics=await analytics(session,project.id,tasks.map(t=>t.id));
-    return{...project,members:team,milestones:marks,tasks,
+    return{...project,members:team,milestones:marks,tasks,files,
       metrics:{visibleTasks:tasks.length,active:active.length,done:done.length,blocked:blocked.length,dependencyBlocked:dependencyBlocked.length,
         overdue:overdue.length,forecastRisk:forecastRisk.length,projectTargetRisk,progress,nextMilestone,
         trackedSeconds:projectAnalytics.trackedSeconds,throughput30d:projectAnalytics.throughput30d},
@@ -342,6 +365,52 @@ export function createProjectRepository({pool,store}={}){
          VALUES($1,$2,'project',$3,'project.task_unlinked',$4,$5)`,
         [session.organizationId,session.workspaceId,id,session.userId,{taskId}]);
       return this.get(session,id);
+    },
+
+    async linkFile(session,id,fileId){
+      // Linking is an explicit re-share. A guessed UUID is not authority:
+      // the actor must already be able to open the file through File Authority.
+      const visible=await store.getFile(session,fileId);
+      if(!visible)throw fail('File not found','FILE_NOT_FOUND',404);
+      return tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectContribute(project,session);
+        try{
+          const inserted=await client.query(
+            `INSERT INTO project_files(project_id,workspace_id,file_id,linked_by)
+             SELECT $1,$2,f.id,$4 FROM files f
+              WHERE f.workspace_id=$2 AND f.id=$3 AND f.deleted_at IS NULL AND f.status<>'deleted'
+             RETURNING file_id`,
+            [id,session.workspaceId,fileId,session.userId]);
+          if(!inserted.rowCount)throw fail('File not found','FILE_NOT_FOUND',404);
+        }catch(error){
+          if(error.code==='23505')throw fail('File is already linked to this project','PROJECT_FILE_ALREADY_LINKED',409);
+          throw error;
+        }
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'project',$3,'project.file_linked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{fileId}]);
+        return this.get(session,id);
+      });
+    },
+
+    async unlinkFile(session,id,fileId){
+      return tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectManage(project,session);
+        const removed=await client.query(
+          'DELETE FROM project_files WHERE project_id=$1 AND workspace_id=$2 AND file_id=$3 RETURNING file_id',
+          [id,session.workspaceId,fileId]);
+        if(!removed.rowCount)throw fail('Project file link not found','PROJECT_FILE_NOT_FOUND',404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'project',$3,'project.file_unlinked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{fileId}]);
+        return this.get(session,id);
+      });
     },
 
     async addMilestone(session,id,input){
