@@ -16,15 +16,15 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
   t.after(()=>app.close());
   const base=`http://127.0.0.1:${app.server.address().port}`;
 
-  // Keep the project milestone inside the calendar week that the browser opens.
-  // This verifies visible projection instead of accidentally testing an off-screen date.
+  // Keep the milestone on the exact UTC day the Calendar initially opens.
+  // The previous "Thursday" fixture jumped to next week once CI crossed into
+  // Friday, while Calendar correctly stayed on the current week.
   const today=new Date();today.setUTCHours(0,0,0,0);
-  const monday=new Date(today);monday.setUTCDate(monday.getUTCDate()-((monday.getUTCDay()+6)%7));
-  const thursday=new Date(monday);thursday.setUTCDate(thursday.getUTCDate()+3);
-  if(thursday<today)thursday.setUTCDate(thursday.getUTCDate()+7);
   const projectStart=today.toISOString().slice(0,10);
   const projectTarget=new Date(today);projectTarget.setUTCDate(projectTarget.getUTCDate()+45);
-  const milestoneInput=new Date(Date.UTC(thursday.getUTCFullYear(),thursday.getUTCMonth(),thursday.getUTCDate(),12,0)).toISOString().slice(0,16);
+  const milestoneInput=new Date(Date.UTC(
+    today.getUTCFullYear(),today.getUTCMonth(),today.getUTCDate(),12,0
+  )).toISOString().slice(0,16);
 
   const browser=await chromium.launch();
   t.after(()=>browser.close());
