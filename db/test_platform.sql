@@ -56,6 +56,8 @@ BEGIN
   END IF;
   INSERT INTO workspaces(id,organization_id,name)
     VALUES(pf_other_ws,org,'Other workspace');
+  INSERT INTO memberships(organization_id,workspace_id,user_id,role)
+    VALUES(org,pf_other_ws,u1,'member');
   INSERT INTO files(id,organization_id,workspace_id,uploaded_by,name,mime_type,size_bytes,storage_key,status)
     VALUES(pf_foreign_file,org,pf_other_ws,u1,'foreign.txt','text/plain',1,'foreign-project-file','ready');
   BEGIN
