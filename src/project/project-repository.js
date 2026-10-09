@@ -70,6 +70,28 @@ export function createProjectRepository({pool,store}={}){
     }));
   };
 
+  // Project stores only the relation. Conversation visibility, membership,
+  // messages and moderation remain canonical in Conversation Authority.
+  const projectDiscussions=async(session,projectId)=>{
+    const links=(await pool.query(
+      `SELECT conversation_id "conversationId",linked_by "linkedBy",linked_at "linkedAt"
+         FROM project_discussions
+        WHERE workspace_id=$1 AND project_id=$2
+        ORDER BY linked_at DESC,conversation_id`,
+      [session.workspaceId,projectId])).rows;
+    const projected=await Promise.all(links.map(async link=>{
+      const policy=await store.conversationPolicy(session,link.conversationId);
+      if(!policy)return null;
+      return{
+        ...policy.conversation,
+        memberRole:policy.memberRole??null,
+        linkedBy:link.linkedBy,
+        linkedAt:link.linkedAt,
+      };
+    }));
+    return projected.filter(Boolean);
+  };
+
   const assertTaskParticipantsInProject=async(projectId,taskLike,db=pool)=>{
     const participantIds=[taskLike.ownerId,taskLike.requesterId,taskLike.acceptorId].filter(Boolean);
     if(!participantIds.length)return;
@@ -156,7 +178,13 @@ export function createProjectRepository({pool,store}={}){
   };
 
   const enrich=async(session,project)=>{
-    const [team,marks,tasks,files]=await Promise.all([members(project.id),milestones(project.id),visibleTasks(session,project.id),projectFiles(session,project.id)]);
+    const [team,marks,tasks,files,discussions]=await Promise.all([
+      members(project.id),
+      milestones(project.id),
+      visibleTasks(session,project.id),
+      projectFiles(session,project.id),
+      projectDiscussions(session,project.id),
+    ]);
     const active=tasks.filter(t=>ACTIVE_TASK.has(t.status));
     const done=tasks.filter(t=>DONE_TASK.has(t.status));
     const blocked=tasks.filter(t=>t.status==='blocked');
@@ -180,7 +208,7 @@ export function createProjectRepository({pool,store}={}){
       workload.set(key,item);
     }
     const projectAnalytics=await analytics(session,project.id,tasks.map(t=>t.id));
-    return{...project,members:team,milestones:marks,tasks,files,
+    return{...project,members:team,milestones:marks,tasks,files,discussions,
       metrics:{visibleTasks:tasks.length,active:active.length,done:done.length,blocked:blocked.length,dependencyBlocked:dependencyBlocked.length,
         overdue:overdue.length,forecastRisk:forecastRisk.length,projectTargetRisk,progress,nextMilestone,
         trackedSeconds:projectAnalytics.trackedSeconds,throughput30d:projectAnalytics.throughput30d},
@@ -409,6 +437,51 @@ export function createProjectRepository({pool,store}={}){
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'project',$3,'project.file_unlinked',$4,$5)`,
           [session.organizationId,session.workspaceId,id,session.userId,{fileId}]);
+      });
+      return this.get(session,id);
+    },
+
+    async linkDiscussion(session,id,conversationId){
+      // Project relation never escalates Conversation access: the actor must
+      // already be able to open the conversation through Conversation Authority.
+      const policy=await store.conversationPolicy(session,conversationId);
+      if(!policy)throw fail('Conversation not found','CONVERSATION_NOT_FOUND',404);
+      await tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectContribute(project,session);
+        try{
+          await client.query(
+            `INSERT INTO project_discussions(project_id,workspace_id,conversation_id,linked_by)
+             VALUES($1,$2,$3,$4)`,
+            [id,session.workspaceId,conversationId,session.userId]);
+        }catch(error){
+          if(error.code==='23505')throw fail('Discussion is already linked to this project','PROJECT_DISCUSSION_ALREADY_LINKED',409);
+          throw error;
+        }
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'project',$3,'project.discussion_linked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{conversationId}]);
+      });
+      return this.get(session,id);
+    },
+
+    async unlinkDiscussion(session,id,conversationId){
+      await tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectManage(project,session);
+        const removed=await client.query(
+          `DELETE FROM project_discussions
+            WHERE project_id=$1 AND workspace_id=$2 AND conversation_id=$3
+            RETURNING conversation_id`,
+          [id,session.workspaceId,conversationId]);
+        if(!removed.rowCount)throw fail('Project discussion link not found','PROJECT_DISCUSSION_NOT_FOUND',404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'project',$3,'project.discussion_unlinked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{conversationId}]);
       });
       return this.get(session,id);
     },
