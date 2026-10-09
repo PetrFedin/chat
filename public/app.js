@@ -180,6 +180,9 @@ const ERROR_MESSAGE={
   NOT_A_PLAYER:'Вы не играете в этой партии.',
   LABEL_NOT_FOUND:'Метка недоступна.',
   TARGET_NOT_FOUND:'Объект недоступен.',
+  FILE_NOT_FOUND:'Файл недоступен или у вас больше нет к нему доступа.',
+  PROJECT_FILE_ALREADY_LINKED:'Этот файл уже связан с проектом.',
+  PROJECT_FILE_NOT_FOUND:'Связь с файлом уже удалена.',
 };
 
 /**
@@ -1520,6 +1523,37 @@ function projectBoard(project){
         </article>`).join('')||`<div class="project-kanban-empty">${T('Пусто','Empty')}</div>`}</div></section>`}).join('')}</div>
   </section>`;
 }
+function projectFiles(project){
+  const rows=project.files||[];
+  return `<section class="surface project-files">
+    <div class="section-head">
+      <div>
+        <h3>${T('Файлы','Files')}</h3>
+        <p class="muted">${T(
+          'Файл остаётся в общем хранилище; проект хранит только рабочую связь с ним.',
+          'The file stays in shared File Authority; the project stores only the work relation.'
+        )}</p>
+      </div>
+      ${project.canContribute?`<button class="button secondary small" data-project-file-new>＋ ${T('Файл','File')}</button>`:''}
+    </div>
+    ${rows.length?rows.map(file=>`<div class="row project-file-row" data-project-file-row="${esc(file.id)}">
+      <span class="file-mark" aria-hidden="true">${tileIcon.files}</span>
+      <span>
+        <div class="row-title">${esc(file.name)}</div>
+        <div class="row-sub">${[
+          file.uploaderName?esc(file.uploaderName):'',
+          fileSize(Number(file.sizeBytes||0)),
+          file.linkedAt?esc(dateTime(file.linkedAt)):'',
+        ].filter(Boolean).join(' · ')}</div>
+      </span>
+      <span class="inline-actions">
+        <a class="text-button" data-project-file-open="${esc(file.id)}" href="${esc(file.previewUrl||file.contentUrl)}" target="_blank" rel="noopener">${T('Открыть','Open')}</a>
+        ${project.canManage?`<button class="text-button" data-project-file-remove="${esc(file.id)}">${T('Убрать из проекта','Unlink')}</button>`:''}
+      </span>
+    </div>`).join(''):`<div class="empty"><strong>${T('Файлов пока нет','No files yet')}</strong>${T('Добавьте уже существующий файл или загрузите новый.','Link an existing file or upload a new one.')}</div>`}
+  </section>`;
+}
+
 async function executeProjectTaskTransition(task,to,reason){
   try{
     const{task:updated}=await api(`/api/v1/tasks/${task.id}/transitions`,{method:'POST',body:JSON.stringify({to,reason,expectedVersion:task.version})});
@@ -1590,6 +1624,73 @@ function projectMilestoneModal(){
     };
   });
 }
+async function projectFileModal(){
+  const project=S.projectDetail;
+  if(!project||!project.canContribute)return;
+  let accessible=[];
+  try{accessible=(await api('/api/v1/files?limit=100')).items||[]}
+  catch(error){toast(error.message);return}
+  const linked=new Set((project.files||[]).map(file=>file.id));
+  const candidates=accessible.filter(file=>!linked.has(file.id));
+  modal(T('Добавить файл в проект','Add file to project'),`<form id="project-file-form" class="form-stack">
+    <p class="muted">${T(
+      'Можно связать уже доступный файл или загрузить новый. Сам файл останется каноническим в разделе «Файлы».',
+      'Link a file you can already access, or upload a new one. The canonical file remains in Files.'
+    )}</p>
+    <label>${T('Уже есть в файлах','Existing file')}
+      <select name="fileId">
+        <option value="">${T('Не выбрано','None selected')}</option>
+        ${candidates.map(file=>`<option value="${esc(file.id)}">${esc(file.name)} · ${esc(fileSize(Number(file.sizeBytes||0)))}</option>`).join('')}
+      </select>
+    </label>
+    <div class="muted" style="text-align:center">${T('или','or')}</div>
+    <label>${T('Загрузить новый','Upload new')}
+      <input name="upload" type="file">
+    </label>
+    <button class="button primary" type="submit">${T('Добавить в проект','Add to project')}</button>
+  </form>`,()=>{
+    $('#project-file-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget;
+      const button=form.querySelector('button[type="submit"]');
+      const data=new FormData(form);
+      let fileId=String(data.get('fileId')||'');
+      const upload=form.querySelector('[name="upload"]')?.files?.[0]||null;
+      if(!fileId&&!upload)return toast(T('Выберите файл или загрузите новый','Choose a file or upload a new one'));
+      button.disabled=true;
+      try{
+        if(upload){
+          const response=await fetch('/api/v1/files',{
+            method:'POST',
+            credentials:'same-origin',
+            headers:{
+              'content-type':upload.type||'application/octet-stream',
+              'x-file-name':encodeURIComponent(upload.name),
+            },
+            body:upload,
+          });
+          const payload=await response.json().catch(()=>null);
+          if(!response.ok){
+            const code=payload?.error?.code;
+            const error=new Error(ERROR_MESSAGE[code]||payload?.error?.message||T('Не удалось загрузить файл','File upload failed'));
+            error.code=code;throw error;
+          }
+          fileId=payload.file.id;
+        }
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}/files`,{
+          method:'POST',body:JSON.stringify({fileId}),
+        });
+        S.projectDetail=fresh;
+        closeModal();render();
+        toast(T('Файл добавлен в проект','File added to project'));
+      }catch(error){
+        button.disabled=false;
+        toast(ERROR_MESSAGE[error.code]||error.message);
+      }
+    };
+  });
+}
+
 function projectMemberModal(){
   const project=S.projectDetail;
   if(!project)return;
@@ -1624,6 +1725,7 @@ function projects(){
     <div class="project-operating-grid">${projectProgress(p)}${projectWorkload(p)}</div>
     ${projectRisk(p)}
     ${projectBoard(p)}
+    ${projectFiles(p)}
     <div class="page-grid project-grid"><section class="surface"><div class="section-head"><h3>${T('Вехи','Milestones')}</h3></div>${(p.milestones||[]).map(m=>`<div class="row"><span>◆</span><span><div class="row-title">${esc(m.title)}</div><div class="row-sub">${esc(dateTime(m.targetAt))}</div></span></div>`).join('')||`<div class="empty">${T('Вех пока нет','No milestones yet')}</div>`}</section><section class="surface"><div class="section-head"><h3>${T('Команда','Team')}</h3></div>${(p.members||[]).map(m=>`<div class="row"><span>${personAvatar(m.userId,m.displayName)}</span><span><div class="row-title">${esc(m.displayName)}</div><div class="row-sub">${esc(m.role)}</div></span></div>`).join('')}</section></div>
   </div>`;
 }
@@ -1637,6 +1739,8 @@ function bind(){
   $$('[data-project-task-new]').forEach(b=>b.onclick=projectTaskModal);
   $$('[data-project-milestone-new]').forEach(b=>b.onclick=projectMilestoneModal);
   $$('[data-project-member-new]').forEach(b=>b.onclick=projectMemberModal);
+  $$('[data-project-file-new]').forEach(b=>b.onclick=projectFileModal);
+  $$('[data-project-file-remove]').forEach(b=>b.onclick=()=>confirmTap(b,async()=>{const project=S.projectDetail;if(!project)return;try{const{project:fresh}=await api(`/api/v1/projects/${project.id}/files/${b.dataset.projectFileRemove}`,{method:'DELETE'});S.projectDetail=fresh;render();toast(T('Файл убран из проекта','File unlinked from project'))}catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}},T('Убрать?','Unlink?')));
   $$('[data-project-back]').forEach(b=>b.onclick=()=>{S.projectSelected=null;S.projectDetail=null;go('projects')});
   $$('[data-project-task-transition]').forEach(b=>b.onclick=event=>{
     event.stopPropagation();
