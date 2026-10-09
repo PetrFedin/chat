@@ -42,9 +42,9 @@ CREATE TABLE decisions (
     (status='retracted' AND retracted_by IS NOT NULL AND retracted_at IS NOT NULL)
   ),
   CHECK (
-    (source_kind='meeting_proposal' AND call_id IS NOT NULL AND source_position IS NULL)
+    (source_kind='meeting_proposal' AND source_position IS NULL)
     OR
-    (source_kind='meeting_note' AND calendar_event_id IS NOT NULL AND source_position IS NOT NULL)
+    (source_kind='meeting_note' AND source_position IS NOT NULL)
   )
 );
 
@@ -79,10 +79,10 @@ ON CONFLICT (id) DO NOTHING;
 -- application reconciliation preserves IDs for unchanged lines.
 INSERT INTO decisions(
   organization_id,workspace_id,source_kind,source_id,source_position,title,
-  source_title,accepted_by,accepted_at,calendar_event_id,status,created_at,updated_at)
+  source_title,accepted_by,accepted_at,call_id,calendar_event_id,status,created_at,updated_at)
 SELECT
   n.organization_id,n.workspace_id,'meeting_note',n.id,(d.ordinality-1)::integer,
-  d.value,n.title,n.created_by,n.updated_at,n.calendar_event_id,'active',n.updated_at,n.updated_at
+  d.value,n.title,n.created_by,n.updated_at,n.call_id,n.calendar_event_id,'active',n.updated_at,n.updated_at
 FROM meeting_notes n
 CROSS JOIN LATERAL jsonb_array_elements_text(n.decisions) WITH ORDINALITY AS d(value,ordinality)
 WHERE length(btrim(d.value))>0;
