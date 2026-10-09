@@ -12,6 +12,10 @@ DECLARE
   pf_file uuid := gen_random_uuid();
   pf_other_ws uuid := gen_random_uuid();
   pf_foreign_file uuid := gen_random_uuid();
+  pd_project uuid := gen_random_uuid();
+  pd_conversation uuid := gen_random_uuid();
+  pd_other_ws uuid := gen_random_uuid();
+  pd_foreign_conversation uuid := gen_random_uuid();
 BEGIN
   INSERT INTO organizations(id, name) VALUES (org, 'Platform Test');
   INSERT INTO workspaces(id, organization_id, name) VALUES (ws, org, 'Main');
@@ -69,6 +73,38 @@ BEGIN
   DELETE FROM projects WHERE id=pf_project;
   IF EXISTS(SELECT 1 FROM project_files WHERE file_id=pf_file) THEN
     RAISE EXCEPTION 'project file relation did not cascade with project deletion';
+  END IF;
+
+  INSERT INTO projects(id,organization_id,workspace_id,name,owner_id,created_by)
+    VALUES(pd_project,org,ws,'Project discussion invariant',u1,u1);
+  INSERT INTO conversations(id,organization_id,workspace_id,kind,title,created_by,visibility)
+    VALUES(pd_conversation,org,ws,'group','Project discussion',u1,'private');
+  INSERT INTO project_discussions(project_id,workspace_id,conversation_id,linked_by)
+    VALUES(pd_project,ws,pd_conversation,u1);
+  IF NOT EXISTS(
+    SELECT 1 FROM project_discussions
+     WHERE project_id=pd_project AND conversation_id=pd_conversation
+  ) THEN
+    RAISE EXCEPTION 'project discussion relation did not persist';
+  END IF;
+
+  INSERT INTO workspaces(id,organization_id,name)
+    VALUES(pd_other_ws,org,'Discussion other workspace');
+  INSERT INTO conversations(id,organization_id,workspace_id,kind,title,created_by,visibility)
+    VALUES(pd_foreign_conversation,org,pd_other_ws,'group','Foreign discussion',u1,'private');
+  BEGIN
+    INSERT INTO project_discussions(project_id,workspace_id,conversation_id,linked_by)
+      VALUES(pd_project,ws,pd_foreign_conversation,u1);
+    RAISE EXCEPTION 'cross-workspace project discussion relation unexpectedly accepted';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+
+  DELETE FROM conversations WHERE id=pd_conversation;
+  IF EXISTS(
+    SELECT 1 FROM project_discussions
+     WHERE project_id=pd_project AND conversation_id=pd_conversation
+  ) THEN
+    RAISE EXCEPTION 'project discussion relation did not cascade with conversation deletion';
   END IF;
 END $$;
 
