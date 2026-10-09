@@ -183,6 +183,9 @@ const ERROR_MESSAGE={
   FILE_NOT_FOUND:'Файл недоступен или у вас больше нет к нему доступа.',
   PROJECT_FILE_ALREADY_LINKED:'Этот файл уже связан с проектом.',
   PROJECT_FILE_NOT_FOUND:'Связь с файлом уже удалена.',
+  CONVERSATION_NOT_FOUND:'Беседа недоступна.',
+  PROJECT_DISCUSSION_ALREADY_LINKED:'Эта беседа уже связана с проектом.',
+  PROJECT_DISCUSSION_NOT_FOUND:'Связь с беседой уже удалена.',
 };
 
 /**
@@ -1554,6 +1557,85 @@ function projectFiles(project){
   </section>`;
 }
 
+function projectDiscussions(project){
+  const rows=project.discussions||[];
+  return `<section class="surface project-discussions">
+    <div class="section-head">
+      <div>
+        <h3>${T('Обсуждения','Discussions')}</h3>
+        <p class="muted">${T(
+          'Проект хранит только связь. Состав, сообщения и доступ остаются у обычной беседы.',
+          'Project stores only the relation. Membership, messages and access stay with the canonical conversation.'
+        )}</p>
+      </div>
+      ${project.canContribute?`<button class="button secondary small" data-project-discussion-new>＋ ${T('Обсуждение','Discussion')}</button>`:''}
+    </div>
+    ${rows.length?rows.map(room=>`<div class="row project-discussion-row" data-project-discussion-row="${esc(room.id)}">
+      <span class="file-mark" aria-hidden="true">${roomIcon[room.kind]||roomIcon.group||'◌'}</span>
+      <span>
+        <div class="row-title">${esc(room.title||T('Беседа','Conversation'))}</div>
+        <div class="row-sub">${[
+          room.purpose?esc(room.purpose):'',
+          room.memberRole?esc(room.memberRole):T('по видимости канала','by channel visibility'),
+        ].filter(Boolean).join(' · ')}</div>
+      </span>
+      <span class="inline-actions">
+        <button class="text-button" data-project-discussion-open="${esc(room.id)}">${T('Открыть','Open')}</button>
+        ${project.canManage?`<button class="text-button" data-project-discussion-remove="${esc(room.id)}">${T('Убрать из проекта','Unlink')}</button>`:''}
+      </span>
+    </div>`).join(''):`<div class="empty"><strong>${T('Обсуждений пока нет','No discussions yet')}</strong>${T('Свяжите существующую рабочую беседу с проектом.','Link an existing work conversation to the project.')}</div>`}
+  </section>`;
+}
+
+async function projectDiscussionOpen(conversationId){
+  if(!S.conversations.some(room=>room.id===conversationId)){
+    try{S.conversations=(await api('/api/v1/conversations')).items||[]}
+    catch(error){toast(error.message);return}
+  }
+  await openChatAtMessage(conversationId);
+}
+
+function projectDiscussionModal(){
+  const project=S.projectDetail;
+  if(!project||!project.canContribute)return;
+  const linked=new Set((project.discussions||[]).map(room=>room.id));
+  // Direct messages stay private. A Project Discussion is a shared work room.
+  const candidates=(S.conversations||[]).filter(room=>room.kind!=='direct'&&!linked.has(room.id));
+  if(!candidates.length)return toast(T(
+    'Нет доступной общей беседы для связи с проектом',
+    'There is no accessible shared conversation to link'
+  ));
+  modal(T('Связать обсуждение','Link discussion'),`<form id="project-discussion-form" class="form-stack">
+    <p class="muted">${T(
+      'Связь не меняет состав беседы. Если участнику проекта нужен доступ, добавьте его в беседу обычным способом.',
+      'Linking does not change conversation membership. Add project participants through the normal conversation flow if they need access.'
+    )}</p>
+    <label>${T('Беседа','Conversation')}
+      <select name="conversationId" required>
+        ${candidates.map(room=>`<option value="${esc(room.id)}">${esc(room.title||T('Беседа','Conversation'))}</option>`).join('')}
+      </select>
+    </label>
+    <button class="button primary" type="submit">${T('Связать с проектом','Link to project')}</button>
+  </form>`,()=>{
+    $('#project-discussion-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+      const conversationId=String(new FormData(form).get('conversationId')||'');
+      button.disabled=true;
+      try{
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}/discussions`,{
+          method:'POST',body:JSON.stringify({conversationId}),
+        });
+        S.projectDetail=fresh;closeModal();render();
+        toast(T('Обсуждение связано с проектом','Discussion linked to project'));
+      }catch(error){
+        button.disabled=false;
+        toast(ERROR_MESSAGE[error.code]||error.message);
+      }
+    };
+  });
+}
+
 async function executeProjectTaskTransition(task,to,reason){
   try{
     const{task:updated}=await api(`/api/v1/tasks/${task.id}/transitions`,{method:'POST',body:JSON.stringify({to,reason,expectedVersion:task.version})});
@@ -1726,6 +1808,7 @@ function projects(){
     ${projectRisk(p)}
     ${projectBoard(p)}
     ${projectFiles(p)}
+    ${projectDiscussions(p)}
     <div class="page-grid project-grid"><section class="surface"><div class="section-head"><h3>${T('Вехи','Milestones')}</h3></div>${(p.milestones||[]).map(m=>`<div class="row"><span>◆</span><span><div class="row-title">${esc(m.title)}</div><div class="row-sub">${esc(dateTime(m.targetAt))}</div></span></div>`).join('')||`<div class="empty">${T('Вех пока нет','No milestones yet')}</div>`}</section><section class="surface"><div class="section-head"><h3>${T('Команда','Team')}</h3></div>${(p.members||[]).map(m=>`<div class="row"><span>${personAvatar(m.userId,m.displayName)}</span><span><div class="row-title">${esc(m.displayName)}</div><div class="row-sub">${esc(m.role)}</div></span></div>`).join('')}</section></div>
   </div>`;
 }
@@ -1738,7 +1821,16 @@ function bind(){
   $$('[data-project-new]').forEach(b=>b.onclick=projectCreateModal);
   $$('[data-project-task-new]').forEach(b=>b.onclick=projectTaskModal);
   $$('[data-project-milestone-new]').forEach(b=>b.onclick=projectMilestoneModal);
-  $$('[data-project-member-new]').forEach(b=>b.onclick=projectMemberModal);
+  $('[data-project-member-new]').forEach(b=>b.onclick=projectMemberModal);
+  $('[data-project-discussion-new]').forEach(b=>b.onclick=projectDiscussionModal);
+  $('[data-project-discussion-open]').forEach(b=>b.onclick=()=>projectDiscussionOpen(b.dataset.projectDiscussionOpen));
+  $('[data-project-discussion-remove]').forEach(b=>b.onclick=async()=>{
+    const project=S.projectDetail;if(!project)return;
+    try{
+      const{project:fresh}=await api(`/api/v1/projects/${project.id}/discussions/${b.dataset.projectDiscussionRemove}`,{method:'DELETE'});
+      S.projectDetail=fresh;render();toast(T('Обсуждение убрано из проекта','Discussion unlinked from project'));
+    }catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}
+  });
   $$('[data-project-file-new]').forEach(b=>b.onclick=projectFileModal);
   $$('[data-project-file-remove]').forEach(b=>b.onclick=()=>confirmTap(b,async()=>{const project=S.projectDetail;if(!project)return;try{const{project:fresh}=await api(`/api/v1/projects/${project.id}/files/${b.dataset.projectFileRemove}`,{method:'DELETE'});S.projectDetail=fresh;render();toast(T('Файл убран из проекта','File unlinked from project'))}catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}},T('Убрать?','Unlink?')));
   $$('[data-project-back]').forEach(b=>b.onclick=()=>{S.projectSelected=null;S.projectDetail=null;go('projects')});
