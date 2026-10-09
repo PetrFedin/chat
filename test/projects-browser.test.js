@@ -98,8 +98,8 @@ test('Project browser flow: create -> file -> discussion -> milestone -> task ->
   await discussionRow.waitFor({state:'visible',timeout:10000});
   assert.equal(await discussionRow.getAttribute('data-project-discussion-row'),discussionId);
   await discussionRow.locator('[data-project-discussion-open]').click();
-  await page.waitForURL(new RegExp('#/chats/'+discussionId+'$'),{timeout:10000});
-  assert.match(page.url(),new RegExp('#/chats/'+discussionId+'$'));
+  await page.waitForURL(/#\/chats$/,{timeout:10000});
+  assert.match(page.url(),/#\/chats$/,'Project Discussion opens the canonical Chats surface');
   await page.goBack();
   await page.waitForURL(projectUrl,{timeout:10000});
   await page.locator('.project-home h2').filter({hasText:'Investor Readiness'}).waitFor({state:'visible',timeout:10000});
