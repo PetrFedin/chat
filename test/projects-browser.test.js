@@ -8,7 +8,7 @@ import { PostgresStore } from '../src/persistence/store.js';
 
 const databaseUrl=process.env.POSTGRES_TEST_URL||process.env.DATABASE_URL;
 
-test('Project browser flow: create -> milestone -> task -> board -> canonical task',{skip:!databaseUrl},async(t)=>{
+test('Project browser flow: create -> file -> milestone -> task -> board -> canonical task',{skip:!databaseUrl},async(t)=>{
   const pool=new pg.Pool({connectionString:databaseUrl});
   const store=new PostgresStore(pool);
   const app=await createChatServer({store,startMeetingWorker:false});
@@ -61,6 +61,25 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
   assert.match(page.url(),/#\/projects\/[0-9a-f-]{36}/i);
   await page.locator('.project-progress-track').waitFor({state:'visible'});
   await page.locator('[data-project-column="planned"]').waitFor({state:'visible'});
+
+  // Project Files is a relation surface: upload creates a canonical file first,
+  // then Project links it. Opening the row must still go through /api/v1/files.
+  await page.locator('[data-project-file-new]').click();
+  await page.locator('#project-file-form').waitFor({state:'visible',timeout:5000});
+  await page.locator('#project-file-form [name="upload"]').setInputFiles({
+    name:'investor-brief.txt',
+    mimeType:'text/plain',
+    buffer:Buffer.from('Project file authority browser proof'),
+  });
+  await page.locator('#project-file-form button[type="submit"]').click();
+
+  const fileRow=page.locator('[data-project-file-row]').filter({hasText:'investor-brief.txt'});
+  await fileRow.waitFor({state:'visible',timeout:10000});
+  const fileHref=await fileRow.locator('[data-project-file-open]').getAttribute('href');
+  assert.match(fileHref,/^\/api\/v1\/files\/[0-9a-f-]{36}\/(preview|content)$/i,
+    'Project must open the canonical File Authority route');
+  const opened=await context.request.get(new URL(fileHref,base).href);
+  assert.equal(opened.status(),200,'project-linked canonical file must open in the browser session');
 
   await page.locator('[data-project-milestone-new]').click();
   await page.locator('#project-milestone-form [name="title"]').fill('Golden path accepted');
