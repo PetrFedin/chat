@@ -10,6 +10,8 @@ const TASKS=new RegExp(`^/api/v1/projects/${ID}/tasks$`,'i');
 const TASK=new RegExp(`^/api/v1/projects/${ID}/tasks/${ID}$`,'i');
 const FILES=new RegExp(`^/api/v1/projects/${ID}/files$`,'i');
 const FILE=new RegExp(`^/api/v1/projects/${ID}/files/${ID}$`,'i');
+const DISCUSSIONS=new RegExp(`^/api/v1/projects/${ID}/discussions$`,'i');
+const DISCUSSION=new RegExp(`^/api/v1/projects/${ID}/discussions/${ID}$`,'i');
 const MILESTONES=new RegExp(`^/api/v1/projects/${ID}/milestones$`,'i');
 const MILESTONE=new RegExp(`^/api/v1/projects/${ID}/milestones/${ID}$`,'i');
 
@@ -81,6 +83,19 @@ export function createProjectsHandler(){
     match=path.match(FILE);
     if(match&&method==='DELETE'){
       json(res,200,{project:await projects.unlinkFile(session,match[1],match[2])});
+      return true;
+    }
+
+    match=path.match(DISCUSSIONS);
+    if(match&&method==='POST'){
+      const body=await readJson(req);
+      if(!body.conversationId)throw Object.assign(new Error('conversationId is required'),{code:'CONVERSATION_ID_REQUIRED',statusCode:400,expose:true});
+      json(res,200,{project:await projects.linkDiscussion(session,match[1],String(body.conversationId))});
+      return true;
+    }
+    match=path.match(DISCUSSION);
+    if(match&&method==='DELETE'){
+      json(res,200,{project:await projects.unlinkDiscussion(session,match[1],match[2])});
       return true;
     }
 
