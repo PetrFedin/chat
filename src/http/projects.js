@@ -7,7 +7,36 @@ const PROJECT=new RegExp(`^/api/v1/projects/${ID}$`,'i');
 const MEMBERS=new RegExp(`^/api/v1/projects/${ID}/members$`,'i');
 const MEMBER=new RegExp(`^/api/v1/projects/${ID}/members/${ID}$`,'i');
 const TASKS=new RegExp(`^/api/v1/projects/${ID}/tasks$`,'i');
-const TASK=new RegExp(`^/api/v1/projects/${ID}/tasks/${ID}$`,'i');
+const TASK=new RegExp(`^/api/v1/projects/${ID}/tasks/${ID}import { Permission,requirePermission } from '../rbac.js';
+import { json,readJson } from './helpers.js';
+import { isGuest } from '../persistence/visibility.js';
+
+const ID='([0-9a-f-]{36})';
+const PROJECT=new RegExp(`^/api/v1/projects/${ID}$`,'i');
+const MEMBERS=new RegExp(`^/api/v1/projects/${ID}/members$`,'i');
+const MEMBER=new RegExp(`^/api/v1/projects/${ID}/members/${ID}$`,'i');
+const TASKS=new RegExp(`^/api/v1/projects/${ID}/tasks$`,'i');
+,'i');
+const FILES=new RegExp(`^/api/v1/projects/${ID}/filesimport { Permission,requirePermission } from '../rbac.js';
+import { json,readJson } from './helpers.js';
+import { isGuest } from '../persistence/visibility.js';
+
+const ID='([0-9a-f-]{36})';
+const PROJECT=new RegExp(`^/api/v1/projects/${ID}$`,'i');
+const MEMBERS=new RegExp(`^/api/v1/projects/${ID}/members$`,'i');
+const MEMBER=new RegExp(`^/api/v1/projects/${ID}/members/${ID}$`,'i');
+const TASKS=new RegExp(`^/api/v1/projects/${ID}/tasks$`,'i');
+,'i');
+const FILE=new RegExp(`^/api/v1/projects/${ID}/files/${ID}import { Permission,requirePermission } from '../rbac.js';
+import { json,readJson } from './helpers.js';
+import { isGuest } from '../persistence/visibility.js';
+
+const ID='([0-9a-f-]{36})';
+const PROJECT=new RegExp(`^/api/v1/projects/${ID}$`,'i');
+const MEMBERS=new RegExp(`^/api/v1/projects/${ID}/members$`,'i');
+const MEMBER=new RegExp(`^/api/v1/projects/${ID}/members/${ID}$`,'i');
+const TASKS=new RegExp(`^/api/v1/projects/${ID}/tasks$`,'i');
+,'i');
 const MILESTONES=new RegExp(`^/api/v1/projects/${ID}/milestones$`,'i');
 const MILESTONE=new RegExp(`^/api/v1/projects/${ID}/milestones/${ID}$`,'i');
 
@@ -66,6 +95,19 @@ export function createProjectsHandler(){
     match=path.match(TASK);
     if(match&&method==='DELETE'){
       json(res,200,{project:await projects.unlinkTask(session,match[1],match[2])});
+      return true;
+    }
+
+    match=path.match(FILES);
+    if(match&&method==='POST'){
+      const body=await readJson(req);
+      if(!body.fileId)throw Object.assign(new Error('fileId is required'),{code:'FILE_ID_REQUIRED',statusCode:400,expose:true});
+      json(res,200,{project:await projects.linkFile(session,match[1],String(body.fileId))});
+      return true;
+    }
+    match=path.match(FILE);
+    if(match&&method==='DELETE'){
+      json(res,200,{project:await projects.unlinkFile(session,match[1],match[2])});
       return true;
     }
 
