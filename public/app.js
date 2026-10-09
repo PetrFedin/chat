@@ -1821,10 +1821,10 @@ function bind(){
   $$('[data-project-new]').forEach(b=>b.onclick=projectCreateModal);
   $$('[data-project-task-new]').forEach(b=>b.onclick=projectTaskModal);
   $$('[data-project-milestone-new]').forEach(b=>b.onclick=projectMilestoneModal);
-  $('[data-project-member-new]').forEach(b=>b.onclick=projectMemberModal);
-  $('[data-project-discussion-new]').forEach(b=>b.onclick=projectDiscussionModal);
-  $('[data-project-discussion-open]').forEach(b=>b.onclick=()=>projectDiscussionOpen(b.dataset.projectDiscussionOpen));
-  $('[data-project-discussion-remove]').forEach(b=>b.onclick=async()=>{
+  $$('[data-project-member-new]').forEach(b=>b.onclick=projectMemberModal);
+  $$('[data-project-discussion-new]').forEach(b=>b.onclick=projectDiscussionModal);
+  $$('[data-project-discussion-open]').forEach(b=>b.onclick=()=>projectDiscussionOpen(b.dataset.projectDiscussionOpen));
+  $$('[data-project-discussion-remove]').forEach(b=>b.onclick=async()=>{
     const project=S.projectDetail;if(!project)return;
     try{
       const{project:fresh}=await api(`/api/v1/projects/${project.id}/discussions/${b.dataset.projectDiscussionRemove}`,{method:'DELETE'});
