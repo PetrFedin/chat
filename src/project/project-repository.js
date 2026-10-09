@@ -372,7 +372,7 @@ export function createProjectRepository({pool,store}={}){
       // the actor must already be able to open the file through File Authority.
       const visible=await store.getFile(session,fileId);
       if(!visible)throw fail('File not found','FILE_NOT_FOUND',404);
-      return tx(async client=>{
+      await tx(async client=>{
         await lockProject(client,session,id);
         const project=await row(session,id,client);
         assertProjectContribute(project,session);
@@ -392,12 +392,12 @@ export function createProjectRepository({pool,store}={}){
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'project',$3,'project.file_linked',$4,$5)`,
           [session.organizationId,session.workspaceId,id,session.userId,{fileId}]);
-        return this.get(session,id);
       });
+      return this.get(session,id);
     },
 
     async unlinkFile(session,id,fileId){
-      return tx(async client=>{
+      await tx(async client=>{
         await lockProject(client,session,id);
         const project=await row(session,id,client);
         assertProjectManage(project,session);
@@ -409,8 +409,8 @@ export function createProjectRepository({pool,store}={}){
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'project',$3,'project.file_unlinked',$4,$5)`,
           [session.organizationId,session.workspaceId,id,session.userId,{fileId}]);
-        return this.get(session,id);
       });
+      return this.get(session,id);
     },
 
     async addMilestone(session,id,input){
