@@ -1090,6 +1090,7 @@ export class PostgresStore {
       await c.query("UPDATE files SET deleted_at=now(),status='deleted' WHERE workspace_id=$1 AND id=$2",[s.workspaceId,id]);
       await c.query('DELETE FROM file_texts WHERE workspace_id=$1 AND file_id=$2',[s.workspaceId,id]);
       await c.query('DELETE FROM file_links WHERE workspace_id=$1 AND file_id=$2',[s.workspaceId,id]);
+      await c.query('DELETE FROM project_files WHERE workspace_id=$1 AND file_id=$2',[s.workspaceId,id]);
       await c.query('UPDATE workspace_profiles SET avatar_file_id=NULL WHERE workspace_id=$1 AND avatar_file_id=$2',[s.workspaceId,id]);
       await c.query('UPDATE conversations SET avatar_file_id=NULL WHERE workspace_id=$1 AND avatar_file_id=$2',[s.workspaceId,id]);
       return{storageKey:file.storage_key,name:file.name};

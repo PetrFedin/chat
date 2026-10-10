@@ -54,7 +54,7 @@ export const openapi = Object.freeze({
       post: { tags: ['Projects'], summary: 'Create a native project work context', description: 'Project metadata is authoritative only for the project itself. Task and Calendar state remain in their own authorities.', responses: { '201': { description: 'Project created' }, '403': { description: 'Project creation permission denied' } } }
     },
     '/api/v1/projects/{projectId}': {
-      get: { tags: ['Projects'], summary: 'Get a project operating cockpit', description: 'Returns members, milestones, visible canonical tasks, progress/workload metrics and recent project/task activity. Metrics are projections, not stored task state.', responses: { '200': { description: 'Project detail' }, '404': { description: 'Project is not visible' } } },
+      get: { tags: ['Projects'], summary: 'Get a project operating cockpit', description: 'Returns members, milestones, visible canonical tasks, canonical file relations, conversation-authority-filtered discussion relations, Decision-Authority-filtered decision relations, progress/workload metrics and recent activity. Project does not copy Task, File, Conversation or Decision state.', responses: { '200': { description: 'Project detail' }, '404': { description: 'Project is not visible' } } },
       patch: { tags: ['Projects'], summary: 'Update project metadata with optimistic versioning', responses: { '200': { description: 'Project updated' }, '403': { description: 'Project management authority denied' }, '409': { description: 'Stale project version' } } }
     },
     '/api/v1/projects/{projectId}/members': {
@@ -65,6 +65,24 @@ export const openapi = Object.freeze({
     },
     '/api/v1/projects/{projectId}/tasks': {
       post: { tags: ['Projects'], summary: 'Create or link a canonical task to a project', description: 'Creating a task and project relation is atomic. The project never copies task status; Kanban/progress are computed projections.', responses: { '201': { description: 'Canonical task created and linked' }, '200': { description: 'Existing visible task linked' }, '409': { description: 'Task already belongs to another project' } } }
+    },
+    '/api/v1/projects/{projectId}/files': {
+      post: { tags: ['Projects'], summary: 'Link a canonical file to a project', description: 'Stores only the Project-to-File relation. The actor must already be allowed to open the file through File Authority; knowing a file UUID is not sufficient.', responses: { '200': { description: 'File relation linked and refreshed project detail' }, '403': { description: 'Project contribution authority denied' }, '404': { description: 'Project or canonical file is not visible' }, '409': { description: 'File is already linked to this project' } } }
+    },
+    '/api/v1/projects/{projectId}/files/{fileId}': {
+      delete: { tags: ['Projects'], summary: 'Unlink a canonical file from a project', description: 'Removes only the Project relation. The canonical file remains in File Authority and any other valid access path remains effective.', responses: { '200': { description: 'File relation removed' }, '403': { description: 'Project management authority denied' }, '404': { description: 'Project or relation is not visible' } } }
+    },
+    '/api/v1/projects/{projectId}/discussions': {
+      post: { tags: ['Projects'], summary: 'Link an existing conversation as a project discussion', description: 'Stores only the Project-to-Conversation relation. Linking never changes conversation membership or visibility and requires the actor to already see the conversation through Conversation Authority.', responses: { '200': { description: 'Discussion relation linked and refreshed project detail' }, '403': { description: 'Project contribution authority denied' }, '404': { description: 'Project or conversation is not visible' }, '409': { description: 'Conversation is already linked to this project' } } }
+    },
+    '/api/v1/projects/{projectId}/discussions/{conversationId}': {
+      delete: { tags: ['Projects'], summary: 'Unlink a project discussion', description: 'Removes only the Project relation. Conversation membership, messages, archive state and moderation remain under Conversation Authority.', responses: { '200': { description: 'Discussion relation removed' }, '403': { description: 'Project management authority denied' }, '404': { description: 'Project or relation is not visible' } } }
+    },
+    '/api/v1/projects/{projectId}/decisions': {
+      post: { tags: ['Projects'], summary: 'Link a canonical decision to a project', description: 'Stores only the Project-to-Decision relation. The actor must already see the canonical decision through Decision Authority; project membership never grants access to the source meeting.', responses: { '200': { description: 'Decision relation linked and refreshed project detail' }, '403': { description: 'Project contribution authority denied' }, '404': { description: 'Project or canonical decision is not visible' }, '409': { description: 'Decision is already linked to this project' } } }
+    },
+    '/api/v1/projects/{projectId}/decisions/{decisionId}': {
+      delete: { tags: ['Projects'], summary: 'Unlink a canonical decision from a project', description: 'Removes only the Project relation. Decision identity, source, acceptance and visibility remain under Decision Authority.', responses: { '200': { description: 'Decision relation removed' }, '403': { description: 'Project management authority denied' }, '404': { description: 'Project or relation is not visible' } } }
     },
     '/api/v1/projects/{projectId}/tasks/{taskId}': {
       delete: { tags: ['Projects'], summary: 'Unlink a task from a project without deleting the task', responses: { '200': { description: 'Task relation removed' } } }
@@ -553,6 +571,12 @@ export const openapi = Object.freeze({
     },
     '/api/v1/wiki/pages/{pageId}/history': {
       get: { tags: ['Wiki'], summary: 'List prior snapshots of a page, newest first', responses: { '200': { description: 'Version history' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/projects': {
+      post: { tags: ['Wiki'], summary: 'Link a visible canonical project to a page', description: 'Stores only a Page-to-Project relation. Project visibility remains authoritative; a private project is omitted for a page reader who cannot already open it.', responses: { '200': { description: 'Page with refreshed visible project relations' }, '404': { description: 'Page or project not visible' }, '409': { description: 'Project already linked' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/projects/{projectId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink a project from a page', description: 'Removes only the relation. The canonical project and page remain unchanged.', responses: { '200': { description: 'Relation removed' }, '404': { description: 'Page, project or relation not visible' } } }
     },
     '/api/v1/wiki/search': {
       get: { tags: ['Wiki'], summary: 'Full-text search across non-archived pages', responses: { '200': { description: 'Matching pages with a highlighted snippet' } } }

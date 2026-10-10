@@ -83,6 +83,25 @@ reachable by direct link and in history. PostgreSQL-only, like the
 other recent modules; a guest sees the section as simply not existing
 (`404`, not `403`), the same rule audit/vault/AI already follow.
 
+### Pages authority — first relation slice
+
+**Status: Page <-> Project COMPLETE / GREEN (2026-10-10); structured editor phase remains open.**
+
+The existing Wiki is being evolved into Pages Authority rather than replaced by a second document system. Its established PostgreSQL page tree, version history, optimistic concurrency, Russian full-text search and soft archive remain canonical.
+
+The first Phase 3 composition slice is now admitted:
+- `wiki_page_projects` stores only a workspace-bounded relation and link provenance;
+- Page reads resolve every linked project through the canonical Project repository, so a workspace-visible page cannot disclose a private Project to somebody who cannot already open that Project;
+- linking a Project requires canonical Project visibility; guessing a hidden Project ID returns `404 PROJECT_NOT_FOUND`;
+- when Project Authority later admits the viewer, the existing Page relation becomes visible automatically without changing Wiki/Page ACL state;
+- unlink removes only the relation and leaves both canonical Page and Project untouched;
+- PostgreSQL composite foreign keys reject cross-workspace Page <-> Project relations;
+- the Wiki UI can link, open the canonical `#/projects/:id` surface and unlink visible Project relations.
+
+Exact-head acceptance: CI #377 on `92d6b4b9910a0beed685c5c6787f7002cf964ce5` passed both jobs, every database constraint gate and the full PostgreSQL suite **1321/1321**. The same run explicitly passed `Page browser flow links, opens and unlinks canonical Project relation` and `Page <-> Project relation preserves Project Authority visibility`.
+
+Still open in Pages/Tiptap: structured document content/editor, explicit page links and mentions, per-page ACL, and canonical Page relations to Task / Meeting / Channel. Critical task/project state must never live only in page text.
+
 **Time tracking**
 A start/stop timer on any commitment (`time_entries`), visible right
 on the task card. No new permission was added: whoever can already
@@ -209,9 +228,48 @@ than treating the API test as sufficient proof. Accent colour and week-start pre
 Project ↔ Calendar authority is now an active slice: milestones are projected
 read-only from Project Authority, canonical task blocks are annotated through
 project_tasks, and Calendar can be filtered by a visible project without
-copying either milestone dates or task state. Explicit Project <->
-Files/Discussion/Decision relations are the next Project-layer gap after this
-projection passes PostgreSQL/API/browser release gates.
+copying either milestone dates or task state. Project ↔ Files and Project ↔
+Discussion are now admitted composition layers over their existing
+authorities; Project ↔ Decision remains open because the current accepted
+decision feed does not yet give every manual meeting-note decision its own
+stable canonical identifier.
+
+## Execution reliability release gate — tenant simulation
+
+**Status: COMPLETE / GREEN (2026-10-08).**
+
+A permanent PostgreSQL-backed tenant simulation now complements the browser Golden Path. It models a real customer workspace with multiple roles working on the same canonical objects rather than testing each module in isolation.
+
+Verified:
+- Multi-role Tenant v1: role changes/session invalidation, private project containment, conversation -> project task provenance, idempotency, optimistic concurrency, Project <-> Calendar projection, evidence/review/return/resubmit/acceptance, notification deep links and guest non-leakage;
+- Parallel Workday: concurrent projects, concurrent workers, same-time work by different people, cross-project double-booking prevention and project metrics;
+- Failure & Recovery: lost-response retry, stale-tab recovery, session expiry/re-login and membership changes;
+- Project Authority blocks removal of a member who remains owner/requester/acceptor of unfinished canonical project work, and serializes membership removal with create/link-task admission to prevent race-created authority contradictions;
+- Cross-role Leakage: Guest / Observer / removed member are exercised against stale Project ID, Task ID, Message ID, message history/deep links, Calendar project filtering, unfiltered milestone projection, Search, file list/content/preview, notification links and canonical task evidence. Inaccessible direct objects use existence-hiding 404 semantics; discovery surfaces omit private IDs and metadata.
+
+Exact-head proof: CI #323 on `8f51d04d0186aa1610e4258ea989d24b61b7f1a0` passed both jobs, every PostgreSQL constraint check and the full PostgreSQL suite (1315/1315). The webhook fairness test passed in the same full-suite run, with no observed deadlock/lock-timeout signal.
+
+### Project composition relations — Files + Discussion + Decision
+
+**Status: COMPLETE / GREEN (2026-10-10).**
+
+Project is now a composition context over existing collaboration authorities rather than a second owner of their state:
+
+- **Project <-> Files:** `project_files` stores only the relation. File bytes, metadata, preview/content routes, search and deletion remain in File Authority.
+- **Project <-> Discussion:** `project_discussions` stores only the relation. Conversation membership, visibility, messages, archive state and moderation remain in Conversation Authority.
+- **Decision Authority:** migration `076_decision_register.sql` gives every accepted decision an individually addressable canonical record. Accepted Meeting Intelligence decisions retain the proposal UUID; manual meeting-note decisions receive their own UUIDs, unchanged lines retain identity across reorder, and edited/removed lines are retracted rather than silently mutating history.
+- **Project <-> Decision:** `project_decisions` stores only `decision_id` plus link provenance. Project membership never grants access to the source meeting. Project detail resolves every relation through canonical `meeting.getDecision()`, so a hidden decision is omitted and becomes visible automatically only when Decision Authority itself admits the viewer.
+- File, Discussion and Decision relations are workspace-bounded in PostgreSQL; cross-workspace Project <-> Decision is rejected by composite foreign keys and covered by `db/test_platform.sql`.
+- Project Home exposes all three relation surfaces without copying file/message/decision state.
+
+Exact-head acceptance: CI #362 on `e9be25d0dcf4905a53def35ad9125de445ee4cc3` passed both jobs, all PostgreSQL constraint gates and the full PostgreSQL suite **1319/1319**. The same run explicitly passed `Project <-> Decision composes canonical Decision Authority without ACL escalation` and the browser Golden Path `create -> file -> discussion -> decision -> milestone -> task -> board -> canonical task`.
+
+Current boundary:
+1. Project <-> Files — **COMPLETE / GREEN**;
+2. Project <-> Discussion — **COMPLETE / GREEN**;
+3. canonical per-decision identity — **COMPLETE / GREEN**;
+4. Project <-> Decision relation — **COMPLETE / GREEN**;
+5. richer Decision Register semantics — owner, effective date, supersedes links, evidence and affected-project semantics — remain intentionally open under Phase 7 and must extend the same Decision Authority rather than creating Project-owned decision state.
 
 ## Gaps — real, scoped, not yet done
 

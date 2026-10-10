@@ -109,25 +109,86 @@ export function createMeetingNotes(pool, { calendar = null, store = null } = {})
       const heading = String(title ?? event.title ?? 'Встреча').replace(/\s+/g, ' ').trim().slice(0, 240);
       if (!heading) throw fail('У протокола должно быть название', 'INVALID_TITLE');
       const body = notes === null || notes === undefined ? null : String(notes).slice(0, 20000);
-      const { rows } = await pool.query(
-        `INSERT INTO meeting_notes(organization_id, workspace_id, calendar_event_id, occurrence_at, created_by,
-                                   title, notes, decisions, action_items, visibility)
-         VALUES($1, $2, $3, $9::timestamptz, $4, $5, $6, $7::jsonb, $8::jsonb, 'participants')
-         ON CONFLICT (workspace_id, calendar_event_id, COALESCE(occurrence_at, '-infinity'::timestamptz))
-           WHERE calendar_event_id IS NOT NULL
-         DO UPDATE SET title = EXCLUDED.title, notes = EXCLUDED.notes,
-                       decisions = EXCLUDED.decisions, action_items = EXCLUDED.action_items,
-                       updated_at = now()
-         RETURNING id`,
-        [session.organizationId, session.workspaceId, seriesId, session.userId, heading, body,
-          JSON.stringify(lines(decisions)), JSON.stringify(lines(actionItems)), occurrenceAt],
-      );
-      await pool.query(
-        `INSERT INTO audit_events(organization_id, workspace_id, aggregate_type, aggregate_id, event_type, actor_id, payload)
-         VALUES($1, $2, 'calendar_event', $3, 'meeting.notes.saved', $4, $5)`,
-        [session.organizationId, session.workspaceId, seriesId, session.userId,
-          { noteId: rows[0].id, decisions: lines(decisions).length, actionItems: lines(actionItems).length }],
-      );
+      const decisionLines = lines(decisions);
+      const actionLines = lines(actionItems);
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows } = await client.query(
+          `INSERT INTO meeting_notes(organization_id, workspace_id, calendar_event_id, occurrence_at, created_by,
+                                     title, notes, decisions, action_items, visibility)
+           VALUES($1, $2, $3, $9::timestamptz, $4, $5, $6, $7::jsonb, $8::jsonb, 'participants')
+           ON CONFLICT (workspace_id, calendar_event_id, COALESCE(occurrence_at, '-infinity'::timestamptz))
+             WHERE calendar_event_id IS NOT NULL
+           DO UPDATE SET title = EXCLUDED.title, notes = EXCLUDED.notes,
+                         decisions = EXCLUDED.decisions, action_items = EXCLUDED.action_items,
+                         updated_at = now()
+           RETURNING id`,
+          [session.organizationId, session.workspaceId, seriesId, session.userId, heading, body,
+            JSON.stringify(decisionLines), JSON.stringify(actionLines), occurrenceAt],
+        );
+        const noteId = rows[0].id;
+
+        // Manual decisions acquire individual stable IDs. Exact unchanged lines
+        // retain their IDs even if reordered. A removed/edited line is retracted;
+        // a newly worded decision becomes a new canonical decision instead of
+        // silently changing history under an old identifier.
+        const existing = (await client.query(
+          `SELECT id,title,source_position "sourcePosition"
+             FROM decisions
+            WHERE workspace_id=$1 AND source_kind='meeting_note' AND source_id=$2 AND status='active'
+            ORDER BY source_position,id
+            FOR UPDATE`,
+          [session.workspaceId,noteId],
+        )).rows;
+        const used = new Set();
+
+        for (let position = 0; position < decisionLines.length; position += 1) {
+          const text = decisionLines[position];
+          const same = existing.find((row) => !used.has(row.id) && row.title === text);
+          if (same) {
+            used.add(same.id);
+            await client.query(
+              `UPDATE decisions
+                  SET source_position=$3,source_title=$4,calendar_event_id=$5,updated_at=now()
+                WHERE workspace_id=$1 AND id=$2`,
+              [session.workspaceId,same.id,position,heading,seriesId],
+            );
+            continue;
+          }
+          await client.query(
+            `INSERT INTO decisions(
+                organization_id,workspace_id,source_kind,source_id,source_position,title,source_title,
+                accepted_by,accepted_at,calendar_event_id,status)
+             VALUES($1,$2,'meeting_note',$3,$4,$5,$6,$7,now(),$8,'active')`,
+            [session.organizationId,session.workspaceId,noteId,position,text,heading,session.userId,seriesId],
+          );
+        }
+
+        const removed = existing.filter((row) => !used.has(row.id)).map((row) => row.id);
+        if (removed.length) {
+          await client.query(
+            `UPDATE decisions
+                SET status='retracted',retracted_by=$3,retracted_at=now(),updated_at=now()
+              WHERE workspace_id=$1 AND id=ANY($2::uuid[])`,
+            [session.workspaceId,removed,session.userId],
+          );
+        }
+
+        await client.query(
+          `INSERT INTO audit_events(organization_id, workspace_id, aggregate_type, aggregate_id, event_type, actor_id, payload)
+           VALUES($1, $2, 'calendar_event', $3, 'meeting.notes.saved', $4, $5)`,
+          [session.organizationId, session.workspaceId, seriesId, session.userId,
+            { noteId, decisions: decisionLines.length, actionItems: actionLines.length }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        try { await client.query('ROLLBACK'); } catch {}
+        throw error;
+      } finally {
+        client.release();
+      }
       return this.get(session, eventId);
     },
 

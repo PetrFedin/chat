@@ -180,6 +180,12 @@ const ERROR_MESSAGE={
   NOT_A_PLAYER:'Вы не играете в этой партии.',
   LABEL_NOT_FOUND:'Метка недоступна.',
   TARGET_NOT_FOUND:'Объект недоступен.',
+  FILE_NOT_FOUND:'Файл недоступен или у вас больше нет к нему доступа.',
+  PROJECT_FILE_ALREADY_LINKED:'Этот файл уже связан с проектом.',
+  PROJECT_FILE_NOT_FOUND:'Связь с файлом уже удалена.',
+  CONVERSATION_NOT_FOUND:'Беседа недоступна.',
+  PROJECT_DISCUSSION_ALREADY_LINKED:'Эта беседа уже связана с проектом.',
+  PROJECT_DISCUSSION_NOT_FOUND:'Связь с беседой уже удалена.',
 };
 
 /**
@@ -1520,6 +1526,197 @@ function projectBoard(project){
         </article>`).join('')||`<div class="project-kanban-empty">${T('Пусто','Empty')}</div>`}</div></section>`}).join('')}</div>
   </section>`;
 }
+function projectFiles(project){
+  const rows=project.files||[];
+  return `<section class="surface project-files">
+    <div class="section-head">
+      <div>
+        <h3>${T('Файлы','Files')}</h3>
+        <p class="muted">${T(
+          'Файл остаётся в общем хранилище; проект хранит только рабочую связь с ним.',
+          'The file stays in shared File Authority; the project stores only the work relation.'
+        )}</p>
+      </div>
+      ${project.canContribute?`<button class="button secondary small" data-project-file-new>＋ ${T('Файл','File')}</button>`:''}
+    </div>
+    ${rows.length?rows.map(file=>`<div class="row project-file-row" data-project-file-row="${esc(file.id)}">
+      <span class="file-mark" aria-hidden="true">${tileIcon.files}</span>
+      <span>
+        <div class="row-title">${esc(file.name)}</div>
+        <div class="row-sub">${[
+          file.uploaderName?esc(file.uploaderName):'',
+          fileSize(Number(file.sizeBytes||0)),
+          file.linkedAt?esc(dateTime(file.linkedAt)):'',
+        ].filter(Boolean).join(' · ')}</div>
+      </span>
+      <span class="inline-actions">
+        <a class="text-button" data-project-file-open="${esc(file.id)}" href="${esc(file.previewUrl||file.contentUrl)}" target="_blank" rel="noopener">${T('Открыть','Open')}</a>
+        ${project.canManage?`<button class="text-button" data-project-file-remove="${esc(file.id)}">${T('Убрать из проекта','Unlink')}</button>`:''}
+      </span>
+    </div>`).join(''):`<div class="empty"><strong>${T('Файлов пока нет','No files yet')}</strong>${T('Добавьте уже существующий файл или загрузите новый.','Link an existing file or upload a new one.')}</div>`}
+  </section>`;
+}
+
+function projectDiscussions(project){
+  const rows=project.discussions||[];
+  return `<section class="surface project-discussions">
+    <div class="section-head">
+      <div>
+        <h3>${T('Обсуждения','Discussions')}</h3>
+        <p class="muted">${T(
+          'Проект хранит только связь. Состав, сообщения и доступ остаются у обычной беседы.',
+          'Project stores only the relation. Membership, messages and access stay with the canonical conversation.'
+        )}</p>
+      </div>
+      ${project.canContribute?`<button class="button secondary small" data-project-discussion-new>＋ ${T('Обсуждение','Discussion')}</button>`:''}
+    </div>
+    ${rows.length?rows.map(room=>`<div class="row project-discussion-row" data-project-discussion-row="${esc(room.id)}">
+      <span class="file-mark" aria-hidden="true">${roomIcon[room.kind]||roomIcon.group||'◌'}</span>
+      <span>
+        <div class="row-title">${esc(room.title||T('Беседа','Conversation'))}</div>
+        <div class="row-sub">${[
+          room.purpose?esc(room.purpose):'',
+          room.memberRole?esc(room.memberRole):T('по видимости канала','by channel visibility'),
+        ].filter(Boolean).join(' · ')}</div>
+      </span>
+      <span class="inline-actions">
+        <button class="text-button" data-project-discussion-open="${esc(room.id)}">${T('Открыть','Open')}</button>
+        ${project.canManage?`<button class="text-button" data-project-discussion-remove="${esc(room.id)}">${T('Убрать из проекта','Unlink')}</button>`:''}
+      </span>
+    </div>`).join(''):`<div class="empty"><strong>${T('Обсуждений пока нет','No discussions yet')}</strong>${T('Свяжите существующую рабочую беседу с проектом.','Link an existing work conversation to the project.')}</div>`}
+  </section>`;
+}
+
+function projectDecisions(project){
+  const rows=project.decisions||[];
+  return `<section class="surface project-decisions">
+    <div class="section-head">
+      <div>
+        <h3>${T('Решения','Decisions')}</h3>
+        <p class="muted">${T(
+          'Проект хранит только связь. Источник, подтверждение и доступ остаются у реестра решений.',
+          'Project stores only the relation. Source, confirmation and access stay with Decision Authority.'
+        )}</p>
+      </div>
+      ${project.canContribute?`<button class="button secondary small" data-project-decision-new>＋ ${T('Решение','Decision')}</button>`:''}
+    </div>
+    ${rows.length?rows.map(decision=>`<div class="row project-decision-row" data-project-decision-row="${esc(decision.id)}">
+      <span class="file-mark" aria-hidden="true">✓</span>
+      <span>
+        <div class="row-title">${esc(decision.title)}</div>
+        ${decision.body?`<div class="row-sub">${esc(decision.body)}</div>`:''}
+        <div class="row-sub">${[
+          decision.callTitle?esc(decision.callTitle):'',
+          decision.acceptedByName?esc(decision.acceptedByName):'',
+          decision.acceptedAt?esc(dateTime(decision.acceptedAt)):'',
+        ].filter(Boolean).join(' · ')}</div>
+      </span>
+      <span class="inline-actions">
+        ${project.canManage?`<button class="text-button" data-project-decision-remove="${esc(decision.id)}">${T('Убрать из проекта','Unlink')}</button>`:''}
+      </span>
+    </div>`).join(''):`<div class="empty"><strong>${T('Решений пока нет','No decisions yet')}</strong>${T('Свяжите подтверждённое решение из доступной вам встречи.','Link a confirmed decision from a meeting you can access.')}</div>`}
+  </section>`;
+}
+
+async function projectDecisionModal(){
+  const project=S.projectDetail;
+  if(!project||!project.canContribute)return;
+  let accessible=[];
+  try{accessible=(await api('/api/v1/meetings/decisions?limit=200')).items||[]}
+  catch(error){toast(ERROR_MESSAGE[error.code]||error.message);return}
+  const linked=new Set((project.decisions||[]).map(decision=>decision.id));
+  const candidates=accessible.filter(decision=>!linked.has(decision.id));
+  if(!candidates.length)return toast(T(
+    'Нет доступного подтверждённого решения для связи',
+    'There is no accessible confirmed decision to link'
+  ));
+  modal(T('Связать решение','Link decision'),`<form id="project-decision-form" class="form-stack">
+    <p class="muted">${T(
+      'Связь не меняет доступ к исходной встрече. Участник проекта увидит решение только если Decision Authority уже разрешает ему его читать.',
+      'Linking does not change source-meeting access. A project member sees the decision only when Decision Authority already allows it.'
+    )}</p>
+    <label>${T('Решение','Decision')}
+      <select name="decisionId" required>
+        ${candidates.map(decision=>`<option value="${esc(decision.id)}">${esc(decision.title)}${decision.callTitle?` · ${esc(decision.callTitle)}`:''}</option>`).join('')}
+      </select>
+    </label>
+    <button class="button primary" type="submit">${T('Связать с проектом','Link to project')}</button>
+  </form>`,()=>{
+    $('#project-decision-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+      const decisionId=String(new FormData(form).get('decisionId')||'');
+      button.disabled=true;
+      try{
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}/decisions`,{
+          method:'POST',body:JSON.stringify({decisionId}),
+        });
+        S.projectDetail=fresh;closeModal();render();
+        toast(T('Решение связано с проектом','Decision linked to project'));
+      }catch(error){
+        button.disabled=false;
+        toast(ERROR_MESSAGE[error.code]||error.message);
+      }
+    };
+  });
+}
+
+async function projectDiscussionOpen(conversationId){
+  if(!S.conversations.some(room=>room.id===conversationId)){
+    try{S.conversations=(await api('/api/v1/conversations')).items||[]}
+    catch(error){toast(error.message);return}
+  }
+  // openChat uses replaceState for cross-surface jumps. From a Project that
+  // would erase the Project URL and make Back skip the context we came from.
+  // Add the canonical Chats history entry first; Conversation Authority still
+  // owns the room, messages and selected conversation state.
+  if(location.hash!=='#/chats'){
+    try{history.pushState(null,'','#/chats')}catch{}
+  }
+  await openChatAtMessage(conversationId);
+}
+
+function projectDiscussionModal(){
+  const project=S.projectDetail;
+  if(!project||!project.canContribute)return;
+  const linked=new Set((project.discussions||[]).map(room=>room.id));
+  // Direct messages stay private. A Project Discussion is a shared work room.
+  const candidates=(S.conversations||[]).filter(room=>room.kind!=='direct'&&!linked.has(room.id));
+  if(!candidates.length)return toast(T(
+    'Нет доступной общей беседы для связи с проектом',
+    'There is no accessible shared conversation to link'
+  ));
+  modal(T('Связать обсуждение','Link discussion'),`<form id="project-discussion-form" class="form-stack">
+    <p class="muted">${T(
+      'Связь не меняет состав беседы. Если участнику проекта нужен доступ, добавьте его в беседу обычным способом.',
+      'Linking does not change conversation membership. Add project participants through the normal conversation flow if they need access.'
+    )}</p>
+    <label>${T('Беседа','Conversation')}
+      <select name="conversationId" required>
+        ${candidates.map(room=>`<option value="${esc(room.id)}">${esc(room.title||T('Беседа','Conversation'))}</option>`).join('')}
+      </select>
+    </label>
+    <button class="button primary" type="submit">${T('Связать с проектом','Link to project')}</button>
+  </form>`,()=>{
+    $('#project-discussion-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+      const conversationId=String(new FormData(form).get('conversationId')||'');
+      button.disabled=true;
+      try{
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}/discussions`,{
+          method:'POST',body:JSON.stringify({conversationId}),
+        });
+        S.projectDetail=fresh;closeModal();render();
+        toast(T('Обсуждение связано с проектом','Discussion linked to project'));
+      }catch(error){
+        button.disabled=false;
+        toast(ERROR_MESSAGE[error.code]||error.message);
+      }
+    };
+  });
+}
+
 async function executeProjectTaskTransition(task,to,reason){
   try{
     const{task:updated}=await api(`/api/v1/tasks/${task.id}/transitions`,{method:'POST',body:JSON.stringify({to,reason,expectedVersion:task.version})});
@@ -1590,6 +1787,73 @@ function projectMilestoneModal(){
     };
   });
 }
+async function projectFileModal(){
+  const project=S.projectDetail;
+  if(!project||!project.canContribute)return;
+  let accessible=[];
+  try{accessible=(await api('/api/v1/files?limit=100')).items||[]}
+  catch(error){toast(error.message);return}
+  const linked=new Set((project.files||[]).map(file=>file.id));
+  const candidates=accessible.filter(file=>!linked.has(file.id));
+  modal(T('Добавить файл в проект','Add file to project'),`<form id="project-file-form" class="form-stack">
+    <p class="muted">${T(
+      'Можно связать уже доступный файл или загрузить новый. Сам файл останется каноническим в разделе «Файлы».',
+      'Link a file you can already access, or upload a new one. The canonical file remains in Files.'
+    )}</p>
+    <label>${T('Уже есть в файлах','Existing file')}
+      <select name="fileId">
+        <option value="">${T('Не выбрано','None selected')}</option>
+        ${candidates.map(file=>`<option value="${esc(file.id)}">${esc(file.name)} · ${esc(fileSize(Number(file.sizeBytes||0)))}</option>`).join('')}
+      </select>
+    </label>
+    <div class="muted" style="text-align:center">${T('или','or')}</div>
+    <label>${T('Загрузить новый','Upload new')}
+      <input name="upload" type="file">
+    </label>
+    <button class="button primary" type="submit">${T('Добавить в проект','Add to project')}</button>
+  </form>`,()=>{
+    $('#project-file-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget;
+      const button=form.querySelector('button[type="submit"]');
+      const data=new FormData(form);
+      let fileId=String(data.get('fileId')||'');
+      const upload=form.querySelector('[name="upload"]')?.files?.[0]||null;
+      if(!fileId&&!upload)return toast(T('Выберите файл или загрузите новый','Choose a file or upload a new one'));
+      button.disabled=true;
+      try{
+        if(upload){
+          const response=await fetch('/api/v1/files',{
+            method:'POST',
+            credentials:'same-origin',
+            headers:{
+              'content-type':upload.type||'application/octet-stream',
+              'x-file-name':encodeURIComponent(upload.name),
+            },
+            body:upload,
+          });
+          const payload=await response.json().catch(()=>null);
+          if(!response.ok){
+            const code=payload?.error?.code;
+            const error=new Error(ERROR_MESSAGE[code]||payload?.error?.message||T('Не удалось загрузить файл','File upload failed'));
+            error.code=code;throw error;
+          }
+          fileId=payload.file.id;
+        }
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}/files`,{
+          method:'POST',body:JSON.stringify({fileId}),
+        });
+        S.projectDetail=fresh;
+        closeModal();render();
+        toast(T('Файл добавлен в проект','File added to project'));
+      }catch(error){
+        button.disabled=false;
+        toast(ERROR_MESSAGE[error.code]||error.message);
+      }
+    };
+  });
+}
+
 function projectMemberModal(){
   const project=S.projectDetail;
   if(!project)return;
@@ -1624,6 +1888,9 @@ function projects(){
     <div class="project-operating-grid">${projectProgress(p)}${projectWorkload(p)}</div>
     ${projectRisk(p)}
     ${projectBoard(p)}
+    ${projectFiles(p)}
+    ${projectDiscussions(p)}
+    ${projectDecisions(p)}
     <div class="page-grid project-grid"><section class="surface"><div class="section-head"><h3>${T('Вехи','Milestones')}</h3></div>${(p.milestones||[]).map(m=>`<div class="row"><span>◆</span><span><div class="row-title">${esc(m.title)}</div><div class="row-sub">${esc(dateTime(m.targetAt))}</div></span></div>`).join('')||`<div class="empty">${T('Вех пока нет','No milestones yet')}</div>`}</section><section class="surface"><div class="section-head"><h3>${T('Команда','Team')}</h3></div>${(p.members||[]).map(m=>`<div class="row"><span>${personAvatar(m.userId,m.displayName)}</span><span><div class="row-title">${esc(m.displayName)}</div><div class="row-sub">${esc(m.role)}</div></span></div>`).join('')}</section></div>
   </div>`;
 }
@@ -1637,6 +1904,25 @@ function bind(){
   $$('[data-project-task-new]').forEach(b=>b.onclick=projectTaskModal);
   $$('[data-project-milestone-new]').forEach(b=>b.onclick=projectMilestoneModal);
   $$('[data-project-member-new]').forEach(b=>b.onclick=projectMemberModal);
+  $$('[data-project-discussion-new]').forEach(b=>b.onclick=projectDiscussionModal);
+  $$('[data-project-discussion-open]').forEach(b=>b.onclick=()=>projectDiscussionOpen(b.dataset.projectDiscussionOpen));
+  $$('[data-project-decision-new]').forEach(b=>b.onclick=projectDecisionModal);
+  $$('[data-project-decision-remove]').forEach(b=>b.onclick=()=>confirmTap(b,async()=>{
+    const project=S.projectDetail;if(!project)return;
+    try{
+      const{project:fresh}=await api(`/api/v1/projects/${project.id}/decisions/${b.dataset.projectDecisionRemove}`,{method:'DELETE'});
+      S.projectDetail=fresh;render();toast(T('Решение убрано из проекта','Decision unlinked from project'));
+    }catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}
+  },T('Убрать?','Unlink?')));
+  $$('[data-project-discussion-remove]').forEach(b=>b.onclick=async()=>{
+    const project=S.projectDetail;if(!project)return;
+    try{
+      const{project:fresh}=await api(`/api/v1/projects/${project.id}/discussions/${b.dataset.projectDiscussionRemove}`,{method:'DELETE'});
+      S.projectDetail=fresh;render();toast(T('Обсуждение убрано из проекта','Discussion unlinked from project'));
+    }catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}
+  });
+  $$('[data-project-file-new]').forEach(b=>b.onclick=projectFileModal);
+  $$('[data-project-file-remove]').forEach(b=>b.onclick=()=>confirmTap(b,async()=>{const project=S.projectDetail;if(!project)return;try{const{project:fresh}=await api(`/api/v1/projects/${project.id}/files/${b.dataset.projectFileRemove}`,{method:'DELETE'});S.projectDetail=fresh;render();toast(T('Файл убран из проекта','File unlinked from project'))}catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}},T('Убрать?','Unlink?')));
   $$('[data-project-back]').forEach(b=>b.onclick=()=>{S.projectSelected=null;S.projectDetail=null;go('projects')});
   $$('[data-project-task-transition]').forEach(b=>b.onclick=event=>{
     event.stopPropagation();
@@ -2590,7 +2876,11 @@ async function wikiModal(pageId=null){
       title:page?page.title:'Вики',
       body:`
         ${page?`<div class="message-body" style="white-space:pre-wrap">${page.content?esc(page.content):'<span class="muted">Пусто. Нажмите «Изменить», чтобы написать текст.</span>'}</div>
-        <div class="chip-row" style="margin-top:10px"><button data-wiki-edit class="chipbtn pressable">Изменить</button><button data-wiki-history class="chipbtn pressable">История</button><button data-wiki-archive class="chipbtn pressable">Архивировать</button></div>`
+        <div class="chip-row" style="margin-top:10px"><button data-wiki-edit class="chipbtn pressable">Изменить</button><button data-wiki-history class="chipbtn pressable">История</button><button data-wiki-archive class="chipbtn pressable">Архивировать</button></div>
+        <div class="surface" style="margin-top:14px;padding:12px">
+          <div class="section-head"><div><strong>${T('Связанные проекты','Related projects')}</strong><div class="row-sub">${T('Связь не меняет доступ к проекту.','The relation does not change project access.')}</div></div><button data-wiki-project-new class="chipbtn pressable">＋ ${T('Проект','Project')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.projects||[]).length?(page.projects||[]).map(project=>`<div class="row" data-wiki-project-row="${esc(project.id)}"><button class="text-button" data-wiki-project-open="${esc(project.id)}">${esc(project.name)}</button><button class="text-button" data-wiki-project-remove="${esc(project.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет связанных доступных проектов','No visible related projects')}</span>`}</div>
+        </div>`
         :`<form id="wiki-search-form" class="form-stack"><label>Поиск по вики<input name="q" placeholder="Например: отпуск"></label></form><div id="wiki-search-results"></div>`}
         <p class="muted" style="margin-top:16px">${page?'Подстраницы':'Страницы'}</p>
         <div class="stack">${items.length?rows:'<div class="empty"><strong>Пока пусто</strong>Создайте первую страницу.</div>'}</div>
@@ -2600,6 +2890,18 @@ async function wikiModal(pageId=null){
         $('[data-wiki-new]')?.addEventListener('click',()=>wikiPageFormModal(null,pageId,refresh));
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
+        $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
+        $$('[data-wiki-project-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiProjectOpen;
+          overlayStack.length=0;renderOverlay();openProject(id);
+        });
+        $$('[data-wiki-project-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/projects/${button.dataset.wikiProjectRemove}`,{method:'DELETE'});
+            toast(T('Проект убран со страницы','Project unlinked from page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
         $('[data-wiki-archive]')?.addEventListener('click',()=>{
           modal('Архивировать страницу?','<p class="muted">Страница пропадёт из дерева, но останется доступна в истории.</p><button id="confirm-wiki-archive" class="button danger" style="width:100%">Архивировать</button>',()=>{
             $('#confirm-wiki-archive').onclick=async()=>{
@@ -2659,6 +2961,39 @@ async function wikiModal(pageId=null){
   const first=await build();
   modal(first.title,first.body,first.after,build);
 }
+async function wikiProjectLinkModal(page,after){
+  let projects=[];
+  try{projects=(await api('/api/v1/projects')).items||[]}
+  catch(error){toast(error.message);return}
+  const linked=new Set((page.projects||[]).map(project=>project.id));
+  const candidates=projects.filter(project=>!linked.has(project.id));
+  if(!candidates.length)return toast(T('Нет доступного проекта для связи','There is no visible project to link'));
+  modal(T('Связать проект','Link project'),`<form id="wiki-project-form" class="form-stack">
+    <p class="muted">${T(
+      'Связь не меняет доступ к проекту. Приватный проект увидят здесь только его участники.',
+      'Linking does not change project access. A private project is shown here only to its members.'
+    )}</p>
+    <label>${T('Проект','Project')}<select name="projectId" required>
+      ${candidates.map(project=>`<option value="${esc(project.id)}">${esc(project.name)}</option>`).join('')}
+    </select></label>
+    <button class="button primary" type="submit">${T('Связать','Link')}</button>
+  </form>`,()=>{
+    $('#wiki-project-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+      const projectId=String(new FormData(form).get('projectId')||'');
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/projects`,{
+          method:'POST',body:JSON.stringify({projectId}),
+        });
+        history.back();setTimeout(()=>after?.(),200);
+        toast(T('Проект связан со страницей','Project linked to page'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    };
+  });
+}
+
 function wikiPageFormModal(page,parentId,after){
   const editing=Boolean(page);
   modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">

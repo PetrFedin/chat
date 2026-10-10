@@ -195,17 +195,68 @@ The first Calendar integration deliberately avoids a second date authority:
 
 Acceptance proof lives in `test/project-calendar-postgres.test.js`: project -> milestone -> canonical task -> task block -> filtered Calendar -> outsider 404 -> milestone target update -> Calendar immediately reflects the new target exactly once.
 
+**Tenant-simulation release gate (2026-10-08): COMPLETE / GREEN**
+
+Project/Task/Calendar authority is now exercised as a company rather than only as isolated modules:
+- Multi-role Tenant v1 covers Owner/Admin/Manager/Employee/Reviewer/Observer/Guest in one PostgreSQL workspace;
+- Parallel Workday covers concurrent work across multiple people and projects;
+- Failure & Recovery covers idempotent retry after a lost response, stale-version recovery, expired sessions and membership changes;
+- Project membership is serialized with project task admission/removal: a person with unfinished canonical project work cannot be removed, preventing Project and Task authorities from contradicting each other under concurrent requests;
+- Cross-role Leakage now attacks Guest / Observer / removed-member access through stale Project ID, Task ID, Message ID, message deep links/history, Calendar project filters, unfiltered milestone projection, Search results, file list/content/preview, notification links and canonical task evidence. Where the object is outside the caller's authority, the direct route returns 404 and discovery surfaces omit the object and its private metadata.
+
+Exact-head acceptance: CI #323 on `8f51d04d0186aa1610e4258ea989d24b61b7f1a0` passed domain tests, all PostgreSQL constraint gates and the full PostgreSQL suite (1315/1315). `postgres-webhook-fairness` also passed, and the run contained no `deadlock detected`, `lock timeout` or `could not obtain lock` signal.
+
+This tenant simulation is a permanent release gate for future execution-layer work, not a temporary test fixture.
+
+**Project ↔ Files / Discussion / Decision composition (2026-10-10): COMPLETE / GREEN**
+
+The Project layer now composes three existing authorities without copying their state:
+
+- `project_files` is a relation to canonical File Authority. Project never owns file bytes, storage keys, file lifecycle or a second ACL.
+- `project_discussions` is a relation to canonical Conversation Authority. Project membership never adds conversation membership.
+- canonical `decisions` now gives each accepted decision a stable address across both sources: accepted Meeting Intelligence proposals use their proposal UUID; manual meeting-note decisions receive per-decision UUIDs, preserve identity for unchanged lines across reorder and retract prior records when wording is replaced or removed.
+- `project_decisions` is a relation to that Decision Authority. Linking requires the actor to already see the canonical decision, and projection calls the same `getDecision` visibility rule on every read. Project membership therefore cannot escalate source-meeting access.
+- all Project relation tables remain workspace-bounded; the Decision relation has database-level cross-workspace rejection and canonical-delete cascade proof.
+- the browser surface links decisions from the existing Decision Register and renders canonical source/acceptance metadata rather than a Project-owned copy.
+
+Exact-head acceptance: CI #362 on `e9be25d0dcf4905a53def35ad9125de445ee4cc3` passed domain tests, every PostgreSQL constraint gate and the full PostgreSQL suite **1319/1319**. It explicitly passed `Project <-> Decision composes canonical Decision Authority without ACL escalation` and the combined browser Golden Path `create -> file -> discussion -> decision -> milestone -> task -> board -> canonical task`.
+
+**Decision boundary after admission**
+
+The identity prerequisite discovered in the previous slice is now resolved. Project <-> Decision is admitted without inventing a parallel decision model. The remaining Decision Register work is semantic enrichment of the same authority: explicit owner, effective date, supersedes links, evidence and affected-project semantics. Those fields must not be inferred from Project membership or AI output; AI may propose and a human remains the confirmation authority.
+
 **Still intentionally open after this slice**
 
-- explicit Project <-> Files / Discussion / Decision relations;
+- richer Decision Register semantics listed above;
 - richer portfolio cross-project capacity/critical-path analysis;
 - reference-video personalisation: accent palette and first-day-of-week preference.
 
-These remain below the authority/browser release gate and must not delay a green Project execution loop.
-
+These remain below the already-green Project execution/composition gate and must not reopen Task, Calendar, File, Conversation or Decision authority boundaries.
 
 ## Phase 3 — Pages/wiki
-Use Tiptap with hierarchy, links, mentions, history, ACL and relations to project/task/meeting/channel. Critical task state never lives only in page text.
+
+**Implementation status (2026-10-10): existing Wiki foundation retained; Page <-> Project relation GREEN; Tiptap/structured-content work remains open.**
+
+Gap audit before this phase confirmed that ChatX already had a canonical PostgreSQL Wiki authority with unlimited hierarchy, version history, optimistic concurrency, Russian full-text search and soft archive. Phase 3 therefore evolves that authority instead of introducing another page store.
+
+Admitted first slice:
+- `wiki_page_projects` is relation-only; neither Page nor Project copies the other's state;
+- Project visibility remains canonical in Project Authority on every Page read;
+- a workspace-visible Page cannot leak a members-only Project relation, name or existence to a caller who cannot already open the Project;
+- once canonical Project membership is granted, the same stored relation becomes visible automatically;
+- cross-workspace Page <-> Project is rejected in PostgreSQL;
+- browser flow proves link -> render -> open canonical Project -> unlink, while unlink leaves canonical Project state intact.
+
+Exact-head proof: CI #377 on `92d6b4b9910a0beed685c5c6787f7002cf964ce5` passed domain tests, all PostgreSQL constraint gates and the full PostgreSQL suite **1321/1321**, including the dedicated non-leakage and real-Chromium Page relation tests.
+
+Next Phase 3 boundary:
+1. introduce a structured page document contract and Tiptap editor without creating a second Page authority;
+2. preserve compatibility/migration for existing plain-text Wiki content;
+3. add explicit page links and mentions on top of that structured contract;
+4. add per-page ACL only after its relationship model is explicit and tested for non-leakage;
+5. compose Page relations to canonical Task / Meeting / Channel authorities using the same relation-only rule already proven for Project.
+
+Critical task/project state never lives only in page text.
 
 ## Phase 4 — Document extraction + search
 Tika extracts authorised content from common office/PDF files with file/version/page/section lineage. Typesense indexes messages/pages/files/tasks/projects/decisions/people as rebuildable search. Application checks permission on every result.
@@ -220,6 +271,8 @@ Add self-hosted STT provider behind existing Meeting Intelligence interface. Kee
 
 ## Phase 7 — Decision Register
 Confirmed decision contains source meeting/message, owner, affected project, effective date, supersedes links and evidence. AI may propose; human confirms.
+
+**Identity prerequisite satisfied 2026-10-10:** accepted decisions from recorded Meeting Intelligence and manual meeting notes now resolve to individually addressable canonical `decisions` records, and Project <-> Decision composes that authority without ACL escalation. Remaining Phase 7 work is the richer decision contract: explicit owner, effective date, supersedes links, evidence and affected-project semantics. AI may propose these fields, but human confirmation remains authoritative.
 
 ## Phase 8 — Source-linked AI Catch-up
 Summarise changes, decisions, tasks, blockers, mentions and files with source links. Langfuse traces/evaluates AI while respecting workspace privacy.

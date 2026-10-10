@@ -41,11 +41,47 @@ const summaryView = (row) => ({
   createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
-export function createWikiRepository(pool) {
+export function createWikiRepository(pool, projects = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop };
   }
+
+  const ensurePage = async (session, id) => {
+    const { rows } = await pool.query(
+      'SELECT 1 FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
+      [session.workspaceId, id],
+    );
+    if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+  };
+
+  const pageProjects = async (session, pageId) => {
+    if (!projects?.get) return [];
+    const { rows } = await pool.query(
+      `SELECT project_id "projectId", linked_by "linkedBy", linked_at "linkedAt"
+         FROM wiki_page_projects
+        WHERE workspace_id=$1 AND page_id=$2
+        ORDER BY linked_at DESC,project_id`,
+      [session.workspaceId, pageId],
+    );
+    const projected = await Promise.all(rows.map(async (link) => {
+      try {
+        const project = await projects.get(session, link.projectId);
+        return {
+          id: project.id,
+          name: project.name,
+          status: project.status,
+          visibility: project.visibility,
+          linkedBy: link.linkedBy,
+          linkedAt: link.linkedAt,
+        };
+      } catch (error) {
+        if (error?.code === 'PROJECT_NOT_FOUND') return null;
+        throw error;
+      }
+    }));
+    return projected.filter(Boolean);
+  };
 
   return {
     enabled: true,
@@ -69,7 +105,7 @@ export function createWikiRepository(pool) {
         `SELECT ${SUMMARY_COLUMNS} FROM wiki_pages WHERE workspace_id=$1 AND parent_id=$2 AND archived_at IS NULL ORDER BY title`,
         [session.workspaceId, id],
       );
-      return { ...page, children: children.map(summaryView) };
+      return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id) };
     },
 
     async create(session, { title, parentId = null, content = '' } = {}) {
@@ -126,6 +162,36 @@ export function createWikiRepository(pool) {
       } finally {
         client.release();
       }
+    },
+
+    async linkProject(session, id, projectId) {
+      await ensurePage(session, id);
+      if (!projects?.get) throw fail('Проекты недоступны', 'PROJECTS_UNAVAILABLE', 503);
+      await projects.get(session, projectId);
+      try {
+        await pool.query(
+          `INSERT INTO wiki_page_projects(organization_id,workspace_id,page_id,project_id,linked_by)
+           VALUES($1,$2,$3,$4,$5)`,
+          [session.organizationId, session.workspaceId, id, projectId, session.userId],
+        );
+      } catch (error) {
+        if (error.code === '23505') throw fail('Проект уже связан со страницей', 'WIKI_PROJECT_ALREADY_LINKED', 409);
+        throw error;
+      }
+      return this.get(session, id);
+    },
+
+    async unlinkProject(session, id, projectId) {
+      await ensurePage(session, id);
+      if (!projects?.get) throw fail('Проекты недоступны', 'PROJECTS_UNAVAILABLE', 503);
+      await projects.get(session, projectId);
+      const { rowCount } = await pool.query(
+        `DELETE FROM wiki_page_projects
+          WHERE workspace_id=$1 AND page_id=$2 AND project_id=$3`,
+        [session.workspaceId, id, projectId],
+      );
+      if (!rowCount) throw fail('Связь со страницей не найдена', 'WIKI_PROJECT_NOT_FOUND', 404);
+      return this.get(session, id);
     },
 
     async archive(session, id) {
