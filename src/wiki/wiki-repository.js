@@ -147,6 +147,7 @@ export function createWikiRepository(pool, projects = null) {
         );
         const prior = priorRows[0];
         if (!prior) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+        if (prior.document && content !== undefined) throw fail('Страница содержит форматирование. Откройте структурированный редактор.', 'PAGE_STRUCTURED_EDITOR_REQUIRED', 409);
         if (prior.version !== Number(expectedVersion)) throw fail('Страницу успели изменить, пока вы её редактировали. Обновите её и повторите правку.', 'STALE_VERSION', 409);
         await client.query(
           `INSERT INTO wiki_page_versions(organization_id,workspace_id,page_id,version,title,content,document,edited_by)
