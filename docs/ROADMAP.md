@@ -83,6 +83,25 @@ reachable by direct link and in history. PostgreSQL-only, like the
 other recent modules; a guest sees the section as simply not existing
 (`404`, not `403`), the same rule audit/vault/AI already follow.
 
+### Pages authority — first relation slice
+
+**Status: Page <-> Project COMPLETE / GREEN (2026-10-10); structured editor phase remains open.**
+
+The existing Wiki is being evolved into Pages Authority rather than replaced by a second document system. Its established PostgreSQL page tree, version history, optimistic concurrency, Russian full-text search and soft archive remain canonical.
+
+The first Phase 3 composition slice is now admitted:
+- `wiki_page_projects` stores only a workspace-bounded relation and link provenance;
+- Page reads resolve every linked project through the canonical Project repository, so a workspace-visible page cannot disclose a private Project to somebody who cannot already open that Project;
+- linking a Project requires canonical Project visibility; guessing a hidden Project ID returns `404 PROJECT_NOT_FOUND`;
+- when Project Authority later admits the viewer, the existing Page relation becomes visible automatically without changing Wiki/Page ACL state;
+- unlink removes only the relation and leaves both canonical Page and Project untouched;
+- PostgreSQL composite foreign keys reject cross-workspace Page <-> Project relations;
+- the Wiki UI can link, open the canonical `#/projects/:id` surface and unlink visible Project relations.
+
+Exact-head acceptance: CI #377 on `92d6b4b9910a0beed685c5c6787f7002cf964ce5` passed both jobs, every database constraint gate and the full PostgreSQL suite **1321/1321**. The same run explicitly passed `Page browser flow links, opens and unlinks canonical Project relation` and `Page <-> Project relation preserves Project Authority visibility`.
+
+Still open in Pages/Tiptap: structured document content/editor, explicit page links and mentions, per-page ACL, and canonical Page relations to Task / Meeting / Channel. Critical task/project state must never live only in page text.
+
 **Time tracking**
 A start/stop timer on any commitment (`time_entries`), visible right
 on the task card. No new permission was added: whoever can already
