@@ -181,6 +181,10 @@ test('structured Pages persist JSON, derive searchable content and snapshot prio
 
   const fetched=await wiki.get(owner,legacy.id);
   assert.deepEqual(fetched.document,document);
+  await assert.rejects(
+    ()=>wiki.update(owner,legacy.id,{content:'unformatted overwrite',expectedVersion:updated.version}),
+    error=>error.code==='PAGE_STRUCTURED_EDITOR_REQUIRED'&&error.statusCode===409,
+  );
   assert.ok((await wiki.search(owner,{query:'handoff'})).some(row=>row.id===legacy.id));
 
   const history=await wiki.history(owner,legacy.id);
