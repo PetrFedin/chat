@@ -12,6 +12,8 @@ const FILES=new RegExp(`^/api/v1/projects/${ID}/files$`,'i');
 const FILE=new RegExp(`^/api/v1/projects/${ID}/files/${ID}$`,'i');
 const DISCUSSIONS=new RegExp(`^/api/v1/projects/${ID}/discussions$`,'i');
 const DISCUSSION=new RegExp(`^/api/v1/projects/${ID}/discussions/${ID}$`,'i');
+const DECISIONS=new RegExp(`^/api/v1/projects/${ID}/decisions$`,'i');
+const DECISION=new RegExp(`^/api/v1/projects/${ID}/decisions/${ID}$`,'i');
 const MILESTONES=new RegExp(`^/api/v1/projects/${ID}/milestones$`,'i');
 const MILESTONE=new RegExp(`^/api/v1/projects/${ID}/milestones/${ID}$`,'i');
 
@@ -96,6 +98,19 @@ export function createProjectsHandler(){
     match=path.match(DISCUSSION);
     if(match&&method==='DELETE'){
       json(res,200,{project:await projects.unlinkDiscussion(session,match[1],match[2])});
+      return true;
+    }
+
+    match=path.match(DECISIONS);
+    if(match&&method==='POST'){
+      const body=await readJson(req);
+      if(!body.decisionId)throw Object.assign(new Error('decisionId is required'),{code:'DECISION_ID_REQUIRED',statusCode:400,expose:true});
+      json(res,200,{project:await projects.linkDecision(session,match[1],String(body.decisionId))});
+      return true;
+    }
+    match=path.match(DECISION);
+    if(match&&method==='DELETE'){
+      json(res,200,{project:await projects.unlinkDecision(session,match[1],match[2])});
       return true;
     }
 

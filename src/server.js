@@ -194,7 +194,11 @@ export async function createChatServer(options={}){
   const webhooks=options.webhooks??createWebhookRepository(pool);
   const org=options.org??createOrgRepository(pool);
   const requests=options.requests??createRequestRepository({pool,store});
-  const projects=options.projects??createProjectRepository({pool,store});
+  // Decision Authority is a dependency of Project composition. Construct it
+  // once and inject the same repository so Project never reimplements meeting
+  // visibility or invents a parallel decision permission model.
+  const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
+  const projects=options.projects??createProjectRepository({pool,store,meeting});
   const people=options.people??createPeopleRepository(pool,org);
   const games=options.games??createGameRepository(pool,store);
   const reminders=options.reminders??createReminderRepository(pool);
@@ -248,7 +252,6 @@ export async function createChatServer(options={}){
           {recipients:row.missed,type:'call.missed',title:'Пропущенный звонок',body:row.title??'Вам звонили'}).catch(()=>{});
       }
     }});
-  const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
   const meetingOps=options.meetingOps??createMeetingOperationsRepository(meeting,pool);
   const liveKitWebhook=options.liveKitWebhook??createLiveKitWebhookReceiver();
   const configuredMeetingProviders=createConfiguredMeetingProviders(process.env);

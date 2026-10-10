@@ -6,7 +6,7 @@ const ACTIVE_TASK=new Set(['proposed','accepted','scheduled','in_progress','bloc
 const DONE_TASK=new Set(['accepted_result','closed']);
 const PREVIEWABLE=/^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/i;
 
-export function createProjectRepository({pool,store}={}){
+export function createProjectRepository({pool,store,meeting}={}){
   if(!pool||!store)return null;
 
   const tx=async(fn)=>{
@@ -88,6 +88,24 @@ export function createProjectRepository({pool,store}={}){
         linkedBy:link.linkedBy,
         linkedAt:link.linkedAt,
       };
+    }));
+    return projected.filter(Boolean);
+  };
+
+  // Project stores only a relation to Decision Authority. A project member does
+  // not gain access to a decision merely because somebody linked its UUID here:
+  // the canonical source meeting/calendar visibility is evaluated every time.
+  const projectDecisions=async(session,projectId)=>{
+    if(!meeting?.getDecision)return[];
+    const links=(await pool.query(
+      `SELECT decision_id "decisionId",linked_by "linkedBy",linked_at "linkedAt"
+         FROM project_decisions
+        WHERE workspace_id=$1 AND project_id=$2
+        ORDER BY linked_at DESC,decision_id`,
+      [session.workspaceId,projectId])).rows;
+    const projected=await Promise.all(links.map(async link=>{
+      const decision=await meeting.getDecision(session,link.decisionId);
+      return decision?{...decision,linkedBy:link.linkedBy,linkedAt:link.linkedAt}:null;
     }));
     return projected.filter(Boolean);
   };
@@ -178,12 +196,13 @@ export function createProjectRepository({pool,store}={}){
   };
 
   const enrich=async(session,project)=>{
-    const [team,marks,tasks,files,discussions]=await Promise.all([
+    const [team,marks,tasks,files,discussions,decisions]=await Promise.all([
       members(project.id),
       milestones(project.id),
       visibleTasks(session,project.id),
       projectFiles(session,project.id),
       projectDiscussions(session,project.id),
+      projectDecisions(session,project.id),
     ]);
     const active=tasks.filter(t=>ACTIVE_TASK.has(t.status));
     const done=tasks.filter(t=>DONE_TASK.has(t.status));
@@ -208,7 +227,7 @@ export function createProjectRepository({pool,store}={}){
       workload.set(key,item);
     }
     const projectAnalytics=await analytics(session,project.id,tasks.map(t=>t.id));
-    return{...project,members:team,milestones:marks,tasks,files,discussions,
+    return{...project,members:team,milestones:marks,tasks,files,discussions,decisions,
       metrics:{visibleTasks:tasks.length,active:active.length,done:done.length,blocked:blocked.length,dependencyBlocked:dependencyBlocked.length,
         overdue:overdue.length,forecastRisk:forecastRisk.length,projectTargetRisk,progress,nextMilestone,
         trackedSeconds:projectAnalytics.trackedSeconds,throughput30d:projectAnalytics.throughput30d},
@@ -482,6 +501,50 @@ export function createProjectRepository({pool,store}={}){
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'project',$3,'project.discussion_unlinked',$4,$5)`,
           [session.organizationId,session.workspaceId,id,session.userId,{conversationId}]);
+      });
+      return this.get(session,id);
+    },
+
+    async linkDecision(session,id,decisionId){
+      if(!meeting?.getDecision)throw fail('Decision Authority is unavailable','DECISIONS_UNAVAILABLE',503);
+      const visible=await meeting.getDecision(session,decisionId);
+      if(!visible)throw fail('Decision not found','DECISION_NOT_FOUND',404);
+      await tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectContribute(project,session);
+        try{
+          await client.query(
+            `INSERT INTO project_decisions(project_id,workspace_id,decision_id,linked_by)
+             VALUES($1,$2,$3,$4)`,
+            [id,session.workspaceId,decisionId,session.userId]);
+        }catch(error){
+          if(error.code==='23505')throw fail('Decision is already linked to this project','PROJECT_DECISION_ALREADY_LINKED',409);
+          throw error;
+        }
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'project',$3,'project.decision_linked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{decisionId}]);
+      });
+      return this.get(session,id);
+    },
+
+    async unlinkDecision(session,id,decisionId){
+      await tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectManage(project,session);
+        const removed=await client.query(
+          `DELETE FROM project_decisions
+            WHERE project_id=$1 AND workspace_id=$2 AND decision_id=$3
+            RETURNING decision_id`,
+          [id,session.workspaceId,decisionId]);
+        if(!removed.rowCount)throw fail('Project decision link not found','PROJECT_DECISION_NOT_FOUND',404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'project',$3,'project.decision_unlinked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{decisionId}]);
       });
       return this.get(session,id);
     },

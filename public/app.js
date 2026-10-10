@@ -1587,6 +1587,80 @@ function projectDiscussions(project){
   </section>`;
 }
 
+function projectDecisions(project){
+  const rows=project.decisions||[];
+  return `<section class="surface project-decisions">
+    <div class="section-head">
+      <div>
+        <h3>${T('Решения','Decisions')}</h3>
+        <p class="muted">${T(
+          'Проект хранит только связь. Источник, подтверждение и доступ остаются у реестра решений.',
+          'Project stores only the relation. Source, confirmation and access stay with Decision Authority.'
+        )}</p>
+      </div>
+      ${project.canContribute?`<button class="button secondary small" data-project-decision-new>＋ ${T('Решение','Decision')}</button>`:''}
+    </div>
+    ${rows.length?rows.map(decision=>`<div class="row project-decision-row" data-project-decision-row="${esc(decision.id)}">
+      <span class="file-mark" aria-hidden="true">✓</span>
+      <span>
+        <div class="row-title">${esc(decision.title)}</div>
+        ${decision.body?`<div class="row-sub">${esc(decision.body)}</div>`:''}
+        <div class="row-sub">${[
+          decision.callTitle?esc(decision.callTitle):'',
+          decision.acceptedByName?esc(decision.acceptedByName):'',
+          decision.acceptedAt?esc(dateTime(decision.acceptedAt)):'',
+        ].filter(Boolean).join(' · ')}</div>
+      </span>
+      <span class="inline-actions">
+        ${project.canManage?`<button class="text-button" data-project-decision-remove="${esc(decision.id)}">${T('Убрать из проекта','Unlink')}</button>`:''}
+      </span>
+    </div>`).join(''):`<div class="empty"><strong>${T('Решений пока нет','No decisions yet')}</strong>${T('Свяжите подтверждённое решение из доступной вам встречи.','Link a confirmed decision from a meeting you can access.')}</div>`}
+  </section>`;
+}
+
+async function projectDecisionModal(){
+  const project=S.projectDetail;
+  if(!project||!project.canContribute)return;
+  let accessible=[];
+  try{accessible=(await api('/api/v1/meetings/decisions?limit=200')).items||[]}
+  catch(error){toast(ERROR_MESSAGE[error.code]||error.message);return}
+  const linked=new Set((project.decisions||[]).map(decision=>decision.id));
+  const candidates=accessible.filter(decision=>!linked.has(decision.id));
+  if(!candidates.length)return toast(T(
+    'Нет доступного подтверждённого решения для связи',
+    'There is no accessible confirmed decision to link'
+  ));
+  modal(T('Связать решение','Link decision'),`<form id="project-decision-form" class="form-stack">
+    <p class="muted">${T(
+      'Связь не меняет доступ к исходной встрече. Участник проекта увидит решение только если Decision Authority уже разрешает ему его читать.',
+      'Linking does not change source-meeting access. A project member sees the decision only when Decision Authority already allows it.'
+    )}</p>
+    <label>${T('Решение','Decision')}
+      <select name="decisionId" required>
+        ${candidates.map(decision=>`<option value="${esc(decision.id)}">${esc(decision.title)}${decision.callTitle?` · ${esc(decision.callTitle)}`:''}</option>`).join('')}
+      </select>
+    </label>
+    <button class="button primary" type="submit">${T('Связать с проектом','Link to project')}</button>
+  </form>`,()=>{
+    $('#project-decision-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+      const decisionId=String(new FormData(form).get('decisionId')||'');
+      button.disabled=true;
+      try{
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}/decisions`,{
+          method:'POST',body:JSON.stringify({decisionId}),
+        });
+        S.projectDetail=fresh;closeModal();render();
+        toast(T('Решение связано с проектом','Decision linked to project'));
+      }catch(error){
+        button.disabled=false;
+        toast(ERROR_MESSAGE[error.code]||error.message);
+      }
+    };
+  });
+}
+
 async function projectDiscussionOpen(conversationId){
   if(!S.conversations.some(room=>room.id===conversationId)){
     try{S.conversations=(await api('/api/v1/conversations')).items||[]}
@@ -1816,6 +1890,7 @@ function projects(){
     ${projectBoard(p)}
     ${projectFiles(p)}
     ${projectDiscussions(p)}
+    ${projectDecisions(p)}
     <div class="page-grid project-grid"><section class="surface"><div class="section-head"><h3>${T('Вехи','Milestones')}</h3></div>${(p.milestones||[]).map(m=>`<div class="row"><span>◆</span><span><div class="row-title">${esc(m.title)}</div><div class="row-sub">${esc(dateTime(m.targetAt))}</div></span></div>`).join('')||`<div class="empty">${T('Вех пока нет','No milestones yet')}</div>`}</section><section class="surface"><div class="section-head"><h3>${T('Команда','Team')}</h3></div>${(p.members||[]).map(m=>`<div class="row"><span>${personAvatar(m.userId,m.displayName)}</span><span><div class="row-title">${esc(m.displayName)}</div><div class="row-sub">${esc(m.role)}</div></span></div>`).join('')}</section></div>
   </div>`;
 }
@@ -1831,6 +1906,14 @@ function bind(){
   $$('[data-project-member-new]').forEach(b=>b.onclick=projectMemberModal);
   $$('[data-project-discussion-new]').forEach(b=>b.onclick=projectDiscussionModal);
   $$('[data-project-discussion-open]').forEach(b=>b.onclick=()=>projectDiscussionOpen(b.dataset.projectDiscussionOpen));
+  $$('[data-project-decision-new]').forEach(b=>b.onclick=projectDecisionModal);
+  $$('[data-project-decision-remove]').forEach(b=>b.onclick=()=>confirmTap(b,async()=>{
+    const project=S.projectDetail;if(!project)return;
+    try{
+      const{project:fresh}=await api(`/api/v1/projects/${project.id}/decisions/${b.dataset.projectDecisionRemove}`,{method:'DELETE'});
+      S.projectDetail=fresh;render();toast(T('Решение убрано из проекта','Decision unlinked from project'));
+    }catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}
+  },T('Убрать?','Unlink?')));
   $$('[data-project-discussion-remove]').forEach(b=>b.onclick=async()=>{
     const project=S.projectDetail;if(!project)return;
     try{

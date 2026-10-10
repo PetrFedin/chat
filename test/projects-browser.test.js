@@ -8,7 +8,7 @@ import { PostgresStore } from '../src/persistence/store.js';
 
 const databaseUrl=process.env.POSTGRES_TEST_URL||process.env.DATABASE_URL;
 
-test('Project browser flow: create -> file -> discussion -> milestone -> task -> board -> canonical task',{skip:!databaseUrl},async(t)=>{
+test('Project browser flow: create -> file -> discussion -> decision -> milestone -> task -> board -> canonical task',{skip:!databaseUrl},async(t)=>{
   const pool=new pg.Pool({connectionString:databaseUrl});
   const store=new PostgresStore(pool);
   const app=await createChatServer({store,startMeetingWorker:false});
@@ -103,6 +103,31 @@ test('Project browser flow: create -> file -> discussion -> milestone -> task ->
   await page.goBack();
   await page.waitForURL(projectUrl,{timeout:10000});
   await page.locator('.project-home h2').filter({hasText:'Investor Readiness'}).waitFor({state:'visible',timeout:10000});
+
+  // A Project decision is a relation to the canonical Decision Register.
+  const meetingResponse=await context.request.post(`${base}/api/v1/calendar-events`,{data:{
+    kind:'meeting',title:'Investment committee',
+    startAt:new Date(Date.now()-3600000).toISOString(),
+    endAt:new Date().toISOString(),
+  }});
+  assert.equal(meetingResponse.status(),201);
+  const meetingEvent=(await meetingResponse.json()).event;
+  const decisionTitle=`Approve pilot ${suffix}`;
+  const notesResponse=await context.request.put(
+    `${base}/api/v1/calendar-events/${meetingEvent.id}/notes`,
+    {data:{title:'Investment committee',decisions:[decisionTitle],actionItems:[]}}
+  );
+  assert.equal(notesResponse.status(),200);
+
+  await page.locator('[data-project-decision-new]').click();
+  const decisionForm=page.locator('#project-decision-form');
+  await decisionForm.waitFor({state:'visible',timeout:5000});
+  const decisionOption=decisionForm.locator('option').filter({hasText:decisionTitle});
+  await decisionForm.locator('[name="decisionId"]').selectOption(await decisionOption.getAttribute('value'));
+  await decisionForm.locator('button[type="submit"]').click();
+  const decisionRow=page.locator('[data-project-decision-row]').filter({hasText:decisionTitle});
+  await decisionRow.waitFor({state:'visible',timeout:10000});
+  assert.match(await decisionRow.textContent(),/Investment committee/);
 
   await page.locator('[data-project-milestone-new]').click();
   await page.locator('#project-milestone-form [name="title"]').fill('Golden path accepted');
