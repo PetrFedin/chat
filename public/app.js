@@ -2879,7 +2879,7 @@ async function wikiModal(pageId=null){
         <div class="chip-row" style="margin-top:10px"><button data-wiki-edit class="chipbtn pressable">Изменить</button><button data-wiki-history class="chipbtn pressable">История</button><button data-wiki-archive class="chipbtn pressable">Архивировать</button></div>
         <div class="surface" style="margin-top:14px;padding:12px">
           <div class="section-head"><div><strong>${T('Связанные проекты','Related projects')}</strong><div class="row-sub">${T('Связь не меняет доступ к проекту.','The relation does not change project access.')}</div></div><button data-wiki-project-new class="chipbtn pressable">＋ ${T('Проект','Project')}</button></div>
-          <div class="chip-row" style="margin-top:8px">${(page.projects||[]).length?(page.projects||[]).map(project=>`<button class="chipbtn pressable" data-wiki-project-open="${esc(project.id)}">${esc(project.name)}</button>`).join(''):`<span class="muted">${T('Нет связанных доступных проектов','No visible related projects')}</span>`}</div>
+          <div class="stack" style="margin-top:8px">${(page.projects||[]).length?(page.projects||[]).map(project=>`<div class="row" data-wiki-project-row="${esc(project.id)}"><button class="text-button" data-wiki-project-open="${esc(project.id)}">${esc(project.name)}</button><button class="text-button" data-wiki-project-remove="${esc(project.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет связанных доступных проектов','No visible related projects')}</span>`}</div>
         </div>`
         :`<form id="wiki-search-form" class="form-stack"><label>Поиск по вики<input name="q" placeholder="Например: отпуск"></label></form><div id="wiki-search-results"></div>`}
         <p class="muted" style="margin-top:16px">${page?'Подстраницы':'Страницы'}</p>
@@ -2894,6 +2894,13 @@ async function wikiModal(pageId=null){
         $('[data-wiki-project-open]').forEach(button=>button.onclick=()=>{
           const id=button.dataset.wikiProjectOpen;
           overlayStack.length=0;renderOverlay();openProject(id);
+        });
+        $('[data-wiki-project-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/projects/${button.dataset.wikiProjectRemove}`,{method:'DELETE'});
+            toast(T('Проект убран со страницы','Project unlinked from page'));
+            await refresh();
+          }catch(error){toast(error.message)}
         });
         $('[data-wiki-archive]')?.addEventListener('click',()=>{
           modal('Архивировать страницу?','<p class="muted">Страница пропадёт из дерева, но останется доступна в истории.</p><button id="confirm-wiki-archive" class="button danger" style="width:100%">Архивировать</button>',()=>{
