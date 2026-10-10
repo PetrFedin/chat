@@ -16,6 +16,10 @@ DECLARE
   pd_conversation uuid := gen_random_uuid();
   pd_other_ws uuid := gen_random_uuid();
   pd_foreign_conversation uuid := gen_random_uuid();
+  pdec_project uuid := gen_random_uuid();
+  pdec_decision uuid := gen_random_uuid();
+  pdec_other_ws uuid := gen_random_uuid();
+  pdec_foreign_decision uuid := gen_random_uuid();
 BEGIN
   INSERT INTO organizations(id, name) VALUES (org, 'Platform Test');
   INSERT INTO workspaces(id, organization_id, name) VALUES (ws, org, 'Main');
@@ -106,6 +110,49 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'project discussion relation did not cascade with conversation deletion';
   END IF;
-END $$;
+
+  -- Project <-> Decision must be a workspace-bounded relation, just like
+  -- Project <-> File and Project <-> Discussion. The database itself must
+  -- reject a foreign decision even if an application path regresses.
+  INSERT INTO projects(id,organization_id,workspace_id,name,owner_id,created_by)
+    VALUES(pdec_project,org,ws,'Project decision invariant',u1,u1);
+  INSERT INTO decisions(
+    id,organization_id,workspace_id,source_kind,source_id,source_position,title,
+    accepted_by,accepted_at,status)
+    VALUES(pdec_decision,org,ws,'meeting_note',gen_random_uuid(),0,
+           'Canonical project decision',u1,now(),'active');
+  INSERT INTO project_decisions(project_id,workspace_id,decision_id,linked_by)
+    VALUES(pdec_project,ws,pdec_decision,u1);
+  IF NOT EXISTS(
+    SELECT 1 FROM project_decisions
+     WHERE project_id=pdec_project AND decision_id=pdec_decision
+  ) THEN
+    RAISE EXCEPTION 'project decision relation did not persist';
+  END IF;
+
+  INSERT INTO workspaces(id,organization_id,name)
+    VALUES(pdec_other_ws,org,'Decision other workspace');
+  INSERT INTO memberships(organization_id,workspace_id,user_id,role)
+    VALUES(org,pdec_other_ws,u1,'member');
+  INSERT INTO decisions(
+    id,organization_id,workspace_id,source_kind,source_id,source_position,title,
+    accepted_by,accepted_at,status)
+    VALUES(pdec_foreign_decision,org,pdec_other_ws,'meeting_note',gen_random_uuid(),0,
+           'Foreign project decision',u1,now(),'active');
+  BEGIN
+    INSERT INTO project_decisions(project_id,workspace_id,decision_id,linked_by)
+      VALUES(pdec_project,ws,pdec_foreign_decision,u1);
+    RAISE EXCEPTION 'cross-workspace project decision relation unexpectedly accepted';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+
+  DELETE FROM decisions WHERE id=pdec_decision;
+  IF EXISTS(
+    SELECT 1 FROM project_decisions
+     WHERE project_id=pdec_project AND decision_id=pdec_decision
+  ) THEN
+    RAISE EXCEPTION 'project decision relation did not cascade with canonical decision deletion';
+  END IF;
+END $;
 
 ROLLBACK;
