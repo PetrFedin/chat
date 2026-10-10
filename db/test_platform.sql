@@ -20,6 +20,9 @@ DECLARE
   pdec_decision uuid := gen_random_uuid();
   pdec_other_ws uuid := gen_random_uuid();
   pdec_foreign_decision uuid := gen_random_uuid();
+  wp_project uuid := gen_random_uuid();
+  wp_page uuid := gen_random_uuid();
+  wp_foreign_project uuid := gen_random_uuid();
 BEGIN
   INSERT INTO organizations(id, name) VALUES (org, 'Platform Test');
   INSERT INTO workspaces(id, organization_id, name) VALUES (ws, org, 'Main');
@@ -153,6 +156,36 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'project decision relation did not cascade with canonical decision deletion';
   END IF;
-END $$;
+
+  INSERT INTO projects(id,organization_id,workspace_id,name,owner_id,created_by)
+    VALUES(wp_project,org,ws,'Wiki page relation project',u1,u1);
+  INSERT INTO wiki_pages(id,organization_id,workspace_id,title,content,created_by,updated_by)
+    VALUES(wp_page,org,ws,'Wiki project relation','',u1,u1);
+  INSERT INTO wiki_page_projects(organization_id,workspace_id,page_id,project_id,linked_by)
+    VALUES(org,ws,wp_page,wp_project,u1);
+  IF NOT EXISTS(
+    SELECT 1 FROM wiki_page_projects
+     WHERE page_id=wp_page AND project_id=wp_project
+  ) THEN
+    RAISE EXCEPTION 'wiki page project relation did not persist';
+  END IF;
+
+  INSERT INTO projects(id,organization_id,workspace_id,name,owner_id,created_by)
+    VALUES(wp_foreign_project,org,pdec_other_ws,'Foreign wiki relation project',u1,u1);
+  BEGIN
+    INSERT INTO wiki_page_projects(organization_id,workspace_id,page_id,project_id,linked_by)
+      VALUES(org,ws,wp_page,wp_foreign_project,u1);
+    RAISE EXCEPTION 'cross-workspace wiki page project relation unexpectedly accepted';
+  EXCEPTION WHEN foreign_key_violation THEN NULL;
+  END;
+
+  DELETE FROM projects WHERE id=wp_project;
+  IF EXISTS(
+    SELECT 1 FROM wiki_page_projects
+     WHERE page_id=wp_page AND project_id=wp_project
+  ) THEN
+    RAISE EXCEPTION 'wiki page project relation did not cascade with project deletion';
+  END IF;
+END $;
 
 ROLLBACK;
