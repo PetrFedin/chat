@@ -186,6 +186,6 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'wiki page project relation did not cascade with project deletion';
   END IF;
-END $;
+END $$;
 
 ROLLBACK;
