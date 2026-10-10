@@ -2891,11 +2891,11 @@ async function wikiModal(pageId=null){
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
-        $('[data-wiki-project-open]').forEach(button=>button.onclick=()=>{
+        $$('[data-wiki-project-open]').forEach(button=>button.onclick=()=>{
           const id=button.dataset.wikiProjectOpen;
           overlayStack.length=0;renderOverlay();openProject(id);
         });
-        $('[data-wiki-project-remove]').forEach(button=>button.onclick=async()=>{
+        $$('[data-wiki-project-remove]').forEach(button=>button.onclick=async()=>{
           try{
             await api(`/api/v1/wiki/pages/${page.id}/projects/${button.dataset.wikiProjectRemove}`,{method:'DELETE'});
             toast(T('Проект убран со страницы','Project unlinked from page'));
