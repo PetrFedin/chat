@@ -153,6 +153,6 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'project decision relation did not cascade with canonical decision deletion';
   END IF;
-END $;
+END $$;
 
 ROLLBACK;
