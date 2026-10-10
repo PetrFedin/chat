@@ -1,4 +1,5 @@
 import { cleanText } from '../http/helpers.js';
+import { normalizePageDocument, plainTextPageDocument } from './page-document.js';
 
 /**
  * Вики: дерево совместных страниц компании.
@@ -26,13 +27,13 @@ const readContent = (value) => {
   return content;
 };
 
-const COLUMNS = `id,parent_id "parentId",title,content,version,created_by "createdBy",updated_by "updatedBy",
+const COLUMNS = `id,parent_id "parentId",title,content,document,version,created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt",archived_at "archivedAt"`;
 const SUMMARY_COLUMNS = `id,parent_id "parentId",title,version,created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt"`;
 
 const view = (row) => ({
-  id: row.id, parentId: row.parentId ?? null, title: row.title, content: row.content, version: row.version,
+  id: row.id, parentId: row.parentId ?? null, title: row.title, content: row.content, document: row.document??plainTextPageDocument(row.content), version: row.version,
   createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
   archivedAt: row.archivedAt ?? null,
 });
@@ -108,17 +109,18 @@ export function createWikiRepository(pool, projects = null) {
       return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id) };
     },
 
-    async create(session, { title, parentId = null, content = '' } = {}) {
+    async create(session, { title, parentId = null, content = '', document } = {}) {
       const cleanTitle = readTitle(title);
-      const cleanContent = readContent(content);
+      const normalized = document === undefined ? null : normalizePageDocument(document);
+      const cleanContent = normalized ? normalized.content : readContent(content);
       if (parentId) {
         const { rows } = await pool.query('SELECT 1 FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL', [session.workspaceId, parentId]);
         if (!rows[0]) throw fail('Родительская страница не найдена', 'WIKI_PARENT_NOT_FOUND', 404);
       }
       const { rows } = await pool.query(
-        `INSERT INTO wiki_pages(organization_id,workspace_id,parent_id,title,content,created_by,updated_by)
-         VALUES($1,$2,$3,$4,$5,$6,$6) RETURNING ${COLUMNS}`,
-        [session.organizationId, session.workspaceId, parentId, cleanTitle, cleanContent, session.userId],
+        `INSERT INTO wiki_pages(organization_id,workspace_id,parent_id,title,content,document,created_by,updated_by)
+         VALUES($1,$2,$3,$4,$5,$7,$6,$6) RETURNING ${COLUMNS}`,
+        [session.organizationId, session.workspaceId, parentId, cleanTitle, cleanContent, session.userId, normalized?.document??null],
       );
       return view(rows[0]);
     },
@@ -129,30 +131,34 @@ export function createWikiRepository(pool, projects = null) {
      * Прежний текст уходит в `wiki_page_versions` в той же транзакции,
      * что и сама правка, — история не может разойтись с фактом правки.
      */
-    async update(session, id, { title, content, expectedVersion } = {}) {
+    async update(session, id, { title, content, document, expectedVersion } = {}) {
       if (expectedVersion === undefined || expectedVersion === null) throw fail('Не указана версия страницы, которую вы редактировали', 'EXPECTED_VERSION_REQUIRED', 400);
-      if (title === undefined && content === undefined) throw fail('Нечего менять', 'EMPTY_WIKI_PATCH', 400);
+      if (title === undefined && content === undefined && document === undefined) throw fail('Нечего менять', 'EMPTY_WIKI_PATCH', 400);
       const nextTitle = title !== undefined ? readTitle(title) : undefined;
-      const nextContent = content !== undefined ? readContent(content) : undefined;
+      if (document !== undefined && content !== undefined) throw fail('Нельзя одновременно передать content и document','AMBIGUOUS_PAGE_CONTENT',400);
+      const normalized = document === undefined ? null : normalizePageDocument(document);
+      const nextContent = normalized ? normalized.content : content !== undefined ? readContent(content) : undefined;
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
         const { rows: priorRows } = await client.query(
-          'SELECT title,content,version FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          'SELECT title,content,document,version FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
           [session.workspaceId, id],
         );
         const prior = priorRows[0];
         if (!prior) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
         if (prior.version !== Number(expectedVersion)) throw fail('Страницу успели изменить, пока вы её редактировали. Обновите её и повторите правку.', 'STALE_VERSION', 409);
         await client.query(
-          `INSERT INTO wiki_page_versions(organization_id,workspace_id,page_id,version,title,content,edited_by)
-           VALUES($1,$2,$3,$4,$5,$6,$7)`,
-          [session.organizationId, session.workspaceId, id, prior.version, prior.title, prior.content, session.userId],
+          `INSERT INTO wiki_page_versions(organization_id,workspace_id,page_id,version,title,content,document,edited_by)
+           VALUES($1,$2,$3,$4,$5,$6,$8,$7)`,
+          [session.organizationId, session.workspaceId, id, prior.version, prior.title, prior.content, session.userId, prior.document],
         );
         const { rows } = await client.query(
-          `UPDATE wiki_pages SET title=COALESCE($3,title),content=COALESCE($4,content),version=version+1,updated_by=$5,updated_at=now()
+          `UPDATE wiki_pages SET title=COALESCE($3,title),content=COALESCE($4,content),
+               document=CASE WHEN $6::boolean THEN $7::jsonb ELSE document END,
+               version=version+1,updated_by=$5,updated_at=now()
              WHERE workspace_id=$1 AND id=$2 RETURNING ${COLUMNS}`,
-          [session.workspaceId, id, nextTitle ?? null, nextContent ?? null, session.userId],
+          [session.workspaceId, id, nextTitle ?? null, nextContent ?? null, session.userId, normalized!==null||content!==undefined, normalized?.document??null],
         );
         await client.query('COMMIT');
         return view(rows[0]);
@@ -206,7 +212,7 @@ export function createWikiRepository(pool, projects = null) {
       const { rows: exists } = await pool.query('SELECT 1 FROM wiki_pages WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id]);
       if (!exists[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
       const { rows } = await pool.query(
-        `SELECT id,version,title,content,edited_by "editedBy",replaced_at "replacedAt"
+        `SELECT id,version,title,content,document,edited_by "editedBy",replaced_at "replacedAt"
            FROM wiki_page_versions WHERE workspace_id=$1 AND page_id=$2 ORDER BY replaced_at DESC`,
         [session.workspaceId, id],
       );
