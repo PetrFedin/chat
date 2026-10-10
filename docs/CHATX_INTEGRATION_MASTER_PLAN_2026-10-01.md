@@ -234,7 +234,29 @@ The identity prerequisite discovered in the previous slice is now resolved. Proj
 These remain below the already-green Project execution/composition gate and must not reopen Task, Calendar, File, Conversation or Decision authority boundaries.
 
 ## Phase 3 — Pages/wiki
-Use Tiptap with hierarchy, links, mentions, history, ACL and relations to project/task/meeting/channel. Critical task state never lives only in page text.
+
+**Implementation status (2026-10-10): existing Wiki foundation retained; Page <-> Project relation GREEN; Tiptap/structured-content work remains open.**
+
+Gap audit before this phase confirmed that ChatX already had a canonical PostgreSQL Wiki authority with unlimited hierarchy, version history, optimistic concurrency, Russian full-text search and soft archive. Phase 3 therefore evolves that authority instead of introducing another page store.
+
+Admitted first slice:
+- `wiki_page_projects` is relation-only; neither Page nor Project copies the other's state;
+- Project visibility remains canonical in Project Authority on every Page read;
+- a workspace-visible Page cannot leak a members-only Project relation, name or existence to a caller who cannot already open the Project;
+- once canonical Project membership is granted, the same stored relation becomes visible automatically;
+- cross-workspace Page <-> Project is rejected in PostgreSQL;
+- browser flow proves link -> render -> open canonical Project -> unlink, while unlink leaves canonical Project state intact.
+
+Exact-head proof: CI #377 on `92d6b4b9910a0beed685c5c6787f7002cf964ce5` passed domain tests, all PostgreSQL constraint gates and the full PostgreSQL suite **1321/1321**, including the dedicated non-leakage and real-Chromium Page relation tests.
+
+Next Phase 3 boundary:
+1. introduce a structured page document contract and Tiptap editor without creating a second Page authority;
+2. preserve compatibility/migration for existing plain-text Wiki content;
+3. add explicit page links and mentions on top of that structured contract;
+4. add per-page ACL only after its relationship model is explicit and tested for non-leakage;
+5. compose Page relations to canonical Task / Meeting / Channel authorities using the same relation-only rule already proven for Project.
+
+Critical task/project state never lives only in page text.
 
 ## Phase 4 — Document extraction + search
 Tika extracts authorised content from common office/PDF files with file/version/page/section lineage. Typesense indexes messages/pages/files/tasks/projects/decisions/people as rebuildable search. Application checks permission on every result.
