@@ -208,30 +208,30 @@ Exact-head acceptance: CI #323 on `8f51d04d0186aa1610e4258ea989d24b61b7f1a0` pas
 
 This tenant simulation is a permanent release gate for future execution-layer work, not a temporary test fixture.
 
-**Project ↔ Files / Discussion composition (2026-10-09): COMPLETE / GREEN**
+**Project ↔ Files / Discussion / Decision composition (2026-10-10): COMPLETE / GREEN**
 
-The Project layer now composes two more existing authorities without copying their state:
+The Project layer now composes three existing authorities without copying their state:
 
-- `project_files` is a relation to canonical File Authority. A Project never owns file bytes, storage keys, file lifecycle or a second ACL. Linking requires prior File Authority visibility; Project visibility is evaluated as an additional canonical file-access path; removal of that Project path revokes access unless another canonical path remains.
-- `project_discussions` is a relation to canonical Conversation Authority. Project membership never adds conversation membership. A linked room is returned in Project detail only when `conversationPolicy` already allows that viewer to open it.
-- both tables enforce same-workspace relations in PostgreSQL and cascade only with canonical object lifecycle;
-- UI opens files through `/api/v1/files/:id/*` and discussions through the existing Chats surface; no Project-owned file viewer or message store exists;
-- PostgreSQL security proofs exercise UUID guessing, Observer, removed member, outsider and Guest non-leakage.
+- `project_files` is a relation to canonical File Authority. Project never owns file bytes, storage keys, file lifecycle or a second ACL.
+- `project_discussions` is a relation to canonical Conversation Authority. Project membership never adds conversation membership.
+- canonical `decisions` now gives each accepted decision a stable address across both sources: accepted Meeting Intelligence proposals use their proposal UUID; manual meeting-note decisions receive per-decision UUIDs, preserve identity for unchanged lines across reorder and retract prior records when wording is replaced or removed.
+- `project_decisions` is a relation to that Decision Authority. Linking requires the actor to already see the canonical decision, and projection calls the same `getDecision` visibility rule on every read. Project membership therefore cannot escalate source-meeting access.
+- all Project relation tables remain workspace-bounded; the Decision relation has database-level cross-workspace rejection and canonical-delete cascade proof.
+- the browser surface links decisions from the existing Decision Register and renders canonical source/acceptance metadata rather than a Project-owned copy.
 
-Exact-head acceptance: CI #350 on `b9491db4bb04f97e1f94a8b9343ab895e89c77c9` passed both jobs, all constraint gates and the full PostgreSQL suite. The exact run contains PASS for the File authority test, Discussion non-escalation test and the combined Project browser Golden Path.
+Exact-head acceptance: CI #362 on `e9be25d0dcf4905a53def35ad9125de445ee4cc3` passed domain tests, every PostgreSQL constraint gate and the full PostgreSQL suite **1319/1319**. It explicitly passed `Project <-> Decision composes canonical Decision Authority without ACL escalation` and the combined browser Golden Path `create -> file -> discussion -> decision -> milestone -> task -> board -> canonical task`.
 
-**Decision boundary discovered during this slice**
+**Decision boundary after admission**
 
-The current `GET /api/v1/meetings/decisions` feed is a permission-aware projection over two sources: accepted `meeting_proposals` and text decisions stored inside `meeting_notes.decisions`. Accepted recorded-meeting proposals have a stable proposal UUID, but multiple manual decisions in one meeting note currently share the same note UUID because they are JSON-array elements. Therefore a trustworthy `project_decisions(decision_id)` relation cannot be introduced yet without inventing identity. The next strict step is to give every accepted decision a stable canonical identity under Decision Authority, then relate Project to that authority.
+The identity prerequisite discovered in the previous slice is now resolved. Project <-> Decision is admitted without inventing a parallel decision model. The remaining Decision Register work is semantic enrichment of the same authority: explicit owner, effective date, supersedes links, evidence and affected-project semantics. Those fields must not be inferred from Project membership or AI output; AI may propose and a human remains the confirmation authority.
 
 **Still intentionally open after this slice**
 
-- explicit Project <-> Decision relation, after canonical per-decision identity exists;
+- richer Decision Register semantics listed above;
 - richer portfolio cross-project capacity/critical-path analysis;
 - reference-video personalisation: accent palette and first-day-of-week preference.
 
-These remain below the authority/browser release gate and must not delay a green Project execution loop.
-
+These remain below the already-green Project execution/composition gate and must not reopen Task, Calendar, File, Conversation or Decision authority boundaries.
 
 ## Phase 3 — Pages/wiki
 Use Tiptap with hierarchy, links, mentions, history, ACL and relations to project/task/meeting/channel. Critical task state never lives only in page text.
@@ -250,7 +250,7 @@ Add self-hosted STT provider behind existing Meeting Intelligence interface. Kee
 ## Phase 7 — Decision Register
 Confirmed decision contains source meeting/message, owner, affected project, effective date, supersedes links and evidence. AI may propose; human confirms.
 
-**Prerequisite identified 2026-10-09:** normalise accepted decisions from both recorded Meeting Intelligence and manual meeting notes into individually addressable canonical decision records. A JSON-array item inside `meeting_notes.decisions` is not a stable relation target. Project <-> Decision must wait for this identity layer rather than introducing a Project-owned copy.
+**Identity prerequisite satisfied 2026-10-10:** accepted decisions from recorded Meeting Intelligence and manual meeting notes now resolve to individually addressable canonical `decisions` records, and Project <-> Decision composes that authority without ACL escalation. Remaining Phase 7 work is the richer decision contract: explicit owner, effective date, supersedes links, evidence and affected-project semantics. AI may propose these fields, but human confirmation remains authoritative.
 
 ## Phase 8 — Source-linked AI Catch-up
 Summarise changes, decisions, tasks, blockers, mentions and files with source links. Langfuse traces/evaluates AI while respecting workspace privacy.

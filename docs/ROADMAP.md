@@ -230,26 +230,27 @@ Verified:
 
 Exact-head proof: CI #323 on `8f51d04d0186aa1610e4258ea989d24b61b7f1a0` passed both jobs, every PostgreSQL constraint check and the full PostgreSQL suite (1315/1315). The webhook fairness test passed in the same full-suite run, with no observed deadlock/lock-timeout signal.
 
-### Project composition relations — Files + Discussion
+### Project composition relations — Files + Discussion + Decision
 
-**Status: COMPLETE / GREEN (2026-10-09).**
+**Status: COMPLETE / GREEN (2026-10-10).**
 
-Project is now a composition context instead of a second owner of collaboration state:
+Project is now a composition context over existing collaboration authorities rather than a second owner of their state:
 
-- **Project <-> Files:** `project_files` stores only the relation. File bytes, metadata, preview/content routes, text search and deletion stay in File Authority. Linking requires the actor to already see the canonical file, project visibility becomes one valid File Authority access path, removing project membership revokes that path, and canonical file deletion removes the relation.
-- **Project <-> Discussion:** `project_discussions` stores only the relation. Conversation membership, visibility, messages, archive state and moderation stay in Conversation Authority. A linked private conversation is omitted from Project for viewers who cannot already open it; project membership alone never grants conversation access.
-- both relations enforce workspace identity in PostgreSQL with composite foreign keys and reject cross-workspace links;
-- Project Home exposes the relations without duplicating file or message state; opening a discussion enters the canonical Chats surface and browser Back returns to the Project context;
-- outsider/Guest/Observer/revoked-member security paths are covered by PostgreSQL tests rather than inferred from UI hiding.
+- **Project <-> Files:** `project_files` stores only the relation. File bytes, metadata, preview/content routes, search and deletion remain in File Authority.
+- **Project <-> Discussion:** `project_discussions` stores only the relation. Conversation membership, visibility, messages, archive state and moderation remain in Conversation Authority.
+- **Decision Authority:** migration `076_decision_register.sql` gives every accepted decision an individually addressable canonical record. Accepted Meeting Intelligence decisions retain the proposal UUID; manual meeting-note decisions receive their own UUIDs, unchanged lines retain identity across reorder, and edited/removed lines are retracted rather than silently mutating history.
+- **Project <-> Decision:** `project_decisions` stores only `decision_id` plus link provenance. Project membership never grants access to the source meeting. Project detail resolves every relation through canonical `meeting.getDecision()`, so a hidden decision is omitted and becomes visible automatically only when Decision Authority itself admits the viewer.
+- File, Discussion and Decision relations are workspace-bounded in PostgreSQL; cross-workspace Project <-> Decision is rejected by composite foreign keys and covered by `db/test_platform.sql`.
+- Project Home exposes all three relation surfaces without copying file/message/decision state.
 
-Exact-head acceptance: CI #350 on `b9491db4bb04f97e1f94a8b9343ab895e89c77c9` passed domain tests, every PostgreSQL constraint gate and the full PostgreSQL suite. The run explicitly passed `Project <-> Files composes canonical File Authority without duplicating ACL`, `Project <-> Discussion keeps Conversation Authority canonical`, and the browser flow `create -> file -> discussion -> milestone -> task -> board -> canonical task`.
+Exact-head acceptance: CI #362 on `e9be25d0dcf4905a53def35ad9125de445ee4cc3` passed both jobs, all PostgreSQL constraint gates and the full PostgreSQL suite **1319/1319**. The same run explicitly passed `Project <-> Decision composes canonical Decision Authority without ACL escalation` and the browser Golden Path `create -> file -> discussion -> decision -> milestone -> task -> board -> canonical task`.
 
-Next Project-layer gap:
+Current boundary:
 1. Project <-> Files — **COMPLETE / GREEN**;
 2. Project <-> Discussion — **COMPLETE / GREEN**;
-3. establish a stable canonical identity for every accepted decision, including decisions entered through manual meeting notes;
-4. only then add explicit Project <-> Decision relation over that Decision Authority;
-5. keep all Project relations on existing File/Conversation/Decision authorities rather than creating parallel state.
+3. canonical per-decision identity — **COMPLETE / GREEN**;
+4. Project <-> Decision relation — **COMPLETE / GREEN**;
+5. richer Decision Register semantics — owner, effective date, supersedes links, evidence and affected-project semantics — remain intentionally open under Phase 7 and must extend the same Decision Authority rather than creating Project-owned decision state.
 
 ## Gaps — real, scoped, not yet done
 
