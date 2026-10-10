@@ -2954,6 +2954,39 @@ async function wikiModal(pageId=null){
   const first=await build();
   modal(first.title,first.body,first.after,build);
 }
+async function wikiProjectLinkModal(page,after){
+  let projects=[];
+  try{projects=(await api('/api/v1/projects')).items||[]}
+  catch(error){toast(error.message);return}
+  const linked=new Set((page.projects||[]).map(project=>project.id));
+  const candidates=projects.filter(project=>!linked.has(project.id));
+  if(!candidates.length)return toast(T('Нет доступного проекта для связи','There is no visible project to link'));
+  modal(T('Связать проект','Link project'),`<form id="wiki-project-form" class="form-stack">
+    <p class="muted">${T(
+      'Связь не меняет доступ к проекту. Приватный проект увидят здесь только его участники.',
+      'Linking does not change project access. A private project is shown here only to its members.'
+    )}</p>
+    <label>${T('Проект','Project')}<select name="projectId" required>
+      ${candidates.map(project=>`<option value="${esc(project.id)}">${esc(project.name)}</option>`).join('')}
+    </select></label>
+    <button class="button primary" type="submit">${T('Связать','Link')}</button>
+  </form>`,()=>{
+    $('#wiki-project-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+      const projectId=String(new FormData(form).get('projectId')||'');
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/projects`,{
+          method:'POST',body:JSON.stringify({projectId}),
+        });
+        history.back();setTimeout(()=>after?.(),200);
+        toast(T('Проект связан со страницей','Project linked to page'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    };
+  });
+}
+
 function wikiPageFormModal(page,parentId,after){
   const editing=Boolean(page);
   modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">
