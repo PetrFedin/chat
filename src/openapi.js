@@ -572,6 +572,12 @@ export const openapi = Object.freeze({
     '/api/v1/wiki/pages/{pageId}/history': {
       get: { tags: ['Wiki'], summary: 'List prior snapshots of a page, newest first', responses: { '200': { description: 'Version history' } } }
     },
+    '/api/v1/wiki/pages/{pageId}/projects': {
+      post: { tags: ['Wiki'], summary: 'Link a visible canonical project to a page', description: 'Stores only a Page-to-Project relation. Project visibility remains authoritative; a private project is omitted for a page reader who cannot already open it.', responses: { '200': { description: 'Page with refreshed visible project relations' }, '404': { description: 'Page or project not visible' }, '409': { description: 'Project already linked' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/projects/{projectId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink a project from a page', description: 'Removes only the relation. The canonical project and page remain unchanged.', responses: { '200': { description: 'Relation removed' }, '404': { description: 'Page, project or relation not visible' } } }
+    },
     '/api/v1/wiki/search': {
       get: { tags: ['Wiki'], summary: 'Full-text search across non-archived pages', responses: { '200': { description: 'Matching pages with a highlighted snippet' } } }
     },
