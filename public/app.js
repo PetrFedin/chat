@@ -2887,7 +2887,7 @@ async function wikiModal(pageId=null){
         <button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?'Новая подстраница':'Новая страница'}</span></button>`,
       after:()=>{
         if(page){import('./wiki-document-view.js').then(m=>m.renderPageDocument($('[data-wiki-view]'),page.document)).catch(error=>toast(error.message));}
-        $('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
+        $$('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
         $('[data-wiki-new]')?.addEventListener('click',()=>wikiPageFormModal(null,pageId,refresh));
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
