@@ -63,14 +63,3 @@ test('Pages Tiptap browser: formatting survives save/reopen and stale version pr
   assert.deepEqual(errors,[]);
 });
 
-test('Pages renderer safe DOM: malicious link and HTML-looking text are inert',async t=>{
-  const browser=await chromium.launch();
-  t.after(()=>browser.close());
-  const page=await browser.newPage();
-  await page.goto('about:blank');
-  await page.addScriptTag({type:'module',content:`
-    import {renderPageDocument} from 'http://localhost/wiki-document-view.js';
-  `}).catch(()=>{});
-  // Pure serializer contract is tested in the dedicated module test; the rich
-  // integration gate above exercises actual rendering within the application.
-});
