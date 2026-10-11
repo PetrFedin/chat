@@ -3048,6 +3048,7 @@ function wikiPageFormModal(page,parentId,after){
     form.querySelector('[name="title"]').addEventListener('input',()=>{dirty=true;updateStatus()});
     const showError=event=>{if(status)status.textContent=event.detail;};
     window.addEventListener('chat:wiki-editor-error',showError);
+    const oldOnPop=overlayStack[overlayStack.length-1]?.onPop;
     import('./wiki-editor.bundle.js').then(module=>{
       if(closed||!form.isConnected)return;
       rich=module.mountWikiEditor({
@@ -3104,7 +3105,7 @@ function wikiPageFormModal(page,parentId,after){
     };
     // The modal system owns navigation. Guard at the centralized close/pop boundaries.
     const entry=overlayStack[overlayStack.length-1];
-    if(entry){entry.onPop=()=>{cleanup()};entry.beforeClose=closeGuard}
+    if(entry){entry.onPop=()=>{window.removeEventListener('chat:wiki-editor-error',showError);cleanup();oldOnPop?.()};entry.beforeClose=closeGuard}
   });
   return;
 }
