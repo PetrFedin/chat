@@ -8,7 +8,7 @@ import { PostgresStore } from '../src/persistence/store.js';
 
 const databaseUrl=process.env.POSTGRES_TEST_URL||process.env.DATABASE_URL;
 
-test('Project browser flow: create -> milestone -> task -> board -> canonical task',{skip:!databaseUrl},async(t)=>{
+test('Project browser flow: create -> file -> discussion -> decision -> milestone -> task -> board -> canonical task',{skip:!databaseUrl},async(t)=>{
   const pool=new pg.Pool({connectionString:databaseUrl});
   const store=new PostgresStore(pool);
   const app=await createChatServer({store,startMeetingWorker:false});
@@ -16,15 +16,15 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
   t.after(()=>app.close());
   const base=`http://127.0.0.1:${app.server.address().port}`;
 
-  // Keep the project milestone inside the calendar week that the browser opens.
-  // This verifies visible projection instead of accidentally testing an off-screen date.
+  // Keep the milestone on the exact UTC day the Calendar initially opens.
+  // The previous "Thursday" fixture jumped to next week once CI crossed into
+  // Friday, while Calendar correctly stayed on the current week.
   const today=new Date();today.setUTCHours(0,0,0,0);
-  const monday=new Date(today);monday.setUTCDate(monday.getUTCDate()-((monday.getUTCDay()+6)%7));
-  const thursday=new Date(monday);thursday.setUTCDate(thursday.getUTCDate()+3);
-  if(thursday<today)thursday.setUTCDate(thursday.getUTCDate()+7);
   const projectStart=today.toISOString().slice(0,10);
   const projectTarget=new Date(today);projectTarget.setUTCDate(projectTarget.getUTCDate()+45);
-  const milestoneInput=new Date(Date.UTC(thursday.getUTCFullYear(),thursday.getUTCMonth(),thursday.getUTCDate(),12,0)).toISOString().slice(0,16);
+  const milestoneInput=new Date(Date.UTC(
+    today.getUTCFullYear(),today.getUTCMonth(),today.getUTCDate(),12,0
+  )).toISOString().slice(0,16);
 
   const browser=await chromium.launch();
   t.after(()=>browser.close());
@@ -61,6 +61,73 @@ test('Project browser flow: create -> milestone -> task -> board -> canonical ta
   assert.match(page.url(),/#\/projects\/[0-9a-f-]{36}/i);
   await page.locator('.project-progress-track').waitFor({state:'visible'});
   await page.locator('[data-project-column="planned"]').waitFor({state:'visible'});
+
+  // Project Files is a relation surface: upload creates a canonical file first,
+  // then Project links it. Opening the row must still go through /api/v1/files.
+  await page.locator('[data-project-file-new]').click();
+  await page.locator('#project-file-form').waitFor({state:'visible',timeout:5000});
+  await page.locator('#project-file-form [name="upload"]').setInputFiles({
+    name:'investor-brief.txt',
+    mimeType:'text/plain',
+    buffer:Buffer.from('Project file authority browser proof'),
+  });
+  await page.locator('#project-file-form button[type="submit"]').click();
+
+  const fileRow=page.locator('[data-project-file-row]').filter({hasText:'investor-brief.txt'});
+  await fileRow.waitFor({state:'visible',timeout:10000});
+  const fileHref=await fileRow.locator('[data-project-file-open]').getAttribute('href');
+  assert.match(fileHref,/^\/api\/v1\/files\/[0-9a-f-]{36}\/(preview|content)$/i,
+    'Project must open the canonical File Authority route');
+  const opened=await context.request.get(new URL(fileHref,base).href);
+  assert.equal(opened.status(),200,'project-linked canonical file must open in the browser session');
+
+  // Project Discussion is only a relation to an existing canonical conversation.
+  // Opening it must switch to the normal chat route, never a Project-owned copy.
+  const projectUrl=page.url();
+  await page.locator('[data-project-discussion-new]').click();
+  const discussionForm=page.locator('#project-discussion-form');
+  await discussionForm.waitFor({state:'visible',timeout:5000});
+  const discussionSelect=discussionForm.locator('[name="conversationId"]');
+  const discussionId=await discussionSelect.inputValue();
+  assert.match(discussionId,/^[0-9a-f-]{36}$/i);
+  const discussionTitle=(await discussionSelect.locator('option:checked').textContent())?.trim()||'';
+  assert.ok(discussionTitle);
+  await discussionForm.locator('button[type="submit"]').click();
+
+  const discussionRow=page.locator('[data-project-discussion-row]').filter({hasText:discussionTitle});
+  await discussionRow.waitFor({state:'visible',timeout:10000});
+  assert.equal(await discussionRow.getAttribute('data-project-discussion-row'),discussionId);
+  await discussionRow.locator('[data-project-discussion-open]').click();
+  await page.waitForURL(/#\/chats$/,{timeout:10000});
+  assert.match(page.url(),/#\/chats$/,'Project Discussion opens the canonical Chats surface');
+  await page.goBack();
+  await page.waitForURL(projectUrl,{timeout:10000});
+  await page.locator('.project-home h2').filter({hasText:'Investor Readiness'}).waitFor({state:'visible',timeout:10000});
+
+  // A Project decision is a relation to the canonical Decision Register.
+  const meetingResponse=await context.request.post(`${base}/api/v1/calendar-events`,{data:{
+    kind:'meeting',title:'Investment committee',
+    startAt:new Date(Date.now()-3600000).toISOString(),
+    endAt:new Date().toISOString(),
+  }});
+  assert.equal(meetingResponse.status(),201);
+  const meetingEvent=(await meetingResponse.json()).event;
+  const decisionTitle=`Approve pilot ${suffix}`;
+  const notesResponse=await context.request.put(
+    `${base}/api/v1/calendar-events/${meetingEvent.id}/notes`,
+    {data:{title:'Investment committee',decisions:[decisionTitle],actionItems:[]}}
+  );
+  assert.equal(notesResponse.status(),200);
+
+  await page.locator('[data-project-decision-new]').click();
+  const decisionForm=page.locator('#project-decision-form');
+  await decisionForm.waitFor({state:'visible',timeout:5000});
+  const decisionOption=decisionForm.locator('option').filter({hasText:decisionTitle});
+  await decisionForm.locator('[name="decisionId"]').selectOption(await decisionOption.getAttribute('value'));
+  await decisionForm.locator('button[type="submit"]').click();
+  const decisionRow=page.locator('[data-project-decision-row]').filter({hasText:decisionTitle});
+  await decisionRow.waitFor({state:'visible',timeout:10000});
+  assert.match(await decisionRow.textContent(),/Investment committee/);
 
   await page.locator('[data-project-milestone-new]').click();
   await page.locator('#project-milestone-form [name="title"]').fill('Golden path accepted');
