@@ -47,7 +47,7 @@ test('Pages Tiptap browser: formatting survives save/reopen and stale version pr
   assert.equal(await page.locator('[data-wiki-view] strong').textContent(),'Formatted page');
   await page.locator('[data-wiki-edit]').click();
   await page.locator('.wiki-editor-host .tiptap').waitFor({state:'visible'});
-  assert.match(await page.locator('.wiki-editor-host .tiptap').innerHTML(),/<strong>Formatted<\/strong>/);
+  assert.match(await page.locator('.wiki-editor-host .tiptap').innerHTML(),/<strong>Formatted page<\/strong>/);
   await page.locator('.wiki-editor-host .tiptap').fill('Local changes must survive');
   const concurrent=await api.patch(base+'/api/v1/wiki/pages/'+initial.id,{data:{
     expectedVersion:saved.version,title:saved.title,
