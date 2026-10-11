@@ -33,7 +33,7 @@ const SUMMARY_COLUMNS = `id,parent_id "parentId",title,version,created_by "creat
   created_at "createdAt",updated_at "updatedAt"`;
 
 const view = (row) => ({
-  id: row.id, parentId: row.parentId ?? null, title: row.title, content: row.content, document: row.document??plainTextPageDocument(row.content), version: row.version,
+  id: row.id, parentId: row.parentId ?? null, title: row.title, content: row.content, document: row.document??plainTextPageDocument(row.content), hasStructuredDocument: row.document !== null && row.document !== undefined, version: row.version,
   createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
   archivedAt: row.archivedAt ?? null,
 });
