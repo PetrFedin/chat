@@ -5899,13 +5899,14 @@ window.addEventListener('popstate',()=>{
   // глотать следующие нажатия «назад» (из-за этого ‹ в окнах иногда не делала ничего).
   if(unwinding>0&&Date.now()<unwindDeadline){unwinding-=1;return}
   unwinding=0;
-  if(overlayStack.length){overlayStack.pop().onPop?.();renderOverlay();resumeTop();return}
+  if(overlayStack.length){const top=overlayStack[overlayStack.length-1];if(top.beforeClose?.()===false){history.pushState({overlay:overlayStack.length},'',location.href);return}overlayStack.pop().onPop?.();renderOverlay();resumeTop();return}
   // Окон не осталось — «назад» возвращает на прошлый раздел, а не выкидывает
   // из приложения.
   routeFromHash().catch(error=>toast(error.message));
 });
 let unwinding=0,unwindDeadline=0;
 function closeModal(){
+  if(overlayStack.some(entry=>entry.beforeClose?.()===false))return;
   const depth=overlayStack.length;
   overlayStack.splice(0).forEach((entry)=>entry.onPop?.());
   renderOverlay();
