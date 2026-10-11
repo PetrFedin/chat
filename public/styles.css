@@ -759,11 +759,11 @@ h4{font-size:15px;font-weight:700}
 .wiki-rich-content h1,.wiki-rich-content h2,.wiki-rich-content h3{margin:1em 0 .35em}
 .wiki-rich-content ul,.wiki-rich-content ol{padding-left:1.5em}
 .wiki-rich-content blockquote{margin:.8em 0;padding:.1em .85em;border-left:3px solid var(--warm);color:var(--muted)}
-.wiki-rich-content pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-3);padding:11px;border-radius:9px}
+.wiki-rich-content pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-3);padding:11px;border-radius:var(--r-2)}
 .wiki-rich-content a{color:var(--warm);text-decoration:underline}
-.wiki-editor-toolbar{display:flex;flex-wrap:wrap;gap:5px;padding:8px;border:1px solid var(--line);border-radius:10px}
+.wiki-editor-toolbar{display:flex;flex-wrap:wrap;gap:5px;padding:8px;border:1px solid var(--line);border-radius:var(--r-2)}
 .wiki-editor-toolbar button{min-width:36px;min-height:36px}
-.wiki-editor-host{min-height:220px;border:1px solid var(--line);border-radius:11px;padding:12px}
+.wiki-editor-host{min-height:220px;border:1px solid var(--line);border-radius:var(--r-2);padding:12px}
 .wiki-editor-host .tiptap{outline:none;min-height:190px}
 .wiki-editor-host:focus-within{border-color:var(--warm)}
 .wiki-conflict{border-color:var(--danger);padding:12px}
