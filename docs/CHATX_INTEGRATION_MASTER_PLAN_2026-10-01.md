@@ -235,7 +235,7 @@ These remain below the already-green Project execution/composition gate and must
 
 ## Phase 3 — Pages/wiki
 
-**Implementation status (2026-10-10): existing Wiki foundation retained; Page <-> Project relation GREEN; Tiptap/structured-content work remains open.**
+**Implementation status (2026-10-11): existing Wiki foundation retained; Page <-> Project GREEN; bounded structured JSON persistence GREEN; visual Tiptap editor and rich-content rendering still OPEN.**
 
 Gap audit before this phase confirmed that ChatX already had a canonical PostgreSQL Wiki authority with unlimited hierarchy, version history, optimistic concurrency, Russian full-text search and soft archive. Phase 3 therefore evolves that authority instead of introducing another page store.
 
@@ -248,6 +248,8 @@ Admitted first slice:
 - browser flow proves link -> render -> open canonical Project -> unlink, while unlink leaves canonical Project state intact.
 
 Exact-head proof: CI #377 on `92d6b4b9910a0beed685c5c6787f7002cf964ce5` passed domain tests, all PostgreSQL constraint gates and the full PostgreSQL suite **1321/1321**, including the dedicated non-leakage and real-Chromium Page relation tests.
+
+Structured JSON is now stored in canonical `wiki_pages.document` with a versioned history snapshot; `content` remains a derived search projection, and legacy text-only pages remain supported. The existing plain-text dialog now uses `hasStructuredDocument` from canonical persistence: legacy pages remain editable, while persisted structured pages allow title-only edits until the rich editor is admitted. No claim is made that Tiptap is rendered or editing rich content in production.
 
 Next Phase 3 boundary:
 1. introduce a structured page document contract and Tiptap editor without creating a second Page authority;
