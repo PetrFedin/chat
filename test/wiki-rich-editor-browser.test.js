@@ -35,7 +35,7 @@ test('Pages Tiptap browser: formatting survives save/reopen and stale version pr
   await page.locator('[data-wiki-edit]').click();
   await page.locator('.wiki-editor-host .tiptap').waitFor({state:'visible'});
   await page.locator('.wiki-editor-host .tiptap').fill('Formatted page');
-  await page.locator('.wiki-editor-host .tiptap').selectText('Formatted');
+  await page.locator('.wiki-editor-host .tiptap').press('ControlOrMeta+A');
   await page.locator('[data-format="bold"]').click();
   await page.locator('[data-wiki-save]').click();
   await page.waitForTimeout(400);
@@ -44,7 +44,7 @@ test('Pages Tiptap browser: formatting survives save/reopen and stale version pr
   assert.equal(saved.content,'Formatted page');
   assert.ok(JSON.stringify(saved.document).includes('"bold"'),'bold mark must persist to PostgreSQL');
   await page.locator('[data-wiki-view] strong').waitFor({state:'visible'});
-  assert.equal(await page.locator('[data-wiki-view] strong').textContent(),'Formatted');
+  assert.equal(await page.locator('[data-wiki-view] strong').textContent(),'Formatted page');
   await page.locator('[data-wiki-edit]').click();
   await page.locator('.wiki-editor-host .tiptap').waitFor({state:'visible'});
   assert.match(await page.locator('.wiki-editor-host .tiptap').innerHTML(),/<strong>Formatted<\/strong>/);
