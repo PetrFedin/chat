@@ -2998,13 +2998,7 @@ function wikiPageFormModal(page,parentId,after){
   const editing=Boolean(page);
   // The plain-text editor must never flatten an existing structured document.
   // Title-only edits remain available until the Tiptap editor is admitted.
-  const structured=editing&&Boolean(page.document)&&(
-    (page.document.content||[]).some(node=>
-      node.type!=='paragraph'||(node.content||[]).some(inline=>
-        inline.type!=='text'||(inline.marks||[]).length>0
-      )
-    )
-  );
+  const structured=editing&&Boolean(page.hasStructuredDocument);
   modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">
     <label>Заголовок<input name="title" required maxlength="200" value="${esc(page?.title??'')}"></label>
     ${structured?`<p class="muted" data-wiki-structured-notice>Эта страница содержит форматирование. Сейчас можно изменить заголовок; редактирование содержимого будет доступно в структурированном редакторе. Форматирование сохранено.</p>`:`<label>Текст<textarea name="content" rows="10">${esc(page?.content??'')}</textarea></label>`}
