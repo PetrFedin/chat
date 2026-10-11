@@ -60,6 +60,26 @@ test('Pages Tiptap browser: formatting survives save/reopen and stale version pr
   assert.match(await page.locator('[data-server-version]').textContent(),/Remote changes/);
   const latest=await (await api.get(base+'/api/v1/wiki/pages/'+initial.id)).json();
   assert.equal(latest.content,'Remote changes','409 must never silently overwrite the remote version');
+  // Rendering uses safe DOM nodes; markup-looking text stays inert,
+  // and a forged javascript: URL does not become a clickable link.
+  const security=await page.evaluate(async()=>{
+    const {renderPageDocument}=await import('/wiki-document-view.js');
+    const root=document.createElement('div');
+    document.body.appendChild(root);
+    renderPageDocument(root,{type:'doc',content:[{type:'paragraph',content:[
+      {type:'text',text:'<img src=x onerror=alert(1)>'},
+      {type:'text',text:' unsafe',marks:[{type:'link',attrs:{href:'javascript:alert(1)'}}]},
+    ]}]});
+    const result={
+      images:root.querySelectorAll('img').length,
+      anchors:root.querySelectorAll('a').length,
+      literal:root.textContent.includes('<img src=x onerror=alert(1)>'),
+    };
+    root.remove();
+    return result;
+  });
+  assert.deepEqual(security,{images:0,anchors:0,literal:true});
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true,'mobile editor should not overflow at 390px');
   assert.deepEqual(errors,[]);
 });
 
