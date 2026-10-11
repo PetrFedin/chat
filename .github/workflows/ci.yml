@@ -25,6 +25,8 @@ jobs:
       # package runs its own code as a side effect of being installed.
       - name: Install the headless browser for the smoke test
         run: npx playwright install --with-deps chromium
+      - name: Build Tiptap Pages editor (local browser bundle)
+        run: sh scripts/build-pages-editor.sh
       - run: npm test
 
   database-tests:
@@ -80,6 +82,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Build Tiptap Pages editor (local browser bundle)
+        run: sh scripts/build-pages-editor.sh
       - name: Apply migrations
         run: npm run migrate
         env:
