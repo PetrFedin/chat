@@ -3112,7 +3112,14 @@ async function wikiHistoryModal(pageId){
   let items=[];
   try{items=(await api(`/api/v1/wiki/pages/${pageId}/history`)).items||[]}
   catch(error){toast(error.message);return}
-  modal('История страницы',items.length?items.map(v=>`<div class="person-event"><span><strong>${esc(v.title)}</strong><p class="muted" style="white-space:pre-wrap;margin:4px 0 0">${esc((v.content||'').slice(0,300))}</p></span><time>${esc(dateTime(v.replacedAt))}</time></div>`).join(''):'<div class="empty"><strong>Правок ещё не было</strong>История появится после первой правки.</div>',()=>{});
+  modal('История страницы',items.length?items.map((v,index)=>`<div class="person-event"><span><strong>${esc(v.title)}</strong><div class="wiki-rich-content wiki-history-document" data-wiki-history-index="${index}"></div></span><time>${esc(dateTime(v.replacedAt))}</time></div>`).join(''):'<div class="empty"><strong>Правок ещё не было</strong>История появится после первой правки.</div>',()=>{
+    import('./wiki-document-view.js').then(m=>{
+      items.forEach((version,index)=>{
+        const root=$(`[data-wiki-history-index="${index}"]`);
+        if(root)m.renderPageDocument(root,version.document??m.textPageDocument(version.content??''));
+      });
+    }).catch(error=>toast(error.message));
+  });
 }
 
 const TIME_REPORT_PERIODS=[['7','неделя'],['30','месяц'],['365','год']];
