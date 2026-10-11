@@ -2996,9 +2996,18 @@ async function wikiProjectLinkModal(page,after){
 
 function wikiPageFormModal(page,parentId,after){
   const editing=Boolean(page);
+  // The plain-text editor must never flatten an existing structured document.
+  // Title-only edits remain available until the Tiptap editor is admitted.
+  const structured=editing&&Boolean(page.document)&&(
+    (page.document.content||[]).some(node=>
+      node.type!=='paragraph'||(node.content||[]).some(inline=>
+        inline.type!=='text'||(inline.marks||[]).length>0
+      )
+    )
+  );
   modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">
     <label>Заголовок<input name="title" required maxlength="200" value="${esc(page?.title??'')}"></label>
-    <label>Текст<textarea name="content" rows="10">${esc(page?.content??'')}</textarea></label>
+    ${structured?`<p class="muted" data-wiki-structured-notice>Эта страница содержит форматирование. Сейчас можно изменить заголовок; редактирование содержимого будет доступно в структурированном редакторе. Форматирование сохранено.</p>`:`<label>Текст<textarea name="content" rows="10">${esc(page?.content??'')}</textarea></label>`}
     <button class="button primary">${editing?'Сохранить':'Создать'}</button>
   </form>`,()=>{
     $('#wiki-page-form').onsubmit=async(event)=>{
@@ -3006,8 +3015,16 @@ function wikiPageFormModal(page,parentId,after){
       const form=new FormData(event.currentTarget);
       const submit=event.currentTarget.querySelector('button');if(submit)submit.disabled=true;
       try{
-        if(editing)await api(`/api/v1/wiki/pages/${page.id}`,{method:'PATCH',body:JSON.stringify({title:form.get('title'),content:form.get('content'),expectedVersion:page.version})});
-        else await api('/api/v1/wiki/pages',{method:'POST',body:JSON.stringify({title:form.get('title'),content:form.get('content'),parentId})});
+        if(editing)await api(`/api/v1/wiki/pages/${page.id}`,{
+          method:'PATCH',body:JSON.stringify({
+            title:form.get('title'),
+            ...(!structured?{content:form.get('content')}:{}),
+            expectedVersion:page.version,
+          }),
+        });
+        else await api('/api/v1/wiki/pages',{method:'POST',body:JSON.stringify({
+          title:form.get('title'),content:form.get('content'),parentId,
+        })});
         history.back();setTimeout(()=>after?.(),250);
         toast(editing?'Страница сохранена':'Страница создана');
       }catch(error){
