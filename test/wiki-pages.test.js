@@ -167,6 +167,7 @@ test('structured Pages persist JSON, derive searchable content and snapshot prio
   const { owner } = await company(store);
   const wiki = createWikiRepository(pool);
   const legacy = await wiki.create(owner,{title:'Legacy',content:'first line\nsecond line'});
+  assert.equal(legacy.hasStructuredDocument,false,'legacy page must remain editable in the plain-text dialog');
   assert.equal(legacy.document.type,'doc');
   assert.equal((await wiki.get(owner,legacy.id)).document.content.length,2);
 
@@ -177,6 +178,7 @@ test('structured Pages persist JSON, derive searchable content and snapshot prio
   const updated=await wiki.update(owner,legacy.id,{document,expectedVersion:legacy.version});
   assert.equal(updated.version,2);
   assert.deepEqual(updated.document,document);
+  assert.equal(updated.hasStructuredDocument,true,'persisted rich page must use a safe title-only legacy dialog');
   assert.equal(updated.content,'Approved plan\nProject handoff');
 
   const fetched=await wiki.get(owner,legacy.id);
