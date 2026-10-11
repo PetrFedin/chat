@@ -29,7 +29,7 @@ test('Pages Tiptap browser: formatting survives save/reopen and stale version pr
   const create=await api.post(base+'/api/v1/wiki/pages',{data:{title:'Legacy rich '+suffix,content:'Legacy text'}});
   assert.equal(create.status(),201);
   const initial=await create.json();
-  await page.locator('[data-nav="more"]').first().click();
+  await page.locator('[data-nav="more"]:visible').click();
   await page.locator('[data-action="wiki"]').click();
   await page.locator('[data-wiki-open="'+initial.id+'"]').click();
   await page.locator('[data-wiki-edit]').click();
