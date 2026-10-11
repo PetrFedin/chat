@@ -2875,7 +2875,7 @@ async function wikiModal(pageId=null){
     return{
       title:page?page.title:'Вики',
       body:`
-        ${page?`<div class="message-body" style="white-space:pre-wrap">${page.content?esc(page.content):'<span class="muted">Пусто. Нажмите «Изменить», чтобы написать текст.</span>'}</div>
+        ${page?`<div class="wiki-rich-content wiki-document-view" data-wiki-view></div>
         <div class="chip-row" style="margin-top:10px"><button data-wiki-edit class="chipbtn pressable">Изменить</button><button data-wiki-history class="chipbtn pressable">История</button><button data-wiki-archive class="chipbtn pressable">Архивировать</button></div>
         <div class="surface" style="margin-top:14px;padding:12px">
           <div class="section-head"><div><strong>${T('Связанные проекты','Related projects')}</strong><div class="row-sub">${T('Связь не меняет доступ к проекту.','The relation does not change project access.')}</div></div><button data-wiki-project-new class="chipbtn pressable">＋ ${T('Проект','Project')}</button></div>
@@ -2886,7 +2886,8 @@ async function wikiModal(pageId=null){
         <div class="stack">${items.length?rows:'<div class="empty"><strong>Пока пусто</strong>Создайте первую страницу.</div>'}</div>
         <button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?'Новая подстраница':'Новая страница'}</span></button>`,
       after:()=>{
-        $$('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
+        if(page){import('./wiki-document-view.js').then(m=>m.renderPageDocument($('[data-wiki-view]'),page.document)).catch(error=>toast(error.message));}
+        $('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
         $('[data-wiki-new]')?.addEventListener('click',()=>wikiPageFormModal(null,pageId,refresh));
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
@@ -2996,37 +2997,116 @@ async function wikiProjectLinkModal(page,after){
 
 function wikiPageFormModal(page,parentId,after){
   const editing=Boolean(page);
-  // The plain-text editor must never flatten an existing structured document.
-  // Title-only edits remain available until the Tiptap editor is admitted.
-  const structured=editing&&Boolean(page.hasStructuredDocument);
+  let rich=null,dirty=false,saving=false,closed=false;
+  const buttons=[
+    ['paragraph','¶'],['h1','H1'],['h2','H2'],['h3','H3'],
+    ['bold','B'],['italic','I'],['underline','U'],['strike','S'],['code','<>'],
+    ['bullet','• List'],['numbered','1. List'],['quote','❝'],['codeblock','Code'],
+    ['rule','—'],['link','Link'],['undo','↶'],['redo','↷'],
+  ];
+  const beforeUnload=event=>{if(!dirty)return;event.preventDefault();event.returnValue='';};
+  window.addEventListener('beforeunload',beforeUnload);
+  const cleanup=()=>{
+    if(closed)return;
+    closed=true;
+    window.removeEventListener('beforeunload',beforeUnload);
+    rich?.destroy();
+  };
+  const closeGuard=()=>{
+    if(!dirty||confirm(T('Несохранённые изменения будут потеряны. Закрыть редактор?','Unsaved edits will be lost. Close editor?'))){cleanup();return true}
+    return false;
+  };
   modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">
-    <label>Заголовок<input name="title" required maxlength="200" value="${esc(page?.title??'')}"></label>
-    ${structured?`<p class="muted" data-wiki-structured-notice>Эта страница содержит форматирование. Сейчас можно изменить заголовок; редактирование содержимого будет доступно в структурированном редакторе. Форматирование сохранено.</p>`:`<label>Текст<textarea name="content" rows="10">${esc(page?.content??'')}</textarea></label>`}
-    <button class="button primary">${editing?'Сохранить':'Создать'}</button>
+    <label>${T('Заголовок','Title')}<input name="title" required maxlength="200" value="${esc(page?.title??'')}"></label>
+    <div class="wiki-editor-toolbar" data-wiki-toolbar role="toolbar" aria-label="${T('Форматирование','Formatting')}">
+      ${buttons.map(([action,label])=>`<button type="button" class="chipbtn" data-format="${action}" aria-label="${action}">${esc(label)}</button>`).join('')}
+    </div>
+    <div class="wiki-rich-content wiki-editor-host" data-wiki-editor aria-label="${T('Содержимое страницы','Page content')}"></div>
+    <p class="muted" data-wiki-editor-status role="status">${T('Подготовка редактора…','Loading editor…')}</p>
+    <div data-wiki-conflict hidden class="surface wiki-conflict" role="alert">
+      <strong>${T('Конфликт версий: другая правка уже сохранена','Version conflict: another edit was saved')}</strong>
+      <p>${T('Ваша работа не удалена. Сравните версии, затем выберите действие.','Your local edits are preserved. Compare versions before acting.')}</p>
+      <div class="wiki-conflict-grid">
+        <section><strong>${T('Ваш текст','Your draft')}</strong><pre data-local-version></pre></section>
+        <section><strong>${T('Версия сервера','Server version')}</strong><pre data-server-version></pre></section>
+      </div>
+      <div class="chip-row">
+        <button type="button" class="chipbtn" data-wiki-retry>${T('Сохранить мою версию поверх новой','Save my version over new')}</button>
+        <button type="button" class="chipbtn" data-wiki-reload>${T('Загрузить серверную версию','Load server version')}</button>
+      </div>
+    </div>
+    <button class="button primary" type="submit" disabled data-wiki-save>${editing?'Сохранить':'Создать'}</button>
   </form>`,()=>{
-    $('#wiki-page-form').onsubmit=async(event)=>{
-      event.preventDefault();
-      const form=new FormData(event.currentTarget);
-      const submit=event.currentTarget.querySelector('button');if(submit)submit.disabled=true;
-      try{
-        if(editing)await api(`/api/v1/wiki/pages/${page.id}`,{
-          method:'PATCH',body:JSON.stringify({
-            title:form.get('title'),
-            ...(!structured?{content:form.get('content')}:{}),
-            expectedVersion:page.version,
-          }),
-        });
-        else await api('/api/v1/wiki/pages',{method:'POST',body:JSON.stringify({
-          title:form.get('title'),content:form.get('content'),parentId,
-        })});
-        history.back();setTimeout(()=>after?.(),250);
-        toast(editing?'Страница сохранена':'Страница создана');
-      }catch(error){
-        toast(error.code==='STALE_VERSION'?'Страницу успели изменить, пока вы её редактировали. Откройте её заново.':error.message);
-        if(submit)submit.disabled=false;
-      }
+    const form=$('#wiki-page-form'),submit=form?.querySelector('[data-wiki-save]');
+    const status=form?.querySelector('[data-wiki-editor-status]');
+    const conflict=form?.querySelector('[data-wiki-conflict]');
+    if(!form)return;
+    let expectedVersion=page?.version;
+    const updateStatus=()=>{
+      if(status)status.textContent=dirty?T('Есть несохранённые изменения','Unsaved changes'):T('Все изменения сохранены','All changes saved');
     };
+    form.querySelector('[name="title"]').addEventListener('input',()=>{dirty=true;updateStatus()});
+    const showError=event=>{if(status)status.textContent=event.detail;};
+    window.addEventListener('chat:wiki-editor-error',showError);
+    import('./wiki-editor.bundle.js').then(module=>{
+      if(closed||!form.isConnected)return;
+      rich=module.mountWikiEditor({
+        element:form.querySelector('[data-wiki-editor]'),
+        toolbar:form.querySelector('[data-wiki-toolbar]'),
+        document:page?.document,
+        onDirty:()=>{dirty=true;updateStatus()},
+      });
+      submit.disabled=false;
+      updateStatus();
+    }).catch(error=>{if(status)status.textContent=T('Редактор недоступен: ','Editor unavailable: ')+error.message;});
+    form.onsubmit=async event=>{
+      event.preventDefault();
+      if(!rich||saving)return;
+      const local=rich.getDocument();
+      const title=form.querySelector('[name="title"]').value;
+      saving=true;submit.disabled=true;
+      try{
+        if(editing){
+          await api(`/api/v1/wiki/pages/${page.id}`,{
+            method:'PATCH',
+            body:JSON.stringify({title,document:local,expectedVersion}),
+          });
+        }else{
+          await api('/api/v1/wiki/pages',{
+            method:'POST',body:JSON.stringify({title,document:local,parentId}),
+          });
+        }
+        dirty=false;cleanup();
+        history.back();setTimeout(()=>after?.(),250);
+        toast(editing?T('Страница сохранена','Page saved'):T('Страница создана','Page created'));
+      }catch(error){
+        if(error.status===409&&editing){
+          try{
+            const server=await api(`/api/v1/wiki/pages/${page.id}`);
+            conflict.hidden=false;
+            form.querySelector('[data-local-version]').textContent=JSON.stringify(local,null,2);
+            form.querySelector('[data-server-version]').textContent=JSON.stringify(server.document,null,2);
+            form.querySelector('[data-wiki-retry]').onclick=()=>{
+              expectedVersion=server.version;
+              conflict.hidden=true;
+              submit.disabled=false;
+              status.textContent=T('Нажмите «Сохранить» для явной перезаписи','Choose Save to overwrite explicitly');
+            };
+            form.querySelector('[data-wiki-reload]').onclick=()=>{
+              if(!confirm(T('Заменить свои правки новой версией с сервера?','Replace local edits with the server version?')))return;
+              cleanup();history.back();
+              setTimeout(()=>wikiPageFormModal(server,server.parentId,after),200);
+            };
+            status.textContent=T('Конфликт. Ваш текст остаётся в редакторе.','Conflict. Your draft remains in the editor.');
+          }catch(fetchError){status.textContent=fetchError.message}
+        }else{status.textContent=error.message;toast(error.message)}
+      }finally{saving=false;submit.disabled=false}
+    };
+    // The modal system owns navigation. Guard at the centralized close/pop boundaries.
+    const entry=overlayStack[overlayStack.length-1];
+    if(entry){entry.onPop=()=>{cleanup()};entry.beforeClose=closeGuard}
   });
+  return;
 }
 async function wikiHistoryModal(pageId){
   let items=[];
