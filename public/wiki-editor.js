@@ -4,7 +4,7 @@ import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import { canonicalEditorDocument, textPageDocument } from './wiki-document-view.js';
 
-export function mountWikiEditor({ element, toolbar, document: initial, onDirty }) {
+export function mountWikiEditor({ element, toolbar, document: initial, legacyText = '', onDirty }) {
   if (!element) throw new Error('Pages editor mount is missing');
   const editor = new Editor({
     element,
@@ -13,7 +13,7 @@ export function mountWikiEditor({ element, toolbar, document: initial, onDirty }
       Underline,
       Link.configure({ openOnClick: false, autolink: false, protocols: ['http', 'https', 'mailto'] }),
     ],
-    content: canonicalEditorDocument(initial ?? textPageDocument('')),
+    content: canonicalEditorDocument(initial ?? textPageDocument(legacyText)),
     onUpdate: () => onDirty?.(true),
     editorProps: {
       attributes: { class: 'wiki-rich-content', 'aria-label': 'Текст страницы' },
