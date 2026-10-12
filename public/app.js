@@ -3055,6 +3055,7 @@ function wikiPageFormModal(page,parentId,after){
         element:form.querySelector('[data-wiki-editor]'),
         toolbar:form.querySelector('[data-wiki-toolbar]'),
         document:page?.document,
+        legacyText:page?.content??'',
         onDirty:()=>{dirty=true;updateStatus()},
       });
       submit.disabled=false;
