@@ -3092,12 +3092,17 @@ function wikiPageFormModal(page,parentId,after){
             form.querySelector('[data-wiki-retry]').onclick=()=>{
               expectedVersion=server.version;
               conflict.hidden=true;
+              // A deliberate 409 resolution is a new submission, not a
+              // double-click of the original attempt blocked by global debounce.
+              form.dataset.busyUntil='0';
               submit.disabled=false;
               status.textContent=T('Нажмите «Сохранить» для явной перезаписи','Choose Save to overwrite explicitly');
             };
             form.querySelector('[data-wiki-reload]').onclick=()=>{
               if(!confirm(T('Заменить свои правки новой версией с сервера?','Replace local edits with the server version?')))return;
-              cleanup();history.back();
+              // The user explicitly chose to discard; do not prompt again
+              // when browser Back closes the old modal.
+              dirty=false;cleanup();history.back();
               setTimeout(()=>wikiPageFormModal(server,server.parentId,after),200);
             };
             status.textContent=T('Конфликт. Ваш текст остаётся в редакторе.','Conflict. Your draft remains in the editor.');
