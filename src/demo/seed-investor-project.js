@@ -34,7 +34,7 @@ export async function seedDemoInvestorProject({ store, projects }) {
     role:'owner',displayName:identity.displayName || auth.email,
   };
   const bootstrap = await store.getBootstrap(session);
-  const existing = (await projects.list(session)).find(p => p.name === INVESTOR_PROJECT_NAME);
+  const existing = (await projects.list(session,{includeArchived:true})).find(p => p.name === INVESTOR_PROJECT_NAME);
   const project = existing || await projects.create(session, {
     name:INVESTOR_PROJECT_NAME,visibility:'workspace',status:'active',
     goal:'Демонстрационный релиз: связь обсуждений, ответственных, рисков, доказательств и приёмки. Все данные синтетические.',
