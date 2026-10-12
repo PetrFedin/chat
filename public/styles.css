@@ -752,3 +752,28 @@ h4{font-size:15px;font-weight:700}
   .calendar-project-filter{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr)}
   .calendar-project-filter select{min-width:0;max-width:none;width:100%}
 }
+
+/* Investor walkthrough: all quantities are canonical or explicitly hypothetical. */
+.investor-tour{display:grid;gap:12px;min-width:0;max-width:100%}
+.investor-tour-hero{padding:16px}
+.investor-tour-hero h3{font-size:21px;margin:8px 0}
+.investor-tour-hero p{margin:6px 0}
+.investor-tour-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.investor-stat{display:flex;flex-direction:column;gap:5px;padding:12px;border:1px solid var(--line);border-radius:var(--r-2);min-width:0}
+.investor-stat strong{font-size:21px;overflow-wrap:anywhere}
+.investor-tour-steps{display:grid;gap:8px}
+.investor-tour-step{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px;align-items:center}
+.investor-tour-step p{margin:5px 0 9px}
+.investor-tour-step a{display:inline-flex;align-items:center;white-space:normal;text-decoration:none;min-height:36px}
+.investor-tour-economics{padding:14px}
+.investor-tour-economics h3{margin:0 0 8px}
+.investor-tour-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.investor-input{display:flex;flex-direction:column;gap:6px;min-width:0}
+.investor-input input{width:100%;min-width:0}
+.investor-tour-economics .chip-row{margin:12px 0}
+.investor-tour-economics select{max-width:100px;margin-left:8px}
+@media(max-width:640px){
+  .investor-tour-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .investor-tour-step{grid-template-columns:minmax(0,1fr)}
+  .investor-tour-inputs{grid-template-columns:minmax(0,1fr)}
+}
