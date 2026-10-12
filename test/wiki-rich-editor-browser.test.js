@@ -40,6 +40,7 @@ test('Pages Tiptap browser: formatting survives save/reopen and stale version pr
   assert.equal(initialRead.content,'Legacy text');
   await page.locator('[data-wiki-edit]').click();
   await page.locator('.wiki-editor-host .tiptap').waitFor({state:'visible'});
+  assert.equal(await page.locator('.wiki-editor-host .tiptap').innerText(),'Legacy text','first rich edit must preload legacy content');
   await page.locator('.wiki-editor-host .tiptap').fill('Formatted page');
   await page.locator('.wiki-editor-host .tiptap').press('ControlOrMeta+A');
   await page.locator('[data-format="bold"]').click();
