@@ -66,6 +66,17 @@ test('Pages Tiptap browser: formatting survives save/reopen and stale version pr
   assert.match(await page.locator('[data-server-version]').textContent(),/Remote changes/);
   const latest=await (await api.get(base+'/api/v1/wiki/pages/'+initial.id)).json();
   assert.equal(latest.content,'Remote changes','409 must never silently overwrite the remote version');
+  assert.equal(latest.version,3);
+  // Explicit user choice, not an implicit 409 retry, is required to overwrite.
+  await page.locator('[data-wiki-retry]').click();
+  await page.locator('[data-wiki-save]').click();
+  await page.locator('[data-wiki-view]').getByText('Local changes must survive').waitFor({state:'visible'});
+  const resolved=await (await api.get(base+'/api/v1/wiki/pages/'+initial.id)).json();
+  assert.equal(resolved.version,4);
+  assert.equal(resolved.content,'Local changes must survive');
+  // The previous plain-text version remains in the history after rich edits.
+  await page.locator('[data-wiki-history]').click();
+  await page.locator('.wiki-history-document').getByText('Legacy text').waitFor({state:'visible'});
   // Rendering uses safe DOM nodes; markup-looking text stays inert,
   // and a forged javascript: URL does not become a clickable link.
   const security=await page.evaluate(async()=>{
