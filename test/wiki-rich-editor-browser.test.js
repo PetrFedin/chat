@@ -36,7 +36,12 @@ test('Pages Tiptap browser: formatting survives save/reopen and stale version pr
   // Opening one must show its original content, not a false empty page.
   await page.locator('[data-wiki-view]').getByText('Legacy text').waitFor({state:'visible'});
   const initialRead=await (await api.get(base+'/api/v1/wiki/pages/'+initial.id)).json();
-  assert.equal(initialRead.document,null,'legacy original remains unconverted in DB until explicit save');
+  // Repository projects legacy SQL NULL into a safe read-only JSON document;
+  // the structured flag stays false until the first explicit rich save.
+  assert.equal(initialRead.hasStructuredDocument,false);
+  assert.deepEqual(initialRead.document,{
+    type:'doc',content:[{type:'paragraph',content:[{type:'text',text:'Legacy text'}]}],
+  });
   assert.equal(initialRead.content,'Legacy text');
   await page.locator('[data-wiki-edit]').click();
   await page.locator('.wiki-editor-host .tiptap').waitFor({state:'visible'});
