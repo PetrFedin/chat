@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { canonicalProofLink, hypotheticalEconomics } from '../public/investor-tour.js';
+import { canonicalProofLink, hypotheticalEconomics, isSyntheticDemoWorkspace } from '../public/investor-tour.js';
 
 test('investor tour deep links only reference canonical UUID objects',()=>{
   const id='7f59efde-8859-4255-9382-1de0d06ec990';
@@ -37,4 +37,14 @@ test('investor walkthrough is present only as non-guest action in navigation',as
   assert.match(src,/staff\?\x60<button class="module-card pressable" data-action="investor-tour"/);
   assert.match(src,/if\(guestShell\(\)\)return;/);
   assert.match(src,/async function investorTourModal\(/);
+});
+
+test('all demo actors are labeled synthetic, unrelated tenants are not',()=>{
+  const demo={enabled:true,label:'Northstar Studio'};
+  assert.equal(isSyntheticDemoWorkspace(demo,{email:'demo@northstar.example',organizationName:'Northstar Studio'}),true);
+  assert.equal(isSyntheticDemoWorkspace(demo,{email:'marina@northstar.example',organizationName:'Northstar Studio'}),true);
+  assert.equal(isSyntheticDemoWorkspace(demo,{email:'ilya@northstar.example',organizationName:'Northstar Studio'}),true);
+  assert.equal(isSyntheticDemoWorkspace(demo,{email:'customer@example.org',organizationName:'Northstar Studio'}),false);
+  assert.equal(isSyntheticDemoWorkspace(demo,{email:'marina@northstar.example',organizationName:'Another Workspace'}),false);
+  assert.equal(isSyntheticDemoWorkspace({enabled:false,label:'Northstar Studio'},{email:'demo@northstar.example',organizationName:'Northstar Studio'}),false);
 });
