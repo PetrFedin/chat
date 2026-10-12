@@ -67,6 +67,12 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   // Демонстрационное пространство заводится под одной и той же почтой, а
   // тестовая база живёт между прогонами. Убираем прошлый прогон целиком —
   // так же чисто, как на пустой базе в CI.
+  // Demo project relations have restrictive composite FK to memberships:
+  // delete their aggregate first so cleanup of a previously seeded test tenant
+  // never weakens referential integrity or depends on cascade order.
+  await probe.query(`DELETE FROM projects WHERE workspace_id IN (
+    SELECT m.workspace_id FROM memberships m
+    JOIN users u ON u.id=m.user_id WHERE u.email LIKE '%@northstar.example')`);
   await probe.query(`DELETE FROM organizations WHERE id IN (
     SELECT m.organization_id FROM memberships m
     JOIN users u ON u.id=m.user_id WHERE u.email LIKE '%@northstar.example')`);
