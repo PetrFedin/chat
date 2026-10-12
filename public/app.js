@@ -2886,7 +2886,7 @@ async function wikiModal(pageId=null){
         <div class="stack">${items.length?rows:'<div class="empty"><strong>Пока пусто</strong>Создайте первую страницу.</div>'}</div>
         <button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?'Новая подстраница':'Новая страница'}</span></button>`,
       after:()=>{
-        if(page){import('./wiki-document-view.js').then(m=>m.renderPageDocument($('[data-wiki-view]'),page.document)).catch(error=>toast(error.message));}
+        if(page){import('./wiki-document-view.js').then(m=>m.renderPageDocument($('[data-wiki-view]'),page.document??m.textPageDocument(page.content??''))).catch(error=>toast(error.message));}
         $$('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
         $('[data-wiki-new]')?.addEventListener('click',()=>wikiPageFormModal(null,pageId,refresh));
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
@@ -3063,10 +3063,10 @@ function wikiPageFormModal(page,parentId,after){
     form.onsubmit=async event=>{
       event.preventDefault();
       if(!rich||saving)return;
-      const local=rich.getDocument();
-      const title=form.querySelector('[name="title"]').value;
       saving=true;submit.disabled=true;
       try{
+        const local=rich.getDocument();
+        const title=form.querySelector('[name="title"]').value;
         if(editing){
           await api(`/api/v1/wiki/pages/${page.id}`,{
             method:'PATCH',
