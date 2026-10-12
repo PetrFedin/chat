@@ -3064,8 +3064,9 @@ function wikiPageFormModal(page,parentId,after){
       event.preventDefault();
       if(!rich||saving)return;
       saving=true;submit.disabled=true;
+      let local=null;
       try{
-        const local=rich.getDocument();
+        local=rich.getDocument();
         const title=form.querySelector('[name="title"]').value;
         if(editing){
           await api(`/api/v1/wiki/pages/${page.id}`,{
