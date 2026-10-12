@@ -1,5 +1,5 @@
 const CACHE='chat-shell-v28';
-const SHELL=['/','/styles.css','/calls.css','/preferences.css','/daily-work.css','/meeting-intelligence.css','/preferences.js','/preferences-context.js','/app.js','/wiki-document-view.js','/wiki-editor.bundle.js','/meeting-intelligence.js','/meeting-operations.js','/daily-work.js','/requests.js','/calls-ui.js','/demo.js','/manifest.webmanifest','/icon.svg','/icon-192.png','/icon-512.png','/apple-touch-icon.png'];
+// The Tiptap bundle is built for CI/deploy, but may be absent in plain npm start.\n// Do not make the entire PWA install fail when this optional editor asset is missing.\n// Successful fetches are cached by the runtime fetch handler after first load.\nconst SHELL=['/','/styles.css','/calls.css','/preferences.css','/daily-work.css','/meeting-intelligence.css','/preferences.js','/preferences-context.js','/app.js','/wiki-document-view.js','/meeting-intelligence.js','/meeting-operations.js','/daily-work.js','/requests.js','/calls-ui.js','/demo.js','/manifest.webmanifest','/icon.svg','/icon-192.png','/icon-512.png','/apple-touch-icon.png'];
 
 self.addEventListener('install',(event)=>event.waitUntil(
   caches.open(CACHE).then((cache)=>cache.addAll(SHELL)).then(()=>self.skipWaiting())
