@@ -29,6 +29,13 @@ export function hypotheticalEconomics(input={}) {
 const valueOrDash=x=>typeof x==='number'&&Number.isFinite(x)?String(x):'—';
 const resolved=r=>r.status==='fulfilled'?r.value:null;
 
+/** Every seeded Northstar actor is synthetic, not only the demo owner. */
+export function isSyntheticDemoWorkspace(demo,session) {
+  return Boolean(demo?.enabled && demo.label==='Northstar Studio'
+    && session?.organizationName===demo.label
+    && /@northstar\.example$/i.test(session?.email??''));
+}
+
 export async function openInvestorTour({api,modal,esc,T,session,conversations=[],tasks=[],can=()=>false}){
   // Each read goes through the application's authenticated API and RBAC.
   // Partial service outage must be visible, not silently substituted with zeros.
@@ -52,7 +59,7 @@ export async function openInvestorTour({api,modal,esc,T,session,conversations=[]
   const sourceMessageTask=tasks.find(t=>t.sourceMessageId && isUuid(t.id));
   const task=sourceMessageTask??project?.tasks?.find(t=>isUuid(t.id))??null;
   const channel=conversations.find(c=>c.slug==='product' && isUuid(c.id))??null;
-  const isDemo=Boolean(demo?.enabled && session?.email==='demo@northstar.example');
+  const isDemo=isSyntheticDemoWorkspace(demo,session);
   const dbAvailable=projectsResult.status==='fulfilled';
   const dashboardAvailable=dashboardResult.status==='fulfilled';
   const meetingsAvailable=meetingsResult.status==='fulfilled';
