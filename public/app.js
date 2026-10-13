@@ -3091,7 +3091,11 @@ async function wikiDecisionLinkModal(page,after){
           await api(`/api/v1/wiki/pages/${page.id}/decisions`,{
             method:'POST',body:JSON.stringify({decisionId:button.dataset.wikiDecisionSelect}),
           });
-          history.back();setTimeout(()=>after?.(),200);
+          // Refresh after the browser has actually returned to the parent
+          // Page. A fixed 200ms timer can redraw the Page over a Decision
+          // detail modal the user opened immediately after linking.
+          window.addEventListener('popstate',()=>{void after?.()}, {once:true});
+          history.back();
           toast(T('Решение связано со страницей','Decision linked to Page'));
         }catch(error){button.disabled=false;toast(error.message)}
       });
