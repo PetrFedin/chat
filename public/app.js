@@ -2907,9 +2907,16 @@ async function wikiModal(pageId=null){
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
         $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
         $('[data-wiki-channel-new]')?.addEventListener('click',()=>wikiChannelLinkModal(page,refresh));
-        $$('[data-wiki-channel-open]').forEach(button=>button.onclick=()=>{
+        $$('[data-wiki-channel-open]').forEach(button=>button.onclick=async()=>{
           const id=button.dataset.wikiChannelOpen;
-          overlayStack.length=0;renderOverlay();openChatAtMessage(id,null);
+          try{
+            // The user may have received a Page link after their chat list last loaded.
+            // Re-check canonical membership and refresh local navigation state.
+            const result=await api('/api/v1/conversations');
+            S.conversations=result.items||[];
+            overlayStack.length=0;renderOverlay();
+            await openChatAtMessage(id,null);
+          }catch(error){toast(error.message)}
         });
         $$('[data-wiki-channel-remove]').forEach(button=>button.onclick=async()=>{
           try{
