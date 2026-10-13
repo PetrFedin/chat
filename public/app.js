@@ -5682,6 +5682,25 @@ async function notesModal(eventId,eventTitle=''){
   });
 }
 
+async function decisionDetailModal(id){
+  try{
+    const {decision}=await api(`/api/v1/meetings/decisions/${encodeURIComponent(id)}`);
+    modal(T('Принятое решение','Accepted decision'),`<article class="surface" style="padding:12px">
+      <h3>${esc(decision.title)}</h3>
+      ${decision.body?`<p class="muted" style="white-space:pre-wrap">${esc(decision.body)}</p>`:''}
+      <p class="row-sub">${esc(dateTime(decision.acceptedAt))}${decision.acceptedByName?` · ${esc(decision.acceptedByName)}`:''}</p>
+      ${decision.callTitle?`<p class="row-sub">${esc(decision.callTitle)}</p>`:''}
+      ${decision.conversationId?`<button class="button secondary" data-decision-detail-room="${esc(decision.conversationId)}">${T('К беседе','Open conversation')}</button>`:''}
+    </article>`,()=>{
+      $('[data-decision-detail-room]')?.addEventListener('click',event=>{
+        const conversationId=event.currentTarget.dataset.decisionDetailRoom;
+        overlayStack.length=0;renderOverlay();openChatAtMessage(conversationId,null);
+      });
+    });
+  }catch(error){toast([403,404].includes(error.status)
+    ?T('Решение не найдено или недоступно','Decision not found or inaccessible'):error.message)}
+}
+
 async function decisionsModal(query=''){
   let items=[];
   let failed=null;
@@ -7670,7 +7689,7 @@ window.CHAT_ERRORS=ERROR_MESSAGE;
 // разметке двенадцать раз подряд и молча сдавались.
 // Поиск живёт в отдельном файле и не видит внутренностей приложения:
 // всё, чем он открывает найденное, проходит через эту дверь.
-window.ChatApp={openChatAtMessage,ghostOverlay,toast,role:()=>me()?.role??null,userId:()=>me()?.userId??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
+window.ChatApp={openChatAtMessage,ghostOverlay,toast,role:()=>me()?.role??null,userId:()=>me()?.userId??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter,openProject,openWikiPage:wikiModal,openDecision:decisionDetailModal};
 // Страховка навигации: после ошибки и перерисовки кнопки меню оставались без обработчика (нижнее меню
 // «умирало» до перезагрузки). Если у кнопки раздела обработчика нет, переходим сами.
 document.addEventListener('click',(event)=>{
