@@ -99,11 +99,16 @@ test('Page-Decision: access changes, retraction, tenant FKs and audit without co
     assert.deepEqual(ownerPage.payload.decisions.map(x=>x.id).sort(),[first.id,second.id].sort());
     assert.ok(ownerPage.payload.decisions.every(x=>!('body' in x) && !('sourceId' in x)),
       'Page projections must never copy confidential Decision text or meeting sources');
+    const reverse=(cookie,id)=>req(base,`/api/v1/wiki/decisions/${id}/pages`,{cookie});
+    assert.deepEqual((await reverse(owner.cookie,first.id)).payload.items.map(x=>x.id),[pageId]);
+    assert.equal((await reverse(owner.cookie,outsiderDecision.id)).status,404);
+    assert.equal((await reverse(owner.cookie,randomUUID())).status,404);
 
     const otherPage=await pageFor(colleague.cookie);
     assert.equal(otherPage.status,200);
     assert.deepEqual(otherPage.payload.decisions,[],
       'meeting nonparticipant must not see decision ID, title or count');
+    assert.equal((await reverse(colleague.cookie,first.id)).status,404);
     assert.equal((await link(colleague.cookie,first.id)).status,404);
     assert.equal((await unlink(colleague.cookie,first.id)).status,404);
     assert.equal((await pageFor(guest.cookie)).status,404);
@@ -126,6 +131,7 @@ test('Page-Decision: access changes, retraction, tenant FKs and audit without co
     );
     const admitted=await pageFor(colleague.cookie);
     assert.deepEqual(admitted.payload.decisions.map(x=>x.id).sort(),[first.id,second.id].sort());
+    assert.deepEqual((await reverse(colleague.cookie,first.id)).payload.items.map(x=>x.id),[pageId]);
 
     // Remove access after linking: a shared Page must immediately conceal
     // a Decision, without changing any canonical Decision state.
@@ -134,6 +140,7 @@ test('Page-Decision: access changes, retraction, tenant FKs and audit without co
       [owner.session.workspaceId,event.id,colleague.session.userId],
     );
     assert.deepEqual((await pageFor(colleague.cookie)).payload.decisions,[]);
+    assert.equal((await reverse(colleague.cookie,first.id)).status,404);
 
     assert.equal((await unlink(owner.cookie,second.id)).status,200);
     assert.equal((await unlink(owner.cookie,second.id)).status,404);
@@ -149,6 +156,9 @@ test('Page-Decision: access changes, retraction, tenant FKs and audit without co
     );
     const retracted=await pageFor(owner.cookie);
     assert.deepEqual(retracted.payload.decisions,[]);
+    assert.equal((await reverse(owner.cookie,first.id)).status,404);
+    assert.equal((await reverse(owner.cookie,second.id)).status,200);
+    assert.deepEqual((await reverse(owner.cookie,second.id)).payload.items,[]);
     assert.equal((await link(owner.cookie,first.id)).status,404);
     assert.equal((await unlink(owner.cookie,first.id)).status,404);
 
