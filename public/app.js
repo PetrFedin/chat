@@ -5751,14 +5751,26 @@ async function notesModal(eventId,eventTitle=''){
 
 async function decisionDetailModal(id){
   try{
-    const {decision}=await api(`/api/v1/meetings/decisions/${encodeURIComponent(id)}`);
+    const [{decision},related]=await Promise.all([
+      api(`/api/v1/meetings/decisions/${encodeURIComponent(id)}`),
+      api(`/api/v1/wiki/decisions/${encodeURIComponent(id)}/pages`).catch(()=>({items:[]})),
+    ]);
+    const relatedPages=related.items||[];
     modal(T('Принятое решение','Accepted decision'),`<article class="surface" style="padding:12px">
       <h3>${esc(decision.title)}</h3>
       ${decision.body?`<p class="muted" style="white-space:pre-wrap">${esc(decision.body)}</p>`:''}
       <p class="row-sub">${esc(dateTime(decision.acceptedAt))}${decision.acceptedByName?` · ${esc(decision.acceptedByName)}`:''}</p>
       ${decision.callTitle?`<p class="row-sub">${esc(decision.callTitle)}</p>`:''}
+      ${relatedPages.length?`<div class="stack" style="margin-top:12px" data-decision-related-pages>
+        <strong>${T('Связанные страницы','Related Pages')}</strong>
+        ${relatedPages.map(page=>`<button class="text-button" data-decision-detail-page="${esc(page.id)}" type="button">${esc(page.title)}</button>`).join('')}
+      </div>`:''}
       ${decision.conversationId?`<button class="button secondary" data-decision-detail-room="${esc(decision.conversationId)}">${T('К беседе','Open conversation')}</button>`:''}
     </article>`,()=>{
+      $$('[data-decision-detail-page]').forEach(button=>button.addEventListener('click',()=>{
+        const pageId=button.dataset.decisionDetailPage;
+        overlayStack.length=0;renderOverlay();wikiModal(pageId);
+      }));
       $('[data-decision-detail-room]')?.addEventListener('click',event=>{
         const conversationId=event.currentTarget.dataset.decisionDetailRoom;
         overlayStack.length=0;renderOverlay();openChatAtMessage(conversationId,null);
