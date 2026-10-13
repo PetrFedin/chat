@@ -4,7 +4,27 @@ import { Permission, requirePermission } from '../rbac.js';
 const PAGE_ID = '([0-9a-f-]{36})';
 const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
 const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
-const PROJECTS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projects$`, 'i');
+const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasksimport { json, readJson } from './helpers.js';
+import { Permission, requirePermission } from '../rbac.js';
+
+const PAGE_ID = '([0-9a-f-]{36})';
+const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
+const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
+, 'i');
+const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}import { json, readJson } from './helpers.js';
+import { Permission, requirePermission } from '../rbac.js';
+
+const PAGE_ID = '([0-9a-f-]{36})';
+const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
+const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
+, 'i');
+const PROJECTS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projectsimport { json, readJson } from './helpers.js';
+import { Permission, requirePermission } from '../rbac.js';
+
+const PAGE_ID = '([0-9a-f-]{36})';
+const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
+const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
+, 'i');
 const PROJECT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projects/${PAGE_ID}$`, 'i');
 
 function unavailable() {
@@ -43,6 +63,23 @@ export function createWikiHandler() {
     const history = path.match(HISTORY);
     if (history && method === 'GET') {
       json(res, 200, { items: await ctx.wiki.history(session, history[1]) });
+      return true;
+    }
+
+    const taskList = path.match(TASKS);
+    if (taskList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.taskId) {
+        throw Object.assign(new Error('taskId is required'), {
+          code: 'TASK_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkTask(session, taskList[1], String(body.taskId)));
+      return true;
+    }
+    const task = path.match(TASK);
+    if (task && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkTask(session, task[1], task[2]));
       return true;
     }
 
