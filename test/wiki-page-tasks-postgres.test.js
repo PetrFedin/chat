@@ -112,7 +112,7 @@ test('Page <-> Task: canonical visibility, audit, duplicate, delete and tenant i
     assert.equal((await link(owner.cookie, privateId)).status, 409, 'duplicate must be explicit');
     assert.equal((await link(owner.cookie, foreignTask.payload.task.id)).status, 404);
     assert.equal((await link(outsider.cookie, privateId)).status, 404, 'foreign page cannot be addressed');
-    assert.equal((await request(base, `/api/v1/wiki/pages/${pageId}`, { cookie: guest.cookie })).status, 403);
+    assert.equal((await request(base, `/api/v1/wiki/pages/${pageId}`, { cookie: guest.cookie })).status, 404, 'guest must not learn that the Page exists');
 
     // PostgreSQL must enforce workspace isolation independently of the HTTP layer.
     await assert.rejects(pool.query(
