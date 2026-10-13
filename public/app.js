@@ -2902,11 +2902,11 @@ async function wikiModal(pageId=null){
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
         $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
-        $('[data-wiki-task-open]').forEach(button=>button.onclick=()=>{
+        $$('[data-wiki-task-open]').forEach(button=>button.onclick=()=>{
           const id=button.dataset.wikiTaskOpen;
           overlayStack.length=0;renderOverlay();openTask(id);
         });
-        $('[data-wiki-task-remove]').forEach(button=>button.onclick=async()=>{
+        $$('[data-wiki-task-remove]').forEach(button=>button.onclick=async()=>{
           try{
             await api(`/api/v1/wiki/pages/${page.id}/tasks/${button.dataset.wikiTaskRemove}`,{method:'DELETE'});
             toast(T('Задача убрана со страницы','Task unlinked from page'));
@@ -3043,7 +3043,7 @@ async function wikiTaskLinkModal(page,after){
           data-wiki-task-select="${esc(task.id)}">
           <span><strong>${esc(task.title)}</strong><span class="row-sub">${esc(task.status)}</span></span>
         </button>`).join(''):`<div class="empty">${T('Совпадений среди загруженных задач нет','No matches among loaded tasks')}</div>`;
-      $('[data-wiki-task-select]',results).forEach(button=>button.onclick=async()=>{
+      $$('[data-wiki-task-select]',results).forEach(button=>button.onclick=async()=>{
         button.disabled=true;
         try{
           await api(`/api/v1/wiki/pages/${page.id}/tasks`,{
