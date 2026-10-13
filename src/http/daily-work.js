@@ -4,7 +4,8 @@ import { json, readJson, pageSize } from './helpers.js';
 // тарифам», а через неделю не мог её найти ни по одному слову. Список
 // личных дел растёт быстрее прочих именно потому, что в него пишут не
 // думая.
-const SEARCH_TYPES = new Set(['message','conversation','task','file','person','event','note']);
+const BASIC_SEARCH_TYPES = new Set(['message','conversation','task','file','person','event','note']);
+const SEARCH_TYPES = new Set([...BASIC_SEARCH_TYPES,'page','project','decision']);
 
 function parseTypes(value) {
   if (!value) return null;
@@ -148,7 +149,38 @@ export async function handleDailyWork(req,res,ctx,url,path,method) {
     };
     const from=range(url.searchParams.get('from')),to=range(url.searchParams.get('to'),true);
     if(from&&to&&from>to)throw Object.assign(new Error('Начало периода позже его конца'),{code:'INVALID_DATE',statusCode:400,expose:true});
-    json(res,200,{query,from,to,items:await store.searchWorkspace(session,query,{types,limit,from,to})});
+    const wants=(kind)=>!types||types.includes(kind);
+    const canUseInternal=session.role!=='guest';
+    // Compose results via each canonical authority. Do not query wiki_pages,
+    // projects or decisions directly here: duplicated ACL clauses drift.
+    const jobs=[];
+    if(!types||types.some(type=>BASIC_SEARCH_TYPES.has(type))){
+      jobs.push(store.searchWorkspace(session,query,{
+        types:types?.filter(type=>BASIC_SEARCH_TYPES.has(type))??null,
+        limit,from,to,
+      }));
+    }
+    if(canUseInternal&&wants('page')&&ctx.wiki?.enabled){
+      jobs.push(ctx.wiki.search(session,{query,limit,from,to}).then(rows=>rows.map(row=>({
+        type:'page',id:row.id,title:row.title,snippet:row.snippet??'',
+        createdAt:row.updatedAt,score:2,
+      }))));
+    }
+    if(canUseInternal&&wants('project')&&ctx.projects?.search){
+      jobs.push(ctx.projects.search(session,{query,limit,from,to}));
+    }
+    if(canUseInternal&&wants('decision')&&ctx.meeting?.decisions){
+      jobs.push(ctx.meeting.decisions(session,{query,limit,from,to}).then(rows=>rows.map(row=>({
+        type:'decision',id:row.id,title:row.title,snippet:row.body??'',
+        createdAt:row.acceptedAt,score:2,conversationId:row.conversationId??null,
+      }))));
+    }
+    const pages=await Promise.all(jobs);
+    const items=pages.flat().sort((a,b)=>
+      (Number(b.score||0)-Number(a.score||0)) ||
+      String(b.createdAt??'').localeCompare(String(a.createdAt??'')),
+    ).slice(0,limit);
+    json(res,200,{query,from,to,items});
     return true;
   }
 
