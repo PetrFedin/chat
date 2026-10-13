@@ -8,6 +8,8 @@ const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
 const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}$`, 'i');
 const CHANNELS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels$`, 'i');
 const CHANNEL = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels/${PAGE_ID}$`, 'i');
+const DECISIONS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions$`, 'i');
+const DECISION = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions/${PAGE_ID}$`, 'i');
 const PROJECTS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projects$`, 'i');
 const PROJECT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projects/${PAGE_ID}$`, 'i');
 
@@ -81,6 +83,23 @@ export function createWikiHandler() {
     const channel = path.match(CHANNEL);
     if (channel && method === 'DELETE') {
       json(res, 200, await ctx.wiki.unlinkChannel(session, channel[1], channel[2]));
+      return true;
+    }
+
+    const decisionList = path.match(DECISIONS);
+    if (decisionList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.decisionId) {
+        throw Object.assign(new Error('decisionId is required'), {
+          code: 'DECISION_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkDecision(session, decisionList[1], String(body.decisionId)));
+      return true;
+    }
+    const decision = path.match(DECISION);
+    if (decision && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkDecision(session, decision[1], decision[2]));
       return true;
     }
 
