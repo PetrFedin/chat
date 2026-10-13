@@ -134,4 +134,8 @@ jobs:
           POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/chat_test
         run: |
           export VAULT_KEY="$(openssl rand -base64 32)"
-          node --test
+          # Multiple Chromium E2E files each start their own Node server.
+          # Keep the full test inventory, but cap concurrent files so overlays,
+          # browser rendering and PostgreSQL probes remain reproducible on
+          # a small GitHub Actions runner.
+          node --test --test-concurrency=2
