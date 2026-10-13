@@ -45,7 +45,7 @@ const summaryView = (row) => ({
 export function createWikiRepository(pool, projects = null, store = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop };
   }
 
   const ensurePage = async (session, id) => {
@@ -105,6 +105,28 @@ export function createWikiRepository(pool, projects = null, store = null) {
     return result.filter(Boolean);
   };
 
+  const pageChannels = async (session, pageId) => {
+    if (!store?.conversationPolicy) return [];
+    const { rows } = await pool.query(
+      `SELECT conversation_id "conversationId", linked_by "linkedBy", linked_at "linkedAt"
+         FROM wiki_page_channels
+        WHERE workspace_id=$1 AND page_id=$2
+        ORDER BY linked_at DESC, conversation_id LIMIT 100`,
+      [session.workspaceId, pageId],
+    );
+    const projected = await Promise.all(rows.map(async link => {
+      // The relation grants no new access to an archived or private channel.
+      const policy = await store.conversationPolicy(session, link.conversationId);
+      if (!policy || policy.conversation.kind !== 'channel') return null;
+      return {
+        id: policy.conversation.id, title: policy.conversation.title,
+        visibility: policy.conversation.visibility,
+        kind: 'channel', linkedBy: link.linkedBy, linkedAt: link.linkedAt,
+      };
+    }));
+    return projected.filter(Boolean);
+  };
+
   return {
     enabled: true,
 
@@ -127,7 +149,7 @@ export function createWikiRepository(pool, projects = null, store = null) {
         `SELECT ${SUMMARY_COLUMNS} FROM wiki_pages WHERE workspace_id=$1 AND parent_id=$2 AND archived_at IS NULL ORDER BY title`,
         [session.workspaceId, id],
       );
-      return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id), tasks: await pageTasks(session, id) };
+      return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id), tasks: await pageTasks(session, id), channels: await pageChannels(session, id) };
     },
 
     async create(session, { title, parentId = null, content = '', document } = {}) {
@@ -276,6 +298,75 @@ export function createWikiRepository(pool, projects = null, store = null) {
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'wiki_page',$3,'wiki.task_unlinked',$4,$5)`,
           [session.organizationId, session.workspaceId, id, session.userId, { taskId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+      return this.get(session, id);
+    },
+
+    async linkChannel(session, id, conversationId) {
+      await ensurePage(session, id);
+      if (!store?.conversationPolicy) throw fail('Каналы недоступны', 'CHANNELS_UNAVAILABLE', 503);
+      const policy = await store.conversationPolicy(session, conversationId);
+      if (!policy || policy.conversation.kind !== 'channel') {
+        throw fail('Канал не найден', 'CHANNEL_NOT_FOUND', 404);
+      }
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [session.workspaceId, id]);
+        const limit = await client.query(
+          'SELECT count(*)::int count FROM wiki_page_channels WHERE workspace_id=$1 AND page_id=$2',
+          [session.workspaceId, id],
+        );
+        if (limit.rows[0].count >= 100) throw fail('На странице может быть не более 100 связанных каналов', 'PAGE_CHANNEL_LIMIT', 409);
+        await client.query(
+          `INSERT INTO wiki_page_channels(organization_id,workspace_id,page_id,conversation_id,linked_by)
+           VALUES($1,$2,$3,$4,$5)`,
+          [session.organizationId, session.workspaceId, id, conversationId, session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.channel_linked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { conversationId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        if (error.code === '23505') throw fail('Канал уже связан со страницей', 'WIKI_CHANNEL_ALREADY_LINKED', 409);
+        if (error.code === '23503') throw fail('Канал не найден', 'CHANNEL_NOT_FOUND', 404);
+        throw error;
+      } finally {
+        client.release();
+      }
+      return this.get(session, id);
+    },
+
+    async unlinkChannel(session, id, conversationId) {
+      await ensurePage(session, id);
+      if (!store?.conversationPolicy) throw fail('Каналы недоступны', 'CHANNELS_UNAVAILABLE', 503);
+      const policy = await store.conversationPolicy(session, conversationId);
+      if (!policy || policy.conversation.kind !== 'channel') {
+        throw fail('Канал не найден', 'CHANNEL_NOT_FOUND', 404);
+      }
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rowCount } = await client.query(
+          `DELETE FROM wiki_page_channels
+            WHERE workspace_id=$1 AND page_id=$2 AND conversation_id=$3`,
+          [session.workspaceId, id, conversationId],
+        );
+        if (!rowCount) throw fail('Связь с каналом не найдена', 'WIKI_CHANNEL_NOT_LINKED', 404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.channel_unlinked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { conversationId }],
         );
         await client.query('COMMIT');
       } catch (error) {
