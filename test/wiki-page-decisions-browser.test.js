@@ -59,6 +59,10 @@ test('Page to accepted Decision picker, source detail and unlink on 390px viewpo
   const linked=page.locator('[data-wiki-decision-row="'+decision.id+'"]');
   await linked.waitFor({state:'visible'});
   assert.match(await linked.textContent(),new RegExp(title));
+  const inverse=await page.request.get(base+'/api/v1/wiki/decisions/'+decision.id+'/pages');
+  assert.equal(inverse.status(),200);
+  assert.deepEqual((await inverse.json()).items.map(x=>x.id),[wiki.id],
+    'canonical reverse link must exist before opening the detail sheet');
 
   await linked.locator('[data-wiki-decision-open]').click();
   await page.getByRole('heading',{name:title}).waitFor({state:'visible'});
