@@ -138,4 +138,8 @@ jobs:
           # Keep the full test inventory, but cap concurrent files so overlays,
           # browser rendering and PostgreSQL probes remain reproducible on
           # a small GitHub Actions runner.
-          node --test --test-concurrency=2
+          # Browser E2E files each own their Chromium context and server.
+          # Keep every test, but run file-level suites sequentially on a
+          # constrained Actions runner. Intra-test concurrency assertions
+          # remain active, including simultaneous-link and ACL checks.
+          node --test --test-concurrency=1
