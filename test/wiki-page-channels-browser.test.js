@@ -50,27 +50,24 @@ test('Page Channel picker on phone can link, unlink and open a visible channel',
 
   const linked=page.locator('[data-wiki-channel-row="'+channel.id+'"]');
   await linked.waitFor({state:'visible'});
-  await linked.locator('[data-wiki-channel-remove]').click();
-  await linked.waitFor({state:'detached'});
-  const unchanged=await page.request.get(base+'/api/v1/conversations/'+channel.id+'/members');
-  assert.equal(unchanged.status(),200);
-
-  // Persisted unlink must survive a full browser reload before relinking.
-  // This also resets any stale closure state from the prior Wiki modal.
-  await page.reload({waitUntil:'domcontentloaded'});
-  await page.locator('#app-view').waitFor({state:'visible'});
-  await page.locator('[data-nav="more"]:visible').click();
-  await page.locator('[data-action="wiki"]').click();
-  await page.locator('[data-wiki-open="'+wiki.id+'"]').click();
-  await page.locator('[data-wiki-channel-new]').click();
-  await page.locator('[data-wiki-channel-filter]').fill('Delivery channel '+suffix);
-  await page.locator('[data-wiki-channel-select="'+channel.id+'"]').waitFor({state:'visible'});
-  await page.locator('[data-wiki-channel-select="'+channel.id+'"]').click();
-  await page.locator('[data-wiki-channel-row="'+channel.id+'"]').waitFor({state:'visible'});
-  await page.locator('[data-wiki-channel-open="'+channel.id+'"]').click();
+  await linked.locator('[data-wiki-channel-open]').click();
   await page.waitForURL(/#\/chats$/);
   await page.locator('.message-pane .message-header h2')
     .filter({hasText:'Delivery channel '+suffix})
     .waitFor({state:'visible'});
+
+  // Channel state is independent of the Wiki relation.
+  await page.locator('[data-nav="more"]:visible').click();
+  await page.locator('[data-action="wiki"]').click();
+  await page.locator('[data-wiki-open="'+wiki.id+'"]').click();
+  const linkedAgain=page.locator('[data-wiki-channel-row="'+channel.id+'"]');
+  await linkedAgain.waitFor({state:'visible'});
+  await linkedAgain.locator('[data-wiki-channel-remove]').click();
+  await linkedAgain.waitFor({state:'detached'});
+  const unchanged=await page.request.get(base+'/api/v1/conversations/'+channel.id+'/members');
+  assert.equal(unchanged.status(),200);
+  const reloadedPage=await page.request.get(base+'/api/v1/wiki/pages/'+wiki.id);
+  assert.equal(reloadedPage.status(),200);
+  assert.equal((await reloadedPage.json()).channels.some(c=>c.id===channel.id),false);
   assert.deepEqual(errors,[]);
 });
