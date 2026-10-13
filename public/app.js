@@ -2889,6 +2889,10 @@ async function wikiModal(pageId=null){
         <div class="surface" style="margin-top:14px;padding:12px" data-wiki-task-section>
           <div class="section-head"><div><strong>${T('Связанные задачи','Related tasks')}</strong><div class="row-sub">${T('Задача остаётся в Task Authority. Доступ по ссылке не расширяется.','Task Authority remains the source of truth. Linking does not grant access.')}</div></div><button data-wiki-task-new class="chipbtn pressable">＋ ${T('Задача','Task')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.tasks||[]).length?(page.tasks||[]).map(task=>`<div class="row" data-wiki-task-row="${esc(task.id)}"><button type="button" class="text-button" data-wiki-task-open="${esc(task.id)}">${esc(task.title)} · ${esc(task.status)}</button><button type="button" class="text-button" data-wiki-task-remove="${esc(task.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет связанных доступных задач','No visible related tasks')}</span>`}</div>
+        </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-channel-section>
+          <div class="section-head"><div><strong>${T('Связанные каналы','Related channels')}</strong><div class="row-sub">${T('Связь не открывает приватный канал другим людям.','The relation does not grant access to private channels.')}</div></div><button data-wiki-channel-new class="chipbtn pressable">＋ ${T('Канал','Channel')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.channels||[]).length?(page.channels||[]).map(channel=>`<div class="row" data-wiki-channel-row="${esc(channel.id)}"><button type="button" class="text-button" data-wiki-channel-open="${esc(channel.id)}">${esc(channel.title||T('Без названия','Untitled'))}</button><button type="button" class="text-button" data-wiki-channel-remove="${esc(channel.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных связанных каналов','No visible related channels')}</span>`}</div>
         </div>`
         :`<form id="wiki-search-form" class="form-stack"><label>Поиск по вики<input name="q" placeholder="Например: отпуск"></label></form><div id="wiki-search-results"></div>`}
         <p class="muted" style="margin-top:16px">${page?'Подстраницы':'Страницы'}</p>
@@ -2902,6 +2906,18 @@ async function wikiModal(pageId=null){
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
         $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
+        $('[data-wiki-channel-new]')?.addEventListener('click',()=>wikiChannelLinkModal(page,refresh));
+        $$('[data-wiki-channel-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiChannelOpen;
+          overlayStack.length=0;renderOverlay();openChatAtMessage(id,null);
+        });
+        $$('[data-wiki-channel-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/channels/${button.dataset.wikiChannelRemove}`,{method:'DELETE'});
+            toast(T('Канал убран со страницы','Channel unlinked from page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
         $$('[data-wiki-task-open]').forEach(button=>button.onclick=()=>{
           const id=button.dataset.wikiTaskOpen;
           overlayStack.length=0;renderOverlay();openTask(id);
@@ -3013,6 +3029,50 @@ async function wikiProjectLinkModal(page,after){
         toast(T('Проект связан со страницей','Project linked to page'));
       }catch(error){button.disabled=false;toast(error.message)}
     };
+  });
+}
+
+async function wikiChannelLinkModal(page,after){
+  let visible=[];
+  try{
+    const response=await api('/api/v1/conversations');
+    const linked=new Set((page.channels||[]).map(channel=>channel.id));
+    visible=(response.items||[]).filter(channel=>channel.kind==='channel'&&!linked.has(channel.id));
+  }catch(error){toast(error.message);return}
+  if(!visible.length)return toast(T('Нет доступного канала для связи','There are no visible channels to link'));
+  modal(T('Связать канал','Link channel'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Показываются только доступные вам каналы. Личные переписки не связываются со страницами.',
+      'Only channels already accessible to you are shown. Private direct messages cannot be linked.'
+    )}</p>
+    <label>${T('Поиск каналов','Filter channels')}
+      <input data-wiki-channel-filter autocomplete="off" placeholder="${T('Название канала','Channel name')}">
+    </label>
+    <div data-wiki-channel-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const input=$('[data-wiki-channel-filter]'),results=$('[data-wiki-channel-candidates]');
+    if(!input||!results)return;
+    const draw=()=>{
+      const q=input.value.trim().toLocaleLowerCase();
+      const candidates=visible.filter(channel=>(channel.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=candidates.length?candidates.slice(0,50).map(channel=>`
+        <button class="row flow pressable" type="button" role="listitem"
+          data-wiki-channel-select="${esc(channel.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(channel.title||T('Без названия','Untitled'))}</strong></span>
+        </button>`).join(''):`<div class="empty">${T('Совпадений нет','No matching channels')}</div>`;
+      $$('[data-wiki-channel-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/channels`,{
+            method:'POST',body:JSON.stringify({conversationId:button.dataset.wikiChannelSelect}),
+          });
+          history.back();setTimeout(()=>after?.(),200);
+          toast(T('Канал связан со страницей','Channel linked to page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    input.addEventListener('input',draw);
+    draw();
   });
 }
 
