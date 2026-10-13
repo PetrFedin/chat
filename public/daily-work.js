@@ -192,7 +192,7 @@ const marked=(value)=>esc(value).replaceAll('\u0002','<mark>').replaceAll('\u000
 const searchExcerpt=(item)=>{
   const value=marked(item.snippet||'');
   return item.type==='page'
-    ?value.replace(/&lt;b&gt;/gi,'<mark>').replace(/&lt;\\/b&gt;/gi,'</mark>')
+    ?value.replace(/&lt;b&gt;/gi,'<mark>').replace(/&lt;\/b&gt;/gi,'</mark>')
     :value;
 };
 function renderSearchResults(items){const root=$('#dwc-search-results');if(!root)return;if(!items.length){root.innerHTML=`<div class="dwc-empty"><strong>${tr('Ничего не найдено','No results')}</strong>${tr('Попробуйте другое слово или другой тип данных.','Try another query or content type.')}</div>`;return}root.innerHTML=items.map((item,index)=>`<button class="dwc-result" data-dwc-search-result="${index}"><span class="dwc-result-icon">${typeIcon(item.type)}</span><span><strong>${esc(item.title||'')}</strong><p>${searchExcerpt(item)}</p><span class="dwc-result-meta">${esc(typeLabel(item.type))}${item.authorName?` · ${esc(item.authorName)}`:''}</span></span><time>${esc(formatTime(item.createdAt))}</time></button>`).join('');root._items=items}
