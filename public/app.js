@@ -2862,6 +2862,11 @@ function knowledgeFormModal(article,after){
  * по проекту обычно ближе тому, кто их и заводит. `pageId=null` —
  * страницы верхнего уровня; иначе — сама страница и её подстраницы.
  */
+// Wiki headline markers are PostgreSQL-generated <b> tags, but the snippet
+// also contains untrusted page text. Escape first, then allow only static marks.
+function wikiSearchSnippet(value){
+  return esc(String(value??'')).replace(/&lt;b&gt;/gi,'<mark>').replace(/&lt;\/b&gt;/gi,'</mark>');
+}
 async function wikiModal(pageId=null){
   const build=async()=>{
     let page=null,items=[];
@@ -2880,6 +2885,10 @@ async function wikiModal(pageId=null){
         <div class="surface" style="margin-top:14px;padding:12px">
           <div class="section-head"><div><strong>${T('Связанные проекты','Related projects')}</strong><div class="row-sub">${T('Связь не меняет доступ к проекту.','The relation does not change project access.')}</div></div><button data-wiki-project-new class="chipbtn pressable">＋ ${T('Проект','Project')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.projects||[]).length?(page.projects||[]).map(project=>`<div class="row" data-wiki-project-row="${esc(project.id)}"><button class="text-button" data-wiki-project-open="${esc(project.id)}">${esc(project.name)}</button><button class="text-button" data-wiki-project-remove="${esc(project.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет связанных доступных проектов','No visible related projects')}</span>`}</div>
+        </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-task-section>
+          <div class="section-head"><div><strong>${T('Связанные задачи','Related tasks')}</strong><div class="row-sub">${T('Задача остаётся в Task Authority. Доступ по ссылке не расширяется.','Task Authority remains the source of truth. Linking does not grant access.')}</div></div><button data-wiki-task-new class="chipbtn pressable">＋ ${T('Задача','Task')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.tasks||[]).length?(page.tasks||[]).map(task=>`<div class="row" data-wiki-task-row="${esc(task.id)}"><button type="button" class="text-button" data-wiki-task-open="${esc(task.id)}">${esc(task.title)} · ${esc(task.status)}</button><button type="button" class="text-button" data-wiki-task-remove="${esc(task.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет связанных доступных задач','No visible related tasks')}</span>`}</div>
         </div>`
         :`<form id="wiki-search-form" class="form-stack"><label>Поиск по вики<input name="q" placeholder="Например: отпуск"></label></form><div id="wiki-search-results"></div>`}
         <p class="muted" style="margin-top:16px">${page?'Подстраницы':'Страницы'}</p>
@@ -2892,6 +2901,18 @@ async function wikiModal(pageId=null){
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
+        $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
+        $$('[data-wiki-task-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiTaskOpen;
+          overlayStack.length=0;renderOverlay();openTask(id);
+        });
+        $$('[data-wiki-task-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/tasks/${button.dataset.wikiTaskRemove}`,{method:'DELETE'});
+            toast(T('Задача убрана со страницы','Task unlinked from page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
         $$('[data-wiki-project-open]').forEach(button=>button.onclick=()=>{
           const id=button.dataset.wikiProjectOpen;
           overlayStack.length=0;renderOverlay();openProject(id);
@@ -2946,7 +2967,7 @@ async function wikiModal(pageId=null){
           try{
             const{items:found}=await api(`/api/v1/wiki/search?q=${encodeURIComponent(q)}`);
             box.innerHTML=found.length
-              ?found.map(p=>`<button class="surface pressable" style="width:100%;text-align:left;display:block;margin-top:10px" data-wiki-found="${esc(p.id)}"><strong>${esc(p.title)}</strong><p class="muted" style="margin:6px 0 0">${p.snippet}</p></button>`).join('')
+              ?found.map(p=>`<button class="surface pressable" style="width:100%;text-align:left;display:block;margin-top:10px" data-wiki-found="${esc(p.id)}"><strong>${esc(p.title)}</strong><p class="muted" style="margin:6px 0 0">${wikiSearchSnippet(p.snippet)}</p></button>`).join('')
               :'<div class="empty"><strong>Ничего не найдено</strong>Попробуйте другое слово.</div>';
             $$('[data-wiki-found]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiFound));
           }catch(error){toast(error.message)}
@@ -2992,6 +3013,68 @@ async function wikiProjectLinkModal(page,after){
         toast(T('Проект связан со страницей','Project linked to page'));
       }catch(error){button.disabled=false;toast(error.message)}
     };
+  });
+}
+
+async function wikiTaskLinkModal(page,after){
+  const linked=new Set((page.tasks||[]).map(task=>task.id));
+  let items=[],cursor=null,busy=false;
+  modal(T('Связать задачу','Link task'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Выберите задачу, к которой у вас уже есть доступ. Ссылка не меняет исполнителя, состояние и права.',
+      'Choose a task you can already open. Linking does not change ownership, state or permissions.'
+    )}</p>
+    <label>${T('Поиск среди загруженных задач','Filter loaded tasks')}
+      <input data-wiki-task-filter autocomplete="off" placeholder="${T('Название задачи','Task title')}">
+    </label>
+    <div data-wiki-task-candidates class="stack" role="list"></div>
+    <button type="button" data-wiki-task-more class="button secondary">${T('Загрузить ещё задачи','Load more tasks')}</button>
+  </div>`,()=>{
+    const filter=$('[data-wiki-task-filter]');
+    const results=$('[data-wiki-task-candidates]');
+    const more=$('[data-wiki-task-more]');
+    const draw=()=>{
+      if(!results||!results.isConnected)return;
+      const q=filter.value.trim().toLocaleLowerCase();
+      const candidates=items.filter(task=>!linked.has(task.id)&&task.title.toLocaleLowerCase().includes(q));
+      results.innerHTML=candidates.length?candidates.map(task=>`
+        <button type="button" class="row flow pressable" role="listitem"
+          style="width:100%;text-align:left;background:transparent"
+          data-wiki-task-select="${esc(task.id)}">
+          <span><strong>${esc(task.title)}</strong><span class="row-sub">${esc(task.status)}</span></span>
+        </button>`).join(''):`<div class="empty">${T('Совпадений среди загруженных задач нет','No matches among loaded tasks')}</div>`;
+      $$('[data-wiki-task-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/tasks`,{
+            method:'POST',body:JSON.stringify({taskId:button.dataset.wikiTaskSelect}),
+          });
+          history.back();
+          setTimeout(()=>after?.(),200);
+          toast(T('Задача связана со страницей','Task linked to page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+      more.hidden=!cursor;
+    };
+    const load=async()=>{
+      if(busy)return;
+      busy=true;more.disabled=true;
+      try{
+        const query=new URLSearchParams({limit:'50',scope:'all'});
+        if(cursor)query.set('cursor',cursor);
+        const result=await api(`/api/v1/tasks?${query.toString()}`);
+        items.push(...(result.items||[]));
+        cursor=result.nextCursor||null;
+        draw();
+      }catch(error){
+        if(results)results.textContent=error.message;
+      }finally{busy=false;more.disabled=false}
+    };
+    filter?.addEventListener('input',draw);
+    more?.addEventListener('click',load);
+    // A first request with no cursor loads the most recent visible commitments.
+    more.hidden=true;
+    load();
   });
 }
 
