@@ -76,9 +76,10 @@ test('Page to accepted Decision picker, source detail and unlink on 390px viewpo
   // Reopen Wiki from its menu to avoid relying on modal history timing.
   await page.reload({waitUntil:'domcontentloaded'});
   await page.locator('#app-view').waitFor({state:'visible'});
-  await page.locator('[data-nav="more"]:visible').click();
-  await page.locator('[data-action="wiki"]').click();
-  await page.locator('[data-wiki-open="'+wiki.id+'"]').click();
+  // CHATX can restore Wiki overlay history across reloads. Do not try to
+  // click the bottom navigation through an already-open modal; use the
+  // public application navigation surface to reopen this exact Page.
+  await page.evaluate(async id=>window.ChatApp.openWikiPage(id),wiki.id);
   const afterReload=page.locator('[data-wiki-decision-row="'+decision.id+'"]');
   await afterReload.waitFor({state:'visible'});
   await afterReload.locator('[data-wiki-decision-remove]').click();
