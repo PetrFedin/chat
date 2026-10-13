@@ -126,6 +126,18 @@ export function createMeetingIntelligenceHandler() {
       return true;
     }
 
+    const decisionMatch = path.match(new RegExp(`^/api/v1/meetings/decisions/${UUID}$`, 'i'));
+    if (decisionMatch && method === 'GET') {
+      const session = await requireSession(req);
+      if (!meeting.getDecision) throw Object.assign(
+        new Error('Реестр решений недоступен'), { code:'DECISIONS_UNAVAILABLE', statusCode:503, expose:true },
+      );
+      const decision = await meeting.getDecision(session, decisionMatch[1]);
+      if (!decision) throw notFound('Decision not found');
+      json(res, 200, { decision });
+      return true;
+    }
+
     let match = path.match(new RegExp(`^/api/v1/calls/${UUID}/meeting$`, 'i'));
     if (match && method === 'GET') {
       const session = await requireSession(req);
