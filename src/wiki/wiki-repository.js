@@ -42,10 +42,10 @@ const summaryView = (row) => ({
   createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
-export function createWikiRepository(pool, projects = null) {
+export function createWikiRepository(pool, projects = null, store = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop };
   }
 
   const ensurePage = async (session, id) => {
@@ -84,6 +84,27 @@ export function createWikiRepository(pool, projects = null) {
     return projected.filter(Boolean);
   };
 
+  // Page-to-Task is a reference only. Resolve each Task via canonical Task
+  // Authority for the viewer; even relation counts must not reveal private work.
+  const pageTasks = async (session, pageId) => {
+    if (!store?.getTask) return [];
+    const { rows } = await pool.query(
+      `SELECT commitment_id "taskId", linked_by "linkedBy", linked_at "linkedAt"
+         FROM wiki_page_tasks
+        WHERE workspace_id=$1 AND page_id=$2
+        ORDER BY linked_at DESC, commitment_id LIMIT 100`,
+      [session.workspaceId, pageId],
+    );
+    const result = await Promise.all(rows.map(async link => {
+      const task = await store.getTask(session, link.taskId);
+      return task ? {
+        id: task.id, title: task.title, status: task.status, priority: task.priority,
+        linkedBy: link.linkedBy, linkedAt: link.linkedAt,
+      } : null;
+    }));
+    return result.filter(Boolean);
+  };
+
   return {
     enabled: true,
 
@@ -106,7 +127,7 @@ export function createWikiRepository(pool, projects = null) {
         `SELECT ${SUMMARY_COLUMNS} FROM wiki_pages WHERE workspace_id=$1 AND parent_id=$2 AND archived_at IS NULL ORDER BY title`,
         [session.workspaceId, id],
       );
-      return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id) };
+      return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id), tasks: await pageTasks(session, id) };
     },
 
     async create(session, { title, parentId = null, content = '', document } = {}) {
@@ -198,6 +219,71 @@ export function createWikiRepository(pool, projects = null) {
         [session.workspaceId, id, projectId],
       );
       if (!rowCount) throw fail('Связь со страницей не найдена', 'WIKI_PROJECT_NOT_FOUND', 404);
+      return this.get(session, id);
+    },
+
+    async linkTask(session, id, taskId) {
+      await ensurePage(session, id);
+      if (!store?.getTask) throw fail('Задачи недоступны', 'TASKS_UNAVAILABLE', 503);
+      const task = await store.getTask(session, taskId);
+      if (!task) throw fail('Задача не найдена', 'TASK_NOT_FOUND', 404);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // Page lock serializes edits so the 100-relation UI cap stays honest.
+        await client.query('SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [session.workspaceId, id]);
+        const limit = await client.query(
+          'SELECT count(*)::int count FROM wiki_page_tasks WHERE workspace_id=$1 AND page_id=$2',
+          [session.workspaceId, id],
+        );
+        if (limit.rows[0].count >= 100) throw fail('На странице может быть не более 100 связанных задач', 'PAGE_TASK_LIMIT', 409);
+        await client.query(
+          `INSERT INTO wiki_page_tasks(organization_id,workspace_id,page_id,commitment_id,linked_by)
+           VALUES($1,$2,$3,$4,$5)`,
+          [session.organizationId, session.workspaceId, id, taskId, session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.task_linked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { taskId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        if (error.code === '23505') throw fail('Задача уже связана со страницей', 'WIKI_TASK_ALREADY_LINKED', 409);
+        if (error.code === '23503') throw fail('Задача не найдена', 'TASK_NOT_FOUND', 404);
+        throw error;
+      } finally {
+        client.release();
+      }
+      return this.get(session, id);
+    },
+
+    async unlinkTask(session, id, taskId) {
+      await ensurePage(session, id);
+      if (!store?.getTask) throw fail('Задачи недоступны', 'TASKS_UNAVAILABLE', 503);
+      if (!await store.getTask(session, taskId)) throw fail('Задача не найдена', 'TASK_NOT_FOUND', 404);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rowCount } = await client.query(
+          `DELETE FROM wiki_page_tasks
+            WHERE workspace_id=$1 AND page_id=$2 AND commitment_id=$3`,
+          [session.workspaceId, id, taskId],
+        );
+        if (!rowCount) throw fail('Связь с задачей не найдена', 'WIKI_TASK_NOT_LINKED', 404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.task_unlinked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { taskId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
       return this.get(session, id);
     },
 
