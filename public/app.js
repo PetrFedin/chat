@@ -2893,6 +2893,10 @@ async function wikiModal(pageId=null){
         <div class="surface" style="margin-top:14px;padding:12px" data-wiki-channel-section>
           <div class="section-head"><div><strong>${T('Связанные каналы','Related channels')}</strong><div class="row-sub">${T('Связь не открывает приватный канал другим людям.','The relation does not grant access to private channels.')}</div></div><button data-wiki-channel-new class="chipbtn pressable">＋ ${T('Канал','Channel')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.channels||[]).length?(page.channels||[]).map(channel=>`<div class="row" data-wiki-channel-row="${esc(channel.id)}"><button type="button" class="text-button" data-wiki-channel-open="${esc(channel.id)}">${esc(channel.title||T('Без названия','Untitled'))}</button><button type="button" class="text-button" data-wiki-channel-remove="${esc(channel.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных связанных каналов','No visible related channels')}</span>`}</div>
+        </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-decision-section>
+          <div class="section-head"><div><strong>${T('Принятые решения','Accepted decisions')}</strong><div class="row-sub">${T('Только решения из встреч, к которым у вас есть доступ.','Only decisions from meetings you can access.')}</div></div><button type="button" data-wiki-decision-new class="chipbtn pressable">＋ ${T('Решение','Decision')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.decisions||[]).length?(page.decisions||[]).map(decision=>`<div class="row" data-wiki-decision-row="${esc(decision.id)}"><button type="button" class="text-button" data-wiki-decision-open="${esc(decision.id)}">${esc(decision.title)} · ${esc(dateTime(decision.acceptedAt))}</button><button type="button" class="text-button" data-wiki-decision-remove="${esc(decision.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных принятых решений','No visible accepted decisions')}</span>`}</div>
         </div>`
         :`<form id="wiki-search-form" class="form-stack"><label>Поиск по вики<input name="q" placeholder="Например: отпуск"></label></form><div id="wiki-search-results"></div>`}
         <p class="muted" style="margin-top:16px">${page?'Подстраницы':'Страницы'}</p>
@@ -2907,6 +2911,17 @@ async function wikiModal(pageId=null){
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
         $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
         $('[data-wiki-channel-new]')?.addEventListener('click',()=>wikiChannelLinkModal(page,refresh));
+        $('[data-wiki-decision-new]')?.addEventListener('click',()=>wikiDecisionLinkModal(page,refresh));
+        $$('[data-wiki-decision-open]').forEach(button=>button.onclick=()=>{
+          overlayStack.length=0;renderOverlay();decisionDetailModal(button.dataset.wikiDecisionOpen);
+        });
+        $$('[data-wiki-decision-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/decisions/${button.dataset.wikiDecisionRemove}`,{method:'DELETE'});
+            toast(T('Решение убрано со страницы','Decision unlinked from Page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
         $$('[data-wiki-channel-open]').forEach(button=>button.onclick=async()=>{
           const id=button.dataset.wikiChannelOpen;
           try{
@@ -3036,6 +3051,53 @@ async function wikiProjectLinkModal(page,after){
         toast(T('Проект связан со страницей','Project linked to page'));
       }catch(error){button.disabled=false;toast(error.message)}
     };
+  });
+}
+
+async function wikiDecisionLinkModal(page,after){
+  let items=[];
+  try{
+    const [response,current]=await Promise.all([
+      api('/api/v1/meetings/decisions?limit=200'),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.decisions||[]).map(item=>item.id));
+    items=(response.items||[]).filter(item=>!linked.has(item.id));
+  }catch(error){toast(error.message);return}
+  if(!items.length)return toast(T('Нет новых доступных решений','No further accepted decisions are visible'));
+  modal(T('Связать решение','Link decision'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Выберите принятое решение. Ссылка не изменит его статус и не откроет доступ другим участникам.',
+      'Select an accepted decision. The link will not change its status or grant access.'
+    )}</p>
+    <label>${T('Поиск среди решений','Filter decisions')}
+      <input data-wiki-decision-filter autocomplete="off" placeholder="${T('Название решения','Decision title')}">
+    </label>
+    <div data-wiki-decision-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const filter=$('[data-wiki-decision-filter]'),results=$('[data-wiki-decision-candidates]');
+    if(!filter||!results)return;
+    const draw=()=>{
+      const q=filter.value.trim().toLocaleLowerCase();
+      const visible=items.filter(item=>(item.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=visible.slice(0,100).map(item=>`
+        <button type="button" role="listitem" class="row flow pressable"
+          data-wiki-decision-select="${esc(item.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(item.title)}</strong><span class="row-sub">${esc(dateTime(item.acceptedAt))}</span></span>
+        </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching decisions')}</div>`;
+      $$('[data-wiki-decision-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/decisions`,{
+            method:'POST',body:JSON.stringify({decisionId:button.dataset.wikiDecisionSelect}),
+          });
+          history.back();setTimeout(()=>after?.(),200);
+          toast(T('Решение связано со страницей','Decision linked to Page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    filter.addEventListener('input',draw);
+    draw();
   });
 }
 
