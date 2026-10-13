@@ -89,7 +89,12 @@ test('Page-Decision: access changes, retraction, tenant FKs and audit without co
     const pageFor=(cookie)=>req(base,`/api/v1/wiki/pages/${pageId}`,{cookie});
 
     assert.equal((await link(owner.cookie,first.id)).status,200);
-    assert.equal((await link(owner.cookie,second.id)).status,200);
+    // Two simultaneous link requests must create exactly one relation and
+    // one audit entry. The other must receive explicit 409, not a duplicate.
+    const concurrent=await Promise.all([
+      link(owner.cookie,second.id),link(owner.cookie,second.id),
+    ]);
+    assert.deepEqual(concurrent.map(x=>x.status).sort((a,b)=>a-b),[200,409]);
     assert.equal((await link(owner.cookie,first.id)).status,409);
     assert.equal((await link(owner.cookie,randomUUID())).status,404);
     assert.equal((await link(owner.cookie,outsiderDecision.id)).status,404);
