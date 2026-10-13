@@ -397,18 +397,22 @@ export function createWikiRepository(pool, projects = null, store = null) {
       return rows;
     },
 
-    async search(session, { query, limit = 30 } = {}) {
+    async search(session, { query, limit = 30, from = null, to = null } = {}) {
       const q = String(query ?? '').trim();
       if (!q) return [];
       const max = Math.min(Math.max(Number(limit) || 30, 1), 100);
       const { rows } = await pool.query(
-        `SELECT ${SUMMARY_COLUMNS}, ts_headline('russian',content,plainto_tsquery('russian',$3),'MaxFragments=1,MaxWords=20') snippet
+        `SELECT ${SUMMARY_COLUMNS},
+                ts_headline('russian',content,plainto_tsquery('russian',$3),'MaxFragments=1,MaxWords=20') snippet
            FROM wiki_pages
           WHERE workspace_id=$1 AND archived_at IS NULL
             AND (to_tsvector('russian',coalesce(title,'')||' '||coalesce(content,''))@@plainto_tsquery('russian',$3) OR title ILIKE '%'||$3||'%')
-          ORDER BY ts_rank_cd(to_tsvector('russian',coalesce(title,'')||' '||coalesce(content,'')),plainto_tsquery('russian',$3)) DESC
+            AND ($4::timestamptz IS NULL OR updated_at >= $4)
+            AND ($5::timestamptz IS NULL OR updated_at <= $5)
+          ORDER BY ts_rank_cd(to_tsvector('russian',coalesce(title,'')||' '||coalesce(content,'')),plainto_tsquery('russian',$3)) DESC,
+                   updated_at DESC
           LIMIT $2`,
-        [session.workspaceId, max, q],
+        [session.workspaceId, max, q, from, to],
       );
       return rows.map((row) => ({ ...summaryView(row), snippet: row.snippet }));
     },

@@ -240,6 +240,33 @@ export function createProjectRepository({pool,store,meeting}={}){
   };
 
   return{
+    // Scope the search in SQL, not in a client-side filtered workspace dump:
+    // project names and goals are themselves protected metadata.
+    async search(session,{query,from=null,to=null,limit=40}={}){
+      if(session.role==='guest')return[];
+      const q=String(query??'').trim();
+      if(q.length<2)return[];
+      const like='%'+q.replace(/[\\%_]/g,char=>'\\'+char)+'%';
+      const size=Math.min(Math.max(Math.trunc(Number(limit))||40,1),60);
+      const {rows}=await pool.query(
+        `SELECT p.id,p.name title,COALESCE(p.goal,'') snippet,p.status,
+                p.updated_at "createdAt",
+                CASE WHEN lower(p.name)=lower($3) THEN 5
+                     WHEN p.name ILIKE $4 THEN 3 ELSE 1 END score
+           FROM projects p
+           LEFT JOIN project_members pm ON pm.project_id=p.id AND pm.user_id=$2
+          WHERE p.workspace_id=$1 AND p.status<>'archived'
+            AND (p.visibility='workspace' OR p.owner_id=$2 OR pm.user_id IS NOT NULL)
+            AND (p.name ILIKE $4 OR p.goal ILIKE $4)
+            AND ($5::timestamptz IS NULL OR p.updated_at >= $5)
+            AND ($6::timestamptz IS NULL OR p.updated_at <= $6)
+          ORDER BY score DESC,p.updated_at DESC,p.id DESC
+          LIMIT $7`,
+        [session.workspaceId,session.userId,q,like,from,to,size],
+      );
+      return rows.map(row=>({type:'project',...row}));
+    },
+
     async list(session,{includeArchived=false}={}){
       const{rows}=await pool.query(
         `SELECT p.id,p.name,p.goal,p.status,p.visibility,p.owner_id "ownerId",p.start_at "startAt",p.target_at "targetAt",

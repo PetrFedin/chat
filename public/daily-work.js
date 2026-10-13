@@ -157,7 +157,7 @@ async function openNotificationItem(id){
   await refreshAttention(true);
 }
 
-const SEARCH_FILTERS=[['all','Все','All'],['message','Сообщения','Messages'],['task','Задачи','Tasks'],['file','Файлы','Files'],['person','Люди','People'],['conversation','Каналы','Conversations'],['event','Календарь','Calendar']];
+const SEARCH_FILTERS=[['all','Все','All'],['message','Сообщения','Messages'],['task','Задачи','Tasks'],['page','Страницы','Pages'],['project','Проекты','Projects'],['decision','Решения','Decisions'],['file','Файлы','Files'],['person','Люди','People'],['conversation','Каналы','Conversations'],['event','Календарь','Calendar']];
 /**
  * Отрезок времени для поиска.
  *
@@ -174,10 +174,10 @@ function searchRange(){
   if(!days)return{from:'',to:''};
   return{from:new Date(Date.now()-days*86400000).toISOString(),to:''};
 }
-let searchTimer;
-async function runSearch(){const input=$('#dwc-search-input'),results=$('#dwc-search-results');if(!input||!results)return;const q=input.value.trim();if(q.length<2){results.innerHTML=`<div class="dwc-empty"><strong>${tr('Поиск по всему рабочему пространству','Search the whole workspace')}</strong>${tr('Сообщения, задачи, файлы, люди, каналы и календарь.','Messages, tasks, files, people, conversations and calendar.')}</div>`;return}results.innerHTML=`<div class="dwc-empty">${tr('Ищем…','Searching…')}</div>`;const params=new URLSearchParams({q,limit:'40'});if(D.searchType!=='all')params.set('types',D.searchType);const range=searchRange();if(range.from)params.set('from',range.from);if(range.to)params.set('to',range.to);try{const payload=await api(`/api/v1/search?${params}`);renderSearchResults(payload.items||[])}catch(e){results.innerHTML=`<div class="dwc-empty">${esc(e.message)}</div>`}}
-function typeLabel(type){return({message:tr('сообщение','message'),conversation:tr('канал','conversation'),task:tr('задача','task'),file:tr('файл','file'),person:tr('сотрудник','person'),event:tr('событие','event')})[type]||type}
-function typeIcon(type){return({message:'●',conversation:'#',task:'✓',file:'↗',person:'◎',event:'□'})[type]||'⌕'}
+let searchTimer,searchRequestId=0;
+async function runSearch(){const requestId=++searchRequestId;const input=$('#dwc-search-input'),results=$('#dwc-search-results');if(!input||!results)return;const q=input.value.trim();if(q.length<2){results.innerHTML=`<div class="dwc-empty"><strong>${tr('Поиск по всему рабочему пространству','Search the whole workspace')}</strong>${tr('Сообщения, задачи, страницы, проекты, решения и другие рабочие материалы.','Messages, tasks, pages, projects, decisions and other work content.')}</div>`;return}results.innerHTML=`<div class="dwc-empty">${tr('Ищем…','Searching…')}</div>`;const params=new URLSearchParams({q,limit:'40'});if(D.searchType!=='all')params.set('types',D.searchType);const range=searchRange();if(range.from)params.set('from',range.from);if(range.to)params.set('to',range.to);try{const payload=await api(`/api/v1/search?${params}`);if(requestId===searchRequestId)renderSearchResults(payload.items||[])}catch(e){if(requestId===searchRequestId)results.innerHTML=`<div class="dwc-empty">${esc(e.message)}</div>`}}
+function typeLabel(type){return({message:tr('сообщение','message'),conversation:tr('канал','conversation'),task:tr('задача','task'),page:tr('страница','page'),project:tr('проект','project'),decision:tr('решение','decision'),file:tr('файл','file'),person:tr('сотрудник','person'),event:tr('событие','event')})[type]||type}
+function typeIcon(type){return({message:'●',conversation:'#',task:'✓',page:'▤',project:'▦',decision:'◇',file:'↗',person:'◎',event:'□'})[type]||'⌕'}
 /**
  * Кусок текста из файла с выделенным словом.
  *
@@ -187,8 +187,32 @@ function typeIcon(type){return({message:'●',conversation:'#',task:'✓',file:'
  */
 const marked=(value)=>esc(value).replaceAll('\u0002','<mark>').replaceAll('\u0003','</mark>');
 
-function renderSearchResults(items){const root=$('#dwc-search-results');if(!root)return;if(!items.length){root.innerHTML=`<div class="dwc-empty"><strong>${tr('Ничего не найдено','No results')}</strong>${tr('Попробуйте другое слово или другой тип данных.','Try another query or content type.')}</div>`;return}root.innerHTML=items.map((item,index)=>`<button class="dwc-result" data-dwc-search-result="${index}"><span class="dwc-result-icon">${typeIcon(item.type)}</span><span><strong>${esc(item.title||'')}</strong><p>${marked(item.snippet||'')}</p><span class="dwc-result-meta">${esc(typeLabel(item.type))}${item.authorName?` · ${esc(item.authorName)}`:''}</span></span><time>${esc(formatTime(item.createdAt))}</time></button>`).join('');root._items=items}
-async function activateSearchResult(index){const root=$('#dwc-search-results'),item=root?._items?.[Number(index)];if(!item)return;if(['message','conversation'].includes(item.type)&&item.conversationId)return openConversation(item.conversationId,item.type==='message'?item.id:null);if(item.type==='task'){
+// Wiki ts_headline emits bold delimiters; turn only those into static
+// highlights after escaping the entire untrusted excerpt.
+const searchExcerpt=(item)=>{
+  const value=marked(item.snippet||'');
+  return item.type==='page'
+    ?value.replace(/&lt;b&gt;/gi,'<mark>').replace(/&lt;\/b&gt;/gi,'</mark>')
+    :value;
+};
+function renderSearchResults(items){const root=$('#dwc-search-results');if(!root)return;if(!items.length){root.innerHTML=`<div class="dwc-empty"><strong>${tr('Ничего не найдено','No results')}</strong>${tr('Попробуйте другое слово или другой тип данных.','Try another query or content type.')}</div>`;return}root.innerHTML=items.map((item,index)=>`<button class="dwc-result" data-dwc-search-result="${index}"><span class="dwc-result-icon">${typeIcon(item.type)}</span><span><strong>${esc(item.title||'')}</strong><p>${searchExcerpt(item)}</p><span class="dwc-result-meta">${esc(typeLabel(item.type))}${item.authorName?` · ${esc(item.authorName)}`:''}</span></span><time>${esc(formatTime(item.createdAt))}</time></button>`).join('');root._items=items}
+async function activateSearchResult(index){const root=$('#dwc-search-results'),item=root?._items?.[Number(index)];if(!item)return;
+  if(item.type==='page'){
+    leaveOverlay();
+    if(window.ChatApp?.openWikiPage)return window.ChatApp.openWikiPage(item.id);
+    return openNav('more');
+  }
+  if(item.type==='project'){
+    leaveOverlay();
+    if(window.ChatApp?.openProject)return window.ChatApp.openProject(item.id);
+    return openNav('projects');
+  }
+  if(item.type==='decision'){
+    leaveOverlay();
+    if(window.ChatApp?.openDecision)return window.ChatApp.openDecision(item.id);
+    return openNav('more');
+  }
+if(['message','conversation'].includes(item.type)&&item.conversationId)return openConversation(item.conversationId,item.type==='message'?item.id:null);if(item.type==='task'){
     // Раньше находка-задача вела на список всех задач, и найденное
     // приходилось искать заново. Открываем именно её.
     leaveOverlay();
@@ -199,7 +223,7 @@ async function activateSearchResult(index){const root=$('#dwc-search-results'),i
     if(window.ChatApp?.openEvent)return window.ChatApp.openEvent(item.id);
     return openNav('calendar');
   }if(item.type==='file'){const url=item.previewUrl||item.contentUrl;if(url)window.open(url,'_blank','noopener');return}if(item.type==='person'){leaveOverlay();if(window.ChatApp?.openPerson)return window.ChatApp.openPerson(item.id);return openNav('more')}}
-function openSearch(){removeOverlayNode();D.searchPeriod='any';D.searchFrom='';D.searchTo='';const root=document.createElement('div');claimHistory();root.className='dwc-overlay';root.innerHTML=`<section class="dwc-drawer wide"><header class="dwc-head"><div><p class="kicker">${tr('ГЛОБАЛЬНЫЙ ПОИСК','GLOBAL SEARCH')}</p><h2>${tr('Найти что угодно','Find anything')}</h2></div><button class="dwc-icon-button" data-dwc-close>×</button></header><div class="dwc-search-shell"><div class="dwc-search-box"><span>⌕</span><input id="dwc-search-input" autocomplete="off" placeholder="${tr('Сообщение, задача, файл, сотрудник…','Message, task, file, person…')}"></div><div class="dwc-filter-row">${SEARCH_FILTERS.map(([id,ru,en])=>`<button class="dwc-filter ${id==='all'?'active':''}" data-dwc-search-type="${id}">${tr(ru,en)}</button>`).join('')}</div><div class="dwc-filter-row">${SEARCH_PERIODS.map(([id,ru,en])=>`<button class="dwc-filter ${id===D.searchPeriod?'active':''}" data-dwc-search-period="${id}">${tr(ru,en)}</button>`).join('')}</div><div class="dwc-date-row" ${D.searchPeriod==='custom'?'':'hidden'}><label>${tr('с','from')}<input type="date" id="dwc-search-from" value="${esc(D.searchFrom)}"></label><label>${tr('по','to')}<input type="date" id="dwc-search-to" value="${esc(D.searchTo)}"></label></div></div><div id="dwc-search-results" class="dwc-results"><div class="dwc-empty"><strong>${tr('Поиск по всему рабочему пространству','Search the whole workspace')}</strong>${tr('Введите минимум два символа.','Enter at least two characters.')}</div></div></section>`;document.body.append(root);root.onclick=e=>{if(e.target===root)closeOverlay()};setTimeout(()=>$('#dwc-search-input')?.focus(),30)}
+function openSearch(){removeOverlayNode();searchRequestId++;D.searchType='all';D.searchPeriod='any';D.searchFrom='';D.searchTo='';const root=document.createElement('div');claimHistory();root.className='dwc-overlay';root.innerHTML=`<section class="dwc-drawer wide"><header class="dwc-head"><div><p class="kicker">${tr('ГЛОБАЛЬНЫЙ ПОИСК','GLOBAL SEARCH')}</p><h2>${tr('Найти что угодно','Find anything')}</h2></div><button class="dwc-icon-button" data-dwc-close>×</button></header><div class="dwc-search-shell"><div class="dwc-search-box"><span>⌕</span><input id="dwc-search-input" autocomplete="off" placeholder="${tr('Сообщение, задача, файл, сотрудник…','Message, task, file, person…')}"></div><div class="dwc-filter-row">${SEARCH_FILTERS.map(([id,ru,en])=>`<button class="dwc-filter ${id==='all'?'active':''}" data-dwc-search-type="${id}">${tr(ru,en)}</button>`).join('')}</div><div class="dwc-filter-row">${SEARCH_PERIODS.map(([id,ru,en])=>`<button class="dwc-filter ${id===D.searchPeriod?'active':''}" data-dwc-search-period="${id}">${tr(ru,en)}</button>`).join('')}</div><div class="dwc-date-row" ${D.searchPeriod==='custom'?'':'hidden'}><label>${tr('с','from')}<input type="date" id="dwc-search-from" value="${esc(D.searchFrom)}"></label><label>${tr('по','to')}<input type="date" id="dwc-search-to" value="${esc(D.searchTo)}"></label></div></div><div id="dwc-search-results" class="dwc-results"><div class="dwc-empty"><strong>${tr('Поиск по всему рабочему пространству','Search the whole workspace')}</strong>${tr('Введите минимум два символа.','Enter at least two characters.')}</div></div></section>`;document.body.append(root);root.onclick=e=>{if(e.target===root)closeOverlay()};setTimeout(()=>$('#dwc-search-input')?.focus(),30)}
 
 async function loadFiles(){const list=$('#dwc-files-list');if(!list)return;list.innerHTML=`<div class="dwc-empty">${tr('Загружаем файлы…','Loading files…')}</div>`;const params=new URLSearchParams({limit:'80'});if(D.fileQuery)params.set('q',D.fileQuery);if(D.fileMime)params.set('mime',D.fileMime);if(D.fileCursor)params.set('cursor',D.fileCursor);try{const payload=await api(`/api/v1/files?${params}`);D.files=D.fileCursor?[...D.files,...(payload.items||[])]:(payload.items||[]);D.fileCursor=payload.nextCursor||null;renderFiles()}catch(e){list.innerHTML=`<div class="dwc-empty">${esc(e.message)}</div>`}}
 function fileIcon(mime=''){if(mime.startsWith('image/'))return'▧';if(mime.startsWith('audio/'))return'◖';if(mime==='application/pdf')return'PDF';if(mime.startsWith('text/'))return'≡';return'↗'}
