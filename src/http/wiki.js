@@ -6,6 +6,8 @@ const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
 const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
 const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
 const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}$`, 'i');
+const CHANNELS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels$`, 'i');
+const CHANNEL = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels/${PAGE_ID}$`, 'i');
 const PROJECTS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projects$`, 'i');
 const PROJECT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projects/${PAGE_ID}$`, 'i');
 
@@ -62,6 +64,23 @@ export function createWikiHandler() {
     const task = path.match(TASK);
     if (task && method === 'DELETE') {
       json(res, 200, await ctx.wiki.unlinkTask(session, task[1], task[2]));
+      return true;
+    }
+
+    const channelList = path.match(CHANNELS);
+    if (channelList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.conversationId) {
+        throw Object.assign(new Error('conversationId is required'), {
+          code: 'CONVERSATION_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkChannel(session, channelList[1], String(body.conversationId)));
+      return true;
+    }
+    const channel = path.match(CHANNEL);
+    if (channel && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkChannel(session, channel[1], channel[2]));
       return true;
     }
 
