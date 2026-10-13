@@ -59,6 +59,9 @@ test('Page Channel picker on phone can link, unlink and open a visible channel',
   await page.locator('[data-wiki-channel-select="'+channel.id+'"]').click();
   await page.locator('[data-wiki-channel-row="'+channel.id+'"]').waitFor({state:'visible'});
   await page.locator('[data-wiki-channel-open="'+channel.id+'"]').click();
-  await page.waitForURL(new RegExp('#/chats/'+channel.id+'$'));
+  await page.waitForURL(/#\/chats$/);
+  await page.locator('.message-pane .message-header h2')
+    .filter({hasText:'Delivery channel '+suffix})
+    .waitFor({state:'visible'});
   assert.deepEqual(errors,[]);
 });
