@@ -45,7 +45,7 @@ const summaryView = (row) => ({
 export function createWikiRepository(pool, projects = null, store = null, meeting = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop };
   }
 
   const ensurePage = async (session, id) => {
@@ -398,6 +398,24 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         client.release();
       }
       return this.get(session, id);
+    },
+
+    async pagesForDecision(session, decisionId) {
+      // Decision Authority is checked *first*, so guessed/retracted UUIDs do
+      // not reveal whether Page relations exist. Archived Pages stay hidden.
+      if (!meeting?.getDecision) throw fail('Реестр решений недоступен', 'DECISIONS_UNAVAILABLE', 503);
+      if (!await meeting.getDecision(session, decisionId)) {
+        throw fail('Решение не найдено', 'DECISION_NOT_FOUND', 404);
+      }
+      const { rows } = await pool.query(
+        `SELECT ${SUMMARY_COLUMNS}
+           FROM wiki_page_decisions link
+           JOIN wiki_pages p ON p.workspace_id=link.workspace_id AND p.id=link.page_id
+          WHERE link.workspace_id=$1 AND link.decision_id=$2 AND p.archived_at IS NULL
+          ORDER BY link.linked_at DESC, p.id LIMIT 100`,
+        [session.workspaceId, decisionId],
+      );
+      return rows.map(summaryView);
     },
 
     async linkDecision(session, id, decisionId) {
