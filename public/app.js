@@ -2862,6 +2862,11 @@ function knowledgeFormModal(article,after){
  * по проекту обычно ближе тому, кто их и заводит. `pageId=null` —
  * страницы верхнего уровня; иначе — сама страница и её подстраницы.
  */
+// Wiki headline markers are PostgreSQL-generated <b> tags, but the snippet
+// also contains untrusted page text. Escape first, then allow only static marks.
+function wikiSearchSnippet(value){
+  return esc(String(value??'')).replace(/&lt;b&gt;/gi,'<mark>').replace(/&lt;\/b&gt;/gi,'</mark>');
+}
 async function wikiModal(pageId=null){
   const build=async()=>{
     let page=null,items=[];
@@ -2962,7 +2967,7 @@ async function wikiModal(pageId=null){
           try{
             const{items:found}=await api(`/api/v1/wiki/search?q=${encodeURIComponent(q)}`);
             box.innerHTML=found.length
-              ?found.map(p=>`<button class="surface pressable" style="width:100%;text-align:left;display:block;margin-top:10px" data-wiki-found="${esc(p.id)}"><strong>${esc(p.title)}</strong><p class="muted" style="margin:6px 0 0">${esc(p.snippet??'')}</p></button>`).join('')
+              ?found.map(p=>`<button class="surface pressable" style="width:100%;text-align:left;display:block;margin-top:10px" data-wiki-found="${esc(p.id)}"><strong>${esc(p.title)}</strong><p class="muted" style="margin:6px 0 0">${wikiSearchSnippet(p.snippet)}</p></button>`).join('')
               :'<div class="empty"><strong>Ничего не найдено</strong>Попробуйте другое слово.</div>';
             $$('[data-wiki-found]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiFound));
           }catch(error){toast(error.message)}
