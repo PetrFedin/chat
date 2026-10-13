@@ -8,6 +8,7 @@ const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
 const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}$`, 'i');
 const CHANNELS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels$`, 'i');
 const CHANNEL = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels/${PAGE_ID}$`, 'i');
+const DECISION_PAGES = new RegExp(`^/api/v1/wiki/decisions/${PAGE_ID}/pages$`, 'i');
 const DECISIONS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions$`, 'i');
 const DECISION = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions/${PAGE_ID}$`, 'i');
 const PROJECTS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projects$`, 'i');
@@ -43,6 +44,12 @@ export function createWikiHandler() {
           limit: url.searchParams.get('limit'),
         }),
       });
+      return true;
+    }
+
+    const inverseDecisionPages = path.match(DECISION_PAGES);
+    if (inverseDecisionPages && method === 'GET') {
+      json(res, 200, { items: await ctx.wiki.pagesForDecision(session, inverseDecisionPages[1]) });
       return true;
     }
 
