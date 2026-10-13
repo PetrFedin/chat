@@ -3042,8 +3042,13 @@ async function wikiProjectLinkModal(page,after){
 async function wikiChannelLinkModal(page,after){
   let visible=[];
   try{
-    const response=await api('/api/v1/conversations');
-    const linked=new Set((page.channels||[]).map(channel=>channel.id));
+    // Re-read the canonical Page before filtering. The modal's page argument
+    // can predate a just-completed unlink; stale closures must not hide channels.
+    const [response,current]=await Promise.all([
+      api('/api/v1/conversations'),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.channels||[]).map(channel=>channel.id));
     visible=(response.items||[]).filter(channel=>channel.kind==='channel'&&!linked.has(channel.id));
   }catch(error){toast(error.message);return}
   if(!visible.length)return toast(T('Нет доступного канала для связи','There are no visible channels to link'));
