@@ -55,7 +55,16 @@ test('Page Channel picker on phone can link, unlink and open a visible channel',
   const unchanged=await page.request.get(base+'/api/v1/conversations/'+channel.id+'/members');
   assert.equal(unchanged.status(),200);
 
+  // Persisted unlink must survive a full browser reload before relinking.
+  // This also resets any stale closure state from the prior Wiki modal.
+  await page.reload({waitUntil:'domcontentloaded'});
+  await page.locator('#app-view').waitFor({state:'visible'});
+  await page.locator('[data-nav="more"]:visible').click();
+  await page.locator('[data-action="wiki"]').click();
+  await page.locator('[data-wiki-open="'+wiki.id+'"]').click();
   await page.locator('[data-wiki-channel-new]').click();
+  await page.locator('[data-wiki-channel-filter]').fill('Delivery channel '+suffix);
+  await page.locator('[data-wiki-channel-select="'+channel.id+'"]').waitFor({state:'visible'});
   await page.locator('[data-wiki-channel-select="'+channel.id+'"]').click();
   await page.locator('[data-wiki-channel-row="'+channel.id+'"]').waitFor({state:'visible'});
   await page.locator('[data-wiki-channel-open="'+channel.id+'"]').click();
