@@ -107,7 +107,7 @@ test('Page <-> Channel: private membership, canonical conversation authority and
     assert.equal(removed.status,200);
     assert.deepEqual(removed.payload.channels.map(c=>c.id),[openChannel]);
     // Removing a Page relation cannot change or delete Conversation Authority.
-    assert.equal((await request(base,`/api/v1/conversations/${privateChannel}`,{cookie:owner.cookie})).status,200);
+    assert.equal((await request(base,`/api/v1/conversations/${privateChannel}/members`,{cookie:owner.cookie})).status,200);
     const audit=await pool.query(
       `SELECT event_type FROM audit_events
         WHERE workspace_id=$1 AND aggregate_type='wiki_page' AND aggregate_id=$2`,
