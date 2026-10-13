@@ -63,6 +63,10 @@ test('Page to accepted Decision picker, source detail and unlink on 390px viewpo
   await linked.locator('[data-wiki-decision-open]').click();
   await page.getByRole('heading',{name:title}).waitFor({state:'visible'});
   assert.equal((await page.request.get(base+'/api/v1/meetings/decisions/'+decision.id)).status(),200);
+  const backToPage=page.locator('[data-decision-detail-page="'+wiki.id+'"]');
+  await backToPage.waitFor({state:'visible'});
+  await backToPage.click();
+  await page.locator('[data-wiki-decision-row="'+decision.id+'"]').waitFor({state:'visible'});
 
   await page.keyboard.press('Escape');
   // The canonical Page projection remains stable after opening Decision detail.
