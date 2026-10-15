@@ -8,9 +8,9 @@
 
 - Модульный монолит на Node.js ≥20, ESM, PostgreSQL (в CI 17), 6 зависимостей: `@aws-sdk/client-s3`, `livekit-client`, `livekit-server-sdk`, `pg`, `web-push`, `ws` (`package.json`). Свои реализации SMTP, метрик, TOTP.
 - `src/`: 129 js-файлов в каталогах по доменам (`messaging`, `task`, `calendar`, `meeting`, `requests`, `wiki`, `vault`, `org`, `integrations` и др.); HTTP-слой `src/http/*` (~5 500 строк, 40 с лишним файлов); `src/server.js` собирает всё.
-- Хранение: `db/migrations` (72 файла, 001…072), `db/test_*.sql`; режим памяти для разработки, в production без БД сервер не стартует (`README.md`).
+- Хранение: `db/migrations` (в опубликованном `main` 70 файлов, 001…070; в локальной копии 72), `db/test_*.sql`; режим памяти для разработки, в production без БД сервер не стартует (`README.md`).
 - Клиент: PWA без сборки: `public/app.js` ~6 940 строк, `preferences.js` ~2 150, остальные до 350; 5 css (~118 КБ, минифицированные строки).
-- Тесты: `node --test`, 169 файлов в `test/`, у многих тестов вариант с PostgreSQL (`postgres-*.test.js`), браузерный smoke на Playwright (`browser-smoke.test.js`), контрактные (`api-contract`, `openapi-sync`), безопасность (`security-rbac`, `isolation-sweep`, `guest-*`), дизайн-система (`design-system.test.js`, проверяет шкалы радиусов, шрифтов, фокус).
+- Тесты: `node --test`, 167 файлов в `test/` опубликованного `main` (169 в локальной копии), у многих тестов вариант с PostgreSQL (`postgres-*.test.js`), браузерный smoke на Playwright (`browser-smoke.test.js`), контрактные (`api-contract`, `openapi-sync`), безопасность (`security-rbac`, `isolation-sweep`, `guest-*`), дизайн-система (`design-system.test.js`, проверяет шкалы радиусов, шрифтов, фокус).
 - CI (`.github/workflows/ci.yml`): задание без БД и с PostgreSQL 17; тест `ci-runs-everything.test.js` не даёт перечислять файлы поимённо.
 
 ### Готово / не готово
