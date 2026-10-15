@@ -1,0 +1,902 @@
+<!doctype html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ChatX: UI-кит</title>
+<meta name="color-scheme" content="dark light">
+<style>
+/* ===== Токены ChatX (значения из public/styles.css и public/preferences.css, опубликованный main) ===== */
+:root,[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#050505;--surface:#151719;--surface-2:#1b1e21;--surface-3:#222529;
+  --line:#2b2e32;--line-strong:#767a80;
+  --text:#f4f4f2;--muted:#9da0a4;--muted-2:#888c91;
+  --warm:#d4a28b;--warm-soft:#2a211d;
+  --danger:#ff746f;--success:#77d496;--warning:#e4bd6a;
+  --focus:#ffffff;--shadow:0 18px 50px rgba(0,0,0,.34);
+  --action:#f1eee9;--on-action:#0b0b0b;
+  --room-channel:#6f9fe0;--room-group:#7bbf9a;--room-direct:#c9a06a;--room-team:#a98fd4;--room-project:#d4926f;--room-external:#d4736f;
+  --chip-fg:#c7c9cc;--chip-warm-fg:#e8b9a4;
+  --chip-danger-bg:#2b1717;--chip-danger-fg:#ff9c98;--chip-good-bg:#132319;--chip-good-fg:#8de1a6;
+  --btn-danger-bg:#2a1717;--btn-danger-fg:#ff9c98;--btn-danger-line:#51302e;
+  --avatar-bg:#282b2f;--avatar-fg:#ffffff;
+  --l-neutral-wash:#222529;--l-neutral-ink:#d6d9dd;--l-red-wash:#3a1f1d;--l-red-ink:#f0a79c;
+  --l-amber-wash:#33291a;--l-amber-ink:#e8c07a;--l-green-wash:#1b2e22;--l-green-ink:#8ed8a8;
+  --l-teal-wash:#172e2f;--l-teal-ink:#84d2d1;--l-blue-wash:#1a2739;--l-blue-ink:#9dbfe8;
+  --l-violet-wash:#272238;--l-violet-ink:#c0aae8;--l-grey-wash:#25282c;--l-grey-ink:#b3b8be;
+  --r-1:12px;--r-2:16px;--r-3:22px;--r-4:28px;--r-pill:999px;
+  --s-1:4px;--s-2:8px;--s-3:12px;--s-4:16px;--s-5:24px;
+}
+[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f4f4f2;--surface:#ffffff;--surface-2:#f0f0ed;--surface-3:#e9e9e5;
+  --line:#deded9;--line-strong:#8a8c87;
+  --text:#171716;--muted:#575956;--muted-2:#676965;
+  --warm:#7f4c39;--warm-soft:#f2e6df;
+  --danger:#b23a36;--success:#2b7048;--warning:#80580f;
+  --focus:#171716;--shadow:0 18px 50px rgba(35,35,30,.11);
+  --action:#1e1e1c;--on-action:#ffffff;
+  --room-channel:#3d6fb5;--room-group:#3f8a63;--room-direct:#9a7333;--room-team:#7457ab;--room-project:#a85f38;--room-external:#b0403c;
+  --chip-fg:#555753;--chip-warm-fg:#905b46;
+  --chip-danger-bg:#fae4e2;--chip-danger-fg:#a93c38;--chip-good-bg:#e1f3e6;--chip-good-fg:#347a4e;
+  --btn-danger-bg:#fff0ef;--btn-danger-fg:#a63835;--btn-danger-line:#f0c9c6;
+  --avatar-bg:#dededa;--avatar-fg:#2b2b28;
+  --l-neutral-wash:#e9e9e5;--l-neutral-ink:#3d3f3c;--l-red-wash:#fae4e2;--l-red-ink:#8f322e;
+  --l-amber-wash:#f7ecd5;--l-amber-ink:#7a5613;--l-green-wash:#e1f3e6;--l-green-ink:#2c6340;
+  --l-teal-wash:#dcefef;--l-teal-ink:#255e5e;--l-blue-wash:#e0e9f5;--l-blue-ink:#2b4f7a;
+  --l-violet-wash:#e9e4f4;--l-violet-ink:#4e3d78;--l-grey-wash:#e7e7e3;--l-grey-ink:#4a4c49;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",Inter,"Segoe UI",Roboto,sans-serif;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--text);font-size:15px;line-height:1.45;min-height:100dvh;overflow-x:hidden}
+h1,h2,h3,h4,p{margin:0}
+button,input,select,textarea{font:inherit;color:inherit}
+button{border:0;background:transparent;cursor:pointer}
+:focus-visible,.demo-focus{outline:2px solid var(--focus);outline-offset:2px;border-radius:inherit}
+.mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.muted{color:var(--muted)}.muted2{color:var(--muted-2)}
+.skip{position:absolute;left:-9999px;top:8px;z-index:100;padding:10px 14px;border-radius:var(--r-2);background:var(--surface);border:1px solid var(--line)}
+.skip:focus{left:8px}
+
+/* ===== Каркас страницы ===== */
+.top{position:sticky;top:0;z-index:20;background:var(--bg);border-bottom:1px solid var(--line);padding:var(--s-3) max(16px,env(safe-area-inset-right)) var(--s-3) max(16px,env(safe-area-inset-left))}
+.top-in{max-width:1100px;margin:0 auto;display:flex;flex-wrap:wrap;gap:var(--s-3);align-items:center;justify-content:space-between}
+.brand{display:flex;align-items:center;gap:var(--s-2);font-weight:800;letter-spacing:-.02em;font-size:17px}
+.orb{width:32px;height:32px;border-radius:var(--r-1);background:var(--action);color:var(--on-action);display:grid;place-items:center}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--r-1);padding:2px;background:var(--surface)}
+.seg button{min-height:44px;min-width:44px;padding:0 var(--s-4);border-radius:calc(var(--r-1) - 2px);font-weight:700;font-size:13px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--action);color:var(--on-action)}
+.wrap{max-width:1100px;margin:0 auto;padding:var(--s-5) 16px 64px}
+.toc{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:0 0 var(--s-5);padding:0;list-style:none}
+.toc a{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--line);border-radius:var(--r-pill);color:var(--muted);text-decoration:none;font-size:13px;font-weight:600;background:var(--surface)}
+.toc a:hover{color:var(--text)}
+section{margin:0 0 56px;scroll-margin-top:96px}
+.kicker{color:var(--muted-2);font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+h1{font-size:30px;font-weight:800;letter-spacing:-.025em;line-height:1.2}
+h2{font-size:21px;font-weight:700;letter-spacing:-.025em;margin:4px 0 var(--s-3)}
+h3{font-size:17px;font-weight:700;margin:var(--s-5) 0 var(--s-2)}
+.lead{color:var(--muted);max-width:70ch;margin:var(--s-2) 0 var(--s-4)}
+.note{font-size:13px;color:var(--muted);max-width:75ch}
+.grid{display:grid;gap:var(--s-3)}
+.g2{grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr))}
+.g4{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-3);padding:var(--s-4);min-width:0}
+.row{display:flex;flex-wrap:wrap;gap:var(--s-3);align-items:center}
+.tag{font-size:12px;color:var(--muted-2);font-weight:600}
+table{border-collapse:collapse;width:100%}
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface)}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);font-size:13px;vertical-align:middle}
+th{color:var(--muted);font-weight:700;font-size:12px}
+tr:last-child td{border-bottom:0}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+
+/* ===== Палитра ===== */
+.sw{border:1px solid var(--line);border-radius:var(--r-2);overflow:hidden;background:var(--surface);min-width:0}
+.sw i{display:block;height:56px;border-bottom:1px solid var(--line)}
+.sw div{padding:var(--s-2) var(--s-3)}
+.sw b{display:block;font-size:13px}
+.sw span{display:block;font-size:12px;color:var(--muted)}
+
+/* ===== Иконки ===== */
+.ic{width:24px;height:24px;flex:none;display:inline-block}
+.ic svg{width:100%;height:100%;display:block}
+.icgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:var(--s-2)}
+.icitem{display:flex;flex-direction:column;align-items:center;gap:6px;padding:var(--s-3) 4px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface);font-size:12px;color:var(--muted);text-align:center}
+
+/* ===== Кнопки ===== */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:var(--s-2);min-height:48px;padding:11px 16px;border-radius:var(--r-2);font-weight:700;border:1px solid transparent;text-decoration:none;transition:transform .04s,opacity .12s,background-color .12s}
+.btn.primary{background:var(--action);color:var(--on-action)}
+.btn.secondary{background:var(--surface-3);border-color:var(--line)}
+.btn.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
+.btn.danger{background:var(--btn-danger-bg);color:var(--btn-danger-fg);border-color:var(--btn-danger-line)}
+.btn.small{min-height:44px;padding:7px 12px;border-radius:var(--r-1);font-size:13px}
+@media (hover:hover) and (pointer:fine){.btn.small{min-height:36px}.btn.small.touch{min-height:44px}}
+.btn.icon{width:44px;min-width:44px;min-height:44px;padding:0;border-radius:var(--r-1);background:var(--surface-3);color:var(--text)}
+.btn.link{background:transparent;color:var(--warm);min-height:44px;padding:0 var(--s-2);font-weight:700}
+@media (hover:hover){.btn:hover,.btn.demo-hover{opacity:.9}.btn.secondary:hover,.btn.secondary.demo-hover{background:var(--surface-2)}.btn.ghost:hover,.btn.ghost.demo-hover{color:var(--text)}}
+.btn:active,.btn.demo-active{transform:scale(.97);opacity:.85}
+.btn[disabled]{opacity:.5;cursor:not-allowed;transform:none}
+.btn.busy{position:relative;pointer-events:none}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ===== Поля ===== */
+.field{display:grid;gap:6px;font-size:13px;font-weight:600;color:var(--muted)}
+.inp{width:100%;min-height:48px;padding:9px 12px;border-radius:var(--r-1);background:var(--surface-2);border:1px solid var(--line-strong);font-size:16px;color:var(--text)}
+.inp::placeholder{color:var(--muted-2)}
+textarea.inp{min-height:84px;resize:vertical}
+.inp.err{border-color:var(--danger)}
+.inp[disabled]{opacity:.5;cursor:not-allowed}
+.errmsg{font-size:13px;color:var(--danger);display:flex;gap:6px;align-items:center}
+.sw-row{display:flex;align-items:center;justify-content:space-between;gap:var(--s-3);min-height:48px;padding:0 4px;font-size:15px;font-weight:600}
+.switch{position:relative;width:52px;height:32px;flex:none}
+.switch input{position:absolute;inset:-6px;width:calc(100% + 12px);height:calc(100% + 12px);margin:0;opacity:0;cursor:pointer;z-index:1}
+.switch span{position:absolute;inset:0;border-radius:var(--r-pill);background:var(--surface-3);border:1px solid var(--line-strong);transition:background-color .15s}
+.switch span::after{content:"";position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:50%;background:var(--text);transition:transform .15s}
+.switch input:checked+span{background:var(--action);border-color:var(--action)}
+.switch input:checked+span::after{transform:translateX(20px);background:var(--on-action)}
+.switch input:focus-visible+span{outline:2px solid var(--focus);outline-offset:2px}
+.check{display:flex;align-items:center;gap:var(--s-3);min-height:44px;font-size:15px}
+.check input{width:24px;height:24px;accent-color:var(--warm);margin:0}
+
+/* ===== Чипы, метки, статусы ===== */
+.chip{display:inline-flex;align-items:center;gap:6px;min-height:24px;padding:3px 10px;border-radius:var(--r-pill);background:var(--surface-3);color:var(--chip-fg);font-size:12px;font-weight:600;white-space:nowrap}
+.chip.warm{background:var(--warm-soft);color:var(--chip-warm-fg)}
+.chip.danger{background:var(--chip-danger-bg);color:var(--chip-danger-fg)}
+.chip.good{background:var(--chip-good-bg);color:var(--chip-good-fg)}
+.label-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:var(--r-pill);font-size:12px;font-weight:600;white-space:nowrap;background:var(--label-wash,var(--surface-3));color:var(--label-ink,var(--text))}
+.label-chip[data-colour="neutral"]{--label-wash:var(--l-neutral-wash);--label-ink:var(--l-neutral-ink)}
+.label-chip[data-colour="red"]{--label-wash:var(--l-red-wash);--label-ink:var(--l-red-ink)}
+.label-chip[data-colour="amber"]{--label-wash:var(--l-amber-wash);--label-ink:var(--l-amber-ink)}
+.label-chip[data-colour="green"]{--label-wash:var(--l-green-wash);--label-ink:var(--l-green-ink)}
+.label-chip[data-colour="teal"]{--label-wash:var(--l-teal-wash);--label-ink:var(--l-teal-ink)}
+.label-chip[data-colour="blue"]{--label-wash:var(--l-blue-wash);--label-ink:var(--l-blue-ink)}
+.label-chip[data-colour="violet"]{--label-wash:var(--l-violet-wash);--label-ink:var(--l-violet-ink)}
+.label-chip[data-colour="grey"]{--label-wash:var(--l-grey-wash);--label-ink:var(--l-grey-ink)}
+.chipbtn{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 14px;border-radius:var(--r-pill);border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:13px;font-weight:600}
+.chipbtn.on{background:var(--action);color:var(--on-action);border-color:var(--action)}
+.badge{display:inline-grid;place-items:center;min-width:22px;height:22px;padding:0 7px;border-radius:var(--r-pill);background:var(--action);color:var(--on-action);font-size:12px;font-weight:700}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none;border:2px solid var(--surface)}
+.dot.online{background:var(--success)}.dot.away{background:var(--warning)}.dot.busy{background:var(--danger)}.dot.dnd{background:var(--danger);box-shadow:inset 0 0 0 2px var(--surface)}.dot.off{background:var(--muted-2)}
+
+/* ===== Аватар и значки комнат ===== */
+.av{width:40px;height:40px;border-radius:var(--r-1);display:grid;place-items:center;background:var(--avatar-bg);color:var(--avatar-fg);font-weight:800;font-size:15px;flex:none;position:relative}
+.av.room{box-shadow:inset 0 0 0 2px var(--rc)}
+.av.room-channel{--rc:var(--room-channel)}.av.room-group{--rc:var(--room-group)}.av.room-direct{--rc:var(--room-direct)}
+.av.room-team{--rc:var(--room-team)}.av.room-project{--rc:var(--room-project)}.av.room-external{--rc:var(--room-external)}
+
+/* ===== Список комнат ===== */
+.convs{display:grid;gap:4px}
+.conv{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:var(--s-3);align-items:center;width:100%;text-align:left;min-height:64px;padding:11px;border-radius:var(--r-2);color:var(--text)}
+.conv.active{background:var(--surface-2)}
+@media (hover:hover){.conv:hover{background:var(--surface-2)}}
+.conv strong{display:block;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv.unread strong{font-weight:800}
+.conv .pv{display:block;font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conv time{font-size:12px;color:var(--muted-2);display:block;text-align:right;margin-bottom:4px}
+.conv .side{display:flex;flex-direction:column;align-items:flex-end}
+.conv.muted-room .pv{color:var(--muted-2)}
+.mention{color:var(--warm);font-weight:700;background:var(--warm-soft);border-radius:6px;padding:0 4px}
+
+/* ===== Лента сообщений (плоские пузыри без теней) ===== */
+.feed{display:grid;gap:6px}
+.msg{display:grid;grid-template-columns:40px minmax(0,1fr);gap:8px}
+.msg.mine{grid-template-columns:minmax(0,1fr);justify-items:end}
+.msg .col{display:flex;flex-direction:column;align-items:flex-start;min-width:0;max-width:min(640px,86%)}
+.msg.mine .col{align-items:flex-end}
+.msg .who{font-weight:700;font-size:13px;color:var(--muted);margin:0 0 2px 10px}
+.bubble{padding:8px 12px 6px;border-radius:var(--r-3);background:var(--surface-2);border:1px solid var(--line);min-width:96px;max-width:100%;overflow-wrap:anywhere}
+.msg.mine .bubble{background:var(--warm-soft);border-color:transparent}
+.bubble p{font-size:15px;line-height:1.43}
+.stamp{display:flex;gap:6px;align-items:center;justify-content:flex-end;font-size:12px;color:var(--muted-2);margin-top:2px}
+.quote{display:block;text-align:left;width:100%;border-left:3px solid var(--warm);padding:2px 8px;margin:0 0 6px;font-size:13px;color:var(--muted);background:transparent}
+.react{display:inline-flex;align-items:center;gap:4px;min-height:32px;padding:2px 10px;border-radius:var(--r-1);background:var(--surface-3);font-size:13px}
+.react.mine{background:var(--warm-soft);color:var(--warm)}
+.thread{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:0 8px;color:var(--warm);font-size:13px;font-weight:700}
+.divider{display:flex;align-items:center;gap:10px;margin:10px 0 4px;color:var(--warm);font-size:12px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--warm);opacity:.45}
+.day{text-align:center;font-size:12px;color:var(--muted-2);margin:8px 0}
+.filecard{display:flex;gap:10px;align-items:center;padding:6px 0;min-width:0}
+.filecard .fm{width:36px;height:36px;border-radius:var(--r-1);background:var(--surface-3);display:grid;place-items:center;flex:none}
+.wave{display:flex;gap:2px;align-items:center;height:24px}
+.wave i{display:block;width:3px;border-radius:2px;background:var(--muted-2)}
+.status{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted-2)}
+.status svg{width:16px;height:16px}
+.status.read{color:var(--warm)}
+.status.fail{color:var(--danger);font-weight:600}
+.status .ic{width:16px;height:16px}
+
+/* ===== Композитор ===== */
+.composer{display:flex;align-items:flex-end;gap:8px;border:1px solid var(--line-strong);border-radius:var(--r-3);background:var(--surface);padding:7px}
+.composer textarea{flex:1;resize:none;border:0;background:transparent;outline:0;padding:9px 6px;font-size:16px;line-height:1.35;min-height:44px;max-height:124px;min-width:0}
+.composer:focus-within{outline:2px solid var(--focus);outline-offset:2px}
+.cbtn{width:44px;height:44px;border-radius:var(--r-1);background:var(--surface-3);flex:none;display:grid;place-items:center}
+.cbtn.send{background:var(--action);color:var(--on-action)}
+.picker{border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface);box-shadow:var(--shadow);padding:4px;max-width:320px}
+.picker button{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;padding:0 10px;border-radius:var(--r-1);text-align:left}
+.picker button[aria-selected="true"]{background:var(--surface-2)}
+.typing{font-size:13px;color:var(--muted);min-height:20px}
+
+/* ===== Задача ===== */
+.task{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:12px;align-items:start;width:100%;text-align:left;padding:14px;border:1px solid var(--line);border-radius:var(--r-3);background:var(--surface);position:relative}
+.task.overdue{box-shadow:inset 3px 0 0 var(--danger)}
+.task .ring{width:25px;height:25px;border-radius:50%;border:1.5px solid var(--line-strong);margin-top:2px}
+.task .tt{font-weight:700;line-height:1.35}
+.task .meta{display:flex;flex-wrap:wrap;gap:4px 8px;color:var(--muted);font-size:13px;margin-top:6px}
+.late{color:var(--danger);font-weight:700}
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:12px 0}
+.role{border:1px solid var(--line);border-radius:var(--r-2);padding:8px 10px;background:var(--surface-2);min-width:0}
+.role span{display:block;font-size:12px;color:var(--muted-2)}
+.role b{display:block;font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ===== Заявка и цепочка ===== */
+.chain{display:grid;gap:0;margin:8px 0}
+.step{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;position:relative;padding-bottom:16px}
+.step:last-child{padding-bottom:0}
+.step::before{content:"";position:absolute;left:15px;top:30px;bottom:0;width:2px;background:var(--line)}
+.step:last-child::before{display:none}
+.sdot{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;border:2px solid var(--line-strong);background:var(--surface);color:var(--muted)}
+.step.done .sdot{background:var(--chip-good-bg);border-color:var(--success);color:var(--chip-good-fg)}
+.step.now .sdot{border-color:var(--warm);color:var(--warm);background:var(--warm-soft)}
+.step.skip .sdot{border-style:dashed}
+.step h4{font-size:15px;font-weight:700}
+.step p{font-size:13px;color:var(--muted)}
+
+/* ===== Экран звонка ===== */
+.call{background:#050505;color:#f4f1ec;border-radius:var(--r-3);overflow:hidden;display:flex;flex-direction:column;min-height:360px}
+.call-top{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;font-size:15px}
+.call-top span.live{font-size:12px;font-weight:800;letter-spacing:.1em;color:#050505;background:#f1eee9;border-radius:var(--r-pill);padding:2px 10px}
+.stage{flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr));gap:8px;padding:8px 12px}
+.tile{position:relative;border-radius:var(--r-2);background:#151719;aspect-ratio:16/10;display:grid;place-items:center;overflow:hidden;border:2px solid transparent}
+.tile.speaking{border-color:#d4a28b}
+.tile .fb{width:56px;height:56px;border-radius:var(--r-1);background:#282b2f;color:#fff;display:grid;place-items:center;font-weight:800;font-size:17px}
+.tile .lab{position:absolute;left:8px;bottom:8px;right:8px;display:flex;gap:6px;align-items:center;font-size:12px;background:rgba(5,5,5,.7);border-radius:8px;padding:2px 8px;color:#f4f1ec}
+.controls{display:flex;gap:12px;justify-content:center;padding:12px 12px 16px;flex-wrap:wrap}
+.cc{width:48px;height:48px;border-radius:50%;background:#222529;color:#f4f4f2;display:grid;place-items:center}
+.cc.off{background:#2a1717;color:#ff9c98}
+.cc.rec{background:#401a19;color:#ff9a96}
+.cc.leave{background:#ff746f;color:#050505}
+.incoming{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;border:1px solid var(--line);background:var(--surface);border-radius:var(--r-3);padding:12px 14px;box-shadow:var(--shadow)}
+.incoming small{display:block;color:var(--muted);font-size:13px}
+
+/* ===== Состояния ===== */
+.state{display:grid;place-items:center;text-align:center;gap:8px;padding:28px 16px;border:1px dashed var(--line-strong);border-radius:var(--r-3);min-height:160px}
+.state strong{font-size:17px}
+.skel{height:14px;border-radius:8px;background:linear-gradient(90deg,var(--surface-3),var(--surface-2),var(--surface-3));background-size:200% 100%;animation:sh 1.4s linear infinite}
+@keyframes sh{to{background-position:-200% 0}}
+.alert{border:1px solid var(--btn-danger-line);background:var(--btn-danger-bg);color:var(--btn-danger-fg);border-radius:var(--r-2);padding:12px 14px;font-size:14px}
+.toast{display:inline-block;background:var(--action);color:var(--on-action);border-radius:var(--r-2);padding:10px 14px;font-size:14px;font-weight:600;box-shadow:var(--shadow)}
+
+/* ===== Устройства ===== */
+.devs{display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start;justify-content:center}
+.phone{width:min(100%,300px);border:8px solid var(--surface-3);border-radius:36px;background:var(--bg);overflow:hidden;box-shadow:var(--shadow);position:relative}
+.phone .sb{display:flex;justify-content:space-between;align-items:center;padding:8px 18px 4px;font-size:12px;color:var(--muted);font-weight:600}
+.phone .body{height:520px;overflow:hidden;display:flex;flex-direction:column}
+.phone .hdr{display:flex;align-items:center;gap:8px;padding:6px 12px 10px;border-bottom:1px solid var(--line)}
+.phone .hdr h4{font-size:17px;font-weight:700;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phone .scr{flex:1;overflow:hidden;padding:10px 10px 0}
+.phone .nav{display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--line);background:var(--surface);padding-bottom:6px}
+.phone .nav button{min-height:52px;display:grid;place-items:center;gap:0;color:var(--muted);font-size:12px;position:relative}
+.phone .nav button.on{color:var(--text)}
+.phone .nav .ic{width:22px;height:22px}
+.phone .nav .badge{position:absolute;top:4px;right:calc(50% - 22px);min-width:18px;height:18px;font-size:12px;padding:0 5px}
+.monitor-wrap{width:100%;overflow:hidden}
+.monitor{width:1040px;transform-origin:top left;border:10px solid var(--surface-3);border-radius:18px;background:var(--bg);box-shadow:var(--shadow);overflow:hidden}
+.mon-in{display:grid;grid-template-columns:230px 330px minmax(0,1fr);height:560px}
+.mon-side{background:var(--surface);border-right:1px solid var(--line);padding:12px;overflow:hidden;display:flex;flex-direction:column;gap:6px}
+.mon-list{border-right:1px solid var(--line);padding:12px;overflow:hidden}
+.mon-chat{display:flex;flex-direction:column;min-width:0}
+.mon-chat .ch{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.mon-chat .feedwrap{flex:1;padding:12px 16px;overflow:hidden}
+.mon-chat .cw{padding:10px 16px 14px}
+.nav-i{display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border-radius:var(--r-1);color:var(--muted);font-weight:600;width:100%;text-align:left}
+.nav-i.on{background:var(--surface-2);color:var(--text)}
+.sec-h{display:flex;justify-content:space-between;align-items:center;color:var(--muted-2);font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-top:10px}
+.footer{margin-top:48px;padding-top:var(--s-4);border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.btn:active,.btn.demo-active{transform:none}}
+@media (max-width:560px){.wrap{padding-left:16px;padding-right:16px}h1{font-size:26px}h2{font-size:19px}.top-in{gap:8px}}
+</style>
+</head>
+<body>
+<a class="skip" href="#palette">К содержимому</a>
+<header class="top"><div class="top-in">
+  <div class="brand"><span class="orb" data-ic="logo"></span><span>ChatX · UI-кит</span></div>
+  <div class="seg" role="group" aria-label="Тема">
+    <button type="button" data-theme-btn="dark" aria-pressed="true">Чёрная</button>
+    <button type="button" data-theme-btn="light" aria-pressed="false">Белая</button>
+  </div>
+</div></header>
+
+<main class="wrap">
+<p class="kicker">Дизайн-система</p>
+<h1>ChatX · Graphite Warm</h1>
+<p class="lead">Живой кит на токенах опубликованного <code>main</code> (<code>public/styles.css</code>, <code>public/preferences.css</code>, <code>DESIGN.md</code>). Чёрная <code>#050505</code> и белая <code>#f4f4f2</code> темы сохранены без изменений: графит и тёплый акцент. Переключатель сверху меняет обе темы сразу во всех примерах. Единственный отход от кода: минимальный кегль в ките 12 px (в коде встречается 11 px), нетекстовые границы полей взяты из предложенного токена <code>--line-strong</code>.</p>
+
+<ul class="toc" aria-label="Разделы">
+  <li><a href="#palette">Палитра</a></li><li><a href="#contrast">Контраст</a></li><li><a href="#type">Типографика</a></li><li><a href="#layout">Сетка</a></li>
+  <li><a href="#icons">Иконки</a></li><li><a href="#buttons">Кнопки</a></li><li><a href="#fields">Поля</a></li><li><a href="#chips">Чипы</a></li>
+  <li><a href="#rooms">Комнаты</a></li><li><a href="#feed">Лента</a></li><li><a href="#work">Задача и заявка</a></li><li><a href="#call">Звонок</a></li>
+  <li><a href="#states">Состояния</a></li><li><a href="#screens">Экраны</a></li><li><a href="#rules">Правила</a></li>
+</ul>
+
+<!-- ===== 1. Палитра ===== -->
+<section id="palette">
+  <p class="kicker">01</p><h2>Палитра и роли</h2>
+  <p class="lead">Цвета только через переменные. Акцент <code>--warm</code> один на экран. Цвет никогда не единственный носитель смысла: рядом слово, значок или подпись.</p>
+  <div class="grid g4" id="palette-grid"></div>
+  <h3>Цвета комнат (рамка аватара)</h3>
+  <div class="grid g3" id="room-grid"></div>
+</section>
+
+<!-- ===== 2. Контраст ===== -->
+<section id="contrast">
+  <p class="kicker">02</p><h2>Контраст (WCAG 2.x)</h2>
+  <p class="lead">Таблица считается в браузере по значениям токенов обеих тем. В неё входят только пары текста, проходящие AA (не ниже 4,5:1). Нетекстовые элементы проверяются на 3:1 отдельно.</p>
+  <div class="row" style="margin-bottom:12px"><span class="chip good" id="ctr-ok">…</span><span class="chip" id="ctr-hidden">…</span></div>
+  <h3>Текст</h3>
+  <div class="tblwrap"><table id="ctr-text" aria-label="Контраст текста"><thead><tr><th>Пара</th><th>Чёрная</th><th>Белая</th></tr></thead><tbody></tbody></table></div>
+  <h3>Нетекстовые элементы (не ниже 3:1)</h3>
+  <div class="tblwrap"><table id="ctr-non" aria-label="Контраст нетекстовых элементов"><thead><tr><th>Элемент</th><th>Чёрная</th><th>Белая</th></tr></thead><tbody></tbody></table></div>
+  <p class="note" style="margin-top:8px">Тонкая линия <code>--line</code> декоративна и в 3:1 не входит. Границы интерактивных элементов (поля, переключатели, рамка композитора) берут <code>--line-strong</code> (предложение <code>DESIGN.md</code>, пока не внесено в CSS продукта).</p>
+</section>
+
+<!-- ===== 3. Типографика ===== -->
+<section id="type">
+  <p class="kicker">03</p><h2>Типографика</h2>
+  <p class="lead">Системный стек: <code>-apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, "Segoe UI", sans-serif</code>. Файла Inter в продукте нет, шрифты по сети не грузятся (CSP <code>default-src 'self'</code>). Веса 400, 600, 700, 800. Числа в таблицах и счётчиках с <code>tabular-nums</code>.</p>
+  <div class="card" style="display:grid;gap:14px">
+    <div class="row" style="flex-wrap:nowrap;align-items:baseline"><span class="tag" style="width:96px;flex:none">27 / 800</span><span style="font-size:27px;font-weight:800;letter-spacing:-.025em;line-height:1.2;min-width:0">Заголовок экрана</span></div>
+    <div class="row" style="flex-wrap:nowrap;align-items:baseline"><span class="tag" style="width:96px;flex:none">21 / 700</span><span style="font-size:21px;font-weight:700;letter-spacing:-.025em;min-width:0">Раздел и окно</span></div>
+    <div class="row" style="flex-wrap:nowrap;align-items:baseline"><span class="tag" style="width:96px;flex:none">17 / 700</span><span style="font-size:17px;font-weight:700;min-width:0">Название карточки</span></div>
+    <div class="row" style="flex-wrap:nowrap;align-items:baseline"><span class="tag" style="width:96px;flex:none">16 / 400</span><span style="font-size:16px;min-width:0">Поле ввода (16 px не вызывает масштабирование на iOS)</span></div>
+    <div class="row" style="flex-wrap:nowrap;align-items:baseline"><span class="tag" style="width:96px;flex:none">15 / 400</span><span style="font-size:15px;line-height:1.43;min-width:0">Текст сообщения. Договорились: смета до пятницы, приёмка после проверки.</span></div>
+    <div class="row" style="flex-wrap:nowrap;align-items:baseline"><span class="tag" style="width:96px;flex:none">13 / 600</span><span style="font-size:13px;font-weight:600;color:var(--muted);min-width:0">Вторичный текст, автор, подписи</span></div>
+    <div class="row" style="flex-wrap:nowrap;align-items:baseline"><span class="tag" style="width:96px;flex:none">12 / 700</span><span style="font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted-2);min-width:0">Разделитель, время, метка</span></div>
+    <div class="row" style="flex-wrap:nowrap;align-items:baseline"><span class="tag" style="width:96px;flex:none">mono</span><span class="mono" style="font-size:13px;min-width:0">12 480,00 ₽ · 14:05 · #a1b2c3</span></div>
+  </div>
+  <p class="note" style="margin-top:8px">В продукте кегль подписей 11 px (<code>DESIGN.md</code>, шкала 11/13/15/16/17/21/27 защищена <code>test/design-system.test.js</code>). В ките подписи подняты до 12 px по требованию к читаемости; для продукта это предложение, тест на шкалу нужно будет обновить.</p>
+</section>
+
+<!-- ===== 4. Сетка ===== -->
+<section id="layout">
+  <p class="kicker">04</p><h2>Сетка, отступы, границы, фокус</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="margin-top:0">Отступы (шаг 4)</h3>
+      <div class="row" style="align-items:flex-end;gap:16px">
+        <div><i style="display:block;width:4px;height:4px;background:var(--warm)"></i><span class="tag">4</span></div>
+        <div><i style="display:block;width:8px;height:8px;background:var(--warm)"></i><span class="tag">8</span></div>
+        <div><i style="display:block;width:12px;height:12px;background:var(--warm)"></i><span class="tag">12</span></div>
+        <div><i style="display:block;width:16px;height:16px;background:var(--warm)"></i><span class="tag">16</span></div>
+        <div><i style="display:block;width:24px;height:24px;background:var(--warm)"></i><span class="tag">24</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Радиусы</h3>
+      <div class="row">
+        <div><i style="display:block;width:56px;height:40px;border:1px solid var(--line-strong);border-radius:var(--r-1)"></i><span class="tag">r1 12</span></div>
+        <div><i style="display:block;width:56px;height:40px;border:1px solid var(--line-strong);border-radius:var(--r-2)"></i><span class="tag">r2 16</span></div>
+        <div><i style="display:block;width:56px;height:40px;border:1px solid var(--line-strong);border-radius:var(--r-3)"></i><span class="tag">r3 22</span></div>
+        <div><i style="display:block;width:56px;height:40px;border:1px solid var(--line-strong);border-radius:var(--r-4)"></i><span class="tag">r4 28</span></div>
+        <div><i style="display:block;width:56px;height:40px;border:1px solid var(--line-strong);border-radius:var(--r-pill)"></i><span class="tag">pill</span></div>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Границы и фокус</h3>
+      <div class="row">
+        <div style="padding:12px;border:1px solid var(--line);border-radius:var(--r-1)" class="tag">1 px line (декор)</div>
+        <div style="padding:12px;border:1px solid var(--line-strong);border-radius:var(--r-1)" class="tag">1 px line-strong</div>
+        <button type="button" class="btn secondary demo-focus">Фокус 2 px, отступ 2</button>
+      </div>
+      <p class="note" style="margin-top:8px">Кольцо <code>--focus</code>: белое на чёрной, графитовое на белой.</p>
+    </div>
+    <div class="card" style="box-shadow:var(--shadow)">
+      <h3 style="margin-top:0">Глубина</h3>
+      <p class="note">Плоско: поверхности с линией. Одна тень <code>--shadow</code> только у всплывающих панелей и листов. Полоса статуса задачи: <code>inset 3px 0 0</code>.</p>
+    </div>
+  </div>
+  <h3>Раскладка по устройствам</h3>
+  <div class="tblwrap"><table><thead><tr><th>Класс</th><th>Ширина</th><th>Раскладка</th></tr></thead><tbody>
+    <tr><td>Телефон</td><td>до 560 px</td><td>один экран, нижняя навигация, список и беседа — разные экраны, цель касания не меньше 44 px</td></tr>
+    <tr><td>Планшет</td><td>561–980 px</td><td>две панели: список и беседа</td></tr>
+    <tr><td>Монитор</td><td>от 981 px</td><td>навигация, список, беседа (+ детали)</td></tr>
+  </tbody></table></div>
+</section>
+
+<!-- ===== 5. Иконки ===== -->
+<section id="icons">
+  <p class="kicker">05</p><h2>Иконки</h2>
+  <p class="lead">Контуры из <code>public/app.js</code> (<code>navIcon</code>, <code>msgIcon</code>, <code>roomIcon</code>, <code>tileIcon</code>): 24×24, штрих 1,6, <code>currentColor</code>. Всего в продукте 49 встроенных иконок; показан набор рабочих. У каждой кнопки-иконки обязателен <code>aria-label</code>.</p>
+  <div class="icgrid" id="icon-grid"></div>
+  <p class="note" style="margin-top:8px">В продукте часть кнопок всё ещё использует текстовые знаки (<code>＋ ⌕ ◖ ↑ ‹ × ⤷</code>) и эмодзи <code>🔗</code>; этот кит рисует их SVG.</p>
+</section>
+
+<!-- ===== 6. Кнопки ===== -->
+<section id="buttons">
+  <p class="kicker">06</p><h2>Кнопки</h2>
+  <p class="lead">Одна главная кнопка на экран. Высоты: 48 (обычная), 44 на сенсорном экране (малая), 36 малая на мыши. Нажатие <code>scale(.97)</code> 40 мс, отключено при <code>prefers-reduced-motion</code>.</p>
+  <h3>Варианты</h3>
+  <div class="row">
+    <button class="btn primary" type="button">Главная</button>
+    <button class="btn secondary" type="button">Вторичная</button>
+    <button class="btn ghost" type="button">Контурная</button>
+    <button class="btn danger" type="button">Опасная</button>
+    <button class="btn link" type="button">Ссылка</button>
+    <button class="btn small secondary" type="button">Малая</button>
+    <button class="btn icon" type="button" aria-label="Закрепить" data-ic="pin"></button>
+    <button class="btn icon" type="button" aria-label="Ответить" data-ic="reply"></button>
+  </div>
+  <h3>Состояния (главная и вторичная)</h3>
+  <div class="tblwrap"><table aria-label="Состояния кнопок"><thead><tr><th>Состояние</th><th>Главная</th><th>Вторичная</th><th>Контурная</th></tr></thead><tbody>
+    <tr><td>Обычное</td><td><button class="btn primary" type="button">Отправить</button></td><td><button class="btn secondary" type="button">Отмена</button></td><td><button class="btn ghost" type="button">Позже</button></td></tr>
+    <tr><td>Наведение</td><td><button class="btn primary demo-hover" type="button">Отправить</button></td><td><button class="btn secondary demo-hover" type="button">Отмена</button></td><td><button class="btn ghost demo-hover" type="button">Позже</button></td></tr>
+    <tr><td>Нажатие</td><td><button class="btn primary demo-active" type="button">Отправить</button></td><td><button class="btn secondary demo-active" type="button">Отмена</button></td><td><button class="btn ghost demo-active" type="button">Позже</button></td></tr>
+    <tr><td>Фокус</td><td><button class="btn primary demo-focus" type="button">Отправить</button></td><td><button class="btn secondary demo-focus" type="button">Отмена</button></td><td><button class="btn ghost demo-focus" type="button">Позже</button></td></tr>
+    <tr><td>Недоступно</td><td><button class="btn primary" type="button" disabled>Отправить</button></td><td><button class="btn secondary" type="button" disabled>Отмена</button></td><td><button class="btn ghost" type="button" disabled>Позже</button></td></tr>
+    <tr><td>Загрузка</td><td><button class="btn primary busy" type="button" aria-busy="true"><span class="spin" aria-hidden="true"></span>Отправка</button></td><td><button class="btn secondary busy" type="button" aria-busy="true"><span class="spin" aria-hidden="true"></span>Сохранение</button></td><td><button class="btn ghost busy" type="button" aria-busy="true"><span class="spin" aria-hidden="true"></span>Ждём</button></td></tr>
+  </tbody></table></div>
+</section>
+
+<!-- ===== 7. Поля ===== -->
+<section id="fields">
+  <p class="kicker">07</p><h2>Поля и переключатели</h2>
+  <div class="grid g2">
+    <label class="field">Название<input class="inp" placeholder="Например, смета на объект"></label>
+    <label class="field">Сумма, ₽<input class="inp mono" inputmode="decimal" value="125000"></label>
+    <label class="field">Ошибка<input class="inp err" value="12" aria-invalid="true" aria-describedby="e1"><span class="errmsg" id="e1"><span class="ic" style="width:16px;height:16px" data-ic="alert"></span>Укажите сумму не меньше 100</span></label>
+    <label class="field">Недоступно<input class="inp" value="Задано администратором" disabled></label>
+    <label class="field">Комментарий<textarea class="inp" placeholder="Что нужно уточнить"></textarea></label>
+    <label class="field">Доступ<select class="inp"><option>Вся компания</option><option>Только участники</option></select></label>
+  </div>
+  <h3>Переключатели, флажки, сегменты</h3>
+  <div class="grid g2">
+    <div class="card">
+      <div class="sw-row"><span>Только объявления</span><span class="switch"><input type="checkbox" role="switch" aria-label="Только объявления" checked><span></span></span></div>
+      <div class="sw-row"><span>Звук уведомлений</span><span class="switch"><input type="checkbox" role="switch" aria-label="Звук уведомлений"><span></span></span></div>
+      <label class="check"><input type="checkbox" checked>Создать задачу после одобрения</label>
+    </div>
+    <div class="card">
+      <p class="tag" style="margin-bottom:8px">Фильтр бесед (чипы-кнопки)</p>
+      <div class="row" style="gap:8px">
+        <button type="button" class="chipbtn on">Все <span class="badge">12</span></button>
+        <button type="button" class="chipbtn">Каналы</button>
+        <button type="button" class="chipbtn">Группы</button>
+        <button type="button" class="chipbtn">Личные <span class="badge">3</span></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 8. Чипы ===== -->
+<section id="chips">
+  <p class="kicker">08</p><h2>Чипы, метки, статусы</h2>
+  <h3>Состояния задачи (слово рядом с цветом)</h3>
+  <div class="row">
+    <span class="chip">Ожидает принятия</span><span class="chip warm">В работе</span><span class="chip warm">На проверке</span><span class="chip good">Результат принят</span><span class="chip">Закрыта</span><span class="chip danger">Просрочено</span><span class="chip danger">Отклонена</span><span class="chip">Отложена</span>
+  </div>
+  <h3>Состояния заявки</h3>
+  <div class="row">
+    <span class="chip warm">На согласовании</span><span class="chip warm">Нужно уточнение</span><span class="chip good">Одобрена</span><span class="chip danger">Отклонена</span><span class="chip">Отозвана</span><span class="chip good">Выполнена</span>
+  </div>
+  <h3>Метки <code>label-ink / label-wash</code></h3>
+  <div class="row" id="label-row"></div>
+  <h3>Присутствие</h3>
+  <div class="row">
+    <span class="row" style="gap:6px"><span class="dot online"></span>В сети</span>
+    <span class="row" style="gap:6px"><span class="dot away"></span>Отошёл</span>
+    <span class="row" style="gap:6px"><span class="dot busy"></span>Занят</span>
+    <span class="row" style="gap:6px"><span class="dot dnd"></span>Не беспокоить</span>
+    <span class="row" style="gap:6px"><span class="dot off"></span>Не в сети</span>
+  </div>
+  <h3>Статусы сообщения (предложение, в продукте не реализовано, см. <code>08</code>)</h3>
+  <div class="card"><div class="grid g3">
+    <div><span class="status"><span class="ic" data-ic="clock"></span>Отправляется</span><p class="tag">часы, <code>--muted-2</code></p></div>
+    <div><span class="status"><span class="ic" data-ic="check1"></span>Отправлено</span><p class="tag">одна галочка</p></div>
+    <div><span class="status read"><span class="ic" data-ic="check2"></span>Прочитано</span><p class="tag">две галочки, <code>--warm</code></p></div>
+    <div><span class="status fail"><span class="ic" data-ic="alert"></span>Не отправлено · Повторить</span><p class="tag">восклицательный знак, <code>--danger</code></p></div>
+  </div><p class="note" style="margin-top:8px">«Доставлено» в наборе нет: без подтверждения от устройства честно показать нельзя. Различие всегда ещё и подписью для экранного диктора. Показывать только автору.</p></div>
+</section>
+
+<!-- ===== 9. Комнаты ===== -->
+<section id="rooms">
+  <p class="kicker">09</p><h2>Список комнат с непрочитанным</h2>
+  <p class="lead">Карточка в три колонки: значок комнаты, название с превью, время и счётчик. Непрочитанное: название жирное, счётчик-пилюля (потолок «99+»). Приглушённая беседа: превью светлее, счётчика нет.</p>
+  <div class="grid g2">
+    <div class="card"><div class="convs" id="conv-demo"></div></div>
+    <div class="card">
+      <h3 style="margin-top:0">Виды комнат</h3>
+      <div class="grid" id="kinds" style="gap:10px"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 10. Лента ===== -->
+<section id="feed">
+  <p class="kicker">10</p><h2>Лента сообщений и композитор</h2>
+  <p class="lead">В коде пузырь плоский: линия 1 px, радиус <code>--r-3</code>, без тени; своё сообщение справа на <code>--warm-soft</code>. Время внутри. Дата разделителем, граница «Непрочитанное» акцентом. Действия появляются по наведению или нажатию.</p>
+  <div class="grid g2">
+    <div class="card">
+      <div class="feed" id="feed-demo"></div>
+      <div class="typing" aria-live="polite">Анна печатает…</div>
+      <div class="composer">
+        <button type="button" class="cbtn" aria-label="Прикрепить файл" data-ic="plus"></button>
+        <button type="button" class="cbtn" aria-label="Предложить варианты ответа" data-ic="assistant"></button>
+        <textarea rows="1" aria-label="Сообщение" placeholder="Сообщение">@ан</textarea>
+        <button type="button" class="cbtn" aria-label="Голосовое сообщение" data-ic="mic"></button>
+        <button type="button" class="cbtn send" aria-label="Отправить" data-ic="send"></button>
+      </div>
+      <div class="picker" role="listbox" aria-label="Упоминание" style="margin-top:8px">
+        <button type="button" role="option" aria-selected="true"><span class="av" style="width:32px;height:32px;font-size:13px">АД</span>Анна Дроздова<span class="tag" style="margin-left:auto">@anna</span></button>
+        <button type="button" role="option" aria-selected="false"><span class="av" style="width:32px;height:32px;font-size:13px">АД</span>Андрей Демидов<span class="tag" style="margin-left:auto">@andrey</span></button>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Композитор: варианты</h3>
+      <p class="tag" style="margin-bottom:6px">Канал «только объявления» для участника</p>
+      <div class="composer" style="opacity:.8"><textarea rows="1" disabled aria-label="Сообщение" placeholder="В этом канале пишут только его руководители"></textarea><button type="button" class="cbtn send" aria-label="Отправить" disabled data-ic="send" style="opacity:.5"></button></div>
+      <p class="tag" style="margin:14px 0 6px">Запись голоса</p>
+      <div class="composer"><textarea rows="1" disabled aria-label="Сообщение" placeholder="Идёт запись… нажмите ещё раз, чтобы отправить"></textarea><button type="button" class="cbtn" aria-label="Остановить запись" style="background:var(--btn-danger-bg);color:var(--btn-danger-fg)" data-ic="mic"></button></div>
+      <p class="tag" style="margin:14px 0 6px">Ответ на сообщение</p>
+      <div class="quote" style="margin:0"><b>Анна</b> Смета в приложении, посмотрите до пятницы</div>
+      <p class="note" style="margin-top:12px">Мобильное правило: поле ввода 16 px, цели 44 px, поле растёт до 124 px; Enter отправляет, Shift+Enter переносит. Черновик хранится на устройстве.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 11. Задача и заявка ===== -->
+<section id="work">
+  <p class="kicker">11</p><h2>Карточка задачи и запрос на согласование</h2>
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="margin-top:0">Задача</h3>
+      <button type="button" class="task overdue" aria-label="Открыть задачу: Согласовать смету">
+        <span class="ring" aria-hidden="true"></span>
+        <span><span class="tt">Согласовать смету на отделку</span>
+          <span class="meta"><span>В работе</span><span>·</span><span class="late">просрочено — 12 окт, 18:00</span><span>·</span><span>Олег П.</span></span>
+          <span class="row" style="gap:6px;margin-top:8px"><span class="label-chip" data-colour="blue">Смета</span><span class="label-chip" data-colour="amber">Объект 14</span></span>
+        </span>
+        <span class="chip danger">высокая</span>
+      </button>
+      <div class="roles" aria-label="Участники обязательства">
+        <div class="role"><span>Заказчик</span><b>Мария С.</b></div>
+        <div class="role"><span>Ответственный</span><b>Олег П.</b></div>
+        <div class="role"><span>Принимает результат</span><b>Мария С.</b></div>
+      </div>
+      <div class="row" style="gap:8px"><span class="chip good">Доказательство: 1</span><span class="chip">Версия 4</span></div>
+      <div class="row" style="margin-top:12px"><button class="btn primary" type="button">Отправить на проверку</button><button class="btn secondary" type="button">Есть блокировка</button><button class="btn ghost" type="button">Перенести срок</button></div>
+      <p class="note" style="margin-top:8px">Кнопки зависят от роли и состояния (<code>task-authority.js</code>); у перехода есть <code>expectedVersion</code>, причина обязательна для блокировки, отказа, отмены, отсрочки и возврата на доработку.</p>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">Запрос на согласование</h3>
+      <div class="row" style="gap:8px;margin-bottom:6px"><b style="font-size:17px">Покупка · ноутбук для проекта</b></div>
+      <div class="row" style="gap:8px"><span class="chip warm">На согласовании</span><span class="tag">шаблон «Покупка» v3 · подала Мария С. · 12 окт</span></div>
+      <div class="role" style="margin:12px 0"><span>Сумма</span><b class="mono">185 000 ₽</b></div>
+      <div class="chain" role="list" aria-label="Цепочка согласования">
+        <div class="step done" role="listitem"><span class="sdot"><span class="ic" style="width:18px;height:18px" data-ic="check1"></span></span><div><h4>Руководитель</h4><p>Согласовал Иван К. · 12 окт, 15:40</p></div></div>
+        <div class="step now" role="listitem"><span class="sdot"><span class="ic" style="width:18px;height:18px" data-ic="clock"></span></span><div><h4>Администратор</h4><p>Ждёт решения · шаг нужен при сумме от 100 000 ₽</p></div></div>
+        <div class="step" role="listitem"><span class="sdot"><span class="ic" style="width:18px;height:18px" data-ic="task"></span></span><div><h4>Задача после одобрения</h4><p>Будет создана один раз по шаблону</p></div></div>
+      </div>
+      <div class="row"><button class="btn primary" type="button">Согласовать</button><button class="btn secondary" type="button">Запросить уточнение</button><button class="btn danger" type="button">Отклонить</button></div>
+      <p class="note" style="margin-top:8px">Цикл «нужна информация»: статус «Нужно уточнение», подавший отвечает и отправляет снова, текущий шаг возвращается в «ждёт решения». Отклонить и вернуть без пояснения нельзя.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 12. Звонок ===== -->
+<section id="call">
+  <p class="kicker">12</p><h2>Экран звонка</h2>
+  <p class="lead">Экран звонка всегда тёмный (<code>public/calls.css</code>, фон <code>#050505</code>) независимо от темы. Плитки участников с инициалами, пока нет видео; рамка акцента у говорящего; запись только после согласия всех.</p>
+  <div class="grid g2">
+    <div class="call" role="group" aria-label="Звонок">
+      <div class="call-top"><b>Планёрка по объекту</b><span class="live">LIVE</span></div>
+      <div class="stage">
+        <div class="tile speaking"><span class="fb">ОП</span><span class="lab">Олег П. (вы)</span></div>
+        <div class="tile"><span class="fb">МС</span><span class="lab"><span class="ic" style="width:14px;height:14px" data-ic="micoff"></span>Мария С.</span></div>
+        <div class="tile"><span class="fb">ИК</span><span class="lab">Иван К.</span></div>
+        <div class="tile"><span class="fb">АД</span><span class="lab">Анна Д. · экран</span></div>
+      </div>
+      <div class="controls">
+        <button type="button" class="cc" aria-label="Микрофон" data-ic="mic"></button>
+        <button type="button" class="cc off" aria-label="Камера выключена" data-ic="videooff"></button>
+        <button type="button" class="cc" aria-label="Демонстрация экрана" data-ic="screen"></button>
+        <button type="button" class="cc rec" aria-label="Запись, нужно согласие всех" data-ic="rec"></button>
+        <button type="button" class="cc leave" aria-label="Выйти из звонка" data-ic="leave"></button>
+      </div>
+    </div>
+    <div>
+      <div class="incoming" role="alert">
+        <div><strong>Мария С. звонит</strong><small>Видеозвонок · Планёрка по объекту</small></div>
+        <div class="row" style="gap:8px"><button class="btn primary small touch" type="button">Присоединиться</button><button class="btn secondary small touch" type="button">Не сейчас</button></div>
+      </div>
+      <p class="note" style="margin-top:12px">Плашка входящего звонка не выкатывается при «Не беспокоить» и приглушённой беседе. «Не сейчас» отправляет отказ звонящему.</p>
+      <h3>Согласие на запись</h3>
+      <div class="card"><p>Запись начнётся, когда согласятся все активные участники.</p>
+        <div class="row" style="margin-top:8px"><span class="chip good">Олег П.</span><span class="chip good">Иван К.</span><span class="chip warm">Мария С. — ждём</span><span class="chip warm">Анна Д. — ждём</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 13. Состояния ===== -->
+<section id="states">
+  <p class="kicker">13</p><h2>Состояния</h2>
+  <div class="grid g3">
+    <div class="state"><span class="ic" style="width:32px;height:32px;color:var(--muted-2)" data-ic="chats"></span><strong>Нет сообщений</strong><span class="muted">Откройте разговор или начните новый</span><button type="button" class="btn secondary small touch">Новый чат</button></div>
+    <div class="state" aria-busy="true"><div style="width:100%;display:grid;gap:10px"><div class="skel" style="width:70%"></div><div class="skel"></div><div class="skel" style="width:85%"></div></div><span class="muted">Загрузка…</span></div>
+    <div class="state"><span class="ic" style="width:32px;height:32px;color:var(--danger)" data-ic="alert"></span><strong>Не получилось</strong><span class="muted">Сервер ответил с ошибкой. Попробуйте ещё раз</span><button type="button" class="btn secondary small touch">Повторить</button></div>
+    <div class="state"><span class="ic" style="width:32px;height:32px;color:var(--muted-2)" data-ic="lock"></span><strong>Не найдено</strong><span class="muted">Для гостя закрытые разделы отвечают 404, не называя, что именно скрыто</span></div>
+    <div class="state" role="alert"><span class="ic" style="width:32px;height:32px;color:var(--warning)" data-ic="offline"></span><strong>Нет связи</strong><span class="muted">Сообщения не уходят. Текст сохранён, повтор при появлении сети</span><button type="button" class="btn primary small touch">Повторить</button></div>
+    <div class="state"><span class="toast" role="status">Задача создана</span><div class="alert" style="width:100%">Сессия истекла. Войдите снова</div></div>
+  </div>
+</section>
+
+<!-- ===== 14. Экраны ===== -->
+<section id="screens">
+  <p class="kicker">14</p><h2>Типовые экраны</h2>
+  <div class="devs" id="devs">
+    <div class="phone" aria-label="Телефон: сообщения"><div class="sb"><span>9:41</span><span>ChatX</span></div>
+      <div class="body"><div class="hdr"><h4>Сообщения</h4><button class="btn icon" type="button" aria-label="Поиск" data-ic="search"></button><button class="btn icon" type="button" aria-label="Создать" data-ic="plus"></button></div>
+        <div class="scr"><div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:nowrap;overflow:hidden"><button type="button" class="chipbtn on" style="min-height:44px">Все</button><button type="button" class="chipbtn">Каналы</button><button type="button" class="chipbtn">Личные</button></div><div class="convs" id="phone-convs"></div></div>
+        <div class="nav" id="phone-nav-1"></div></div></div>
+    <div class="phone" aria-label="Телефон: беседа"><div class="sb"><span>9:41</span><span>ChatX</span></div>
+      <div class="body"><div class="hdr"><button class="btn icon" type="button" aria-label="Назад к списку" data-ic="back"></button><h4># объект-14</h4><button class="btn icon" type="button" aria-label="Видеозвонок" data-ic="video"></button></div>
+        <div class="scr"><div class="feed" id="phone-feed"></div></div>
+        <div style="padding:8px 10px 12px"><div class="composer"><button type="button" class="cbtn" aria-label="Прикрепить файл" data-ic="plus"></button><textarea rows="1" aria-label="Сообщение" placeholder="Сообщение"></textarea><button type="button" class="cbtn send" aria-label="Отправить" data-ic="send"></button></div></div></div></div>
+    <div class="phone" aria-label="Телефон: заявка"><div class="sb"><span>9:41</span><span>ChatX</span></div>
+      <div class="body"><div class="hdr"><button class="btn icon" type="button" aria-label="К списку" data-ic="back"></button><h4>Заявка</h4></div>
+        <div class="scr" style="padding-top:12px"><b style="font-size:17px">Покупка · ноутбук</b><div class="row" style="gap:6px;margin:6px 0 10px"><span class="chip warm">На согласовании</span></div>
+          <div class="role"><span>Сумма</span><b class="mono">185 000 ₽</b></div>
+          <div class="chain" style="margin-top:12px"><div class="step done"><span class="sdot"><span class="ic" style="width:16px;height:16px" data-ic="check1"></span></span><div><h4>Руководитель</h4><p>Иван К. согласовал</p></div></div><div class="step now"><span class="sdot"><span class="ic" style="width:16px;height:16px" data-ic="clock"></span></span><div><h4>Администратор</h4><p>Ждёт решения · от 100 000 ₽</p></div></div></div></div>
+        <div style="padding:10px;display:grid;gap:8px;border-top:1px solid var(--line)"><button class="btn primary" type="button">Согласовать</button><div class="row" style="gap:8px;flex-wrap:nowrap"><button class="btn secondary small touch" type="button" style="flex:1">Уточнение</button><button class="btn danger small touch" type="button" style="flex:1">Отклонить</button></div></div></div></div>
+  </div>
+
+  <h3>Монитор: навигация, список, беседа</h3>
+  <div class="monitor-wrap" id="mon-wrap"><div class="monitor" id="mon" aria-label="Монитор: рабочее пространство"><div class="mon-in">
+    <div class="mon-side"><div class="brand" style="padding:4px 6px 10px"><span class="orb" data-ic="logo"></span>ChatX</div>
+      <button class="nav-i" type="button"><span class="ic" data-ic="today"></span>Сегодня</button>
+      <button class="nav-i on" type="button"><span class="ic" data-ic="chats"></span>Сообщения <span class="badge" style="margin-left:auto">4</span></button>
+      <button class="nav-i" type="button"><span class="ic" data-ic="tasks"></span>Задачи</button>
+      <button class="nav-i" type="button"><span class="ic" data-ic="calendar"></span>Календарь</button>
+      <button class="nav-i" type="button"><span class="ic" data-ic="more"></span>Ещё</button>
+      <div class="sec-h"><span>Каналы</span></div>
+      <button class="nav-i" type="button"><span class="mono muted">#</span>общий</button>
+      <button class="nav-i" type="button"><span class="mono muted">#</span>объект-14</button>
+      <div class="sec-h"><span>Личные</span></div>
+      <button class="nav-i" type="button"><span class="dot online"></span>Анна Дроздова</button>
+    </div>
+    <div class="mon-list"><div class="row" style="gap:6px;margin-bottom:8px;flex-wrap:nowrap"><button type="button" class="chipbtn on">Все</button><button type="button" class="chipbtn">Каналы</button><button type="button" class="chipbtn">Личные</button></div><div class="convs" id="mon-convs"></div></div>
+    <div class="mon-chat"><div class="ch"><span class="av room room-channel">#</span><div style="min-width:0;flex:1"><b style="font-size:17px">объект-14</b><div class="tag">Рабочая переписка · 8 участников</div></div><button class="btn icon" type="button" aria-label="Аудиозвонок" data-ic="phone"></button><button class="btn icon" type="button" aria-label="Видеозвонок" data-ic="video"></button><button class="btn icon" type="button" aria-label="Закреплённые" data-ic="pin"></button></div>
+      <div class="feedwrap"><div class="feed" id="mon-feed"></div></div>
+      <div class="cw"><div class="composer"><button type="button" class="cbtn" aria-label="Прикрепить файл" data-ic="plus"></button><textarea rows="1" aria-label="Сообщение" placeholder="Сообщение"></textarea><button type="button" class="cbtn" aria-label="Голосовое сообщение" data-ic="mic"></button><button type="button" class="cbtn send" aria-label="Отправить" data-ic="send"></button></div></div></div>
+  </div></div></div>
+</section>
+
+<!-- ===== 15. Правила ===== -->
+<section id="rules">
+  <p class="kicker">15</p><h2>Правила проверки</h2>
+  <div class="tblwrap"><table><thead><tr><th>Что</th><th>Норма</th><th>Как проверить</th></tr></thead><tbody>
+    <tr><td>Контраст текста</td><td>не ниже 4,5:1 в обеих темах</td><td>таблица в разделе «Контраст»</td></tr>
+    <tr><td>Границы интерактивных элементов</td><td>не ниже 3:1 (<code>--line-strong</code>)</td><td>нетекстовая таблица</td></tr>
+    <tr><td>Цель касания</td><td>не меньше 44 px на сенсорном экране</td><td>инспектор: высота кнопок, чипов, строк</td></tr>
+    <tr><td>Текст</td><td>не мельче 12 px в ките (11 px в продукте — точка улучшения)</td><td>поиск <code>font-size</code></td></tr>
+    <tr><td>Фокус</td><td>2 px, отступ 2, виден в обеих темах</td><td>Tab по странице</td></tr>
+    <tr><td>Движение</td><td>отключается при <code>prefers-reduced-motion</code></td><td>включить в системе</td></tr>
+    <tr><td>Акцент</td><td>одна главная кнопка и один акцент на экран</td><td>визуально</td></tr>
+    <tr><td>Ширина 375 px</td><td>нет горизонтальной прокрутки страницы</td><td>окно 375 px</td></tr>
+  </tbody></table></div>
+  <p class="footer">Источники токенов: <code>public/styles.css</code> (строка 1, <code>:root</code>), <code>public/preferences.css</code> (светлая тема, переопределения акцента), <code>DESIGN.md</code>. Файл самодостаточен: без внешних ресурсов, стили и скрипт встроены.</p>
+</section>
+</main>
+
+<script>
+(function(){
+'use strict';
+/* ===== Иконки: контуры из public/app.js + несколько недостающих в том же стиле ===== */
+var P={
+ logo:'<path d="M146 104h220a62 62 0 0 1 62 62v140a62 62 0 0 1-62 62H240l-78 64v-64h-16a62 62 0 0 1-62-62V166a62 62 0 0 1 62-62Z" fill="currentColor" stroke="none"/><path d="M176 232l56 56 106-112" fill="none" stroke="var(--action)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>',
+ today:'<path d="M3.6 10.4 12 3.8l8.4 6.6"/><path d="M5.6 9.2V19a1.2 1.2 0 0 0 1.2 1.2h10.4a1.2 1.2 0 0 0 1.2-1.2V9.2"/><path d="M9.8 20.2v-5.4h4.4v5.4"/>',
+ chats:'<path d="M20.2 12.4c0 3.9-3.7 7-8.2 7a9.4 9.4 0 0 1-2.6-.35L4.4 20.4l1.2-3.5A6.6 6.6 0 0 1 3.8 12.4c0-3.9 3.7-7 8.2-7s8.2 3.1 8.2 7Z"/>',
+ tasks:'<path d="M4.6 6.6h6.2M4.6 12h6.2M4.6 17.4h6.2"/><path d="m14.4 6.2 1.9 1.9 3.5-3.5"/><path d="m14.4 15.6 1.9 1.9 3.5-3.5"/>',
+ calendar:'<rect x="3.6" y="5.2" width="16.8" height="15.2" rx="2.4"/><path d="M3.6 10h16.8M8.4 3.6v3.2M15.6 3.6v3.2"/>',
+ more:'<circle cx="5.4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.6" cy="12" r="1.5" fill="currentColor" stroke="none"/>',
+ star:'<path d="M12 4.2l2.4 5 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 10l5.4-.8Z"/>',
+ marker:'<path d="M14.4 4.6 19.4 9.6 10.6 18.4H5.6v-5Z"/><path d="m12.6 6.4 5 5"/><path d="M4.4 20.4h6"/>',
+ note:'<path d="M6.4 3.8h8.2l4 4v12.4H6.4Z"/><path d="M14.6 3.8v4h4"/><path d="M9.2 12.4h6M9.2 15.6h4"/>',
+ react:'<circle cx="12" cy="12" r="8.2"/><path d="M8.8 14.4a4 4 0 0 0 6.4 0"/><path d="M9.2 9.6h.01M14.8 9.6h.01"/>',
+ reply:'<path d="M9.6 6.4 4.8 11l4.8 4.6"/><path d="M4.8 11h8.6a5.6 5.6 0 0 1 5.6 5.6v1"/>',
+ forward:'<path d="m14.4 6.4 4.8 4.6-4.8 4.6"/><path d="M19.2 11h-8.6A5.6 5.6 0 0 0 5 16.6v1"/>',
+ pin:'<path d="M9.4 3.6h5.2l-.6 5 3 3.2-.9 1.4H8.9L8 11.8l3-3.2Z"/><path d="M12 13.2v7.2"/>',
+ edit:'<path d="M14.6 5.4 18.6 9.4 9 19H5v-4Z"/><path d="m13.2 6.8 4 4"/>',
+ trash:'<path d="M5.4 7.2h13.2"/><path d="M9.6 7.2V5.4h4.8v1.8"/><path d="M7.2 7.2 8 19.4a1.2 1.2 0 0 0 1.2 1.1h5.6a1.2 1.2 0 0 0 1.2-1.1l.8-12.2"/>',
+ task:'<rect x="4.6" y="4.6" width="14.8" height="14.8" rx="3"/><path d="m8.6 12 2.4 2.4 4.4-4.8"/>',
+ assistant:'<path d="M12 3.6 13.6 8 18 9.6 13.6 11.2 12 15.6 10.4 11.2 6 9.6 10.4 8Z"/><path d="M18.4 15.6 19.2 17.6 21.2 18.4 19.2 19.2 18.4 21.2 17.6 19.2 15.6 18.4 17.6 17.6Z"/>',
+ channel:'<path d="M9.4 4.2 7.8 19.8M16.2 4.2l-1.6 15.6"/><path d="M4.6 9h15.2M3.8 14.6H19"/>',
+ muted:'<path d="M6.6 10.4a5.4 5.4 0 0 1 8.2-4.6"/><path d="M17.4 12.2c0 3.2 1.2 4.6 1.2 4.6H7.4"/><path d="M4.6 4.6 19.4 19.4"/><path d="M10.2 19a2 2 0 0 0 3.6 0"/>',
+ bell:'<path d="M6.6 10.4a5.4 5.4 0 1 1 10.8 0c0 4 1.4 5.6 1.4 5.6H5.2s1.4-1.6 1.4-5.6Z"/><path d="M10.2 19a2 2 0 0 0 3.6 0"/>',
+ video:'<rect x="3.4" y="6.4" width="12" height="11.2" rx="2.2"/><path d="m15.4 11.2 5.2-2.8v7.2l-5.2-2.8Z"/>',
+ back:'<path d="M14.4 5.6 8 12l6.4 6.4"/>',
+ saved:'<path d="M7 4.6h10a1.4 1.4 0 0 1 1.4 1.4v13.4L12 16l-6.4 3.4V6A1.4 1.4 0 0 1 7 4.6Z"/>',
+ archive:'<rect x="3.6" y="5" width="16.8" height="4" rx="1.2"/><path d="M5.4 9v9.4a1.6 1.6 0 0 0 1.6 1.6h10a1.6 1.6 0 0 0 1.6-1.6V9"/><path d="M10 13h4"/>',
+ team:'<circle cx="9.4" cy="9" r="3.2"/><path d="M3.8 19.4c0-3 2.5-5 5.6-5s5.6 2 5.6 5"/><path d="M16.2 6.2a3 3 0 0 1 0 5.8"/><path d="M17.6 14.8c1.7.6 2.8 2 2.8 4"/>',
+ calls:'<path d="M7.2 4.6h3l1.4 3.6-2 1.4a10.4 10.4 0 0 0 4.8 4.8l1.4-2 3.6 1.4v3a1.6 1.6 0 0 1-1.7 1.6C11 18 6 13 5.6 6.3a1.6 1.6 0 0 1 1.6-1.7Z"/>',
+ files:'<path d="M6.4 3.8h7l4.2 4.2v12.2H6.4Z"/><path d="M13.2 3.8V8h4.4"/>',
+ reminders:'<circle cx="12" cy="13" r="7.4"/><path d="M12 9.4V13l2.4 1.6"/><path d="m5.6 4.6 2.8 2M18.4 4.6l-2.8 2"/>',
+ vault:'<circle cx="9.6" cy="11" r="3.4"/><path d="M12.6 12.4h7.8v3"/><path d="M17.4 12.4v2.6"/>',
+ /* ниже: в том же стиле, в продукте этих значков нет (там текстовые знаки) */
+ plus:'<path d="M12 5v14M5 12h14"/>',
+ send:'<path d="M12 19V6"/><path d="m6.4 11.4 5.6-5.6 5.6 5.6"/>',
+ mic:'<rect x="9" y="3.6" width="6" height="10.4" rx="3"/><path d="M5.8 11.6a6.2 6.2 0 0 0 12.4 0M12 17.8v2.6"/>',
+ micoff:'<rect x="9" y="3.6" width="6" height="10.4" rx="3"/><path d="M5.8 11.6a6.2 6.2 0 0 0 12.4 0M12 17.8v2.6M4.6 4.6l14.8 14.8"/>',
+ videooff:'<rect x="3.4" y="6.4" width="12" height="11.2" rx="2.2"/><path d="m15.4 11.2 5.2-2.8v7.2l-5.2-2.8ZM4.6 4.6l14.8 14.8"/>',
+ screen:'<rect x="3.4" y="4.6" width="17.2" height="11.6" rx="2"/><path d="M8.6 19.6h6.8M12 16.2v3.4"/>',
+ rec:'<circle cx="12" cy="12" r="5.2" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="8.2"/>',
+ leave:'<path d="M5 15.6c4-3.6 10-3.6 14 0l-1.6 2.2-3-1.2v-2a8 8 0 0 0-4.8 0v2l-3 1.2Z"/>',
+ phone:'<path d="M7.2 4.6h3l1.4 3.6-2 1.4a10.4 10.4 0 0 0 4.8 4.8l1.4-2 3.6 1.4v3a1.6 1.6 0 0 1-1.7 1.6C11 18 6 13 5.6 6.3a1.6 1.6 0 0 1 1.6-1.7Z"/>',
+ search:'<circle cx="10.6" cy="10.6" r="6"/><path d="m15 15 5 5"/>',
+ clock:'<circle cx="12" cy="12" r="8.2"/><path d="M12 7.6V12l2.8 1.8"/>',
+ check1:'<path d="m5.4 12.6 4.2 4.2 9-9.6"/>',
+ check2:'<path d="m2.6 12.6 4.2 4.2 7.4-8"/><path d="m10.4 15.4 1.4 1.4 8.6-9.6"/>',
+ alert:'<circle cx="12" cy="12" r="8.4"/><path d="M12 7.6v5.2M12 16.2h.01"/>',
+ lock:'<rect x="5.4" y="10.6" width="13.2" height="9.2" rx="2"/><path d="M8.4 10.6V8a3.6 3.6 0 0 1 7.2 0v2.6"/>',
+ offline:'<path d="M3.6 9.2a12 12 0 0 1 16.8 0M6.6 12.4a8 8 0 0 1 10.8 0M9.6 15.6a4 4 0 0 1 4.8 0"/><path d="M4.6 4.6l14.8 14.8"/>'
+};
+function svg(name){return '<svg viewBox="'+(name==='logo'?'0 0 512 512':'0 0 24 24')+'" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+(P[name]||'')+'</svg>';}
+function fillIcons(root){
+  (root||document).querySelectorAll('[data-ic]').forEach(function(el){
+    if(el.dataset.done)return;
+    el.dataset.done='1';
+    var n=el.getAttribute('data-ic');
+    if(el.classList.contains('ic')||el.tagName==='SPAN'&&el.classList.contains('orb')){el.innerHTML=svg(n);return}
+    el.innerHTML='<span class="ic">'+svg(n)+'</span>';
+    el.style.display=el.style.display||'';
+  });
+}
+var ICON_NAMES=['today','chats','tasks','calendar','more','star','marker','note','react','reply','forward','pin','edit','trash','task','assistant','channel','muted','bell','video','back','saved','archive','team','calls','files','reminders','vault','plus','send','mic','search','clock','check1','check2','alert','lock'];
+var ig=document.getElementById('icon-grid');
+ig.innerHTML=ICON_NAMES.map(function(n){return '<div class="icitem"><span class="ic">'+svg(n)+'</span><span>'+n+'</span></div>'}).join('');
+
+/* ===== Тема ===== */
+var root=document.documentElement;
+function setTheme(t){
+  root.setAttribute('data-theme',t);
+  document.querySelectorAll('[data-theme-btn]').forEach(function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-theme-btn')===t))});
+  try{localStorage.setItem('chat.theme',t)}catch(e){}
+}
+var stored=null;try{stored=localStorage.getItem('chat.theme')}catch(e){}
+setTheme(stored==='light'?'light':'dark');
+document.querySelectorAll('[data-theme-btn]').forEach(function(b){b.addEventListener('click',function(){setTheme(b.getAttribute('data-theme-btn'))})});
+
+/* ===== Палитра ===== */
+var TOKENS=[
+ ['--bg','Фон приложения'],['--surface','Панели, карточки'],['--surface-2','Активная строка, поля'],['--surface-3','Вторичные кнопки, чипы'],
+ ['--line','Тонкая граница (декор)'],['--line-strong','Граница полей (предл.)'],['--text','Основной текст'],['--muted','Вторичный текст'],
+ ['--muted-2','Время, подсказки'],['--warm','Акцент: ссылки, упоминания'],['--warm-soft','Фон акцента'],['--danger','Ошибка, просрочка'],
+ ['--success','Успех'],['--warning','Внимание'],['--action','Главная кнопка'],['--on-action','Текст главной кнопки'],['--focus','Кольцо фокуса']
+];
+var pg=document.getElementById('palette-grid');
+pg.innerHTML=TOKENS.map(function(t){return '<div class="sw"><i style="background:var('+t[0]+')"></i><div><b>'+t[0]+'</b><span>'+t[1]+'</span><span class="mono" data-hex="'+t[0]+'"></span></div></div>'}).join('');
+var rooms=[['channel','Канал'],['group','Группа'],['direct','Личная'],['team','Команда'],['project','Проект'],['external','Внешняя']];
+document.getElementById('room-grid').innerHTML=rooms.map(function(r){return '<div class="sw" style="display:flex;align-items:center;gap:12px;padding:10px 12px"><span class="av room room-'+r[0]+'" style="flex:none">'+({channel:'#',group:'❖',direct:'АД',team:'◆',project:'▲',external:'◈'})[r[0]]+'</span><div style="padding:0"><b>--room-'+r[0]+'</b><span>'+r[1]+'</span></div></div>'}).join('');
+var colours=['neutral','red','amber','green','teal','blue','violet','grey'],names={neutral:'Нейтральная',red:'Срочно',amber:'Внимание',green:'Готово',teal:'Информация',blue:'Проект',violet:'Согласование',grey:'Архив'};
+document.getElementById('label-row').innerHTML=colours.map(function(c){return '<span class="label-chip" data-colour="'+c+'">'+names[c]+'</span>'}).join('');
+
+/* ===== Контраст ===== */
+function parse(c){var m=c.match(/rgba?\(([^)]+)\)/);if(!m)return null;var p=m[1].split(/[ ,\/]+/).map(Number);return [p[0],p[1],p[2]];}
+function lum(rgb){var f=function(v){v/=255;return v<=.03928?v/12.92:Math.pow((v+.055)/1.055,2.4)};return .2126*f(rgb[0])+.7152*f(rgb[1])+.0722*f(rgb[2]);}
+function ratio(a,b){var la=lum(a),lb=lum(b);if(la<lb){var t=la;la=lb;lb=t}return (la+.05)/(lb+.05);}
+var probes={};
+['dark','light'].forEach(function(t){var d=document.createElement('div');d.setAttribute('data-theme',t);d.style.cssText='position:absolute;left:-9999px;top:0;width:1px;height:1px';document.body.appendChild(d);probes[t]=d;});
+function colour(theme,token){var s=document.createElement('span');s.style.color='var('+token+')';probes[theme].appendChild(s);var v=getComputedStyle(s).color;probes[theme].removeChild(s);return parse(v);}
+var TEXT_PAIRS=[
+ ['Основной текст на фоне','--text','--bg'],['Основной текст на панели','--text','--surface'],['Основной текст на поле (surface-2)','--text','--surface-2'],['Основной текст на chip (surface-3)','--text','--surface-3'],
+ ['Вторичный на фоне','--muted','--bg'],['Вторичный на панели','--muted','--surface'],['Вторичный на surface-2','--muted','--surface-2'],['Вторичный на surface-3','--muted','--surface-3'],
+ ['Время (muted-2) на фоне','--muted-2','--bg'],['Время на панели','--muted-2','--surface'],['Время на surface-2','--muted-2','--surface-2'],['Время на surface-3','--muted-2','--surface-3'],
+ ['Акцент на фоне','--warm','--bg'],['Акцент на панели','--warm','--surface'],['Акцент на surface-2','--warm','--surface-2'],['Акцент на warm-soft','--warm','--warm-soft'],
+ ['Опасность на фоне','--danger','--bg'],['Опасность на панели','--danger','--surface'],['Успех на фоне','--success','--bg'],['Успех на панели','--success','--surface'],
+ ['Внимание на фоне','--warning','--bg'],['Внимание на панели','--warning','--surface'],
+ ['Главная кнопка','--on-action','--action'],
+ ['Чип обычный','--chip-fg','--surface-3'],['Чип акцентный','--chip-warm-fg','--warm-soft'],['Чип «опасно»','--chip-danger-fg','--chip-danger-bg'],['Чип «готово»','--chip-good-fg','--chip-good-bg'],
+ ['Кнопка «опасная»','--btn-danger-fg','--btn-danger-bg'],['Аватар (инициалы)','--avatar-fg','--avatar-bg']
+];
+colours.forEach(function(c){TEXT_PAIRS.push(['Метка «'+names[c]+'»','--l-'+c+'-ink','--l-'+c+'-wash'])});
+var NON_PAIRS=[
+ ['Кольцо фокуса на фоне','--focus','--bg'],['Граница полей (line-strong) на фоне','--line-strong','--bg'],['Граница полей на панели','--line-strong','--surface'],
+ ['Рамка комнаты: канал','--room-channel','--surface'],['Рамка комнаты: группа','--room-group','--surface'],['Рамка комнаты: личная','--room-direct','--surface'],
+ ['Рамка комнаты: команда','--room-team','--surface'],['Рамка комнаты: проект','--room-project','--surface'],['Рамка комнаты: внешняя','--room-external','--surface'],
+ ['Точка «в сети» на панели','--success','--surface'],['Точка «занят» на панели','--danger','--surface'],['Точка «отошёл» на панели','--warning','--surface']
+];
+function build(){
+  var shown=0,hidden=0,body=document.querySelector('#ctr-text tbody'),rows='';
+  TEXT_PAIRS.forEach(function(p){
+    var cells={};var any=false;
+    ['dark','light'].forEach(function(t){var r=ratio(colour(t,p[1]),colour(t,p[2]));if(r>=4.5){cells[t]=r;any=true;shown++}else{hidden++;cells[t]=null}});
+    if(!any)return;
+    var sw=function(t){return cells[t]===null?'<span class="muted2">скрыто (ниже 4,5)</span>':'<span class="mono">'+cells[t].toFixed(2)+'</span> <span class="chip good">'+(cells[t]>=7?'AAA':'AA')+'</span>'};
+    rows+='<tr><td>'+p[0]+'</td><td>'+sw('dark')+'</td><td>'+sw('light')+'</td></tr>';
+  });
+  body.innerHTML=rows;
+  var nb=document.querySelector('#ctr-non tbody'),nr='',nfail=0;
+  NON_PAIRS.forEach(function(p){
+    var c={};['dark','light'].forEach(function(t){c[t]=ratio(colour(t,p[1]),colour(t,p[2]))});
+    var f=function(v){if(v<3)nfail++;return '<span class="mono">'+v.toFixed(2)+'</span> <span class="chip '+(v>=3?'good':'danger')+'">'+(v>=3?'≥3:1':'ниже 3:1')+'</span>'};
+    nr+='<tr><td>'+p[0]+'</td><td>'+f(c.dark)+'</td><td>'+f(c.light)+'</td></tr>';
+  });
+  nb.innerHTML=nr;
+  document.getElementById('ctr-ok').textContent='Пар текста проходит: '+shown+' из '+(shown+hidden);
+  document.getElementById('ctr-hidden').textContent='Скрыто непроходящих: '+hidden+' · нетекст ниже 3:1: '+nfail;
+  document.querySelectorAll('[data-hex]').forEach(function(el){var tok=el.getAttribute('data-hex'),d=colour('dark',tok),l=colour('light',tok);var h=function(c){return '#'+c.map(function(v){return ('0'+v.toString(16)).slice(-2)}).join('')};el.textContent=h(d)+' / '+h(l)});
+}
+
+/* ===== Данные демонстрации (вымышленные) ===== */
+function roomAv(kind,mark){return '<span class="av room room-'+kind+'">'+mark+'</span>'}
+var CONVS=[
+ {k:'channel',m:'#',t:'объект-14',p:'<span class="mention">@Олег</span> смета в приложении',tm:'14:05',u:3,un:1},
+ {k:'direct',m:'АД',t:'Анна Дроздова',p:'Посмотрю до вечера',tm:'13:40',u:1,un:1,active:1},
+ {k:'group',m:'❖',t:'Закупки',p:'Мария: счёт на согласовании',tm:'11:20'},
+ {k:'team',m:'◆',t:'Команда монтажа',p:'График на неделю закреплён',tm:'вчера',mutedRoom:1},
+ {k:'project',m:'▲',t:'Проект Север',p:'Файл: акт.pdf',tm:'вчера',u:120,un:1},
+ {k:'external',m:'◈',t:'Заказчик · Гранит',p:'Принято, спасибо',tm:'пн'}
+];
+function convHtml(c){
+  var badge=c.u?'<span class="badge" aria-label="Непрочитанных: '+(c.u>99?'99+':c.u)+'">'+(c.u>99?'99+':c.u)+'</span>':'';
+  return '<button type="button" class="conv'+(c.un?' unread':'')+(c.active?' active':'')+(c.mutedRoom?' muted-room':'')+'">'+roomAv(c.k,c.m)+'<span style="min-width:0"><strong>'+c.t+'</strong><span class="pv">'+c.p+'</span></span><span class="side"><time>'+c.tm+'</time>'+badge+'</span></button>';
+}
+document.getElementById('conv-demo').innerHTML=CONVS.map(convHtml).join('');
+document.getElementById('phone-convs').innerHTML=CONVS.slice(0,5).map(convHtml).join('');
+document.getElementById('mon-convs').innerHTML=CONVS.map(convHtml).join('');
+document.getElementById('kinds').innerHTML=[['channel','#','Канал','открытый или закрытый, «только объявления»'],['group','❖','Группа','от двух человек'],['direct','АД','Личная','имя собеседника'],['team','◆','Команда','создаётся подразделением'],['project','▲','Проект','создаётся подразделением'],['external','◈','Внешняя','комната с гостем, виден только участникам']].map(function(r){return '<div class="row" style="gap:12px;flex-wrap:nowrap">'+roomAv(r[0],r[1])+'<div style="min-width:0"><b>'+r[2]+'</b><div class="tag">'+r[3]+'</div></div></div>'}).join('');
+
+function msg(o){
+  var av=o.mine?'':'<span class="av" style="width:40px;height:40px">'+o.ini+'</span>';
+  var who=(!o.mine&&!o.grouped)?'<div class="who">'+o.who+'</div>':'';
+  var st=o.status?'<span class="status '+(o.status.cls||'')+'"><span class="ic" data-ic="'+o.status.ic+'"></span><span>'+o.status.t+'</span></span>':'';
+  var stamp='<div class="stamp">'+(o.edited?'<span>изменено в '+o.edited+'</span>':'')+'<time>'+o.time+'</time>'+st+'</div>';
+  var react=o.react?'<div class="row" style="gap:6px;margin-top:4px">'+o.react+'</div>':'';
+  var thread=o.thread?'<button type="button" class="thread"><span class="ic" style="width:18px;height:18px" data-ic="reply"></span>'+o.thread+'</button>':'';
+  return '<article class="msg'+(o.mine?' mine':'')+'">'+(o.mine?'':av)+'<div class="col">'+who+'<div class="bubble">'+(o.quote||'')+o.body+stamp+'</div>'+react+thread+'</div></article>';
+}
+var M=[
+ '<div class="day">Сегодня</div>',
+ msg({ini:'АД',who:'Анна Дроздова',body:'<p>Смета на отделку готова, файл ниже.</p>',time:'13:58'}),
+ msg({ini:'АД',grouped:1,body:'<div class="filecard"><span class="fm"><span class="ic" data-ic="files"></span></span><span style="min-width:0"><b style="display:block;font-size:14px">смета-отделка.xlsx</b><span class="tag">214 КБ · скачать</span></span></div>',time:'13:58'}),
+ '<div class="divider">Непрочитанное</div>',
+ msg({ini:'ИК',who:'Иван Кузнецов',body:'<p><span class="mention">@Олег</span> посмотрите позиции 4 и 7, там расхождение с договором.</p>',time:'14:02',react:'<span class="react mine">👍 2</span><span class="react">👀 1</span>',thread:'3 ответа · 14:20'}),
+ msg({mine:1,body:'<div class="quote"><b>Иван</b> посмотрите позиции 4 и 7</div><p>Посмотрю и вернусь до 17:00. Заведу задачу.</p>',time:'14:05',edited:'14:06',status:{ic:'check2',t:'Прочитано',cls:'read'}}),
+ msg({mine:1,body:'<p>Отправляю ещё версию без скидки</p>',time:'14:07',status:{ic:'alert',t:'Не отправлено · Повторить',cls:'fail'}})
+];
+document.getElementById('feed-demo').innerHTML=M.join('');
+document.getElementById('phone-feed').innerHTML=[
+ '<div class="divider">Непрочитанное</div>',
+ msg({ini:'ИК',who:'Иван Кузнецов',body:'<p><span class="mention">@Олег</span> позиции 4 и 7 не сходятся</p>',time:'14:02'}),
+ msg({mine:1,body:'<p>Посмотрю до 17:00</p>',time:'14:05',status:{ic:'check1',t:'Отправлено'}})
+].join('');
+document.getElementById('mon-feed').innerHTML=[
+ '<div class="day">Сегодня</div>',
+ msg({ini:'АД',who:'Анна Дроздова',body:'<p>Смета на отделку готова, файл ниже.</p>',time:'13:58'}),
+ '<div class="divider">Непрочитанное</div>',
+ msg({ini:'ИК',who:'Иван Кузнецов',body:'<p><span class="mention">@Олег</span> посмотрите позиции 4 и 7, там расхождение с договором.</p>',time:'14:02',react:'<span class="react mine">👍 2</span>'}),
+ msg({mine:1,body:'<p>Посмотрю и вернусь до 17:00. Заведу задачу.</p>',time:'14:05',status:{ic:'check2',t:'Прочитано',cls:'read'}})
+].join('');
+
+/* нижняя навигация телефона */
+document.getElementById('phone-nav-1').innerHTML=[['today','Сегодня'],['chats','Чаты'],['tasks','Задачи'],['calendar','Календарь'],['more','Ещё']].map(function(n,i){return '<button type="button" class="'+(i===1?'on':'')+'" aria-label="'+n[1]+'"><span class="ic">'+svg(n[0])+'</span>'+(i===1?'<span class="badge">4</span>':'')+'</button>'}).join('');
+
+fillIcons(document);
+
+/* ===== Масштаб монитора под ширину страницы (без горизонтальной прокрутки) ===== */
+function fit(){
+  var wrap=document.getElementById('mon-wrap'),mon=document.getElementById('mon');
+  var w=wrap.clientWidth,s=Math.min(1,w/1040);
+  mon.style.transform='scale('+s+')';
+  wrap.style.height=Math.ceil(mon.offsetHeight*s)+'px';
+}
+window.addEventListener('resize',fit);
+
+build();fit();
+new MutationObserver(function(){build()}).observe(root,{attributes:true,attributeFilter:['data-theme']});
+})();
+</script>
+</body>
+</html>
