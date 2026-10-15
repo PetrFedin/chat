@@ -2929,8 +2929,10 @@ async function wikiModal(pageId=null){
             // Re-check canonical membership and refresh local navigation state.
             const result=await api('/api/v1/conversations');
             S.conversations=result.items||[];
-            overlayStack.length=0;renderOverlay();
-            await openChatAtMessage(id,null);
+            // Canonical sheet-to-chat navigation updates both route and state.
+            // Avoid clearing the overlay stack and calling a second route
+            // handler that races against the pending browser history entries.
+            openChatFromSheet(id);
           }catch(error){toast(error.message)}
         });
         $$('[data-wiki-channel-remove]').forEach(button=>button.onclick=async()=>{
@@ -3014,9 +3016,15 @@ async function wikiModal(pageId=null){
     };
   };
   const refresh=async()=>{
-    const next=await build();
+    // An old async response must never overwrite a newer modal. History's
+    // popstate already calls resumeTop() after removing the child.
     const top=overlayStack[overlayStack.length-1];
-    if(top){Object.assign(top,next);renderOverlay()}
+    if(!top || top.refresh!==build)return;
+    const next=await build();
+    if(overlayStack[overlayStack.length-1]!==top)return;
+    const dialog=$('.modal');
+    Object.assign(top,next);
+    renderOverlay(dialog?{top:dialog.scrollTop}:null);
   };
   const first=await build();
   modal(first.title,first.body,first.after,build);
@@ -3047,7 +3055,7 @@ async function wikiProjectLinkModal(page,after){
         await api(`/api/v1/wiki/pages/${page.id}/projects`,{
           method:'POST',body:JSON.stringify({projectId}),
         });
-        history.back();setTimeout(()=>after?.(),200);
+        history.back(); // popstate restores and revalidates the parent Wiki Page
         toast(T('Проект связан со страницей','Project linked to page'));
       }catch(error){button.disabled=false;toast(error.message)}
     };
@@ -3144,7 +3152,7 @@ async function wikiChannelLinkModal(page,after){
           await api(`/api/v1/wiki/pages/${page.id}/channels`,{
             method:'POST',body:JSON.stringify({conversationId:button.dataset.wikiChannelSelect}),
           });
-          history.back();setTimeout(()=>after?.(),200);
+          history.back(); // popstate restores and revalidates the parent Wiki Page
           toast(T('Канал связан со страницей','Channel linked to page'));
         }catch(error){button.disabled=false;toast(error.message)}
       });
