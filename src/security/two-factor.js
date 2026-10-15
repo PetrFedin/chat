@@ -209,7 +209,11 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
       let hit = null;
       for (const candidate of rows) if (equal(candidate.code_hash, hash)) hit = candidate.id;
       if (!hit) return { ok: false, reason: 'bad_code' };
-      await pool.query('UPDATE auth_recovery_codes SET used_at = now() WHERE id = $1', [hit]);
+      const claimed = await pool.query(
+        'UPDATE auth_recovery_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id',
+        [hit],
+      );
+      if (!claimed.rowCount) return { ok: false, reason: 'code_used' };
       await pool.query('UPDATE auth_totp SET last_used_at = now() WHERE user_id = $1', [userId]);
       const left = rows.length - 1;
       return { ok: true, method: 'recovery', recoveryCodesLeft: left };
