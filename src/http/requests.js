@@ -75,8 +75,8 @@ export function createRequestsHandler() {
         : action === 'respond' ? await requests.respond(session, m[1], { values: body.values, comment: body.comment })
           : action === 'cancel' ? await requests.cancel(session, m[1], { comment: body.comment })
             : await requests.complete(session, m[1]);
-      json(res, 200, { request: result });
       const audience = await requests.audience(session, m[1]);
+      json(res, 200, { request: result });
       ctx.hub?.broadcastUsers?.(session.workspaceId, audience, 'request.updated', { requestId: m[1] });
       return true;
     }
