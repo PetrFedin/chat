@@ -3286,6 +3286,106 @@ async function wikiProjectLinkModal(page,after){
   });
 }
 
+async function wikiMeetingLinkModal(page,after){
+  let items=[];
+  try{
+    const now=Date.now(),from=new Date(now-180*86400000).toISOString(),to=new Date(now+365*86400000).toISOString();
+    const [response,current]=await Promise.all([
+      api(`/api/v1/calendar-events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.meetings||[]).map(item=>item.id));
+    const seen=new Set();
+    items=(response.items||[]).map(item=>{
+      const id=item.seriesId||item.id;
+      return {...item,id};
+    }).filter(item=>item.kind==='meeting'&&!item.busyOnly&&/^[0-9a-f-]{36}$/i.test(item.id)
+      &&!linked.has(item.id)&&!seen.has(item.id)&&(seen.add(item.id),true));
+  }catch(error){toast(error.message);return}
+  if(!items.length)return toast(T('Нет новой доступной встречи для связи','There is no further visible meeting to link'));
+  modal(T('Связать встречу','Link meeting'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Показываются только встречи, карточку которых вы уже можете открыть полностью. Ссылка не расширяет доступ.',
+      'Only meetings whose full calendar card you can already open are shown. Linking does not grant access.'
+    )}</p>
+    <label>${T('Поиск встреч','Filter meetings')}
+      <input data-wiki-meeting-filter autocomplete="off" placeholder="${T('Название встречи','Meeting title')}">
+    </label>
+    <div data-wiki-meeting-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const input=$('[data-wiki-meeting-filter]'),results=$('[data-wiki-meeting-candidates]');
+    if(!input||!results)return;
+    const draw=()=>{
+      const q=input.value.trim().toLocaleLowerCase();
+      const visible=items.filter(item=>(item.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=visible.slice(0,100).map(item=>`
+        <button type="button" role="listitem" class="row flow pressable"
+          data-wiki-meeting-select="${esc(item.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(item.title||T('Встреча','Meeting'))}</strong>
+            <span class="row-sub">${esc(dateTime(item.startAt))}</span></span>
+        </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching meetings')}</div>`;
+      $('[data-wiki-meeting-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/calendar-meetings`,{
+            method:'POST',body:JSON.stringify({eventId:button.dataset.wikiMeetingSelect}),
+          });
+          history.back();
+          toast(T('Встреча связана со страницей','Meeting linked to Page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    input.addEventListener('input',draw);draw();
+  });
+}
+
+async function wikiCallLinkModal(page,after){
+  let items=[];
+  try{
+    const [response,current]=await Promise.all([
+      api('/api/v1/meetings?limit=100'),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.calls||[]).map(item=>item.id));
+    items=(response.items||[]).filter(item=>item.recordingStatus&&item.recordingStatus!=='off'&&!linked.has(item.id));
+  }catch(error){toast(error.message);return}
+  if(!items.length)return toast(T('Нет новой доступной записи встречи','There is no further visible recorded call to link'));
+  modal(T('Связать запись встречи','Link recorded call'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Страница сохранит только ссылку. Расшифровка, медиа и состав участников останутся в разделе встреч.',
+      'The Page stores only a reference. Transcript, media and participants remain in Meeting Authority.'
+    )}</p>
+    <label>${T('Поиск записей','Filter recordings')}
+      <input data-wiki-call-filter autocomplete="off" placeholder="${T('Название встречи','Meeting title')}">
+    </label>
+    <div data-wiki-call-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const input=$('[data-wiki-call-filter]'),results=$('[data-wiki-call-candidates]');
+    if(!input||!results)return;
+    const draw=()=>{
+      const q=input.value.trim().toLocaleLowerCase();
+      const visible=items.filter(item=>(item.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=visible.map(item=>`
+        <button type="button" role="listitem" class="row flow pressable"
+          data-wiki-call-select="${esc(item.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(item.title||T('Записанный звонок','Recorded call'))}</strong>
+            <span class="row-sub">${esc(dateTime(item.startedAt||item.scheduledFor||item.createdAt))}</span></span>
+        </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching recordings')}</div>`;
+      $('[data-wiki-call-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/calls`,{
+            method:'POST',body:JSON.stringify({callId:button.dataset.wikiCallSelect}),
+          });
+          history.back();
+          toast(T('Запись встречи связана со страницей','Recorded call linked to Page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    input.addEventListener('input',draw);draw();
+  });
+}
+
 async function wikiDecisionLinkModal(page,after){
   let items=[];
   try{
