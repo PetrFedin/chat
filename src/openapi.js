@@ -572,6 +572,19 @@ export const openapi = Object.freeze({
     '/api/v1/wiki/pages/{pageId}/history': {
       get: { tags: ['Wiki'], summary: 'List prior snapshots of a page, newest first', responses: { '200': { description: 'Version history' } } }
     },
+    '/api/v1/wiki/pages/{pageId}/decisions': {
+      post: { tags: ['Wiki'], summary: 'Link an accepted canonical Decision to a Page',
+        description: 'Only active decisions visible via Decision Authority can be linked. The link never grants meeting access or copies decision text. Writes an auditable Page relation.',
+        responses: { '200': { description: 'Page with permission-filtered accepted Decisions' },
+          '404': { description: 'Page or Decision does not exist or is not visible' },
+          '409': { description: 'Duplicate relation or Page Decision limit' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/decisions/{decisionId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink a visible Decision without retracting or deleting it',
+        description: 'Requires current canonical Decision visibility. Only the reference is deleted; source and audit history remain unchanged.',
+        responses: { '200': { description: 'Page with updated links' },
+          '404': { description: 'Page, Decision or relation is not visible' } } }
+    },
     '/api/v1/wiki/pages/{pageId}/projects': {
       post: { tags: ['Wiki'], summary: 'Link a visible canonical project to a page', description: 'Stores only a Page-to-Project relation. Project visibility remains authoritative; a private project is omitted for a page reader who cannot already open it.', responses: { '200': { description: 'Page with refreshed visible project relations' }, '404': { description: 'Page or project not visible' }, '409': { description: 'Project already linked' } } }
     },

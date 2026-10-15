@@ -42,10 +42,10 @@ const summaryView = (row) => ({
   createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
-export function createWikiRepository(pool, projects = null, store = null) {
+export function createWikiRepository(pool, projects = null, store = null, meeting = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop };
   }
 
   const ensurePage = async (session, id) => {
@@ -127,6 +127,28 @@ export function createWikiRepository(pool, projects = null, store = null) {
     return projected.filter(Boolean);
   };
 
+  // A Page stores only the identity of a decision; the Decision Authority
+  // rechecks acceptance and source-meeting participation on every read.
+  // Neither the number nor title of inaccessible decisions is exposed.
+  const pageDecisions = async (session, pageId) => {
+    if (!meeting?.getDecision) return [];
+    const { rows } = await pool.query(
+      `SELECT decision_id "decisionId", linked_at "linkedAt"
+         FROM wiki_page_decisions
+        WHERE workspace_id=$1 AND page_id=$2
+        ORDER BY linked_at DESC, decision_id LIMIT 100`,
+      [session.workspaceId, pageId],
+    );
+    const items = await Promise.all(rows.map(async link => {
+      const decision = await meeting.getDecision(session, link.decisionId);
+      return decision ? {
+        id:decision.id, title:decision.title, acceptedAt:decision.acceptedAt,
+        sourceKind:decision.sourceKind, linkedAt:link.linkedAt,
+      } : null;
+    }));
+    return items.filter(Boolean);
+  };
+
   return {
     enabled: true,
 
@@ -149,7 +171,7 @@ export function createWikiRepository(pool, projects = null, store = null) {
         `SELECT ${SUMMARY_COLUMNS} FROM wiki_pages WHERE workspace_id=$1 AND parent_id=$2 AND archived_at IS NULL ORDER BY title`,
         [session.workspaceId, id],
       );
-      return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id), tasks: await pageTasks(session, id), channels: await pageChannels(session, id) };
+      return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id), tasks: await pageTasks(session, id), channels: await pageChannels(session, id), decisions: await pageDecisions(session, id) };
     },
 
     async create(session, { title, parentId = null, content = '', document } = {}) {
@@ -367,6 +389,106 @@ export function createWikiRepository(pool, projects = null, store = null) {
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'wiki_page',$3,'wiki.channel_unlinked',$4,$5)`,
           [session.organizationId, session.workspaceId, id, session.userId, { conversationId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
+      return this.get(session, id);
+    },
+
+    async pagesForDecision(session, decisionId) {
+      // Decision Authority is checked *first*, so guessed/retracted UUIDs do
+      // not reveal whether Page relations exist. Archived Pages stay hidden.
+      if (!meeting?.getDecision) throw fail('Реестр решений недоступен', 'DECISIONS_UNAVAILABLE', 503);
+      if (!await meeting.getDecision(session, decisionId)) {
+        throw fail('Решение не найдено', 'DECISION_NOT_FOUND', 404);
+      }
+      const { rows } = await pool.query(
+        `SELECT ${SUMMARY_COLUMNS}
+           FROM wiki_page_decisions link
+           JOIN wiki_pages p ON p.workspace_id=link.workspace_id AND p.id=link.page_id
+          WHERE link.workspace_id=$1 AND link.decision_id=$2 AND p.archived_at IS NULL
+          ORDER BY link.linked_at DESC, p.id LIMIT 100`,
+        [session.workspaceId, decisionId],
+      );
+      return rows.map(summaryView);
+    },
+
+    async linkDecision(session, id, decisionId) {
+      // Enforce Page admission before querying any target metadata.
+      await ensurePage(session, id);
+      if (!meeting?.getDecision) throw fail('Реестр решений недоступен', 'DECISIONS_UNAVAILABLE', 503);
+      const decision = await meeting.getDecision(session, decisionId);
+      if (!decision) throw fail('Решение не найдено', 'DECISION_NOT_FOUND', 404);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        // Lock Page to serialize concurrent additions and enforce the cap.
+        const { rows: pages } = await client.query(
+          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE',
+          [session.workspaceId, id],
+        );
+        if (!pages[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+        const { rows } = await client.query(
+          'SELECT count(*)::int count FROM wiki_page_decisions WHERE workspace_id=$1 AND page_id=$2',
+          [session.workspaceId, id],
+        );
+        if (rows[0].count >= 100) throw fail('На странице может быть не более 100 решений', 'PAGE_DECISION_LIMIT', 409);
+        // A concurrent retraction between the initial access check and write
+        // must not create a newly-linked retracted decision. Lock its row
+        // after the Page lock, checking status against canonical DB state.
+        const { rows: latest } = await client.query(
+          "SELECT id FROM decisions WHERE workspace_id=$1 AND id=$2 AND status='active' FOR SHARE",
+          [session.workspaceId, decisionId],
+        );
+        if (!latest[0]) throw fail('Решение не найдено', 'DECISION_NOT_FOUND', 404);
+        await client.query(
+          `INSERT INTO wiki_page_decisions(organization_id,workspace_id,page_id,decision_id,linked_by)
+           VALUES($1,$2,$3,$4,$5)`,
+          [session.organizationId, session.workspaceId, id, decisionId, session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.decision_linked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { decisionId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        if (error.code === '23505') throw fail('Решение уже связано со страницей', 'WIKI_DECISION_ALREADY_LINKED', 409);
+        if (error.code === '23503') throw fail('Решение не найдено', 'DECISION_NOT_FOUND', 404);
+        throw error;
+      } finally {
+        client.release();
+      }
+      return this.get(session, id);
+    },
+
+    async unlinkDecision(session, id, decisionId) {
+      await ensurePage(session, id);
+      if (!meeting?.getDecision) throw fail('Реестр решений недоступен', 'DECISIONS_UNAVAILABLE', 503);
+      // Explicit non-disclosure: an inaccessible, retracted or fabricated
+      // canonical decision can never be manipulated by guessing its UUID.
+      if (!await meeting.getDecision(session, decisionId)) {
+        throw fail('Решение не найдено', 'DECISION_NOT_FOUND', 404);
+      }
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rowCount } = await client.query(
+          `DELETE FROM wiki_page_decisions
+            WHERE workspace_id=$1 AND page_id=$2 AND decision_id=$3`,
+          [session.workspaceId, id, decisionId],
+        );
+        if (!rowCount) throw fail('Связь с решением не найдена', 'WIKI_DECISION_NOT_LINKED', 404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.decision_unlinked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { decisionId }],
         );
         await client.query('COMMIT');
       } catch (error) {
