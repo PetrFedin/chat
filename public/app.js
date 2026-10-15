@@ -70,8 +70,119 @@ const guestShell=()=>me()?.role==='guest';
 // «Мои задачи» и «Расписание дня» у гостя не наполнятся ничем и никогда:
 // ни одной задачи компании он не увидит, ни одной встречи не заведёт.
 // Пустые карточки с призывом «создайте задачу» — обещание вместо границы.
-const tasksVisible=()=>!guestShell(),calendarVisible=()=>!guestShell();
-const visibleNav=()=>guestShell()?nav.filter(([id])=>!GUEST_HIDDEN_VIEWS.has(id)):nav;
+// Функции компании: отключённое не рисуется и не вызывается. Состояние приходит с bootstrap и по событию features.updated.
+const feat=(id)=>S.boot?.features?.[id]!==false;
+const VIEW_FEATURE={tasks:'tasks',calendar:'calendar'};
+/** Кнопка или плитка → функция, без которой она не нужна. */
+const ELEMENT_FEATURE={
+  task:'tasks','time-report':'time_tracking',dashboard:'dashboard',report:'dashboard',event:'calendar','calendar-subscribe':'calendar',
+  plan:'plan',reminders:'reminders',labels:'labels',decisions:'decisions','meeting-ops':'meetings',games:'games','room-games':'games',stories:'stories',
+  vault:'vault',integrations:'integrations',apikeys:'api_keys',knowledge:'knowledge',wiki:'wiki',org:'org_structure',calls:'calls',audio:'calls',video:'calls',
+  'assistant-summarize':'assistant','assistant-suggest':'assistant',requests:'requests',topics:'topics',
+};
+const tasksVisible=()=>!guestShell()&&feat('tasks'),calendarVisible=()=>!guestShell()&&feat('calendar');
+const visibleNav=()=>(guestShell()?nav.filter(([id])=>!GUEST_HIDDEN_VIEWS.has(id)):nav).filter(([id])=>!VIEW_FEATURE[id]||feat(VIEW_FEATURE[id]));
+function gateFeatures(root=document){
+  if(!S.boot?.features)return;
+  root.querySelectorAll('[data-action],[data-nav],[data-feature],[data-quick-task],[data-task-message],[data-quick-event]').forEach((el)=>{
+    const id=el.dataset.feature||(el.dataset.nav?VIEW_FEATURE[el.dataset.nav]:null)||(el.dataset.action?ELEMENT_FEATURE[el.dataset.action]:null)
+      ||((el.dataset.quickTask!==undefined||el.dataset.taskMessage!==undefined)?'tasks':null)||(el.dataset.quickEvent!==undefined?'calendar':null);
+    if(id&&!feat(id))el.remove();
+  });
+}
+// ---- Ветки беседы ----
+const TOPIC_KINDS=['channel','group','team','project'];
+const topicsOn=(c)=>Boolean(c)&&feat('topics')&&TOPIC_KINDS.includes(c.kind)&&S.boot?.storageMode!=='memory';
+const topicState=(id)=>(S.topics??=new Map()).get(id)||{items:[],generalCount:0};
+const topicView=(id)=>(S.topicView??=new Map()).get(id)||'all';
+const topicTitle=(convId,topicId)=>topicState(convId).items.find(t=>t.id===topicId)?.title||'';
+async function loadTopics(id){
+  if(!id||!feat('topics'))return;
+  const c=S.conversations.find(x=>x.id===id);if(!topicsOn(c))return;
+  try{(S.topics??=new Map()).set(id,await api(`/api/v1/conversations/${id}/topics`))}catch{}
+}
+/** Какие сообщения видны при выбранном виде: вся лента, только общая или одна ветка. */
+function visibleMessages(c,messages){
+  const view=topicView(c.id);
+  if(!topicsOn(c)||view==='all')return messages;
+  return view==='general'?messages.filter(m=>!m.topicId):messages.filter(m=>m.topicId===view);
+}
+function topicBar(c){
+  if(!topicsOn(c))return '';
+  const st=topicState(c.id),view=topicView(c.id);
+  const chip=(key,label,n,extra='')=>`<button class="topic-chip pressable${view===key?' on':''}${extra}" data-topic-view="${esc(key)}">${label}${n?` <i>${n}</i>`:''}</button>`;
+  const current=st.items.find(t=>t.id===view);
+  return `<nav class="topic-bar" aria-label="${T('Ветки беседы','Conversation topics')}">${chip('all',T('Все','All'),'')}${chip('general',T('Общее','General'),st.generalCount)}${
+    st.items.map(t=>chip(t.id,`${t.pinned?'📌 ':''}${esc(t.title)}`,t.messageCount)).join('')}<button class="topic-chip add pressable" data-topic-new title="${T('Новая ветка','New topic')}" aria-label="${T('Новая ветка','New topic')}">＋ ${T('Ветка','Topic')}</button>${
+    current?`<button class="topic-chip pressable" data-topic-menu="${esc(current.id)}" aria-label="${T('Действия с веткой','Topic actions')}">⋯</button>`:''}</nav>`;
+}
+function topicBadge(m){
+  const c=S.conversations.find(x=>x.id===m.conversationId||x.id===S.selected);
+  if(!m.topicId||!c||!topicsOn(c)||topicView(c.id)!=='all')return '';
+  const title=topicTitle(c.id,m.topicId);
+  return title?`<button class="topic-badge pressable" data-topic-view="${esc(m.topicId)}" title="${T('Открыть ветку','Open topic')}"># ${esc(title)}</button>`:'';
+}
+async function setTopicView(id,view){
+  (S.topicView??=new Map()).set(id,view);
+  if(view!=='all'&&view!=='general'){
+    try{
+      const {items}=await api(`/api/v1/conversations/${id}/topics/${view}/messages?limit=200`);
+      const list=S.messages.get(id)||[];const have=new Set(list.map(m=>m.id));
+      for(const m of items)if(!have.has(m.id))list.push(m);
+      list.sort((a,b)=>Date.parse(a.createdAt)-Date.parse(b.createdAt));S.messages.set(id,list);
+    }catch(error){toast(error.message)}
+  }
+  S.streamPos=null;render();
+}
+async function newTopic(){
+  const id=S.selected;if(!id)return;
+  modal(T('Новая ветка','New topic'),`<form id="topic-form" class="form-stack"><p class="muted">${T('Ветка — отдельный разговор по теме внутри беседы: «Договоры», «Закупки», «Релиз».','A topic is a separate conversation inside this one: “Contracts”, “Purchasing”, “Release”.')}</p><label class="field-group"><span>${T('Название','Title')}</span><input name="title" maxlength="80" required autofocus></label><button class="button primary" type="submit">${T('Создать ветку','Create topic')}</button></form>`,()=>{
+    $('#topic-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      try{
+        const{topic}=await api(`/api/v1/conversations/${id}/topics`,{method:'POST',body:JSON.stringify({title:new FormData(event.target).get('title')})});
+        closeModal();await loadTopics(id);await setTopicView(id,topic.id);toast(T('Ветка создана','Topic created'));
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+function topicMenu(topicId){
+  const id=S.selected;const t=topicState(id).items.find(x=>x.id===topicId);if(!t)return;
+  modal(`# ${t.title}`,`<div class="stack"><button class="row pressable" data-tm="rename">${T('Переименовать','Rename')}</button><button class="row pressable" data-tm="pin">${t.pinned?T('Открепить','Unpin'):T('Закрепить вверху','Pin to the top')}</button><button class="row pressable" data-tm="archive">${T('В архив','Archive')}</button></div>`,()=>{
+    const patch=async(body,after)=>{try{await api(`/api/v1/conversations/${id}/topics/${topicId}`,{method:'PATCH',body:JSON.stringify(body)});closeModal();await loadTopics(id);after?.();render()}catch(error){toast(error.message)}};
+    $('[data-tm="pin"]').onclick=()=>patch({pinned:!t.pinned});
+    $('[data-tm="archive"]').onclick=()=>patch({archived:true},()=>{S.topicView.set(id,'all')});
+    $('[data-tm="rename"]').onclick=()=>{
+      const next=prompt(T('Новое название ветки','New topic title'),t.title);
+      if(next&&next.trim())patch({title:next.trim()});
+    };
+  });
+}
+function moveToTopicModal(messageId){
+  const message=(S.messages.get(S.selected)||[]).find(x=>x.id===messageId);if(!message)return;
+  const st=topicState(S.selected);
+  modal(T('В какую ветку перенести','Move to topic'),`<div class="stack">${[{id:'',title:T('Общая лента','General feed')},...st.items].map(t=>`<button class="row pressable${(message.topicId||'')===t.id?' on':''}" data-move-topic="${esc(t.id)}">${t.id?'# ':''}${esc(t.title)}</button>`).join('')}<button class="row pressable" data-move-new>＋ ${T('Новая ветка…','New topic…')}</button></div>`,()=>{
+    $$('[data-move-topic]').forEach(b=>b.onclick=async()=>{
+      try{await api(`/api/v1/messages/${messageId}/topic`,{method:'PATCH',body:JSON.stringify({topicId:b.dataset.moveTopic||null})});closeModal();await loadTopics(S.selected);toast(T('Сообщение перенесено','Message moved'))}
+      catch(error){toast(error.message)}
+    });
+    $('[data-move-new]').onclick=()=>{
+      const title=prompt(T('Название новой ветки','New topic title'));
+      if(!title||!title.trim())return;
+      api(`/api/v1/conversations/${S.selected}/topics`,{method:'POST',body:JSON.stringify({title:title.trim()})})
+        .then(({topic})=>api(`/api/v1/messages/${messageId}/topic`,{method:'PATCH',body:JSON.stringify({topicId:topic.id})}))
+        .then(async()=>{closeModal();await loadTopics(S.selected);toast(T('Сообщение перенесено в новую ветку','Moved to the new topic'))})
+        .catch(error=>toast(error.message));
+    };
+  });
+}
+document.addEventListener('click',(event)=>{
+  const view=event.target.closest('[data-topic-view]');if(view&&S.selected){setTopicView(S.selected,view.dataset.topicView);return}
+  if(event.target.closest('[data-topic-new]')){newTopic();return}
+  const menu=event.target.closest('[data-topic-menu]');if(menu)topicMenu(menu.dataset.topicMenu);
+});
+let gateTimer=null;
+new MutationObserver(()=>{clearTimeout(gateTimer);gateTimer=setTimeout(()=>gateFeatures(),0)}).observe(document.body,{childList:true,subtree:true});
 // Обязательство берёт на себя сотрудник компании. Гость — представитель
 // заказчика: предлагать его ответственным значит обещать то, чего сервер
 // не позволит, и заодно показывать чужим людям штат.
@@ -217,6 +328,7 @@ async function api(path,o={}){
     const code=p?.error?.code;
     const e=new Error(plainServerError(ERROR_MESSAGE[code]||p?.error?.message,r.status));
     e.status=r.status;e.code=code;e.serverMessage=p?.error?.message;
+    if(code==='FEATURE_DISABLED')refreshFeatures(false);
     // Сессия кончилась посреди работы: без этого приложение выглядело живым и
     // отвечало на каждое действие сырой ошибкой.
     if(r.status===401&&code==='UNAUTHENTICATED'&&S.boot&&!S.sessionLost){
@@ -763,7 +875,7 @@ function taskRow(t){
   return `<button class="task-card pressable${late?' overdue':''}" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span class="${late?'task-late':soon?'task-soon':''}">${late?'<span>просрочено</span> — ':soon?'<span>сегодня</span> — ':''}${when}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div>${labels.length?`<div class="chip-row msg-labels">${labels.map(labelChip).join('')}</div>`:''}</span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`;
 }
 function kindLabel(k){return({voice:T('Голосовое сообщение','Voice message'),file:T('Файл','File'),call:T('Звонок','Call'),task:T('Задача','Task'),calendar:T('Событие','Event')})[k]||''}
-function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}">${roomAvatar(x)}<span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${previewOf(x,x.lastMessage?(x.lastMessage.body?escWithMentions(x.lastMessage.body):esc(kindLabel(x.lastMessage.kind))):'')}</div>${x.lastMessage?'':'<div class="preview preview-empty">Нет сообщений</div>'}</span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?'<span> · уведомления выключены</span>':''}</p></div></div><div class="inline-actions"><button data-action="audio" class="round-button pressable call-button" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable call-button" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="assistant-summarize" class="round-button pressable" title="Обзор беседы" aria-label="Коротко о чём был разговор">${msgIcon.assistant}</button><button data-action="materials" class="round-button pressable" title="Материалы беседы" aria-label="Фото, видео, ссылки и переносы">${tileIcon.files}</button><button data-action="import" class="round-button pressable" title="Перенести из мессенджера" aria-label="Перенести переписку из WhatsApp или Telegram">⇥</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button>${guestShell()?'':`<button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button>`}<button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}</div></header><div id="message-stream" class="message-stream">${S.messageCursor.get(c.id)?'<button id="load-older" class="button secondary pressable" style="margin:0 auto 10px;display:block">Показать более ранние</button>':''}${messageStream(messages)}</div><div id="typing" class="typing"></div><div class="composer-wrap">${awayNotice(c)}${S.reply?`<div class="reply-preview visible"><span><span>Ответ на:</span> ${S.reply.body?escWithMentions(S.reply.body):esc(kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><button data-action="assistant-suggest" class="composer-button pressable" title="Предложить ответ" aria-label="Предложить варианты ответа">${msgIcon.assistant}</button>${(()=>{const quiet=c?.announcementOnly&&!can('channel.manage')&&!['owner','moderator'].includes(c.memberRole);return quiet?`<textarea id="message-input" rows="1" disabled placeholder="${T('В этом канале пишут только его руководители','Only channel managers can post here')}"></textarea>`:`<textarea id="message-input" rows="1" placeholder="Сообщение"></textarea>`})()}<button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
+function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}">${roomAvatar(x)}<span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${previewOf(x,x.lastMessage?(x.lastMessage.body?escWithMentions(x.lastMessage.body):esc(kindLabel(x.lastMessage.kind))):'')}</div>${x.lastMessage?'':'<div class="preview preview-empty">Нет сообщений</div>'}</span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?'<span> · уведомления выключены</span>':''}</p></div></div><div class="inline-actions"><button data-action="audio" class="round-button pressable call-button" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable call-button" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="assistant-summarize" class="round-button pressable" title="Обзор беседы" aria-label="Коротко о чём был разговор">${msgIcon.assistant}</button><button data-action="materials" class="round-button pressable" title="Материалы беседы" aria-label="Фото, видео, ссылки и переносы">${tileIcon.files}</button><button data-action="import" class="round-button pressable" title="Перенести из мессенджера" aria-label="Перенести переписку из WhatsApp или Telegram">⇥</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button>${guestShell()?'':`<button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button>`}<button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}</div></header>${topicBar(c)}<div id="message-stream" class="message-stream">${S.messageCursor.get(c.id)?'<button id="load-older" class="button secondary pressable" style="margin:0 auto 10px;display:block">Показать более ранние</button>':''}${messageStream(visibleMessages(c,messages))}</div><div id="typing" class="typing"></div><div class="composer-wrap">${awayNotice(c)}${S.reply?`<div class="reply-preview visible"><span><span>Ответ на:</span> ${S.reply.body?escWithMentions(S.reply.body):esc(kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><button data-action="assistant-suggest" class="composer-button pressable" title="Предложить ответ" aria-label="Предложить варианты ответа">${msgIcon.assistant}</button>${(()=>{const quiet=c?.announcementOnly&&!can('channel.manage')&&!['owner','moderator'].includes(c.memberRole);return quiet?`<textarea id="message-input" rows="1" disabled placeholder="${T('В этом канале пишут только его руководители','Only channel managers can post here')}"></textarea>`:`<textarea id="message-input" rows="1" placeholder="${(()=>{const v=topicView(c.id);return v!=='all'&&v!=='general'&&topicsOn(c)?`${T('Сообщение в ветку','Message to topic')} «${esc(topicTitle(c.id,v))}»`:T('Сообщение','Message')})()}"></textarea>`})()}<button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
 /**
  * Лента переписки.
  *
@@ -882,6 +994,7 @@ function message(m,grouped=false){
     ${mine||grouped?'':`${personAvatar(m.authorId,name(m.authorId))}`}
     <div class="msg-column">
       ${mine||grouped?'':`<div class="message-meta"><span class="message-author">${esc(name(m.authorId))}</span></div>`}
+      ${topicBadge(m)}
       <div class="msg-bubble">
         ${outside}${forwarded}${quote}${body}${stamp}
       </div>
@@ -1329,7 +1442,76 @@ function eventCancelModal(event){
   });
 }
 
-function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} ${pluralIn(S.people.length,['сотрудник','сотрудника','сотрудников'],['employee','employees'])}<span>, роли и статусы</span></span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.settings')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>${can('organization.manage')?'Название, реквизиты, места и передача владения':'Реквизиты, места и почтовый домен'}</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="apikeys"><span class="module-icon">${tileIcon.apikeys}</span><strong>API-ключи</strong><span>Личный доступ к API от вашего имени</span></button>`:''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button>${can('knowledge.read')?`<button class="module-card pressable" data-action="knowledge"><span class="module-icon">${tileIcon.knowledge}</span><strong>База знаний</strong><span>HR-бот отвечает по статьям компании</span></button>`:''}${can('wiki.use')?`<button class="module-card pressable" data-action="wiki"><span class="module-icon">${tileIcon.wiki}</span><strong>Вики</strong><span>Совместные страницы, которые пишет любой сотрудник</span></button>`:''}${staff?`<button class="module-card pressable" data-action="time-report"><span class="module-icon">${tileIcon.timeReport}</span><strong>Отчёт по времени</strong><span>${can('task.manage.team')?'Ваши часы и часы команды по задачам':'Ваши часы по задачам'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="dashboard"><span class="module-icon">${tileIcon.dashboard}</span><strong>Дашборд</strong><span>Тренд по задачам и учтённому времени</span></button>`:''}<button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}${staff?`<button class="module-card pressable" data-action="requests"><span class="module-icon">${tileIcon.plan}</span><strong>Заявки</strong><span>Отпуск, покупка, доступ — с согласованием</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Уведомления, упоминания и сроки</span></button><button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
+
+/** Подтянуть состояние функций и перерисовать: после переключения, по событию от другого администратора и при отказе API. */
+async function refreshFeatures(announce){
+  try{
+    const{items}=await api('/api/v1/features');
+    const before=S.boot?.features||{};
+    const next=Object.fromEntries(items.map(f=>[f.id,f.enabled]));
+    if(S.boot)S.boot.features=next;
+    const changed=items.filter(f=>(before[f.id]!==false)!==f.enabled);
+    if(announce&&changed.length)toast(T('Администратор изменил набор функций компании','An administrator changed the company features'));
+    if(VIEW_FEATURE[S.view]&&!feat(VIEW_FEATURE[S.view]))go('today');else render();
+    if(document.querySelector('#features-list'))renderFeaturesList(items);
+  }catch{}
+}
+const featureTitle=(f)=>f.title[locale()==='en'?'en':'ru'];
+const featureDesc=(f)=>f.description[locale()==='en'?'en':'ru'];
+let featuresCache=[];
+function renderFeaturesList(items,{flash=[],confirm=null}={}){
+  featuresCache=items;
+  const byId=new Map(items.map(f=>[f.id,f]));
+  const names=(ids)=>ids.map(id=>featureTitle(byId.get(id))).join(', ');
+  const groups=[...new Set(items.map(f=>f.group))];
+  const canManage=['owner','admin'].includes(me()?.role);
+  $('#features-list').innerHTML=groups.map(g=>`<div class="section-title" style="margin-top:14px">${esc(items.find(f=>f.group===g).groupTitle[locale()==='en'?'en':'ru'])}</div>`+items.filter(f=>f.group===g).map(f=>{
+    const hot=confirm?.changes.some(c=>c.id===f.id&&c.id!==confirm.id);
+    return `<div class="row flow feature-row${flash.includes(f.id)?' feature-flash':''}${hot?' feature-hot':''}" data-feature-row="${esc(f.id)}">
+      <span><div class="row-title">${esc(featureTitle(f))}${f.enabled?'':` <span class="chip warm">${f.cascadeFrom?T('выключено вместе с','off with')+' «'+esc(featureTitle(byId.get(f.cascadeFrom)))+'»':T('выключено','off')}</span>`}</div>
+        <div class="row-sub">${esc(featureDesc(f))}</div>
+        ${f.requires.length?`<div class="row-sub">${T('Нужны:','Needs:')} ${esc(names(f.requires))}</div>`:''}
+        ${f.requiredBy.length?`<div class="row-sub">${T('Для неё нужны:','Needed by:')} ${esc(names(f.requiredBy))}</div>`:''}</span>
+      <label class="feature-switch"><input type="checkbox" data-feature-toggle="${esc(f.id)}" ${f.enabled?'checked':''} ${canManage?'':'disabled'} aria-label="${esc(featureTitle(f))}"><span></span></label></div>`;
+  }).join('')).join('')
+  +(confirm?`<div class="surface feature-confirm" role="alert"><strong>${confirm.enable?T('Заодно включится нужное','Required features will be turned on too'):T('Вместе отключится зависимое','Dependent features will be turned off too')}:</strong>
+    <p style="margin:6px 0">${esc(names(confirm.changes.filter(c=>c.id!==confirm.id).map(c=>c.id)))}</p>
+    <div class="inline-actions"><button class="button primary small" data-feature-apply>${confirm.enable?T('Включить всё','Turn on all'):T('Отключить всё','Turn off all')}</button><button class="button secondary small" data-feature-cancel>${T('Отмена','Cancel')}</button></div></div>`:'');
+  $$('[data-feature-toggle]').forEach(box=>box.onchange=()=>toggleFeature(box.dataset.featureToggle,box.checked));
+  $('[data-feature-cancel]')?.addEventListener('click',()=>renderFeaturesList(items));
+  $('[data-feature-apply]')?.addEventListener('click',()=>applyFeature(confirm.id,confirm.enable));
+  if(confirm)$('.feature-confirm')?.scrollIntoView?.({block:'nearest'});
+}
+async function toggleFeature(id,enable){
+  try{
+    const{changes,items}=await api(`/api/v1/features/${id}`,{method:'PUT',body:JSON.stringify({enabled:enable,dryRun:true})});
+    const others=changes.filter(c=>c.id!==id);
+    if(others.length)return renderFeaturesList(items,{confirm:{id,enable,changes}});
+    await applyFeature(id,enable);
+  }catch(error){toast(error.message);refreshFeatures(false)}
+}
+async function applyFeature(id,enable){
+  try{
+    const{changes,items}=await api(`/api/v1/features/${id}`,{method:'PUT',body:JSON.stringify({enabled:enable})});
+    const byId=new Map(items.map(f=>[f.id,f]));
+    const t=(x)=>featureTitle(byId.get(x));
+    const others=changes.filter(c=>c.id!==id).map(c=>t(c.id));
+    toast(enable
+      ?`${T('Включено','Turned on')}: ${t(id)}${others.length?`. ${T('Заодно включено нужное','Also turned on')}: ${others.join(', ')}`:''}`
+      :`${T('Отключено','Turned off')}: ${t(id)}${others.length?`. ${T('Вместе с ним','Along with it')}: ${others.join(', ')}`:''}`);
+    if(S.boot)S.boot.features=Object.fromEntries(items.map(f=>[f.id,f.enabled]));
+    renderFeaturesList(items,{flash:changes.map(c=>c.id)});
+    setTimeout(()=>document.querySelectorAll('.feature-flash').forEach(e=>e.classList.remove('feature-flash')),3500);
+    if(VIEW_FEATURE[S.view]&&!feat(VIEW_FEATURE[S.view]))go('today');else render();
+  }catch(error){toast(error.message);refreshFeatures(false)}
+}
+async function featuresModal(){
+  try{
+    const{items,canManage}=await api('/api/v1/features');
+    modal(T('Функции компании','Company features'),`<p class="muted">${canManage?T('Отключите то, что компании не нужно. Связанные функции отключаются вместе — перед этим вы увидите, какие именно.','Turn off what the company does not need. Dependent features go with it — you will see which before confirming.'):T('Набор функций выбирает администратор компании.','The company administrator chooses the feature set.')}</p><div id="features-list"></div>`,()=>renderFeaturesList(items));
+  }catch(error){toast(error.message)}
+}
+function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} ${pluralIn(S.people.length,['сотрудник','сотрудника','сотрудников'],['employee','employees'])}<span>, роли и статусы</span></span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.settings')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>${can('organization.manage')?'Название, реквизиты, места и передача владения':'Реквизиты, места и почтовый домен'}</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="apikeys"><span class="module-icon">${tileIcon.apikeys}</span><strong>API-ключи</strong><span>Личный доступ к API от вашего имени</span></button>`:''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button>${can('knowledge.read')?`<button class="module-card pressable" data-action="knowledge"><span class="module-icon">${tileIcon.knowledge}</span><strong>База знаний</strong><span>HR-бот отвечает по статьям компании</span></button>`:''}${can('wiki.use')?`<button class="module-card pressable" data-action="wiki"><span class="module-icon">${tileIcon.wiki}</span><strong>Вики</strong><span>Совместные страницы, которые пишет любой сотрудник</span></button>`:''}${staff?`<button class="module-card pressable" data-action="time-report"><span class="module-icon">${tileIcon.timeReport}</span><strong>Отчёт по времени</strong><span>${can('task.manage.team')?'Ваши часы и часы команды по задачам':'Ваши часы по задачам'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="dashboard"><span class="module-icon">${tileIcon.dashboard}</span><strong>Дашборд</strong><span>Тренд по задачам и учтённому времени</span></button>`:''}<button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}${staff?`<button class="module-card pressable" data-action="requests"><span class="module-icon">${tileIcon.plan}</span><strong>Заявки</strong><span>Отпуск, покупка, доступ — с согласованием</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Уведомления, упоминания и сроки</span></button>${staff?`<button class="module-card pressable" data-action="features"><span class="module-icon">${tileIcon.settings}</span><strong>Функции компании</strong><span>Что включено, что от чего зависит</span></button>`:''}<button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
 function bind(){
   // Строка встречи в расписании дня выглядела нажимаемой и не открывала
   // ничего: карточку встречи знал только календарь.
@@ -1483,6 +1665,7 @@ function bind(){
     },0);
   }}}
 function go(v,{silent=false}={}){
+  if(VIEW_FEATURE[v]&&!feat(VIEW_FEATURE[v]))v='today';
   // Адресом можно попасть куда угодно, в том числе на скрытый от гостя
   // раздел: тогда он увидел бы вечно пустой экран без объяснений.
   if(guestShell()&&GUEST_HIDDEN_VIEWS.has(v)){v='today';silent=false}
@@ -1544,7 +1727,7 @@ async function openChat(id){
   // На телефоне открытая беседа — следующий экран после списка: «назад» браузера возвращает к списку, а не из раздела.
   if(fromList){try{history.pushState(null,'','#/chats');S.chatPushed=true}catch{}}
   else if(location.hash!=='#/chats'){try{history.replaceState(null,'','#/chats')}catch{}}
-  await loadMessages(id);
+  await Promise.all([loadMessages(id),loadTopics(id)]);
   const conversation=S.conversations.find(c=>c.id===id);
   const unread=Number(conversation?.unreadCount||0);
   const list=S.messages.get(id)||[];
@@ -1604,7 +1787,7 @@ async function openChatAtMessage(id,messageId=null){
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
   },60);
 }
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{if(S.chatPushed){S.chatPushed=false;history.back();return}S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),knowledge:()=>knowledgeModal(),wiki:()=>wikiModal(),'calendar-subscribe':()=>calendarSubscribeModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,apikeys:()=>apiKeysModal(),'time-report':()=>timeReportModal(),dashboard:()=>dashboardModal(),'assistant-summarize':()=>assistantSummarizeModal(),'assistant-suggest':()=>assistantSuggestModal(),journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,requests:()=>window.ChatRequests?.open?.()??toast('Экран заявок не загрузился — обновите страницу.'),decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{if(S.chatPushed){S.chatPushed=false;history.back();return}S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),knowledge:()=>knowledgeModal(),wiki:()=>wikiModal(),'calendar-subscribe':()=>calendarSubscribeModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,apikeys:()=>apiKeysModal(),'time-report':()=>timeReportModal(),dashboard:()=>dashboardModal(),'assistant-summarize':()=>assistantSummarizeModal(),'assistant-suggest':()=>assistantSuggestModal(),journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,features:()=>featuresModal(),requests:()=>window.ChatRequests?.open?.()??toast('Экран заявок не загрузился — обновите страницу.'),decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 /**
  * Роль по-русски.
@@ -3440,6 +3623,7 @@ const JOURNAL_EVENT={
   'integration.telegram.removed':['Мост с Telegram отключён', ()=>''],
   'api_key.created':['Выдан ключ API', e=>`${e.payload?.name??''}${e.payload?.readOnly?T(' — только чтение',' — read-only'):''}`],
   'api_key.revoked':['Ключ API отозван', e=>e.payload?.name??''],
+  'feature.toggled':['Изменены функции компании', e=>(e.payload?.changes||[]).map(c=>`${c.id}: ${c.enabled?'вкл':'выкл'}`).join(', ')],
   'conversation.ownership_claimed':['Беседа осталась без владельца и принята', e=>e.payload?.title??''],
 };
 
@@ -4246,7 +4430,7 @@ function editProfile(person){
 
 // Разделы «Ещё», у которых есть свой адрес: #/more/team открывает «Команду» и после обновления страницы,
 // и по ссылке коллеге. Окно рисуется поверх «Ещё», поэтому «назад» возвращает на плитки.
-const MORE_SCREENS=new Set(['apikeys','archived','calls','catalogue','company','contacts','dashboard','decisions','digest','files','games','integrations','invite','journal','knowledge','labels','meeting-ops','org','plan','presence','reminders','report','requests','saved','settings','stories','team','time-report','vault','wiki']);
+const MORE_SCREENS=new Set(['apikeys','archived','calls','catalogue','company','contacts','dashboard','decisions','digest','files','games','integrations','invite','journal','knowledge','labels','meeting-ops','org','plan','presence','features','reminders','report','requests','saved','settings','stories','team','time-report','vault','wiki']);
 async function action(a){
   const before=overlayStack.length;
   await actions[a]?.();
@@ -4254,7 +4438,7 @@ async function action(a){
   const mark=()=>{if(MORE_SCREENS.has(a)&&overlayStack.length>before&&location.hash.startsWith('#/more')){try{history.replaceState(history.state,'',`#/more/${a}`)}catch{}return true}return false};
   if(!mark()&&MORE_SCREENS.has(a))[500,1500].forEach((ms)=>setTimeout(mark,ms));
 }
-async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';writeDraft(S.selected,'');try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null})});append(S.selected,message);S.reply=null;S.streamPos=null;render()}catch(e){
+async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';writeDraft(S.selected,'');try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null,...(()=>{const v=topicView(S.selected);return v!=='all'&&v!=='general'&&topicsOn(S.conversations.find(x=>x.id===S.selected))?{topicId:v}:{}})()})});append(S.selected,message);S.reply=null;S.streamPos=null;render()}catch(e){
     // Текст не должен пропадать вместе с неудачной отправкой: возвращаем его в поле.
     const again=$('#message-input');if(again&&!again.value){again.value=body;writeDraft(S.selected,body)}
     toast(e.message)}}
@@ -4262,7 +4446,7 @@ function append(id,m){
   // Беседа ещё не открывалась: историю подгрузит открытие. Положить сюда одно
   // пришедшее по сокету сообщение значило бы выдать его за всю переписку.
   const loaded=S.messages.has(id);
-  const list=S.messages.get(id)||[];if(loaded&&!list.some(x=>x.id===m.id))list.push(m);if(loaded)S.messages.set(id,list);const c=S.conversations.find(x=>x.id===id);if(c)c.lastMessage=m}
+  const list=S.messages.get(id)||[];if(loaded&&!list.some(x=>x.id===m.id)){list.push(m);{const st=S.topics?.get(id);if(st&&!m.threadRootId){if(m.topicId){const t=st.items.find(x=>x.id===m.topicId);if(t)t.messageCount+=1}else st.generalCount+=1}}}if(loaded)S.messages.set(id,list);const c=S.conversations.find(x=>x.id===id);if(c)c.lastMessage=m}
 const REACTIONS=['👍','👏','🔥','✅','❤️','😀','🤔','👀','🙏','🎯','⏱','❌'];
 /**
  * Плавающая панель маркера.
@@ -4590,6 +4774,7 @@ function messageMenu(messageId){
     ['label','Метка',tileIcon.labels],
     ['pin',message.pinned?'Открепить':'Закрепить',msgIcon.pin],
     ['task','В задачу',msgIcon.task],
+    ...(topicsOn(S.conversations.find(x=>x.id===S.selected))&&!message.threadRootId&&(mine||can('channel.manage'))?[['topic','В ветку…','#']]:[]),
     ['link','Скопировать ссылку','🔗'],
     ...((S.highlights?.get(message.id)||[]).length?[['unhighlight','Снять выделение',msgIcon.pin]]:[]),
     ...(mine&&message.kind==='text'&&!message.forwarded?[['edit','Изменить',msgIcon.edit]]:[]),
@@ -4622,6 +4807,7 @@ function messageMenu(messageId){
         try{await navigator.clipboard.writeText(url);toast(T('Ссылка скопирована','Link copied'))}
         catch{toast(url)}
       },
+      topic:()=>replaceModal(()=>moveToTopicModal(messageId)),
       edit:()=>replaceModal(()=>editMessageModal(messageId)),
       delete:()=>replaceModal(()=>deleteMessageModal(messageId)),
     };
@@ -6637,7 +6823,9 @@ function connect(){
     const root=list?.find(x=>x.id===d.message.threadRootId);
     if(root){root.replyCount=(root.replyCount||0)+1;root.lastReplyAt=d.message.createdAt}
   }else append(d.conversationId,d.message);
-  if(S.view==='chats')render()}if(p.event==='message.reaction'){for(const list of S.messages.values()){const m=list.find(x=>x.id===d.messageId);if(m)m.reactions=d.reactions}if(S.view==='chats')render()}if(p.event==='message.updated'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.deleted'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.pin'){updateMessage(d.messageId,{pinned:d.pinned});if(S.view==='chats')render()}if(p.event==='conversation.created'){rememberConversation(d);shell();if(S.view==='chats')render()}if(p.event==='presence.updated'){const x=person(d.userId);if(x)x.presence=d.presence;lists()}if(p.event==='task.created'&&!S.tasks.some(x=>x.id===d.id)){S.tasks.unshift(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='task.updated'){upsertTask(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='calendar.created'&&!S.calendar.some(x=>x.id===d.id)){S.calendar.push(d);if(['today','calendar'].includes(S.view))render()}if(p.event==='typing.start'||p.event==='typing.stop'){
+  if(S.view==='chats')render()}if(p.event==='message.reaction'){for(const list of S.messages.values()){const m=list.find(x=>x.id===d.messageId);if(m)m.reactions=d.reactions}if(S.view==='chats')render()}if(p.event==='message.updated'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.deleted'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.pin'){updateMessage(d.messageId,{pinned:d.pinned});if(S.view==='chats')render()}if(p.event==='conversation.created'){rememberConversation(d);shell();if(S.view==='chats')render()}if(p.event==='presence.updated'){const x=person(d.userId);if(x)x.presence=d.presence;lists()}if(p.event==='task.created'&&!S.tasks.some(x=>x.id===d.id)){S.tasks.unshift(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='task.updated'){upsertTask(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='calendar.created'&&!S.calendar.some(x=>x.id===d.id)){S.calendar.push(d);if(['today','calendar'].includes(S.view))render()}if(p.event==='features.updated'){refreshFeatures(true)}
+    if(p.event==='topic.updated'){loadTopics(d.conversationId).then(()=>{if(S.view==='chats'&&S.selected===d.conversationId)render()})}
+    if(p.event==='typing.start'||p.event==='typing.stop'){
       // Печатающих может быть несколько, и у каждого своё время жизни: оборвавшийся сокет не присылает «перестал».
       const t=(S.typingNow??=new Map());
       if(p.event==='typing.start')t.set(d.userId,{conv:d.conversationId,until:Date.now()+5000});else t.delete(d.userId);

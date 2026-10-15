@@ -236,6 +236,55 @@ export async function handleMessaging(req,res,ctx,url,path,method){
    * в беседе оставалось «прислали смету», а через месяц не сказать ни
    * кто прислал, ни когда.
    */
+  // ---- Ветки беседы ----
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/topics$`,'i'));
+  if(m){
+    const s=await requireSession(req),policy=await policyOr404(store,s,m[1]);
+    if(!ctx.topics)throw httpError('Ветки работают только с базой данных','TOPICS_UNAVAILABLE',503);
+    if(method==='GET'){json(res,200,await ctx.topics.list(s,m[1],{includeArchived:url?.searchParams.get('archived')==='1'}));return true}
+    if(method==='POST'){
+      requirePermission(s.role,Permission.MESSAGE_SEND);
+      if(policy.conversation.announcementOnly&&!canManageConversation(s,policy))throw httpError('В канале объявлений ветки заводят только его руководители','ANNOUNCEMENT_ONLY',403);
+      const b=await readJson(req),topic=await ctx.topics.create(s,m[1],b.title);
+      const audience=await store.conversationAudience(s,m[1]);
+      hub.broadcastUsers(s.workspaceId,audience,'topic.updated',{conversationId:m[1],topic});
+      json(res,201,{topic});return true;
+    }
+  }
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/topics/${MESSAGE_ID}$`,'i'));
+  if(m&&method==='PATCH'){
+    const s=await requireSession(req),policy=await policyOr404(store,s,m[1]);
+    if(!ctx.topics)throw httpError('Ветки работают только с базой данных','TOPICS_UNAVAILABLE',503);
+    const existing=await ctx.topics.get(s,m[1],m[2]);
+    // Менять ветку вправе её создатель и те, кто ведёт беседу.
+    if(existing.created_by!==s.userId&&!canManageConversation(s,policy))throw httpError('Ветку меняет её создатель или тот, кто ведёт беседу','FORBIDDEN',403);
+    const b=await readJson(req),topic=await ctx.topics.update(s,m[1],m[2],{title:b.title,pinned:b.pinned,archived:b.archived});
+    const audience=await store.conversationAudience(s,m[1]);
+    hub.broadcastUsers(s.workspaceId,audience,'topic.updated',{conversationId:m[1],topic});
+    json(res,200,{topic});return true;
+  }
+  m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/topics/${MESSAGE_ID}/messages$`,'i'));
+  if(m&&method==='GET'){
+    const s=await requireSession(req);await policyOr404(store,s,m[1]);
+    if(!ctx.topics)throw httpError('Ветки работают только с базой данных','TOPICS_UNAVAILABLE',503);
+    json(res,200,{items:await ctx.topics.messages(store,s,m[1],m[2],{limit:url?.searchParams.get('limit'),before:url?.searchParams.get('before')})});return true;
+  }
+  // Перенос сообщения в ветку (или обратно в общую ленту): автор или ведущий беседы.
+  m=path.match(new RegExp(`^/api/v1/messages/${MESSAGE_ID}/topic$`,'i'));
+  if(m&&method==='PATCH'){
+    const s=await requireSession(req);
+    if(!ctx.topics)throw httpError('Ветки работают только с базой данных','TOPICS_UNAVAILABLE',503);
+    const message=await store.getMessage(s,m[1]);
+    if(!message||message.deletedAt)throw httpError('Message not found','NOT_FOUND',404);
+    const policy=await policyOr404(store,s,message.conversationId);
+    if(message.authorId!==s.userId&&!canManageConversation(s,policy))throw httpError('Переносит сообщение его автор или тот, кто ведёт беседу','FORBIDDEN',403);
+    const b=await readJson(req),topicId=b.topicId?String(b.topicId):null;
+    await ctx.topics.assign(s,m[1],message.conversationId,topicId);
+    const updated=await store.getMessage(s,m[1]);
+    const audience=await store.conversationAudience(s,message.conversationId);
+    hub.broadcastUsers(s.workspaceId,audience,'message.updated',{conversationId:message.conversationId,message:updated});
+    json(res,200,{message:updated});return true;
+  }
   m=path.match(new RegExp(`^/api/v1/conversations/${CONVERSATION_ID}/external-forwards$`,'i'));
   if(m&&method==='POST'){
     const s=await requireSession(req);const policy=await policyOr404(store,s,m[1]);
@@ -329,7 +378,16 @@ export async function handleMessaging(req,res,ctx,url,path,method){
     // Вложить можно только файл, который сам имеешь право читать: иначе прикреплённый по чужому
     // идентификатору файл становился доступен всей беседе.
     if(b.metadata?.fileId&&!(await store.getFile?.(s,String(b.metadata.fileId))))throw httpError('Файл не найден','FILE_NOT_FOUND',404);
+    // Ветка беседы: сообщение попадает в неё сразу при отправке (обсуждения под сообщением веток не имеют).
+    const topicId=b.topicId&&!b.threadRootId?String(b.topicId):null;
+    if(topicId){
+      if(!ctx.topics)throw httpError('Ветки работают только с базой данных','TOPICS_UNAVAILABLE',503);
+      if(ctx.features&&!(await ctx.features.isEnabled(s.workspaceId,'topics')))throw httpError('Эта функция отключена в компании','FEATURE_DISABLED',404);
+      const topic=await ctx.topics.get(s,m[1],topicId);
+      if(topic.archived_at)throw httpError('Ветка в архиве: верните её, чтобы писать туда','TOPIC_ARCHIVED',409);
+    }
     const message=await store.createMessage(s,m[1],{kind,body:b.body??null,replyToId:b.replyToId??null,threadRootId:b.threadRootId??null,metadata:b.metadata??{},mentionedUserIds:Array.isArray(b.mentionedUserIds)?b.mentionedUserIds:[],clientRequestId:b.clientRequestId??randomUUID()});
+    if(topicId){await ctx.topics.assign(s,message.id,m[1],topicId);message.topicId=topicId}
     const audience=await store.conversationAudience(s,m[1]),notificationAudience=store.conversationNotificationAudience?await store.conversationNotificationAudience(s,m[1]):audience;
     hub.broadcastUsers(s.workspaceId,audience,'message.created',{conversationId:m[1],message});
     // Лучшее старание, не гарантия: беседа не ждёт Telegram, а если моста
