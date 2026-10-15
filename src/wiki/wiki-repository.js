@@ -272,7 +272,17 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       const cleanContent = normalized ? normalized.content : readContent(content);
       let effectiveVisibility = visibility === 'restricted' ? 'restricted' : 'workspace';
       if (parentId) {
-        await access.assertEdit(session, parentId);
+        try {
+          await access.assertEdit(session, parentId);
+        } catch (error) {
+          // Parent admission has its own stable public contract. Hidden and
+          // missing parents are intentionally indistinguishable, but callers
+          // still receive the historical WIKI_PARENT_NOT_FOUND code.
+          if (error?.code === 'WIKI_PAGE_NOT_FOUND') {
+            throw fail('Родительская страница не найдена', 'WIKI_PARENT_NOT_FOUND', 404);
+          }
+          throw error;
+        }
         const { rows } = await pool.query(
           'SELECT visibility FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL',
           [session.workspaceId, parentId],
