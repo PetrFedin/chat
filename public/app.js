@@ -73,13 +73,13 @@ const guestShell=()=>me()?.role==='guest';
 // Пустые карточки с призывом «создайте задачу» — обещание вместо границы.
 // Функции компании: отключённое не рисуется и не вызывается. Состояние приходит с bootstrap и по событию features.updated.
 const feat=(id)=>S.boot?.features?.[id]!==false;
-const VIEW_FEATURE={tasks:'tasks',calendar:'calendar'};
+const VIEW_FEATURE={tasks:'tasks',calendar:'calendar',projects:'projects'};
 /** Кнопка или плитка → функция, без которой она не нужна. */
 const ELEMENT_FEATURE={
   task:'tasks','time-report':'time_tracking',dashboard:'dashboard',report:'dashboard',event:'calendar','calendar-subscribe':'calendar',
   plan:'plan',reminders:'reminders',labels:'labels',decisions:'decisions','meeting-ops':'meetings',games:'games','room-games':'games',stories:'stories',
   vault:'vault',integrations:'integrations',apikeys:'api_keys',knowledge:'knowledge',wiki:'wiki',org:'org_structure',calls:'calls',audio:'calls',video:'calls',
-  'assistant-summarize':'assistant','assistant-suggest':'assistant',requests:'requests',topics:'topics',
+  'assistant-summarize':'assistant','assistant-suggest':'assistant',requests:'requests',topics:'topics',projects:'projects','project-new':'projects',
 };
 const tasksVisible=()=>!guestShell()&&feat('tasks'),calendarVisible=()=>!guestShell()&&feat('calendar');
 const visibleNav=()=>(guestShell()?nav.filter(([id])=>!GUEST_HIDDEN_VIEWS.has(id)):nav).filter(([id])=>!VIEW_FEATURE[id]||feat(VIEW_FEATURE[id]));
@@ -537,7 +537,7 @@ function indexTasksByMessage(){
 }
 
 async function loadProjects(){
-  if(guestShell()){S.projects=[];S.projectsUnavailable=true;return}
+  if(guestShell()||!feat('projects')){S.projects=[];S.projectsUnavailable=true;return}
   try{S.projects=(await api('/api/v1/projects')).items||[];S.projectsUnavailable=false}
   catch(error){S.projects=[];S.projectsUnavailable=error.code==='PROJECTS_UNAVAILABLE'||error.status===503}
 }
