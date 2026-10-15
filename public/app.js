@@ -3085,6 +3085,14 @@ async function wikiModal(pageId=null){
           <div class="section-head"><div><strong>${T('Связанные каналы','Related channels')}</strong><div class="row-sub">${T('Связь не открывает приватный канал другим людям.','The relation does not grant access to private channels.')}</div></div><button data-wiki-channel-new class="chipbtn pressable">＋ ${T('Канал','Channel')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.channels||[]).length?(page.channels||[]).map(channel=>`<div class="row" data-wiki-channel-row="${esc(channel.id)}"><button type="button" class="text-button" data-wiki-channel-open="${esc(channel.id)}">${esc(channel.title||T('Без названия','Untitled'))}</button><button type="button" class="text-button" data-wiki-channel-remove="${esc(channel.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных связанных каналов','No visible related channels')}</span>`}</div>
         </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-meeting-section>
+          <div class="section-head"><div><strong>${T('Встречи календаря','Calendar meetings')}</strong><div class="row-sub">${T('Только встречи, карточку которых вы можете открыть полностью.','Only meetings whose full calendar card you can open.')}</div></div><button type="button" data-wiki-meeting-new class="chipbtn pressable">＋ ${T('Встреча','Meeting')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.meetings||[]).length?(page.meetings||[]).map(item=>`<div class="row" data-wiki-meeting-row="${esc(item.id)}"><button type="button" class="text-button" data-wiki-meeting-open="${esc(item.id)}">${esc(item.title)} · ${esc(dateTime(item.startAt))}</button><button type="button" class="text-button" data-wiki-meeting-remove="${esc(item.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных связанных встреч','No visible related meetings')}</span>`}</div>
+        </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-call-section>
+          <div class="section-head"><div><strong>${T('Записанные звонки','Recorded calls')}</strong><div class="row-sub">${T('Страница хранит только ссылку: запись, расшифровка и участники остаются в Meeting Authority.','The Page stores only a reference; media, transcript and participants remain in Meeting Authority.')}</div></div><button type="button" data-wiki-call-new class="chipbtn pressable">＋ ${T('Запись','Recording')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.calls||[]).length?(page.calls||[]).map(item=>`<div class="row" data-wiki-call-row="${esc(item.id)}"><button type="button" class="text-button" data-wiki-call-open="${esc(item.id)}">${esc(item.title||T('Записанный звонок','Recorded call'))} · ${esc(dateTime(item.startedAt||item.scheduledFor))}</button><button type="button" class="text-button" data-wiki-call-remove="${esc(item.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных записанных звонков','No visible recorded calls')}</span>`}</div>
+        </div>
         <div class="surface" style="margin-top:14px;padding:12px" data-wiki-decision-section>
           <div class="section-head"><div><strong>${T('Принятые решения','Accepted decisions')}</strong><div class="row-sub">${T('Только решения из встреч, к которым у вас есть доступ.','Only decisions from meetings you can access.')}</div></div><button type="button" data-wiki-decision-new class="chipbtn pressable">＋ ${T('Решение','Decision')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.decisions||[]).length?(page.decisions||[]).map(decision=>`<div class="row" data-wiki-decision-row="${esc(decision.id)}"><button type="button" class="text-button" data-wiki-decision-open="${esc(decision.id)}">${esc(decision.title)} · ${esc(dateTime(decision.acceptedAt))}</button><button type="button" class="text-button" data-wiki-decision-remove="${esc(decision.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных принятых решений','No visible accepted decisions')}</span>`}</div>
@@ -3102,6 +3110,31 @@ async function wikiModal(pageId=null){
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
         $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
         $('[data-wiki-channel-new]')?.addEventListener('click',()=>wikiChannelLinkModal(page,refresh));
+        $('[data-wiki-meeting-new]')?.addEventListener('click',()=>wikiMeetingLinkModal(page,refresh));
+        $('[data-wiki-call-new]')?.addEventListener('click',()=>wikiCallLinkModal(page,refresh));
+        $('[data-wiki-meeting-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiMeetingOpen;
+          overlayStack.length=0;renderOverlay();eventPage(id);
+        });
+        $('[data-wiki-meeting-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/calendar-meetings/${button.dataset.wikiMeetingRemove}`,{method:'DELETE'});
+            toast(T('Встреча убрана со страницы','Meeting unlinked from Page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
+        $('[data-wiki-call-open]').forEach(button=>button.onclick=()=>{
+          overlayStack.length=0;renderOverlay();
+          location.hash=`#/calls/${encodeURIComponent(button.dataset.wikiCallOpen)}`;
+          window.ChatCalls?.resumeHashCall?.();
+        });
+        $('[data-wiki-call-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/calls/${button.dataset.wikiCallRemove}`,{method:'DELETE'});
+            toast(T('Запись убрана со страницы','Recorded call unlinked from Page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
         $('[data-wiki-decision-new]')?.addEventListener('click',()=>wikiDecisionLinkModal(page,refresh));
         $$('[data-wiki-decision-open]').forEach(button=>button.onclick=()=>{
           overlayStack.length=0;renderOverlay();decisionDetailModal(button.dataset.wikiDecisionOpen);
