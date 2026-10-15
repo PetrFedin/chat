@@ -3316,7 +3316,7 @@ async function wikiAccessModal(page,after){
   const grants=new Map((policy.grants||[]).map(item=>[item.userId,item]));
   const candidates=people.filter(person=>{
     const id=person.userId||person.id;
-    return id&&id!==policy.createdBy&&person.role!=='guest';
+    return id&&id!==policy.createdBy&&person.role!=='guest'&&person.active!==false;
   });
   modal(T('Доступ к странице','Page access'),`<div class="form-stack">
     <div class="surface" style="padding:12px">
