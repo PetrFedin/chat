@@ -3123,10 +3123,14 @@ async function wikiModal(pageId=null){
             await refresh();
           }catch(error){toast(error.message)}
         });
-        $$('[data-wiki-call-open]').forEach(button=>button.onclick=()=>{
+        $('[data-wiki-call-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiCallOpen;
           overlayStack.length=0;renderOverlay();
-          location.hash=`#/calls/${encodeURIComponent(button.dataset.wikiCallOpen)}`;
-          window.ChatCalls?.resumeHashCall?.();
+          if(!window.ChatMeetingIntelligence?.openMeeting){
+            toast(T('Разбор встречи недоступен','Meeting review is unavailable'));
+            return;
+          }
+          window.ChatMeetingIntelligence.openMeeting(id,{updateHash:true}).catch(error=>toast(error.message));
         });
         $$('[data-wiki-call-remove]').forEach(button=>button.onclick=async()=>{
           try{
