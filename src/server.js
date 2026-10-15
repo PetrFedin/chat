@@ -220,7 +220,6 @@ export async function createChatServer(options={}){
   const telegram=options.telegram??createTelegramBridgeRepository(pool,store);
   const icsFeed=options.icsFeed??createIcsFeedRepository(pool);
   const apiKeys=options.apiKeys??createApiKeyRepository(pool);
-  const wiki=options.wiki??createWikiRepository(pool,projects,store,meeting,calendar,calls);
   const timeEntries=options.timeEntries??createTimeEntryRepository(pool);
   const personal=options.personal??createPersonalRepository(pool,store,labels);
   // Без базы работникам нечего делать, поэтому 'custom' глушит их жёстко.
@@ -245,6 +244,10 @@ export async function createChatServer(options={}){
   const digestMailer=options.digestMailer??(mail&&digest?createDigestMailer({pool,digest,mail}):null);
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
+  // Wiki Meeting relations depend on both Calendar and Call authorities.
+  // Construct Wiki only after Calls exists; this also guarantees one shared
+  // authority instance for HTTP, Meeting Intelligence and Page projection.
+  const wiki=options.wiki??createWikiRepository(pool,projects,store,meeting,calendar,calls);
   // Тот же обход времени закрывает звонки, которых никто не взял, и
   // извещает звонившего: раньше такой звонок оставался «звонящим»
   // навсегда, а тот, кому звонили, не узнавал об этом никогда.
