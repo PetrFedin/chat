@@ -43,11 +43,13 @@ const summaryView = (row) => ({
   createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
-export function createWikiRepository(pool, projects = null, store = null, meeting = null, calendar = null, calls = null) {
+export function createWikiRepository(pool, projects = null, store = null, meeting = null, calendar = null, calls = null, features = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
     return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop };
   }
+
+  const featureOn = async (session, id) => !features?.isEnabled || await features.isEnabled(session.workspaceId, id);
 
   const ensurePage = async (session, id) => {
     const { rows } = await pool.query(
@@ -71,7 +73,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
   };
 
   const pageProjects = async (session, pageId) => {
-    if (!projects?.get) return [];
+    if (!projects?.get || !await featureOn(session, 'projects')) return [];
     const { rows } = await pool.query(
       `SELECT project_id "projectId", linked_by "linkedBy", linked_at "linkedAt"
          FROM wiki_page_projects
@@ -101,7 +103,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
   // Page-to-Task is a reference only. Resolve each Task via canonical Task
   // Authority for the viewer; even relation counts must not reveal private work.
   const pageTasks = async (session, pageId) => {
-    if (!store?.getTask) return [];
+    if (!store?.getTask || !await featureOn(session, 'tasks')) return [];
     const { rows } = await pool.query(
       `SELECT commitment_id "taskId", linked_by "linkedBy", linked_at "linkedAt"
          FROM wiki_page_tasks
@@ -145,7 +147,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
   // rechecks acceptance and source-meeting participation on every read.
   // Neither the number nor title of inaccessible decisions is exposed.
   const pageDecisions = async (session, pageId) => {
-    if (!meeting?.getDecision) return [];
+    if (!meeting?.getDecision || !await featureOn(session, 'decisions')) return [];
     const { rows } = await pool.query(
       `SELECT decision_id "decisionId", linked_at "linkedAt"
          FROM wiki_page_decisions
@@ -165,7 +167,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
 
 
   const pageCalendarMeetings = async (session, pageId) => {
-    if (!calendar?.getMeetingForRelation) return [];
+    if (!calendar?.getMeetingForRelation || !await featureOn(session, 'calendar')) return [];
     const { rows } = await pool.query(
       `SELECT calendar_event_id "eventId", linked_by "linkedBy", linked_at "linkedAt"
          FROM wiki_page_calendar_meetings
@@ -189,7 +191,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
   };
 
   const pageCalls = async (session, pageId) => {
-    if (!calls?.get || !store?.canAccessConversation) return [];
+    if (!calls?.get || !store?.canAccessConversation || !await featureOn(session, 'meetings')) return [];
     const { rows } = await pool.query(
       `SELECT call_id "callId", linked_by "linkedBy", linked_at "linkedAt"
          FROM wiki_page_calls
