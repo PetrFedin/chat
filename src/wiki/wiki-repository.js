@@ -36,7 +36,7 @@ const SUMMARY_COLUMNS = `id,parent_id "parentId",title,version,visibility,create
 
 const view = (row) => ({
   id: row.id, parentId: row.parentId ?? null, title: row.title, content: row.content, document: row.document??plainTextPageDocument(row.content), hasStructuredDocument: row.document !== null && row.document !== undefined, version: row.version,
-  visibility: row.visibility ?? 'workspace', accessOwnerId: row.accessOwnerId ?? row.createdBy, createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
+  visibility: row.visibility ?? 'workspace', createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
   archivedAt: row.archivedAt ?? null,
 });
 const summaryView = (row) => ({
@@ -270,6 +270,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       return {
         ...page,
         permissions: { canEdit: pageAccess.canEdit, canManageAccess: pageAccess.canManage },
+        ...(pageAccess.canManage ? { accessOwnerId: rows[0].accessOwnerId } : {}),
         children: (await visibleRows(session, children)).map(summaryView),
         projects: await pageProjects(session, id),
         tasks: await pageTasks(session, id),
@@ -309,7 +310,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
          VALUES($1,$2,$3,$4,$5,$7,$8,$6,$6,$6) RETURNING ${COLUMNS}`,
         [session.organizationId, session.workspaceId, parentId, cleanTitle, cleanContent, session.userId, normalized?.document??null, effectiveVisibility],
       );
-      return view(rows[0]);
+      return { ...view(rows[0]), accessOwnerId: rows[0].accessOwnerId };
     },
 
     /**
@@ -844,6 +845,11 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           [session.workspaceId,id,next,session.userId],
         );
         if(!rows[0])throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
+        const targetAccess=await access.evaluate({...session,userId:target.userId,role:target.role},id,client);
+        if(!targetAccess?.canView)throw fail(
+          'Новый владелец доступа сначала должен получить доступ к закрытым родительским страницам',
+          'WIKI_ACCESS_OWNER_ANCESTOR_REQUIRED',409,
+        );
         await client.query(
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'wiki_page',$3,'wiki.access_visibility_changed',$4,$5)`,
@@ -926,11 +932,12 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       const client=await pool.connect();
       try{
         await client.query('BEGIN');
-        await client.query(
-          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+        const locked=await client.query(
+          'SELECT id,access_owner_id "accessOwnerId" FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
           [session.workspaceId,id],
         );
         await access.assertManage(session,id,client);
+        if(locked.rows[0]?.accessOwnerId===userId)throw fail('Этот сотрудник уже владелец доступа','WIKI_ACCESS_OWNER_UNCHANGED',409);
         const target=await activeEmployee(client,session,userId);
         if(!target)throw fail('Сотрудник не найден','WIKI_ACCESS_OWNER_NOT_FOUND',404);
         const {rows}=await client.query(
@@ -992,6 +999,11 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         await client.query(
           'UPDATE wiki_pages SET access_owner_id=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2',
           [session.workspaceId,id,userId],
+        );
+        const targetAccess=await access.evaluate({...session,userId:target.userId,role:target.role},id,client);
+        if(!targetAccess?.canView)throw fail(
+          'Сначала восстановите доступ к закрытым родительским страницам',
+          'WIKI_ACCESS_OWNER_ANCESTOR_REQUIRED',409,
         );
         await client.query(
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
