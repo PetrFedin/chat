@@ -391,6 +391,25 @@ export const openapi = Object.freeze({
     '/api/v1/requests/{requestId}/complete': {
       post: { tags: ['Requests'], summary: 'Mark an approved request completed', responses: { '200': { description: 'Completed request' } } },
     },
+    '/api/v1/features': {
+      get: { tags: ['Workspace'], summary: 'List switchable features with dependencies and current state', responses: { '200': { description: 'Features, requires/requiredBy, enabled, cascadeFrom' }, '404': { description: 'Guests do not see this' } } },
+    },
+    '/api/v1/features/{featureId}': {
+      put: { tags: ['Workspace'], summary: 'Switch a feature on or off (owner/admin). Turning one off also turns off what depends on it; turning one on first turns on what it needs. dryRun:true only previews the changes', responses: { '200': { description: 'The list of changes made (or previewed)' }, '404': { description: 'UNKNOWN_FEATURE' } } },
+    },
+    '/api/v1/conversations/{conversationId}/topics': {
+      get: { tags: ['Messaging'], summary: 'Topics (named branches) of a conversation with message counts and the size of the general feed', responses: { '200': { description: 'items, generalCount' }, '404': { description: 'No access to the conversation' } } },
+      post: { tags: ['Messaging'], summary: 'Create a topic; in an announcement-only channel only managers may', responses: { '201': { description: 'Topic' }, '409': { description: 'TOPIC_EXISTS or TOO_MANY_TOPICS' } } },
+    },
+    '/api/v1/conversations/{conversationId}/topics/{topicId}': {
+      patch: { tags: ['Messaging'], summary: 'Rename, pin or archive a topic (its creator or a conversation manager)', responses: { '200': { description: 'Topic' }, '403': { description: 'Not the creator or a manager' } } },
+    },
+    '/api/v1/conversations/{conversationId}/topics/{topicId}/messages': {
+      get: { tags: ['Messaging'], summary: 'Messages of one topic, paged backwards with before=<timestamp>', responses: { '200': { description: 'items' } } },
+    },
+    '/api/v1/messages/{messageId}/topic': {
+      patch: { tags: ['Messaging'], summary: 'Move a feed message into a topic (topicId) or back to the general feed (null)', responses: { '200': { description: 'Updated message' }, '409': { description: 'TOPIC_ARCHIVED or MESSAGE_NOT_MOVABLE' } } },
+    },
     '/api/v1/org/units': {
       get: { tags: ['Organisation'], summary: 'The unit tree with headcount against planned seats', description: 'Readable by everyone in the workspace: knowing who runs what is the point of a chart. The response also names the units this caller may manage.', responses: { '200': { description: 'Units, canManage and managedUnitIds' }, '503': { description: 'Requires a PostgreSQL deployment' } } },
       post: { tags: ['Organisation'], summary: 'Create a department, division or team', description: 'A top-level unit needs org.structure.manage. A sub-unit may be created by whoever runs the parent, which is how a department head staffs their own department without workspace-wide rights. Depth is capped at six levels.', responses: { '201': { description: 'Unit created' }, '403': { description: 'You do not manage the parent unit' }, '409': { description: 'Depth exceeded or the name is taken among siblings' } } }
