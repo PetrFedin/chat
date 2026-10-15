@@ -1,6 +1,7 @@
 import { cleanText } from '../http/helpers.js';
 import { normalizePageDocument, plainTextPageDocument } from './page-document.js';
 import { requireAccessibleCall } from '../meeting/access.js';
+import { createWikiPageAccess } from './page-access.js';
 
 /**
  * Вики: дерево совместных страниц компании.
@@ -28,48 +29,56 @@ const readContent = (value) => {
   return content;
 };
 
-const COLUMNS = `id,parent_id "parentId",title,content,document,version,created_by "createdBy",updated_by "updatedBy",
+const COLUMNS = `id,parent_id "parentId",title,content,document,version,visibility,created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt",archived_at "archivedAt"`;
-const SUMMARY_COLUMNS = `id,parent_id "parentId",title,version,created_by "createdBy",updated_by "updatedBy",
+const SUMMARY_COLUMNS = `id,parent_id "parentId",title,version,visibility,created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt"`;
 
 const view = (row) => ({
   id: row.id, parentId: row.parentId ?? null, title: row.title, content: row.content, document: row.document??plainTextPageDocument(row.content), hasStructuredDocument: row.document !== null && row.document !== undefined, version: row.version,
-  createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
+  visibility: row.visibility ?? 'workspace', createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
   archivedAt: row.archivedAt ?? null,
 });
 const summaryView = (row) => ({
   id: row.id, parentId: row.parentId ?? null, title: row.title, version: row.version,
-  createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
+  visibility: row.visibility ?? 'workspace', createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
 export function createWikiRepository(pool, projects = null, store = null, meeting = null, calendar = null, calls = null, features = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop, getAccess: stop, setVisibility: stop, grantAccess: stop, revokeAccess: stop };
   }
 
   const featureOn = async (session, id) => !features?.isEnabled || await features.isEnabled(session.workspaceId, id);
 
-  const ensurePage = async (session, id) => {
-    const { rows } = await pool.query(
-      'SELECT 1 FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
-      [session.workspaceId, id],
-    );
-    if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
-  };
+  const access = createWikiPageAccess(pool);
 
-  // Check before resolving target metadata, then again in the write
-  // transaction. Passing its client locks the active Page until commit:
-  // archive and relation admission must serialize on the same row.
-  // Unlink deliberately keeps ensurePage so authorized cleanup still works.
+  const ensurePage = async (session, id, db = pool) => access.assertView(session, id, db);
+  const ensureEditablePage = async (session, id, db = pool) => access.assertEdit(session, id, db);
+
+  // Check Page edit admission before resolving target metadata, then again
+  // under a row lock. Archive, ACL changes and relation admission therefore
+  // serialize on the same Page row and hidden Pages never trigger target lookups.
   const ensureLinkablePage = async (session, id, client = null) => {
-    const { rows } = await (client ?? pool).query(
+    const db = client ?? pool;
+    await ensureEditablePage(session, id, db);
+    const { rows } = await db.query(
       'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL'
         + (client ? ' FOR UPDATE' : ''),
       [session.workspaceId, id],
     );
     if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+    if (client) await ensureEditablePage(session, id, client);
+  };
+
+  const visibleRows = async (session, rows) => {
+    const visible = [];
+    for (const row of rows) {
+      const state = await access.evaluate(session, row.id);
+      if (state?.canView) visible.push(row);
+    }
+    return visible;
   };
 
   const pageProjects = async (session, pageId) => {
@@ -225,16 +234,18 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
 
     /** Дети заданной страницы, а без parentId — страницы верхнего уровня. */
     async list(session, { parentId = null } = {}) {
+      if (parentId) await access.assertView(session, parentId);
       const { rows } = await pool.query(
         `SELECT ${SUMMARY_COLUMNS} FROM wiki_pages
           WHERE workspace_id=$1 AND archived_at IS NULL AND parent_id IS NOT DISTINCT FROM $2
           ORDER BY title`,
         [session.workspaceId, parentId],
       );
-      return rows.map(summaryView);
+      return (await visibleRows(session, rows)).map(summaryView);
     },
 
     async get(session, id) {
+      const pageAccess = await access.assertView(session, id);
       const { rows } = await pool.query(`SELECT ${COLUMNS} FROM wiki_pages WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, id]);
       if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
       const page = view(rows[0]);
@@ -244,7 +255,8 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       );
       return {
         ...page,
-        children: children.map(summaryView),
+        permissions: { canEdit: pageAccess.canEdit, canManageAccess: pageAccess.canManage },
+        children: (await visibleRows(session, children)).map(summaryView),
         projects: await pageProjects(session, id),
         tasks: await pageTasks(session, id),
         channels: await pageChannels(session, id),
@@ -254,18 +266,34 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       };
     },
 
-    async create(session, { title, parentId = null, content = '', document } = {}) {
+    async create(session, { title, parentId = null, content = '', document, visibility = 'workspace' } = {}) {
       const cleanTitle = readTitle(title);
       const normalized = document === undefined ? null : normalizePageDocument(document);
       const cleanContent = normalized ? normalized.content : readContent(content);
+      let effectiveVisibility = visibility === 'restricted' ? 'restricted' : 'workspace';
       if (parentId) {
-        const { rows } = await pool.query('SELECT 1 FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL', [session.workspaceId, parentId]);
+        try {
+          await access.assertEdit(session, parentId);
+        } catch (error) {
+          // Parent admission has its own stable public contract. Hidden and
+          // missing parents are intentionally indistinguishable, but callers
+          // still receive the historical WIKI_PARENT_NOT_FOUND code.
+          if (error?.code === 'WIKI_PAGE_NOT_FOUND') {
+            throw fail('Родительская страница не найдена', 'WIKI_PARENT_NOT_FOUND', 404);
+          }
+          throw error;
+        }
+        const { rows } = await pool.query(
+          'SELECT visibility FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL',
+          [session.workspaceId, parentId],
+        );
         if (!rows[0]) throw fail('Родительская страница не найдена', 'WIKI_PARENT_NOT_FOUND', 404);
+        if (rows[0].visibility === 'restricted') effectiveVisibility = 'restricted';
       }
       const { rows } = await pool.query(
-        `INSERT INTO wiki_pages(organization_id,workspace_id,parent_id,title,content,document,created_by,updated_by)
-         VALUES($1,$2,$3,$4,$5,$7,$6,$6) RETURNING ${COLUMNS}`,
-        [session.organizationId, session.workspaceId, parentId, cleanTitle, cleanContent, session.userId, normalized?.document??null],
+        `INSERT INTO wiki_pages(organization_id,workspace_id,parent_id,title,content,document,visibility,created_by,updated_by)
+         VALUES($1,$2,$3,$4,$5,$7,$8,$6,$6) RETURNING ${COLUMNS}`,
+        [session.organizationId, session.workspaceId, parentId, cleanTitle, cleanContent, session.userId, normalized?.document??null, effectiveVisibility],
       );
       return view(rows[0]);
     },
@@ -290,6 +318,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           'SELECT title,content,document,version FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
           [session.workspaceId, id],
         );
+        await access.assertEdit(session, id, client);
         const prior = priorRows[0];
         if (!prior) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
         if (prior.document && content !== undefined) throw fail('Страница содержит форматирование. Откройте структурированный редактор.', 'PAGE_STRUCTURED_EDITOR_REQUIRED', 409);
@@ -342,7 +371,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async unlinkProject(session, id, projectId) {
-      await ensurePage(session, id);
+      await ensureEditablePage(session, id);
       if (!projects?.get) throw fail('Проекты недоступны', 'PROJECTS_UNAVAILABLE', 503);
       await projects.get(session, projectId);
       const { rowCount } = await pool.query(
@@ -392,7 +421,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async unlinkTask(session, id, taskId) {
-      await ensurePage(session, id);
+      await ensureEditablePage(session, id);
       if (!store?.getTask) throw fail('Задачи недоступны', 'TASKS_UNAVAILABLE', 503);
       if (!await store.getTask(session, taskId)) throw fail('Задача не найдена', 'TASK_NOT_FOUND', 404);
       const client = await pool.connect();
@@ -458,7 +487,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async unlinkChannel(session, id, conversationId) {
-      await ensurePage(session, id);
+      await ensureEditablePage(session, id);
       if (!store?.conversationPolicy) throw fail('Каналы недоступны', 'CHANNELS_UNAVAILABLE', 503);
       const policy = await store.conversationPolicy(session, conversationId);
       if (!policy || policy.conversation.kind !== 'channel') {
@@ -527,7 +556,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async unlinkCalendarMeeting(session, id, eventId) {
-      await ensurePage(session, id);
+      await ensureEditablePage(session, id);
       if (!calendar?.getMeetingForRelation) throw fail('Календарь недоступен', 'CALENDAR_UNAVAILABLE', 503);
       await calendar.getMeetingForRelation(session, eventId);
       const client = await pool.connect();
@@ -598,7 +627,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async unlinkCall(session, id, callId) {
-      await ensurePage(session, id);
+      await ensureEditablePage(session, id);
       if (!calls?.get || !store?.canAccessConversation) throw fail('Записи встреч недоступны', 'CALLS_UNAVAILABLE', 503);
       await requireAccessibleCall({
         store, calls, session, callId, guestMustParticipate: true, message: 'Meeting not found',
@@ -642,7 +671,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           ORDER BY link.linked_at DESC, p.id LIMIT 100`,
         [session.workspaceId, decisionId],
       );
-      return rows.map(summaryView);
+      return (await visibleRows(session, rows)).map(summaryView);
     },
 
     async linkDecision(session, id, decisionId) {
@@ -692,7 +721,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async unlinkDecision(session, id, decisionId) {
-      await ensurePage(session, id);
+      await ensureEditablePage(session, id);
       if (!meeting?.getDecision) throw fail('Реестр решений недоступен', 'DECISIONS_UNAVAILABLE', 503);
       // Explicit non-disclosure: an inaccessible, retracted or fabricated
       // canonical decision can never be manipulated by guessing its UUID.
@@ -724,22 +753,155 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async archive(session, id) {
-      const { rows } = await pool.query(
-        'UPDATE wiki_pages SET archived_at=now() WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL RETURNING id',
-        [session.workspaceId, id],
-      );
-      if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(
+          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE',
+          [session.workspaceId,id],
+        );
+        await access.assertEdit(session,id,client);
+        const { rows } = await client.query(
+          'UPDATE wiki_pages SET archived_at=now() WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL RETURNING id',
+          [session.workspaceId,id],
+        );
+        if (!rows[0]) throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
+        await client.query('COMMIT');
+      } catch(error) {
+        await client.query('ROLLBACK').catch(()=>{});
+        throw error;
+      } finally { client.release(); }
     },
 
     async history(session, id) {
-      const { rows: exists } = await pool.query('SELECT 1 FROM wiki_pages WHERE workspace_id=$1 AND id=$2', [session.workspaceId, id]);
-      if (!exists[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+      await access.assertView(session,id);
       const { rows } = await pool.query(
         `SELECT id,version,title,content,document,edited_by "editedBy",replaced_at "replacedAt"
            FROM wiki_page_versions WHERE workspace_id=$1 AND page_id=$2 ORDER BY replaced_at DESC`,
         [session.workspaceId, id],
       );
       return rows;
+    },
+
+    async getAccess(session,id){
+      await access.assertManage(session,id);
+      const {rows:pages}=await pool.query(
+        'SELECT visibility,created_by "createdBy" FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
+        [session.workspaceId,id],
+      );
+      if(!pages[0])throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
+      const {rows}=await pool.query(
+        `SELECT g.user_id "userId",g.access,g.granted_by "grantedBy",g.granted_at "grantedAt",g.updated_at "updatedAt",
+                COALESCE(p.display_name,p.email,g.user_id::text) "displayName",p.title
+           FROM wiki_page_grants g
+           LEFT JOIN workspace_profiles p ON p.workspace_id=g.workspace_id AND p.user_id=g.user_id
+          WHERE g.workspace_id=$1 AND g.page_id=$2
+          ORDER BY COALESCE(p.display_name,p.email,g.user_id::text),g.user_id`,
+        [session.workspaceId,id],
+      );
+      return {visibility:pages[0].visibility,createdBy:pages[0].createdBy,grants:rows};
+    },
+
+    async setVisibility(session,id,visibility){
+      const next=visibility==='restricted'?'restricted':visibility==='workspace'?'workspace':null;
+      if(!next)throw fail('Неизвестный режим доступа','WIKI_VISIBILITY_INVALID',400);
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        await client.query(
+          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          [session.workspaceId,id],
+        );
+        await access.assertManage(session,id,client);
+        const {rows}=await client.query(
+          'UPDATE wiki_pages SET visibility=$3,updated_by=$4,updated_at=now() WHERE workspace_id=$1 AND id=$2 RETURNING visibility',
+          [session.workspaceId,id,next,session.userId],
+        );
+        if(!rows[0])throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.access_visibility_changed',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{visibility:next}],
+        );
+        await client.query('COMMIT');
+      }catch(error){
+        await client.query('ROLLBACK').catch(()=>{});
+        throw error;
+      }finally{client.release();}
+      return this.getAccess(session,id);
+    },
+
+    async grantAccess(session,id,userId,level){
+      const granted=level==='edit'?'edit':level==='view'?'view':null;
+      if(!granted)throw fail('Неизвестный уровень доступа','WIKI_ACCESS_INVALID',400);
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        await client.query(
+          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          [session.workspaceId,id],
+        );
+        await access.assertManage(session,id,client);
+        const member=await client.query(
+          `SELECT 1
+             FROM memberships m
+             JOIN users u ON u.id=m.user_id
+            WHERE m.workspace_id=$1 AND m.user_id=$2 AND m.role<>'guest'
+              AND u.disabled_at IS NULL
+              AND (m.access_until IS NULL OR m.access_until>now())`,
+          [session.workspaceId,userId],
+        );
+        if(!member.rowCount)throw fail('Сотрудник не найден','WIKI_GRANTEE_NOT_FOUND',404);
+        const creator=await client.query(
+          'SELECT created_by FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
+          [session.workspaceId,id],
+        );
+        if(creator.rows[0]?.created_by===userId)throw fail('Создателю страницы отдельный доступ не нужен','WIKI_CREATOR_GRANT_INVALID',409);
+        await client.query(
+          `INSERT INTO wiki_page_grants(organization_id,workspace_id,page_id,user_id,access,granted_by)
+           VALUES($1,$2,$3,$4,$5,$6)
+           ON CONFLICT(page_id,user_id) DO UPDATE SET access=EXCLUDED.access,granted_by=EXCLUDED.granted_by,updated_at=now()`,
+          [session.organizationId,session.workspaceId,id,userId,granted,session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.access_granted',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{userId,access:granted}],
+        );
+        await client.query('COMMIT');
+      }catch(error){
+        await client.query('ROLLBACK').catch(()=>{});
+        if(error.code==='23503')throw fail('Сотрудник не найден','WIKI_GRANTEE_NOT_FOUND',404);
+        throw error;
+      }finally{client.release();}
+      return this.getAccess(session,id);
+    },
+
+    async revokeAccess(session,id,userId){
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        await client.query(
+          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          [session.workspaceId,id],
+        );
+        await access.assertManage(session,id,client);
+        const {rowCount}=await client.query(
+          'DELETE FROM wiki_page_grants WHERE workspace_id=$1 AND page_id=$2 AND user_id=$3',
+          [session.workspaceId,id,userId],
+        );
+        if(!rowCount)throw fail('Доступ не найден','WIKI_GRANT_NOT_FOUND',404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.access_revoked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{userId}],
+        );
+        await client.query('COMMIT');
+      }catch(error){
+        await client.query('ROLLBACK').catch(()=>{});
+        throw error;
+      }finally{client.release();}
+      return this.getAccess(session,id);
     },
 
     async search(session, { query, limit = 30, from = null, to = null } = {}) {
@@ -757,9 +919,10 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           ORDER BY ts_rank_cd(to_tsvector('russian',coalesce(title,'')||' '||coalesce(content,'')),plainto_tsquery('russian',$3)) DESC,
                    updated_at DESC
           LIMIT $2`,
-        [session.workspaceId, max, q, from, to],
+        [session.workspaceId, Math.min(max*5,500), q, from, to],
       );
-      return rows.map((row) => ({ ...summaryView(row), snippet: row.snippet }));
+      const visible = await visibleRows(session, rows);
+      return visible.slice(0,max).map((row) => ({ ...summaryView(row), snippet: row.snippet }));
     },
   };
 }

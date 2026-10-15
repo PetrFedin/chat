@@ -588,6 +588,21 @@ export const openapi = Object.freeze({
       patch: { tags: ['Wiki'], summary: 'Edit title and/or content with optimistic concurrency', description: 'expectedVersion is required. A prior snapshot is written to page history in the same transaction before the edit is applied.', responses: { '200': { description: 'Updated page' }, '400': { description: 'expectedVersion missing or nothing to change' }, '404': { description: 'Page not found' }, '409': { description: 'Stale version — someone else edited it first' } } },
       delete: { tags: ['Wiki'], summary: 'Archive a page (soft — history and direct links still work)', responses: { '200': { description: 'Archived' }, '404': { description: 'Page not found' } } }
     },
+    '/api/v1/wiki/pages/{pageId}/access': {
+      get: { tags: ['Wiki'], summary: 'Read the ACL of a Page you created',
+        description: 'Only the Page creator may inspect explicit grants. Hidden Pages answer 404 to avoid existence disclosure.',
+        responses: { '200': { description: 'Visibility and explicit grants' }, '404': { description: 'Page not visible or caller cannot manage access' } } },
+      put: { tags: ['Wiki'], summary: 'Change Page visibility between workspace and restricted',
+        description: 'Restricted ancestors continue to protect descendants. Editors cannot widen the audience.',
+        responses: { '200': { description: 'Updated ACL' }, '400': { description: 'Invalid visibility' }, '404': { description: 'Page not visible or caller cannot manage access' } } },
+      post: { tags: ['Wiki'], summary: 'Grant view or edit access to a workspace employee',
+        description: 'The grant is additive to workspace RBAC and never grants access to linked Projects, Tasks, Channels, Meetings, Calls or Decisions.',
+        responses: { '200': { description: 'Updated ACL' }, '400': { description: 'Invalid access level' }, '404': { description: 'Page or employee not visible' }, '409': { description: 'Creator does not need an explicit grant' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/access/{userId}': {
+      delete: { tags: ['Wiki'], summary: 'Revoke an explicit Page grant',
+        responses: { '200': { description: 'Updated ACL' }, '404': { description: 'Page or grant not visible' } } }
+    },
     '/api/v1/wiki/pages/{pageId}/history': {
       get: { tags: ['Wiki'], summary: 'List prior snapshots of a page, newest first', responses: { '200': { description: 'Version history' } } }
     },

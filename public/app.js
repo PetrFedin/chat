@@ -3072,7 +3072,13 @@ async function wikiModal(pageId=null){
       title:page?page.title:'Вики',
       body:`
         ${page?`<div class="wiki-rich-content wiki-document-view" data-wiki-view></div>
-        <div class="chip-row" style="margin-top:10px"><button data-wiki-edit class="chipbtn pressable">Изменить</button><button data-wiki-history class="chipbtn pressable">История</button><button data-wiki-archive class="chipbtn pressable">Архивировать</button></div>
+        <div class="chip-row" style="margin-top:10px">
+          ${page.permissions?.canEdit?`<button data-wiki-edit class="chipbtn pressable">${T('Изменить','Edit')}</button>`:''}
+          <button data-wiki-history class="chipbtn pressable">${T('История','History')}</button>
+          ${page.permissions?.canEdit?`<button data-wiki-archive class="chipbtn pressable">${T('Архивировать','Archive')}</button>`:''}
+          ${page.permissions?.canManageAccess?`<button data-wiki-access class="chipbtn pressable">🔒 ${T('Доступ','Access')}</button>`:''}
+          ${page.visibility==='restricted'?`<span class="chip">${T('Ограниченный доступ','Restricted')}</span>`:''}
+        </div>
         <div class="surface" style="margin-top:14px;padding:12px">
           <div class="section-head"><div><strong>${T('Связанные проекты','Related projects')}</strong><div class="row-sub">${T('Связь не меняет доступ к проекту.','The relation does not change project access.')}</div></div><button data-wiki-project-new class="chipbtn pressable">＋ ${T('Проект','Project')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.projects||[]).length?(page.projects||[]).map(project=>`<div class="row" data-wiki-project-row="${esc(project.id)}"><button class="text-button" data-wiki-project-open="${esc(project.id)}">${esc(project.name)}</button><button class="text-button" data-wiki-project-remove="${esc(project.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет связанных доступных проектов','No visible related projects')}</span>`}</div>
@@ -3100,13 +3106,22 @@ async function wikiModal(pageId=null){
         :`<form id="wiki-search-form" class="form-stack"><label>Поиск по вики<input name="q" placeholder="Например: отпуск"></label></form><div id="wiki-search-results"></div>`}
         <p class="muted" style="margin-top:16px">${page?'Подстраницы':'Страницы'}</p>
         <div class="stack">${items.length?rows:'<div class="empty"><strong>Пока пусто</strong>Создайте первую страницу.</div>'}</div>
-        <button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?'Новая подстраница':'Новая страница'}</span></button>`,
+        ${(!page||page.permissions?.canEdit)?`<button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?T('Новая подстраница','New subpage'):T('Новая страница','New page')}</span></button>`:''}`,
       after:()=>{
         if(page){import('./wiki-document-view.js').then(m=>m.renderPageDocument($('[data-wiki-view]'),page.document??m.textPageDocument(page.content??''))).catch(error=>toast(error.message));}
+        if(page&&!page.permissions?.canEdit){
+          for(const selector of [
+            '[data-wiki-project-new]','[data-wiki-task-new]','[data-wiki-channel-new]',
+            '[data-wiki-meeting-new]','[data-wiki-call-new]','[data-wiki-decision-new]',
+            '[data-wiki-project-remove]','[data-wiki-task-remove]','[data-wiki-channel-remove]',
+            '[data-wiki-meeting-remove]','[data-wiki-call-remove]','[data-wiki-decision-remove]'
+          ]) $$(selector).forEach(node=>node.remove());
+        }
         $$('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
         $('[data-wiki-new]')?.addEventListener('click',()=>wikiPageFormModal(null,pageId,refresh));
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
+        $('[data-wiki-access]')?.addEventListener('click',()=>wikiAccessModal(page,refresh));
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
         $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
         $('[data-wiki-channel-new]')?.addEventListener('click',()=>wikiChannelLinkModal(page,refresh));
@@ -3287,6 +3302,91 @@ async function wikiProjectLinkModal(page,after){
         toast(T('Проект связан со страницей','Project linked to page'));
       }catch(error){button.disabled=false;toast(error.message)}
     };
+  });
+}
+
+async function wikiAccessModal(page,after){
+  let policy,people=[];
+  try{
+    [policy,{items:people=[]}]=await Promise.all([
+      api(`/api/v1/wiki/pages/${page.id}/access`),
+      api('/api/v1/people'),
+    ]);
+  }catch(error){toast(error.message);return}
+  const grants=new Map((policy.grants||[]).map(item=>[item.userId,item]));
+  const candidates=people.filter(person=>{
+    const id=person.userId||person.id;
+    return id&&id!==policy.createdBy&&person.role!=='guest'&&person.active!==false;
+  });
+  modal(T('Доступ к странице','Page access'),`<div class="form-stack">
+    <div class="surface" style="padding:12px">
+      <strong>${T('Кто видит страницу','Who can see this Page')}</strong>
+      <label style="margin-top:8px">${T('Режим','Visibility')}
+        <select data-wiki-access-visibility>
+          <option value="workspace" ${policy.visibility==='workspace'?'selected':''}>${T('Все сотрудники пространства','Everyone in the workspace')}</option>
+          <option value="restricted" ${policy.visibility==='restricted'?'selected':''}>${T('Только явно приглашённые','Explicitly invited only')}</option>
+        </select>
+      </label>
+      <button type="button" class="button" data-wiki-access-save>${T('Сохранить режим','Save visibility')}</button>
+      <p class="muted">${T(
+        'Ограничение родительской страницы действует и на её подстраницы. Редактор страницы не может сам расширить аудиторию.',
+        'A restricted parent also protects its subtree. A Page editor cannot widen the audience.'
+      )}</p>
+    </div>
+    <div class="surface" style="padding:12px">
+      <strong>${T('Явный доступ','Explicit access')}</strong>
+      <div class="stack" data-wiki-access-grants style="margin-top:8px">
+        ${(policy.grants||[]).length?(policy.grants||[]).map(grant=>`
+          <div class="row" data-wiki-grant-row="${esc(grant.userId)}">
+            <span><strong>${esc(grant.displayName||grant.userId)}</strong><span class="row-sub">${grant.access==='edit'?T('Редактирование','Edit'):T('Чтение','View')}</span></span>
+            <button type="button" class="text-button" data-wiki-grant-remove="${esc(grant.userId)}">${T('Убрать','Remove')}</button>
+          </div>`).join(''):`<span class="muted">${T('Явных приглашений нет','No explicit grants')}</span>`}
+      </div>
+      <label>${T('Сотрудник','Employee')}
+        <select data-wiki-grant-user>
+          <option value="">—</option>
+          ${candidates.map(person=>{const id=person.userId||person.id;return `<option value="${esc(id)}">${esc(person.displayName||person.email||id)}</option>`}).join('')}
+        </select>
+      </label>
+      <label>${T('Уровень','Access')}
+        <select data-wiki-grant-level>
+          <option value="view">${T('Чтение','View')}</option>
+          <option value="edit">${T('Редактирование','Edit')}</option>
+        </select>
+      </label>
+      <button type="button" class="button" data-wiki-grant-add>${T('Выдать доступ','Grant access')}</button>
+    </div>
+  </div>`,()=>{
+    $('[data-wiki-access-save]')?.addEventListener('click',async button=>{
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/access`,{
+          method:'PUT',body:JSON.stringify({visibility:$('[data-wiki-access-visibility]').value}),
+        });
+        history.back();
+        toast(T('Режим доступа сохранён','Visibility saved'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
+    $('[data-wiki-grant-add]')?.addEventListener('click',async button=>{
+      const userId=$('[data-wiki-grant-user]')?.value;
+      if(!userId)return toast(T('Выберите сотрудника','Choose an employee'));
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/access`,{
+          method:'POST',body:JSON.stringify({userId,access:$('[data-wiki-grant-level]').value}),
+        });
+        history.back();
+        toast(T('Доступ выдан','Access granted'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
+    $$('[data-wiki-grant-remove]').forEach(button=>button.onclick=async()=>{
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/access/${button.dataset.wikiGrantRemove}`,{method:'DELETE'});
+        history.back();
+        toast(T('Доступ отозван','Access revoked'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
   });
 }
 
@@ -3575,6 +3675,12 @@ function wikiPageFormModal(page,parentId,after){
   };
   modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">
     <label>${T('Заголовок','Title')}<input name="title" required maxlength="200" value="${esc(page?.title??'')}"></label>
+    ${!editing?`<label>${T('Доступ','Access')}
+      <select name="visibility">
+        <option value="workspace">${T('Все сотрудники пространства','Everyone in the workspace')}</option>
+        <option value="restricted">${T('Ограниченный доступ','Restricted')}</option>
+      </select>
+    </label>`:''}
     <div class="wiki-editor-toolbar" data-wiki-toolbar role="toolbar" aria-label="${T('Форматирование','Formatting')}">
       ${buttons.map(([action,label])=>`<button type="button" class="chipbtn" data-format="${action}" aria-label="${action}">${esc(label)}</button>`).join('')}
     </div>
@@ -3633,7 +3739,10 @@ function wikiPageFormModal(page,parentId,after){
           });
         }else{
           await api('/api/v1/wiki/pages',{
-            method:'POST',body:JSON.stringify({title,document:local,parentId}),
+            method:'POST',body:JSON.stringify({
+              title,document:local,parentId,
+              visibility:form.querySelector('[name="visibility"]')?.value||'workspace',
+            }),
           });
         }
         dirty=false;cleanup();
