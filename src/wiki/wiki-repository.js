@@ -205,6 +205,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           store, calls, session, callId: link.callId,
           guestMustParticipate: true, message: 'Meeting not found',
         });
+        if (!(call.recordings ?? []).length) return null;
         return {
           id: call.id, title: call.title ?? null, mode: call.mode, state: call.state,
           scheduledFor: call.scheduledFor ?? null, startedAt: call.startedAt ?? null,
@@ -599,10 +600,12 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     async unlinkCall(session, id, callId) {
       await ensurePage(session, id);
       if (!calls?.get || !store?.canAccessConversation) throw fail('Записи встреч недоступны', 'CALLS_UNAVAILABLE', 503);
-      const call = await requireAccessibleCall({
+      await requireAccessibleCall({
         store, calls, session, callId, guestMustParticipate: true, message: 'Meeting not found',
       });
-      if (!(call.recordings ?? []).length) throw fail('Запись встречи не найдена', 'RECORDED_CALL_NOT_FOUND', 404);
+      // Cleanup remains possible even if the recording row was removed after
+      // linking. A missing recording hides the projection but must not strand
+      // the relation forever.
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
