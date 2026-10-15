@@ -29,14 +29,14 @@ const readContent = (value) => {
   return content;
 };
 
-const COLUMNS = `id,parent_id "parentId",title,content,document,version,visibility,created_by "createdBy",updated_by "updatedBy",
+const COLUMNS = `id,parent_id "parentId",title,content,document,version,visibility,access_owner_id "accessOwnerId",created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt",archived_at "archivedAt"`;
 const SUMMARY_COLUMNS = `id,parent_id "parentId",title,version,visibility,created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt"`;
 
 const view = (row) => ({
   id: row.id, parentId: row.parentId ?? null, title: row.title, content: row.content, document: row.document??plainTextPageDocument(row.content), hasStructuredDocument: row.document !== null && row.document !== undefined, version: row.version,
-  visibility: row.visibility ?? 'workspace', createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
+  visibility: row.visibility ?? 'workspace', accessOwnerId: row.accessOwnerId ?? row.createdBy, createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
   archivedAt: row.archivedAt ?? null,
 });
 const summaryView = (row) => ({
@@ -291,8 +291,8 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         if (rows[0].visibility === 'restricted') effectiveVisibility = 'restricted';
       }
       const { rows } = await pool.query(
-        `INSERT INTO wiki_pages(organization_id,workspace_id,parent_id,title,content,document,visibility,created_by,updated_by)
-         VALUES($1,$2,$3,$4,$5,$7,$8,$6,$6) RETURNING ${COLUMNS}`,
+        `INSERT INTO wiki_pages(organization_id,workspace_id,parent_id,title,content,document,visibility,created_by,updated_by,access_owner_id)
+         VALUES($1,$2,$3,$4,$5,$7,$8,$6,$6,$6) RETURNING ${COLUMNS}`,
         [session.organizationId, session.workspaceId, parentId, cleanTitle, cleanContent, session.userId, normalized?.document??null, effectiveVisibility],
       );
       return view(rows[0]);
