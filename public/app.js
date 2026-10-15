@@ -3112,23 +3112,23 @@ async function wikiModal(pageId=null){
         $('[data-wiki-channel-new]')?.addEventListener('click',()=>wikiChannelLinkModal(page,refresh));
         $('[data-wiki-meeting-new]')?.addEventListener('click',()=>wikiMeetingLinkModal(page,refresh));
         $('[data-wiki-call-new]')?.addEventListener('click',()=>wikiCallLinkModal(page,refresh));
-        $('[data-wiki-meeting-open]').forEach(button=>button.onclick=()=>{
+        $$('[data-wiki-meeting-open]').forEach(button=>button.onclick=()=>{
           const id=button.dataset.wikiMeetingOpen;
           overlayStack.length=0;renderOverlay();eventPage(id);
         });
-        $('[data-wiki-meeting-remove]').forEach(button=>button.onclick=async()=>{
+        $$('[data-wiki-meeting-remove]').forEach(button=>button.onclick=async()=>{
           try{
             await api(`/api/v1/wiki/pages/${page.id}/calendar-meetings/${button.dataset.wikiMeetingRemove}`,{method:'DELETE'});
             toast(T('Встреча убрана со страницы','Meeting unlinked from Page'));
             await refresh();
           }catch(error){toast(error.message)}
         });
-        $('[data-wiki-call-open]').forEach(button=>button.onclick=()=>{
+        $$('[data-wiki-call-open]').forEach(button=>button.onclick=()=>{
           overlayStack.length=0;renderOverlay();
           location.hash=`#/calls/${encodeURIComponent(button.dataset.wikiCallOpen)}`;
           window.ChatCalls?.resumeHashCall?.();
         });
-        $('[data-wiki-call-remove]').forEach(button=>button.onclick=async()=>{
+        $$('[data-wiki-call-remove]').forEach(button=>button.onclick=async()=>{
           try{
             await api(`/api/v1/wiki/pages/${page.id}/calls/${button.dataset.wikiCallRemove}`,{method:'DELETE'});
             toast(T('Запись убрана со страницы','Recorded call unlinked from Page'));
@@ -3324,7 +3324,7 @@ async function wikiMeetingLinkModal(page,after){
           <span><strong>${esc(item.title||T('Встреча','Meeting'))}</strong>
             <span class="row-sub">${esc(dateTime(item.startAt))}</span></span>
         </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching meetings')}</div>`;
-      $('[data-wiki-meeting-select]',results).forEach(button=>button.onclick=async()=>{
+      $$('[data-wiki-meeting-select]',results).forEach(button=>button.onclick=async()=>{
         button.disabled=true;
         try{
           await api(`/api/v1/wiki/pages/${page.id}/calendar-meetings`,{
@@ -3371,7 +3371,7 @@ async function wikiCallLinkModal(page,after){
           <span><strong>${esc(item.title||T('Записанный звонок','Recorded call'))}</strong>
             <span class="row-sub">${esc(dateTime(item.startedAt||item.scheduledFor||item.createdAt))}</span></span>
         </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching recordings')}</div>`;
-      $('[data-wiki-call-select]',results).forEach(button=>button.onclick=async()=>{
+      $$('[data-wiki-call-select]',results).forEach(button=>button.onclick=async()=>{
         button.disabled=true;
         try{
           await api(`/api/v1/wiki/pages/${page.id}/calls`,{
