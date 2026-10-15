@@ -773,6 +773,122 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       return rows;
     },
 
+    async getAccess(session,id){
+      await access.assertManage(session,id);
+      const {rows:pages}=await pool.query(
+        'SELECT visibility,created_by "createdBy" FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
+        [session.workspaceId,id],
+      );
+      if(!pages[0])throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
+      const {rows}=await pool.query(
+        `SELECT g.user_id "userId",g.access,g.granted_by "grantedBy",g.granted_at "grantedAt",g.updated_at "updatedAt",
+                COALESCE(p.display_name,p.email,g.user_id::text) "displayName",p.title
+           FROM wiki_page_grants g
+           LEFT JOIN workspace_profiles p ON p.workspace_id=g.workspace_id AND p.user_id=g.user_id
+          WHERE g.workspace_id=$1 AND g.page_id=$2
+          ORDER BY COALESCE(p.display_name,p.email,g.user_id::text),g.user_id`,
+        [session.workspaceId,id],
+      );
+      return {visibility:pages[0].visibility,createdBy:pages[0].createdBy,grants:rows};
+    },
+
+    async setVisibility(session,id,visibility){
+      const next=visibility==='restricted'?'restricted':visibility==='workspace'?'workspace':null;
+      if(!next)throw fail('Неизвестный режим доступа','WIKI_VISIBILITY_INVALID',400);
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        await client.query(
+          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          [session.workspaceId,id],
+        );
+        await access.assertManage(session,id,client);
+        const {rows}=await client.query(
+          'UPDATE wiki_pages SET visibility=$3,updated_by=$4,updated_at=now() WHERE workspace_id=$1 AND id=$2 RETURNING visibility',
+          [session.workspaceId,id,next,session.userId],
+        );
+        if(!rows[0])throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.access_visibility_changed',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{visibility:next}],
+        );
+        await client.query('COMMIT');
+      }catch(error){
+        await client.query('ROLLBACK').catch(()=>{});
+        throw error;
+      }finally{client.release();}
+      return this.getAccess(session,id);
+    },
+
+    async grantAccess(session,id,userId,level){
+      const granted=level==='edit'?'edit':level==='view'?'view':null;
+      if(!granted)throw fail('Неизвестный уровень доступа','WIKI_ACCESS_INVALID',400);
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        await client.query(
+          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          [session.workspaceId,id],
+        );
+        await access.assertManage(session,id,client);
+        const member=await client.query(
+          "SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2 AND role<>'guest'",
+          [session.workspaceId,userId],
+        );
+        if(!member.rowCount)throw fail('Сотрудник не найден','WIKI_GRANTEE_NOT_FOUND',404);
+        const creator=await client.query(
+          'SELECT created_by FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
+          [session.workspaceId,id],
+        );
+        if(creator.rows[0]?.created_by===userId)throw fail('Создателю страницы отдельный доступ не нужен','WIKI_CREATOR_GRANT_INVALID',409);
+        await client.query(
+          `INSERT INTO wiki_page_grants(organization_id,workspace_id,page_id,user_id,access,granted_by)
+           VALUES($1,$2,$3,$4,$5,$6)
+           ON CONFLICT(page_id,user_id) DO UPDATE SET access=EXCLUDED.access,granted_by=EXCLUDED.granted_by,updated_at=now()`,
+          [session.organizationId,session.workspaceId,id,userId,granted,session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.access_granted',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{userId,access:granted}],
+        );
+        await client.query('COMMIT');
+      }catch(error){
+        await client.query('ROLLBACK').catch(()=>{});
+        if(error.code==='23503')throw fail('Сотрудник не найден','WIKI_GRANTEE_NOT_FOUND',404);
+        throw error;
+      }finally{client.release();}
+      return this.getAccess(session,id);
+    },
+
+    async revokeAccess(session,id,userId){
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        await client.query(
+          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          [session.workspaceId,id],
+        );
+        await access.assertManage(session,id,client);
+        const {rowCount}=await client.query(
+          'DELETE FROM wiki_page_grants WHERE workspace_id=$1 AND page_id=$2 AND user_id=$3',
+          [session.workspaceId,id,userId],
+        );
+        if(!rowCount)throw fail('Доступ не найден','WIKI_GRANT_NOT_FOUND',404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.access_revoked',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{userId}],
+        );
+        await client.query('COMMIT');
+      }catch(error){
+        await client.query('ROLLBACK').catch(()=>{});
+        throw error;
+      }finally{client.release();}
+      return this.getAccess(session,id);
+    },
+
     async search(session, { query, limit = 30, from = null, to = null } = {}) {
       const q = String(query ?? '').trim();
       if (!q) return [];
