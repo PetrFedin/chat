@@ -1,5 +1,6 @@
 import { cleanText } from '../http/helpers.js';
 import { normalizePageDocument, plainTextPageDocument } from './page-document.js';
+import { requireAccessibleCall } from '../meeting/access.js';
 
 /**
  * Вики: дерево совместных страниц компании.
@@ -42,10 +43,10 @@ const summaryView = (row) => ({
   createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
-export function createWikiRepository(pool, projects = null, store = null, meeting = null) {
+export function createWikiRepository(pool, projects = null, store = null, meeting = null, calendar = null, calls = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop };
   }
 
   const ensurePage = async (session, id) => {
@@ -162,6 +163,60 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     return items.filter(Boolean);
   };
 
+
+  const pageCalendarMeetings = async (session, pageId) => {
+    if (!calendar?.getMeetingForRelation) return [];
+    const { rows } = await pool.query(
+      `SELECT calendar_event_id "eventId", linked_by "linkedBy", linked_at "linkedAt"
+         FROM wiki_page_calendar_meetings
+        WHERE workspace_id=$1 AND page_id=$2
+        ORDER BY linked_at DESC, calendar_event_id LIMIT 100`,
+      [session.workspaceId, pageId],
+    );
+    const projected = await Promise.all(rows.map(async (link) => {
+      try {
+        const event = await calendar.getMeetingForRelation(session, link.eventId);
+        return {
+          id: event.id, title: event.title, startAt: event.startAt, endAt: event.endAt,
+          timezone: event.timezone, linkedBy: link.linkedBy, linkedAt: link.linkedAt,
+        };
+      } catch (error) {
+        if (error?.statusCode === 404) return null;
+        throw error;
+      }
+    }));
+    return projected.filter(Boolean);
+  };
+
+  const pageCalls = async (session, pageId) => {
+    if (!calls?.get || !store?.canAccessConversation) return [];
+    const { rows } = await pool.query(
+      `SELECT call_id "callId", linked_by "linkedBy", linked_at "linkedAt"
+         FROM wiki_page_calls
+        WHERE workspace_id=$1 AND page_id=$2
+        ORDER BY linked_at DESC, call_id LIMIT 100`,
+      [session.workspaceId, pageId],
+    );
+    const projected = await Promise.all(rows.map(async (link) => {
+      try {
+        const call = await requireAccessibleCall({
+          store, calls, session, callId: link.callId,
+          guestMustParticipate: true, message: 'Meeting not found',
+        });
+        return {
+          id: call.id, title: call.title ?? null, mode: call.mode, state: call.state,
+          scheduledFor: call.scheduledFor ?? null, startedAt: call.startedAt ?? null,
+          endedAt: call.endedAt ?? null, calendarEventId: call.calendarEventId ?? null,
+          linkedBy: link.linkedBy, linkedAt: link.linkedAt,
+        };
+      } catch (error) {
+        if (error?.statusCode === 404) return null;
+        throw error;
+      }
+    }));
+    return projected.filter(Boolean);
+  };
+
   return {
     enabled: true,
 
@@ -184,7 +239,16 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         `SELECT ${SUMMARY_COLUMNS} FROM wiki_pages WHERE workspace_id=$1 AND parent_id=$2 AND archived_at IS NULL ORDER BY title`,
         [session.workspaceId, id],
       );
-      return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id), tasks: await pageTasks(session, id), channels: await pageChannels(session, id), decisions: await pageDecisions(session, id) };
+      return {
+        ...page,
+        children: children.map(summaryView),
+        projects: await pageProjects(session, id),
+        tasks: await pageTasks(session, id),
+        channels: await pageChannels(session, id),
+        decisions: await pageDecisions(session, id),
+        meetings: await pageCalendarMeetings(session, id),
+        calls: await pageCalls(session, id),
+      };
     },
 
     async create(session, { title, parentId = null, content = '', document } = {}) {
