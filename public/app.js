@@ -3378,7 +3378,7 @@ async function wikiAccessModal(page,after){
         history.back();setTimeout(()=>wikiAccessModal(page,after),180);
       }catch(error){button.disabled=false;toast(error.message)}
     });
-    $('[data-wiki-grant-remove]').forEach(button=>button.onclick=async()=>{
+    $$('[data-wiki-grant-remove]').forEach(button=>button.onclick=async()=>{
       button.disabled=true;
       try{
         await api(`/api/v1/wiki/pages/${page.id}/access/${button.dataset.wikiGrantRemove}`,{method:'DELETE'});
