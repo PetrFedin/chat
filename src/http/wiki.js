@@ -3,7 +3,24 @@ import { Permission, requirePermission } from '../rbac.js';
 
 const PAGE_ID = '([0-9a-f-]{36})';
 const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
-const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
+const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/historyimport { json, readJson } from './helpers.js';
+import { Permission, requirePermission } from '../rbac.js';
+
+const PAGE_ID = '([0-9a-f-]{36})';
+const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
+, 'i');
+const ACCESS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/accessimport { json, readJson } from './helpers.js';
+import { Permission, requirePermission } from '../rbac.js';
+
+const PAGE_ID = '([0-9a-f-]{36})';
+const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
+, 'i');
+const ACCESS_GRANT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/${PAGE_ID}import { json, readJson } from './helpers.js';
+import { Permission, requirePermission } from '../rbac.js';
+
+const PAGE_ID = '([0-9a-f-]{36})';
+const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
+, 'i');
 const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
 const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}$`, 'i');
 const CHANNELS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels$`, 'i');
@@ -60,6 +77,31 @@ export function createWikiHandler() {
     const history = path.match(HISTORY);
     if (history && method === 'GET') {
       json(res, 200, { items: await ctx.wiki.history(session, history[1]) });
+      return true;
+    }
+
+    const access = path.match(ACCESS);
+    if (access && method === 'GET') {
+      json(res, 200, await ctx.wiki.getAccess(session, access[1]));
+      return true;
+    }
+    if (access && method === 'PUT') {
+      const body = await readJson(req);
+      json(res, 200, await ctx.wiki.setVisibility(session, access[1], body.visibility));
+      return true;
+    }
+    if (access && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.userId) throw Object.assign(new Error('userId is required'), {
+        code:'USER_ID_REQUIRED',statusCode:400,expose:true,
+      });
+      json(res, 200, await ctx.wiki.grantAccess(session, access[1], String(body.userId), body.access));
+      return true;
+    }
+
+    const accessGrant = path.match(ACCESS_GRANT);
+    if (accessGrant && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.revokeAccess(session, accessGrant[1], accessGrant[2]));
       return true;
     }
 
