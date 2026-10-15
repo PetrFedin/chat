@@ -1,6 +1,7 @@
 import { cleanText } from '../http/helpers.js';
 import { normalizePageDocument, plainTextPageDocument } from './page-document.js';
 import { requireAccessibleCall } from '../meeting/access.js';
+import { createWikiPageAccess } from './page-access.js';
 
 /**
  * Вики: дерево совместных страниц компании.
@@ -28,28 +29,30 @@ const readContent = (value) => {
   return content;
 };
 
-const COLUMNS = `id,parent_id "parentId",title,content,document,version,created_by "createdBy",updated_by "updatedBy",
+const COLUMNS = `id,parent_id "parentId",title,content,document,version,visibility,created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt",archived_at "archivedAt"`;
-const SUMMARY_COLUMNS = `id,parent_id "parentId",title,version,created_by "createdBy",updated_by "updatedBy",
+const SUMMARY_COLUMNS = `id,parent_id "parentId",title,version,visibility,created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt"`;
 
 const view = (row) => ({
   id: row.id, parentId: row.parentId ?? null, title: row.title, content: row.content, document: row.document??plainTextPageDocument(row.content), hasStructuredDocument: row.document !== null && row.document !== undefined, version: row.version,
-  createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
+  visibility: row.visibility ?? 'workspace', createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
   archivedAt: row.archivedAt ?? null,
 });
 const summaryView = (row) => ({
   id: row.id, parentId: row.parentId ?? null, title: row.title, version: row.version,
-  createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
+  visibility: row.visibility ?? 'workspace', createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
 export function createWikiRepository(pool, projects = null, store = null, meeting = null, calendar = null, calls = null, features = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop, getAccess: stop, setVisibility: stop, grantAccess: stop, revokeAccess: stop };
   }
 
   const featureOn = async (session, id) => !features?.isEnabled || await features.isEnabled(session.workspaceId, id);
+
+  const access = createWikiPageAccess(pool);
 
   const ensurePage = async (session, id) => {
     const { rows } = await pool.query(
