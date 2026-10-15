@@ -56,6 +56,19 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
   };
 
+  // Check before resolving target metadata, then again in the write
+  // transaction. Passing its client locks the active Page until commit:
+  // archive and relation admission must serialize on the same row.
+  // Unlink deliberately keeps ensurePage so authorized cleanup still works.
+  const ensureLinkablePage = async (session, id, client = null) => {
+    const { rows } = await (client ?? pool).query(
+      'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL'
+        + (client ? ' FOR UPDATE' : ''),
+      [session.workspaceId, id],
+    );
+    if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+  };
+
   const pageProjects = async (session, pageId) => {
     if (!projects?.get) return [];
     const { rows } = await pool.query(
@@ -237,18 +250,26 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async linkProject(session, id, projectId) {
-      await ensurePage(session, id);
+      await ensureLinkablePage(session, id);
       if (!projects?.get) throw fail('Проекты недоступны', 'PROJECTS_UNAVAILABLE', 503);
       await projects.get(session, projectId);
+      const client = await pool.connect();
       try {
-        await pool.query(
+        await client.query('BEGIN');
+        await ensureLinkablePage(session, id, client);
+        await client.query(
           `INSERT INTO wiki_page_projects(organization_id,workspace_id,page_id,project_id,linked_by)
            VALUES($1,$2,$3,$4,$5)`,
           [session.organizationId, session.workspaceId, id, projectId, session.userId],
         );
+        await client.query('COMMIT');
       } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
         if (error.code === '23505') throw fail('Проект уже связан со страницей', 'WIKI_PROJECT_ALREADY_LINKED', 409);
+        if (error.code === '23503') throw fail('Проект не найден', 'PROJECT_NOT_FOUND', 404);
         throw error;
+      } finally {
+        client.release();
       }
       return this.get(session, id);
     },
@@ -267,7 +288,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async linkTask(session, id, taskId) {
-      await ensurePage(session, id);
+      await ensureLinkablePage(session, id);
       if (!store?.getTask) throw fail('Задачи недоступны', 'TASKS_UNAVAILABLE', 503);
       const task = await store.getTask(session, taskId);
       if (!task) throw fail('Задача не найдена', 'TASK_NOT_FOUND', 404);
@@ -275,7 +296,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       try {
         await client.query('BEGIN');
         // Page lock serializes edits so the 100-relation UI cap stays honest.
-        await client.query('SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [session.workspaceId, id]);
+        await ensureLinkablePage(session, id, client);
         const limit = await client.query(
           'SELECT count(*)::int count FROM wiki_page_tasks WHERE workspace_id=$1 AND page_id=$2',
           [session.workspaceId, id],
@@ -332,7 +353,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     },
 
     async linkChannel(session, id, conversationId) {
-      await ensurePage(session, id);
+      await ensureLinkablePage(session, id);
       if (!store?.conversationPolicy) throw fail('Каналы недоступны', 'CHANNELS_UNAVAILABLE', 503);
       const policy = await store.conversationPolicy(session, conversationId);
       if (!policy || policy.conversation.kind !== 'channel') {
@@ -341,7 +362,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       const client = await pool.connect();
       try {
         await client.query('BEGIN');
-        await client.query('SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE', [session.workspaceId, id]);
+        await ensureLinkablePage(session, id, client);
         const limit = await client.query(
           'SELECT count(*)::int count FROM wiki_page_channels WHERE workspace_id=$1 AND page_id=$2',
           [session.workspaceId, id],
@@ -420,7 +441,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
 
     async linkDecision(session, id, decisionId) {
       // Enforce Page admission before querying any target metadata.
-      await ensurePage(session, id);
+      await ensureLinkablePage(session, id);
       if (!meeting?.getDecision) throw fail('Реестр решений недоступен', 'DECISIONS_UNAVAILABLE', 503);
       const decision = await meeting.getDecision(session, decisionId);
       if (!decision) throw fail('Решение не найдено', 'DECISION_NOT_FOUND', 404);
@@ -428,11 +449,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       try {
         await client.query('BEGIN');
         // Lock Page to serialize concurrent additions and enforce the cap.
-        const { rows: pages } = await client.query(
-          'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL FOR UPDATE',
-          [session.workspaceId, id],
-        );
-        if (!pages[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+        await ensureLinkablePage(session, id, client);
         const { rows } = await client.query(
           'SELECT count(*)::int count FROM wiki_page_decisions WHERE workspace_id=$1 AND page_id=$2',
           [session.workspaceId, id],
