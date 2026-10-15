@@ -60,6 +60,8 @@ test('Page ACL creator manages restricted access on 390px without exposing edit 
   await page.locator('[data-wiki-grant-user]').selectOption(member.userId);
   await page.locator('[data-wiki-grant-level]').selectOption('edit');
   await page.locator('[data-wiki-grant-add]').click();
+  await page.locator('[data-wiki-access]').waitFor({state:'visible'});
+  await page.locator('[data-wiki-access]').click();
   await page.locator(`[data-wiki-grant-row="${member.userId}"]`).waitFor({state:'visible'});
   assert.match(await page.locator(`[data-wiki-grant-row="${member.userId}"]`).textContent(),/Редактирование|Edit/);
 
@@ -68,14 +70,15 @@ test('Page ACL creator manages restricted access on 390px without exposing edit 
   assert.equal((await memberRead.json()).permissions.canEdit,true);
 
   await page.locator(`[data-wiki-grant-remove="${member.userId}"]`).click();
-  await page.waitForTimeout(250);
+  await page.locator('[data-wiki-access]').waitFor({state:'visible'});
   memberRead=await fetch(base+`/api/v1/wiki/pages/${wiki.id}`,{headers:{cookie:memberCookie}});
   assert.equal(memberRead.status,404,'revocation must take effect immediately');
 
   // Workspace visibility opens the same canonical Page without recreating it.
+  await page.locator('[data-wiki-access]').click();
   await page.locator('[data-wiki-access-visibility]').selectOption('workspace');
   await page.locator('[data-wiki-access-save]').click();
-  await page.waitForTimeout(250);
+  await page.locator('[data-wiki-access]').waitFor({state:'visible'});
   memberRead=await fetch(base+`/api/v1/wiki/pages/${wiki.id}`,{headers:{cookie:memberCookie}});
   assert.equal(memberRead.status,200);
   assert.equal((await memberRead.json()).title,'Restricted browser '+marker);
@@ -85,7 +88,7 @@ test('Page ACL creator manages restricted access on 390px without exposing edit 
   await page.locator('[data-wiki-access]').click();
   await page.locator('[data-wiki-access-visibility]').selectOption('restricted');
   await page.locator('[data-wiki-access-save]').click();
-  await page.waitForTimeout(250);
+  await page.locator('[data-wiki-access]').waitFor({state:'visible'});
   memberRead=await fetch(base+`/api/v1/wiki/pages/${wiki.id}`,{headers:{cookie:memberCookie}});
   assert.equal(memberRead.status,404);
 
