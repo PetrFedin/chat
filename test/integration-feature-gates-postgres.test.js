@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createChatServer } from '../src/server.js';
-import { featureForPath } from '../src/features/registry.js';
+import { featureForPath, featuresForPath } from '../src/features/registry.js';
 
 const databaseUrl = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 
@@ -28,6 +28,12 @@ async function call(base, path, { cookie, method = 'GET', body } = {}) {
 test('Projects participates in company feature routing', () => {
   assert.equal(featureForPath('/api/v1/projects'), 'projects');
   assert.equal(featureForPath('/api/v1/projects/00000000-0000-0000-0000-000000000000'), 'projects');
+});
+
+test('Page Meeting relations require both Wiki and canonical source features', () => {
+  const id='00000000-0000-0000-0000-000000000000';
+  assert.deepEqual(featuresForPath(`/api/v1/wiki/pages/${id}/calendar-meetings`), ['wiki','calendar']);
+  assert.deepEqual(featuresForPath(`/api/v1/wiki/pages/${id}/calls`), ['wiki','meetings']);
 });
 
 test('Projects, Wiki and Topics survive OFF/ON without bypassing cross-feature admission',
@@ -137,4 +143,28 @@ test('Projects, Wiki and Topics survive OFF/ON without bypassing cross-feature a
     assert.equal(topicsAgain.status, 200);
     assert.ok(topicsAgain.payload.items.some((item) => item.id === topicId),
       'switching Topics must not delete existing topic rows');
+
+    // Cross-feature Page relation endpoints are admitted only while their
+    // canonical source feature is enabled. The feature gate runs before target
+    // resolution, so even a guessed UUID cannot reveal source existence.
+    const fakeId='00000000-0000-0000-0000-000000000000';
+    assert.equal((await call(base, '/api/v1/features/calendar', {
+      cookie: owner.cookie, method: 'PUT', body: { enabled: false },
+    })).status, 200);
+    assert.equal((await call(base, `/api/v1/wiki/pages/${pageId}/calendar-meetings`, {
+      cookie: owner.cookie, method: 'POST', body: { eventId: fakeId },
+    })).code, 'FEATURE_DISABLED');
+    assert.equal((await call(base, '/api/v1/features/calendar', {
+      cookie: owner.cookie, method: 'PUT', body: { enabled: true },
+    })).status, 200);
+
+    assert.equal((await call(base, '/api/v1/features/meetings', {
+      cookie: owner.cookie, method: 'PUT', body: { enabled: false },
+    })).status, 200);
+    assert.equal((await call(base, `/api/v1/wiki/pages/${pageId}/calls`, {
+      cookie: owner.cookie, method: 'POST', body: { callId: fakeId },
+    })).code, 'FEATURE_DISABLED');
+    assert.equal((await call(base, '/api/v1/features/meetings', {
+      cookie: owner.cookie, method: 'PUT', body: { enabled: true },
+    })).status, 200);
   });
