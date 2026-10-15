@@ -485,6 +485,143 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       return this.get(session, id);
     },
 
+    async linkCalendarMeeting(session, id, eventId) {
+      await ensureLinkablePage(session, id);
+      if (!calendar?.getMeetingForRelation) throw fail('Календарь недоступен', 'CALENDAR_UNAVAILABLE', 503);
+      await calendar.getMeetingForRelation(session, eventId);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await ensureLinkablePage(session, id, client);
+        const { rows } = await client.query(
+          'SELECT count(*)::int count FROM wiki_page_calendar_meetings WHERE workspace_id=$1 AND page_id=$2',
+          [session.workspaceId, id],
+        );
+        if (rows[0].count >= 100) throw fail('На странице может быть не более 100 связанных встреч', 'PAGE_MEETING_LIMIT', 409);
+        const { rows: latest } = await client.query(
+          "SELECT id FROM calendar_events WHERE workspace_id=$1 AND id=$2 AND kind='meeting' FOR SHARE",
+          [session.workspaceId, eventId],
+        );
+        if (!latest[0]) throw fail('Встреча не найдена', 'CALENDAR_EVENT_NOT_FOUND', 404);
+        await client.query(
+          `INSERT INTO wiki_page_calendar_meetings(organization_id,workspace_id,page_id,calendar_event_id,linked_by)
+           VALUES($1,$2,$3,$4,$5)`,
+          [session.organizationId, session.workspaceId, id, eventId, session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.meeting_linked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { eventId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        if (error.code === '23505') throw fail('Встреча уже связана со страницей', 'WIKI_MEETING_ALREADY_LINKED', 409);
+        if (error.code === '23503') throw fail('Встреча не найдена', 'CALENDAR_EVENT_NOT_FOUND', 404);
+        throw error;
+      } finally { client.release(); }
+      return this.get(session, id);
+    },
+
+    async unlinkCalendarMeeting(session, id, eventId) {
+      await ensurePage(session, id);
+      if (!calendar?.getMeetingForRelation) throw fail('Календарь недоступен', 'CALENDAR_UNAVAILABLE', 503);
+      await calendar.getMeetingForRelation(session, eventId);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rowCount } = await client.query(
+          'DELETE FROM wiki_page_calendar_meetings WHERE workspace_id=$1 AND page_id=$2 AND calendar_event_id=$3',
+          [session.workspaceId, id, eventId],
+        );
+        if (!rowCount) throw fail('Связь со встречей не найдена', 'WIKI_MEETING_NOT_LINKED', 404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.meeting_unlinked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { eventId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally { client.release(); }
+      return this.get(session, id);
+    },
+
+    async linkCall(session, id, callId) {
+      await ensureLinkablePage(session, id);
+      if (!calls?.get || !store?.canAccessConversation) throw fail('Записи встреч недоступны', 'CALLS_UNAVAILABLE', 503);
+      const call = await requireAccessibleCall({
+        store, calls, session, callId, guestMustParticipate: true, message: 'Meeting not found',
+      });
+      if (!(call.recordings ?? []).length) throw fail('У звонка нет записи', 'RECORDED_CALL_NOT_FOUND', 404);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await ensureLinkablePage(session, id, client);
+        const { rows } = await client.query(
+          'SELECT count(*)::int count FROM wiki_page_calls WHERE workspace_id=$1 AND page_id=$2',
+          [session.workspaceId, id],
+        );
+        if (rows[0].count >= 100) throw fail('На странице может быть не более 100 связанных записей встреч', 'PAGE_CALL_LIMIT', 409);
+        const { rows: latest } = await client.query(
+          'SELECT id FROM call_sessions WHERE workspace_id=$1 AND id=$2 FOR SHARE',
+          [session.workspaceId, callId],
+        );
+        if (!latest[0]) throw fail('Запись встречи не найдена', 'RECORDED_CALL_NOT_FOUND', 404);
+        const recording = await client.query(
+          'SELECT 1 FROM call_recordings WHERE workspace_id=$1 AND call_id=$2 LIMIT 1',
+          [session.workspaceId, callId],
+        );
+        if (!recording.rowCount) throw fail('У звонка нет записи', 'RECORDED_CALL_NOT_FOUND', 404);
+        await client.query(
+          `INSERT INTO wiki_page_calls(organization_id,workspace_id,page_id,call_id,linked_by)
+           VALUES($1,$2,$3,$4,$5)`,
+          [session.organizationId, session.workspaceId, id, callId, session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.call_linked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { callId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        if (error.code === '23505') throw fail('Запись встречи уже связана со страницей', 'WIKI_CALL_ALREADY_LINKED', 409);
+        if (error.code === '23503') throw fail('Запись встречи не найдена', 'RECORDED_CALL_NOT_FOUND', 404);
+        throw error;
+      } finally { client.release(); }
+      return this.get(session, id);
+    },
+
+    async unlinkCall(session, id, callId) {
+      await ensurePage(session, id);
+      if (!calls?.get || !store?.canAccessConversation) throw fail('Записи встреч недоступны', 'CALLS_UNAVAILABLE', 503);
+      const call = await requireAccessibleCall({
+        store, calls, session, callId, guestMustParticipate: true, message: 'Meeting not found',
+      });
+      if (!(call.recordings ?? []).length) throw fail('Запись встречи не найдена', 'RECORDED_CALL_NOT_FOUND', 404);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rowCount } = await client.query(
+          'DELETE FROM wiki_page_calls WHERE workspace_id=$1 AND page_id=$2 AND call_id=$3',
+          [session.workspaceId, id, callId],
+        );
+        if (!rowCount) throw fail('Связь с записью встречи не найдена', 'WIKI_CALL_NOT_LINKED', 404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.call_unlinked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { callId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally { client.release(); }
+      return this.get(session, id);
+    },
+
     async pagesForDecision(session, decisionId) {
       // Decision Authority is checked *first*, so guessed/retracted UUIDs do
       // not reveal whether Page relations exist. Archived Pages stay hidden.
