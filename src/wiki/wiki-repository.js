@@ -833,7 +833,12 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         );
         await access.assertManage(session,id,client);
         const member=await client.query(
-          "SELECT 1 FROM memberships WHERE workspace_id=$1 AND user_id=$2 AND role<>'guest'",
+          `SELECT 1
+             FROM memberships m
+             JOIN users u ON u.id=m.user_id
+            WHERE m.workspace_id=$1 AND m.user_id=$2 AND m.role<>'guest'
+              AND u.disabled_at IS NULL
+              AND (m.access_until IS NULL OR m.access_until>now())`,
           [session.workspaceId,userId],
         );
         if(!member.rowCount)throw fail('Сотрудник не найден','WIKI_GRANTEE_NOT_FOUND',404);
