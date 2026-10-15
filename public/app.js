@@ -3115,7 +3115,7 @@ async function wikiModal(pageId=null){
             '[data-wiki-meeting-new]','[data-wiki-call-new]','[data-wiki-decision-new]',
             '[data-wiki-project-remove]','[data-wiki-task-remove]','[data-wiki-channel-remove]',
             '[data-wiki-meeting-remove]','[data-wiki-call-remove]','[data-wiki-decision-remove]'
-          ]) $(selector).forEach(node=>node.remove());
+          ]) $$(selector).forEach(node=>node.remove());
         }
         $$('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
         $('[data-wiki-new]')?.addEventListener('click',()=>wikiPageFormModal(null,pageId,refresh));
