@@ -3073,11 +3073,11 @@ async function wikiModal(pageId=null){
       body:`
         ${page?`<div class="wiki-rich-content wiki-document-view" data-wiki-view></div>
         <div class="chip-row" style="margin-top:10px">
-          ${page.permissions?.canEdit?'<button data-wiki-edit class="chipbtn pressable">'+T('Изменить','Edit')+'</button>':''}
+          ${page.permissions?.canEdit?`<button data-wiki-edit class="chipbtn pressable">${T('Изменить','Edit')}</button>`:''}
           <button data-wiki-history class="chipbtn pressable">${T('История','History')}</button>
-          ${page.permissions?.canEdit?'<button data-wiki-archive class="chipbtn pressable">'+T('Архивировать','Archive')+'</button>':''}
-          ${page.permissions?.canManageAccess?'<button data-wiki-access class="chipbtn pressable">🔒 '+T('Доступ','Access')+'</button>':''}
-          ${page.visibility==='restricted'?'<span class="chip">'+T('Ограниченный доступ','Restricted')+'</span>':''}
+          ${page.permissions?.canEdit?`<button data-wiki-archive class="chipbtn pressable">${T('Архивировать','Archive')}</button>`:''}
+          ${page.permissions?.canManageAccess?`<button data-wiki-access class="chipbtn pressable">🔒 ${T('Доступ','Access')}</button>`:''}
+          ${page.visibility==='restricted'?`<span class="chip">${T('Ограниченный доступ','Restricted')}</span>`:''}
         </div>
         <div class="surface" style="margin-top:14px;padding:12px">
           <div class="section-head"><div><strong>${T('Связанные проекты','Related projects')}</strong><div class="row-sub">${T('Связь не меняет доступ к проекту.','The relation does not change project access.')}</div></div><button data-wiki-project-new class="chipbtn pressable">＋ ${T('Проект','Project')}</button></div>
@@ -3363,7 +3363,7 @@ async function wikiAccessModal(page,after){
         await api(`/api/v1/wiki/pages/${page.id}/access`,{
           method:'PUT',body:JSON.stringify({visibility:$('[data-wiki-access-visibility]').value}),
         });
-        history.back();setTimeout(()=>after?.(),150);
+        history.back();
         toast(T('Режим доступа сохранён','Visibility saved'));
       }catch(error){button.disabled=false;toast(error.message)}
     });
@@ -3375,14 +3375,16 @@ async function wikiAccessModal(page,after){
         await api(`/api/v1/wiki/pages/${page.id}/access`,{
           method:'POST',body:JSON.stringify({userId,access:$('[data-wiki-grant-level]').value}),
         });
-        history.back();setTimeout(()=>wikiAccessModal(page,after),180);
+        history.back();
+        toast(T('Доступ выдан','Access granted'));
       }catch(error){button.disabled=false;toast(error.message)}
     });
     $$('[data-wiki-grant-remove]').forEach(button=>button.onclick=async()=>{
       button.disabled=true;
       try{
         await api(`/api/v1/wiki/pages/${page.id}/access/${button.dataset.wikiGrantRemove}`,{method:'DELETE'});
-        history.back();setTimeout(()=>wikiAccessModal(page,after),180);
+        history.back();
+        toast(T('Доступ отозван','Access revoked'));
       }catch(error){button.disabled=false;toast(error.message)}
     });
   });
