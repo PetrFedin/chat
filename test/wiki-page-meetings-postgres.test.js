@@ -147,6 +147,37 @@ test('Page Meeting relations preserve Calendar/Call authority, privacy and tenan
     assert.ok(page.payload.calls.every(x=>!('participants' in x)&&!('recordings' in x)&&!('transcript' in x)),
       'Page projection must not copy participants, recording objects or transcript');
 
+    // Feature OFF hides projections without deleting relation rows; ON restores
+    // the same canonical references.
+    assert.equal((await req(base,'/api/v1/features/meetings',{
+      cookie:owner.cookie,method:'PUT',body:{enabled:false},
+    })).status,200);
+    let switched=await req(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie});
+    assert.deepEqual(switched.payload.calls,[]);
+    assert.equal(Number((await pool.query(
+      'SELECT count(*) n FROM wiki_page_calls WHERE workspace_id=$1 AND page_id=$2',
+      [owner.session.workspaceId,pageId],
+    )).rows[0].n),1);
+    assert.equal((await req(base,'/api/v1/features/meetings',{
+      cookie:owner.cookie,method:'PUT',body:{enabled:true},
+    })).status,200);
+    switched=await req(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie});
+    assert.deepEqual(switched.payload.calls.map(x=>x.id),[call.id]);
+
+    assert.equal((await req(base,'/api/v1/features/calendar',{
+      cookie:owner.cookie,method:'PUT',body:{enabled:false},
+    })).status,200);
+    switched=await req(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie});
+    assert.deepEqual(switched.payload.meetings,[]);
+    assert.deepEqual(switched.payload.calls,[],
+      'Meetings is a Calendar dependent and its Page projection must cascade off too');
+    assert.equal((await req(base,'/api/v1/features/calendar',{
+      cookie:owner.cookie,method:'PUT',body:{enabled:true},
+    })).status,200);
+    switched=await req(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie});
+    assert.deepEqual(switched.payload.meetings.map(x=>x.id),[event.id]);
+    assert.deepEqual(switched.payload.calls.map(x=>x.id),[call.id]);
+
     const foreignMeeting=await req(base,'/api/v1/calendar-events',{cookie:foreign.cookie,method:'POST',body:{
       kind:'meeting',title:'Foreign '+marker,
       startAt:new Date(Date.now()+18000000).toISOString(),
@@ -172,6 +203,18 @@ test('Page Meeting relations preserve Calendar/Call authority, privacy and tenan
       [owner.session.workspaceId,call.id],
     )).rows[0].n),1);
 
+    // If media disappears later, Page must conceal the former Recorded Call
+    // while still allowing the authorized relation to be cleaned up.
+    assert.equal((await req(base,`/api/v1/wiki/pages/${pageId}/calls`,{
+      cookie:owner.cookie,method:'POST',body:{callId:call.id},
+    })).status,200);
+    await pool.query('DELETE FROM call_recordings WHERE workspace_id=$1 AND call_id=$2',
+      [owner.session.workspaceId,call.id]);
+    assert.deepEqual((await req(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie})).payload.calls,[]);
+    assert.equal((await req(base,`/api/v1/wiki/pages/${pageId}/calls/${call.id}`,{
+      cookie:owner.cookie,method:'DELETE',
+    })).status,200,'missing media must not strand an otherwise authorized relation');
+
     // Calendar cancellation deletes its canonical event; FK cascade removes only the Page relation.
     assert.equal((await req(base,`/api/v1/calendar-events/${event.id}`,{
       cookie:owner.cookie,method:'DELETE',
@@ -189,8 +232,8 @@ test('Page Meeting relations preserve Calendar/Call authority, privacy and tenan
       [owner.session.workspaceId,pageId],
     );
     assert.equal(audit.rows.filter(x=>x.event_type==='wiki.meeting_linked').length,1);
-    assert.equal(audit.rows.filter(x=>x.event_type==='wiki.call_linked').length,1);
-    assert.equal(audit.rows.filter(x=>x.event_type==='wiki.call_unlinked').length,1);
+    assert.equal(audit.rows.filter(x=>x.event_type==='wiki.call_linked').length,2);
+    assert.equal(audit.rows.filter(x=>x.event_type==='wiki.call_unlinked').length,2);
     assert.ok(audit.rows.every(x=>!JSON.stringify(x.payload).includes(marker)),
       'relation audit stores canonical IDs only, not meeting/transcript text');
 
