@@ -109,6 +109,29 @@ new `dailyTotals`) — a test asserts the numbers agree exactly with
 those two existing reports for the same range, so the three screens
 can't quietly drift apart.
 
+**Topics inside conversations**
+A channel or group can hold many named branches ("Contracts", "Purchasing", "Release") next to the general feed
+(`conversation_topics`, `messages.topic_id`, migration 072). A tab bar above the feed switches between All, General
+and each topic (with message counts, pinned topics first); the composer posts into the selected topic; every message
+shows its topic as a small badge in the All view; any feed message can be moved into a topic (or back) by its author
+or a conversation manager. Topics inherit the conversation's access — nobody sees a topic of a conversation they
+cannot open — creating one needs the right to write there (managers only in announcement-only channels), renaming and
+archiving belong to the topic's creator or a conversation manager, and an archived topic stops accepting messages.
+It is one of the switchable features ("Topics inside conversations") and disappears everywhere when turned off,
+while the messages stay readable in the main feed. Reply threads under a single message are unchanged.
+
+**Company feature switches**
+More → Company features lists 20 switchable features (tasks, time tracking, dashboard, requests, calendar, calls,
+meeting intelligence, decisions, wiki, vault, …) in groups. The core (messaging, people, profile, notifications,
+files) cannot be switched off. Every feature declares what it `requires`
+(`src/features/registry.js`): turning one off turns off what depends on it (time tracking and the dashboard go with
+tasks; meeting intelligence and decisions go with calls), turning a dependent one on first turns on what it needs,
+and bringing the base back also brings back what went off because of it (`cascade_from`, migration 071). The screen
+previews the effect before it is applied (affected rows highlighted, "Turn off all" / "Cancel"), then a short toast
+names everything that was switched. Enforcement is on the server — a disabled feature's routes answer 404
+`FEATURE_DISABLED` — and on the client (nav items, tiles, buttons, quick-create entries disappear; `features.updated`
+reaches other open tabs live). Only owners and administrators change it; every change is written to the audit log.
+
 **Structured requests and approvals**
 The "Request Template Authority" / "Approval Workflow" slice of
 `CHATX_INTEGRATION_MASTER_PLAN_2026-10-01.md`, built natively (no JSON Forms
