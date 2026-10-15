@@ -41,7 +41,7 @@ async function register(base) {
   return { cookie: registered.cookie, session: boot.payload.session };
 }
 
-async function targets(base, cookie) {
+async function targets(base, cookie, pool, session) {
   const post = (path, body) => request(base, path, { cookie, method: 'POST', body });
   const task = await post('/api/v1/tasks', { title: 'Archive-safe task', outcome: 'Preserve canonical task' });
   assert.equal(task.status, 201);
@@ -68,6 +68,22 @@ async function targets(base, cookie) {
   assert.equal(decisions.status, 200);
   const decision = decisions.payload.items.find(item => item.title === title);
   assert.ok(decision, 'accepted Decision fixture must come from canonical meeting notes');
+  const callId=randomUUID();
+  await pool.query(
+    `INSERT INTO call_sessions(
+      id,organization_id,workspace_id,conversation_id,created_by,title,mode,state,recording_status)
+     VALUES($1,$2,$3,$4,$5,$6,'video','ended','ready')`,
+    [callId,session.organizationId,session.workspaceId,channel.payload.conversation.id,
+      session.userId,'Archive-safe recorded call'],
+  );
+  await pool.query(
+    `INSERT INTO call_recordings(
+      organization_id,workspace_id,call_id,provider,provider_recording_id,storage_key,status,started_by)
+     VALUES($1,$2,$3,'livekit',$4,$5,'ready',$6)`,
+    [session.organizationId,session.workspaceId,callId,'archive-'+randomUUID(),
+      'archive/'+randomUUID()+'.mp4',session.userId],
+  );
+
   return [
     { kind: 'projects', field: 'projectId', id: project.payload.project.id,
       table: 'wiki_page_projects', method: 'linkProject', canonical: '/api/v1/projects/' + project.payload.project.id },
@@ -77,6 +93,10 @@ async function targets(base, cookie) {
       table: 'wiki_page_channels', method: 'linkChannel', canonical: '/api/v1/conversations/' + channel.payload.conversation.id + '/members' },
     { kind: 'decisions', field: 'decisionId', id: decision.id,
       table: 'wiki_page_decisions', method: 'linkDecision', canonical: '/api/v1/meetings/decisions/' + decision.id },
+    { kind: 'calendar-meetings', field: 'eventId', id: event.payload.event.id,
+      table: 'wiki_page_calendar_meetings', method: 'linkCalendarMeeting', canonical: '/api/v1/calendar-events/' + event.payload.event.id },
+    { kind: 'calls', field: 'callId', id: callId,
+      table: 'wiki_page_calls', method: 'linkCall', canonical: '/api/v1/calls/' + callId },
   ];
 }
 
@@ -95,7 +115,7 @@ async function observedBlock(pool, blockerPid, isSettled) {
   return false;
 }
 
-test('Page relations: archive admission is atomic for Project, Task, Channel and Decision',
+test('Page relations: archive admission is atomic for Project, Task, Channel, Decision, Meeting and Call',
   { skip: !databaseUrl, timeout: 90000 }, async t => {
     const app = await createChatServer({ databaseUrl, startMeetingWorker: false });
     await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
@@ -103,7 +123,7 @@ test('Page relations: archive admission is atomic for Project, Task, Channel and
     const base = 'http://127.0.0.1:' + app.server.address().port;
     const pool = app.store.pool;
     const owner = await register(base);
-    const fixtures = await targets(base, owner.cookie);
+    const fixtures = await targets(base, owner.cookie, pool, owner.session);
     const page = async title => {
       const created = await request(base, '/api/v1/wiki/pages', {
         cookie: owner.cookie, method: 'POST', body: { title, content: 'Canonical entities remain independent.' },
@@ -188,8 +208,14 @@ test('Page relations: archive admission is atomic for Project, Task, Channel and
         const id = await page('No metadata lookup ' + target.kind);
         assert.equal((await archive(id)).status, 200);
         const forbidden = async () => { throw new Error('target authority must not run for an archived Page'); };
-        const wiki = createWikiRepository(pool, { get: forbidden },
-          { getTask: forbidden, conversationPolicy: forbidden }, { getDecision: forbidden });
+        const wiki = createWikiRepository(
+          pool,
+          { get: forbidden },
+          { getTask: forbidden, conversationPolicy: forbidden, canAccessConversation: forbidden },
+          { getDecision: forbidden },
+          { getMeetingForRelation: forbidden },
+          { get: forbidden },
+        );
         await assert.rejects(wiki[target.method](owner.session, id, target.id), {
           code: 'WIKI_PAGE_NOT_FOUND', statusCode: 404,
         });
