@@ -1,8 +1,8 @@
 # CHATX — Investor Evidence Walkthrough (Draft admission)
 
-**Status:** implementation in isolated Draft PR; NOT a published product release.
-**Dependency:** PR #21 (Project Authority / PostgreSQL); do not merge this directly into `main`.
-**Pages Editor:** PR #25 has exact-head CI GREEN on `da5d2487517b2a3715a2daf2aa3e97b30908d042`, but still needs independent review and integration. Investor demo must not bypass those gates.
+**Status:** integrated into Draft PR #41 (`integration/chatx-main-20261015`); NOT a published product release.
+**Dependency:** the integrated PostgreSQL Project/Page/Decision authority stack in PR #41. `main` and production remain unchanged until release admission.
+**Pages Editor:** the PR #25 Tiptap implementation is now an ancestor of PR #41 and uses the renumbered integrated migration sequence (`081_wiki_structured_documents.sql`). Exact-head CI, independent review, recovery and real-device gates still apply to the combined release candidate.
 
 ## The investment story, with clickable proof rather than speculative numbers
 
@@ -29,7 +29,7 @@
 - [ ] Member/private-project/guest denial remains enforced; no sensitive entity existence leakage.
 - [ ] Unavailable API renders transparent unavailable state; economics inputs have no invented defaults.
 - [ ] Independent review confirms security, dependency provenance and import/seed safety.
-- [ ] Integration check against the actual release target; PR #21 itself remains Draft until its gates close.
+- [ ] Exact-head integration check against the actual PR #41 release candidate; historical stacked PRs are evidence inputs, not separate release targets.
 - [ ] Real browser on phone/tablet/desktop, RU/EN, persistence+restore, production configuration checks.
 - [ ] No production deploy or new paid services before acceptance.
 
