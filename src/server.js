@@ -520,10 +520,13 @@ export async function createChatServer(options={}){
     if(path.startsWith('/api/')&&cookieToken(req))assertSameOrigin(req);
     // Отключённая в компании функция для API не существует; код FEATURE_DISABLED нужен клиенту, чтобы объяснить причину.
     if(path.startsWith('/api/v1/')){
-      const need=features.featureForPath(path);
-      if(need){
+      const needs=features.featuresForPath?.(path)??(features.featureForPath(path)?[features.featureForPath(path)]:[]);
+      if(needs.length){
         const who=await authenticate(req).catch(()=>null);
-        if(who&&!(await features.isEnabled(who.workspaceId,need)))throw Object.assign(new Error('Эта функция отключена в компании'),{code:'FEATURE_DISABLED',statusCode:404,expose:true});
+        if(who){
+          for(const need of needs) if(!(await features.isEnabled(who.workspaceId,need)))
+            throw Object.assign(new Error('Эта функция отключена в компании'),{code:'FEATURE_DISABLED',statusCode:404,expose:true,feature:need});
+        }
       }
     }
     if(await handleAuth(req,res,ctx,path,method,url))return;
