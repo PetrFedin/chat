@@ -120,9 +120,13 @@ test('Page Meeting pickers link canonical Calendar meeting and recorded Call on 
   assert.equal(JSON.stringify(projection).includes('private transcript'),false);
   assert.equal(JSON.stringify(projection).includes('private summary'),false);
 
-  // The Call button points to the existing Call surface, not a copied Page view.
+  // A recorded/ended Call opens the existing Meeting Intelligence detail,
+  // never the live Call join surface.
   await callRow.locator('[data-wiki-call-open]').click();
-  await page.waitForFunction(id=>location.hash===`#/calls/${id}`,call.id);
+  await page.waitForFunction(id=>location.hash===`#/meetings/${id}`,call.id);
+  await page.locator('.mi-overlay #mi-detail').waitFor({state:'visible'});
+  assert.match(await page.locator('#mi-detail').textContent(),new RegExp('Recorded review '+marker));
+  await page.locator('[data-mi-close]').click();
   await page.evaluate(id=>window.ChatApp.openWikiPage(id),wiki.id);
   const restoredCall=page.locator(`[data-wiki-call-row="${call.id}"]`);
   await restoredCall.waitFor({state:'visible'});
