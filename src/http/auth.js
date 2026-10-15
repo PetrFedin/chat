@@ -276,7 +276,7 @@ export async function handleAuth(req,res,ctx,path,method,url=null){
     json(res,201,await ctx.twoFactor.reissue(s.userId));return true;
   }
 
-  if(method==='GET'&&path==='/api/v1/bootstrap'){const s=await requireSession(req),data=await store.getBootstrap(s);json(res,200,{...data,permissions:ctx.permissions(s.role),storageMode:ctx.mode,push:ctx.push});return true}
+  if(method==='GET'&&path==='/api/v1/bootstrap'){const s=await requireSession(req),data=await store.getBootstrap(s);json(res,200,{...data,permissions:ctx.permissions(s.role),storageMode:ctx.mode,push:ctx.push,features:await ctx.features.map(s.workspaceId)});return true}
   // Recovery has no mail channel, so an administrator issues the link and
   // hands it over. The person who forgot cannot ask for it themselves —
   // asking is a conversation with their administrator, not an endpoint.
