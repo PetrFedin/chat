@@ -3673,6 +3673,12 @@ function wikiPageFormModal(page,parentId,after){
   };
   modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">
     <label>${T('Заголовок','Title')}<input name="title" required maxlength="200" value="${esc(page?.title??'')}"></label>
+    ${!editing?`<label>${T('Доступ','Access')}
+      <select name="visibility">
+        <option value="workspace">${T('Все сотрудники пространства','Everyone in the workspace')}</option>
+        <option value="restricted">${T('Ограниченный доступ','Restricted')}</option>
+      </select>
+    </label>`:''}
     <div class="wiki-editor-toolbar" data-wiki-toolbar role="toolbar" aria-label="${T('Форматирование','Formatting')}">
       ${buttons.map(([action,label])=>`<button type="button" class="chipbtn" data-format="${action}" aria-label="${action}">${esc(label)}</button>`).join('')}
     </div>
@@ -3731,7 +3737,10 @@ function wikiPageFormModal(page,parentId,after){
           });
         }else{
           await api('/api/v1/wiki/pages',{
-            method:'POST',body:JSON.stringify({title,document:local,parentId}),
+            method:'POST',body:JSON.stringify({
+              title,document:local,parentId,
+              visibility:form.querySelector('[name="visibility"]')?.value||'workspace',
+            }),
           });
         }
         dirty=false;cleanup();
