@@ -54,25 +54,31 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
 
   const access = createWikiPageAccess(pool);
 
-  const ensurePage = async (session, id) => {
-    const { rows } = await pool.query(
-      'SELECT 1 FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
-      [session.workspaceId, id],
-    );
-    if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
-  };
+  const ensurePage = async (session, id, db = pool) => access.assertView(session, id, db);
+  const ensureEditablePage = async (session, id, db = pool) => access.assertEdit(session, id, db);
 
-  // Check before resolving target metadata, then again in the write
-  // transaction. Passing its client locks the active Page until commit:
-  // archive and relation admission must serialize on the same row.
-  // Unlink deliberately keeps ensurePage so authorized cleanup still works.
+  // Check Page edit admission before resolving target metadata, then again
+  // under a row lock. Archive, ACL changes and relation admission therefore
+  // serialize on the same Page row and hidden Pages never trigger target lookups.
   const ensureLinkablePage = async (session, id, client = null) => {
-    const { rows } = await (client ?? pool).query(
+    const db = client ?? pool;
+    await ensureEditablePage(session, id, db);
+    const { rows } = await db.query(
       'SELECT id FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL'
         + (client ? ' FOR UPDATE' : ''),
       [session.workspaceId, id],
     );
     if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+    if (client) await ensureEditablePage(session, id, client);
+  };
+
+  const visibleRows = async (session, rows) => {
+    const visible = [];
+    for (const row of rows) {
+      const state = await access.evaluate(session, row.id);
+      if (state?.canView) visible.push(row);
+    }
+    return visible;
   };
 
   const pageProjects = async (session, pageId) => {
@@ -228,16 +234,18 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
 
     /** Дети заданной страницы, а без parentId — страницы верхнего уровня. */
     async list(session, { parentId = null } = {}) {
+      if (parentId) await access.assertView(session, parentId);
       const { rows } = await pool.query(
         `SELECT ${SUMMARY_COLUMNS} FROM wiki_pages
           WHERE workspace_id=$1 AND archived_at IS NULL AND parent_id IS NOT DISTINCT FROM $2
           ORDER BY title`,
         [session.workspaceId, parentId],
       );
-      return rows.map(summaryView);
+      return (await visibleRows(session, rows)).map(summaryView);
     },
 
     async get(session, id) {
+      const pageAccess = await access.assertView(session, id);
       const { rows } = await pool.query(`SELECT ${COLUMNS} FROM wiki_pages WHERE workspace_id=$1 AND id=$2`, [session.workspaceId, id]);
       if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
       const page = view(rows[0]);
@@ -247,7 +255,8 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       );
       return {
         ...page,
-        children: children.map(summaryView),
+        permissions: { canEdit: pageAccess.canEdit, canManageAccess: pageAccess.canManage },
+        children: (await visibleRows(session, children)).map(summaryView),
         projects: await pageProjects(session, id),
         tasks: await pageTasks(session, id),
         channels: await pageChannels(session, id),
