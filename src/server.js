@@ -513,6 +513,14 @@ export async function createChatServer(options={}){
     if(await handleMeetingIntelligence(req,res,ctx,path,method))return;
     if(await handlePreviewDemo(req,res,ctx,path,method))return;
     if(path.startsWith('/api/')&&cookieToken(req))assertSameOrigin(req);
+    // Отключённая в компании функция для API не существует; код FEATURE_DISABLED нужен клиенту, чтобы объяснить причину.
+    if(path.startsWith('/api/v1/')){
+      const need=features.featureForPath(path);
+      if(need){
+        const who=await authenticate(req).catch(()=>null);
+        if(who&&!(await features.isEnabled(who.workspaceId,need)))throw Object.assign(new Error('Эта функция отключена в компании'),{code:'FEATURE_DISABLED',statusCode:404,expose:true});
+      }
+    }
     if(await handleAuth(req,res,ctx,path,method,url))return;
     if(await handleDailyWork(req,res,ctx,url,path,method))return;
     if(await handleWorkspace(req,res,ctx,url,path,method))return;
