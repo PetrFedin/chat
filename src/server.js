@@ -247,7 +247,7 @@ export async function createChatServer(options={}){
   // Wiki Meeting relations depend on both Calendar and Call authorities.
   // Construct Wiki only after Calls exists; this also guarantees one shared
   // authority instance for HTTP, Meeting Intelligence and Page projection.
-  const wiki=options.wiki??createWikiRepository(pool,projects,store,meeting,calendar,calls);
+  const wiki=options.wiki??createWikiRepository(pool,projects,store,meeting,calendar,calls,features);
   // Тот же обход времени закрывает звонки, которых никто не взял, и
   // извещает звонившего: раньше такой звонок оставался «звонящим»
   // навсегда, а тот, кому звонили, не узнавал об этом никогда.
