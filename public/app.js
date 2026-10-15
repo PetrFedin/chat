@@ -3444,7 +3444,7 @@ async function wikiAccessRecoveryModal(after){
       <button type="button" class="button" data-wiki-recover="${esc(item.id)}">${T('Восстановить управление','Recover access management')}</button>
     </div>`).join('')}
   </div>`,()=>{
-    $('[data-wiki-recover]').forEach(button=>button.onclick=async()=>{
+    $$('[data-wiki-recover]').forEach(button=>button.onclick=async()=>{
       const pageId=button.dataset.wikiRecover;
       const userId=$(`[data-wiki-recovery-user="${pageId}"]`)?.value;
       if(!userId)return toast(T('Выберите нового владельца доступа','Choose a new access owner'));
