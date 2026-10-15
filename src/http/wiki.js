@@ -5,22 +5,8 @@ const PAGE_ID = '([0-9a-f-]{36})';
 const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
 const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
 const ACCESS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access$`, 'i');
-const ACCESS_GRANT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/${PAGE_ID}import { json, readJson } from './helpers.js';
-import { Permission, requirePermission } from '../rbac.js';
-
-const PAGE_ID = '([0-9a-f-]{36})';
-const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
-const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
-const ACCESS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access$`, 'i');
-, 'i');
-const ACCESS_OWNER = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/ownerimport { json, readJson } from './helpers.js';
-import { Permission, requirePermission } from '../rbac.js';
-
-const PAGE_ID = '([0-9a-f-]{36})';
-const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
-const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
-const ACCESS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access$`, 'i');
-, 'i');
+const ACCESS_GRANT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/${PAGE_ID}$`, 'i');
+const ACCESS_OWNER = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/owner$`, 'i');
 const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
 const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}$`, 'i');
 const CHANNELS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels$`, 'i');
