@@ -101,6 +101,7 @@ import { preparePreviewDemo, handlePreviewDemo } from './demo/preview-demo.js';
 import { seedDemoMeetingIntelligence } from './demo/seed-meeting-intelligence.js';
 import { seedDemoOrgStructure } from './demo/seed-org-structure.js';
 import { seedDemoCalendarParticipation } from './demo/seed-calendar-participation.js';
+import { seedDemoInvestorProject } from './demo/seed-investor-project.js';
 
 const { Pool }=pg;
 // node-pg hands bigint back as a string so no precision is lost. Nothing in
@@ -345,6 +346,8 @@ export async function createChatServer(options={}){
     try{demo.meeting=await seedDemoMeetingIntelligence({store,calls,meeting})}catch(error){console.error('meeting demo seed failed',error)}
     try{demo.org=await seedDemoOrgStructure(pool,org)}catch(error){console.error('org demo seed failed',error)}
     try{demo.calendar=await seedDemoCalendarParticipation(pool,calendar)}catch(error){console.error('calendar demo seed failed',error)}
+    // Synthetic investor Project exists only in the opt-in demo tenant and PostgreSQL.
+    try{demo.investorProject=await seedDemoInvestorProject({store,projects})}catch(error){console.error('investor project demo seed failed',error)}
   }
 
   const meetingWorker=options.meetingWorker??createMeetingWorker(meetingProcessor,process.env,{
