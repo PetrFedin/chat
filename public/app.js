@@ -71,8 +71,119 @@ const guestShell=()=>me()?.role==='guest';
 // «Мои задачи» и «Расписание дня» у гостя не наполнятся ничем и никогда:
 // ни одной задачи компании он не увидит, ни одной встречи не заведёт.
 // Пустые карточки с призывом «создайте задачу» — обещание вместо границы.
-const tasksVisible=()=>!guestShell(),calendarVisible=()=>!guestShell();
-const visibleNav=()=>guestShell()?nav.filter(([id])=>!GUEST_HIDDEN_VIEWS.has(id)):nav;
+// Функции компании: отключённое не рисуется и не вызывается. Состояние приходит с bootstrap и по событию features.updated.
+const feat=(id)=>S.boot?.features?.[id]!==false;
+const VIEW_FEATURE={tasks:'tasks',calendar:'calendar'};
+/** Кнопка или плитка → функция, без которой она не нужна. */
+const ELEMENT_FEATURE={
+  task:'tasks','time-report':'time_tracking',dashboard:'dashboard',report:'dashboard',event:'calendar','calendar-subscribe':'calendar',
+  plan:'plan',reminders:'reminders',labels:'labels',decisions:'decisions','meeting-ops':'meetings',games:'games','room-games':'games',stories:'stories',
+  vault:'vault',integrations:'integrations',apikeys:'api_keys',knowledge:'knowledge',wiki:'wiki',org:'org_structure',calls:'calls',audio:'calls',video:'calls',
+  'assistant-summarize':'assistant','assistant-suggest':'assistant',requests:'requests',topics:'topics',
+};
+const tasksVisible=()=>!guestShell()&&feat('tasks'),calendarVisible=()=>!guestShell()&&feat('calendar');
+const visibleNav=()=>(guestShell()?nav.filter(([id])=>!GUEST_HIDDEN_VIEWS.has(id)):nav).filter(([id])=>!VIEW_FEATURE[id]||feat(VIEW_FEATURE[id]));
+function gateFeatures(root=document){
+  if(!S.boot?.features)return;
+  root.querySelectorAll('[data-action],[data-nav],[data-feature],[data-quick-task],[data-task-message],[data-quick-event]').forEach((el)=>{
+    const id=el.dataset.feature||(el.dataset.nav?VIEW_FEATURE[el.dataset.nav]:null)||(el.dataset.action?ELEMENT_FEATURE[el.dataset.action]:null)
+      ||((el.dataset.quickTask!==undefined||el.dataset.taskMessage!==undefined)?'tasks':null)||(el.dataset.quickEvent!==undefined?'calendar':null);
+    if(id&&!feat(id))el.remove();
+  });
+}
+// ---- Ветки беседы ----
+const TOPIC_KINDS=['channel','group','team','project'];
+const topicsOn=(c)=>Boolean(c)&&feat('topics')&&TOPIC_KINDS.includes(c.kind)&&S.boot?.storageMode!=='memory';
+const topicState=(id)=>(S.topics??=new Map()).get(id)||{items:[],generalCount:0};
+const topicView=(id)=>(S.topicView??=new Map()).get(id)||'all';
+const topicTitle=(convId,topicId)=>topicState(convId).items.find(t=>t.id===topicId)?.title||'';
+async function loadTopics(id){
+  if(!id||!feat('topics'))return;
+  const c=S.conversations.find(x=>x.id===id);if(!topicsOn(c))return;
+  try{(S.topics??=new Map()).set(id,await api(`/api/v1/conversations/${id}/topics`))}catch{}
+}
+/** Какие сообщения видны при выбранном виде: вся лента, только общая или одна ветка. */
+function visibleMessages(c,messages){
+  const view=topicView(c.id);
+  if(!topicsOn(c)||view==='all')return messages;
+  return view==='general'?messages.filter(m=>!m.topicId):messages.filter(m=>m.topicId===view);
+}
+function topicBar(c){
+  if(!topicsOn(c))return '';
+  const st=topicState(c.id),view=topicView(c.id);
+  const chip=(key,label,n,extra='')=>`<button class="topic-chip pressable${view===key?' on':''}${extra}" data-topic-view="${esc(key)}">${label}${n?` <i>${n}</i>`:''}</button>`;
+  const current=st.items.find(t=>t.id===view);
+  return `<nav class="topic-bar" aria-label="${T('Ветки беседы','Conversation topics')}">${chip('all',T('Все','All'),'')}${chip('general',T('Общее','General'),st.generalCount)}${
+    st.items.map(t=>chip(t.id,`${t.pinned?'📌 ':''}${esc(t.title)}`,t.messageCount)).join('')}<button class="topic-chip add pressable" data-topic-new title="${T('Новая ветка','New topic')}" aria-label="${T('Новая ветка','New topic')}">＋ ${T('Ветка','Topic')}</button>${
+    current?`<button class="topic-chip pressable" data-topic-menu="${esc(current.id)}" aria-label="${T('Действия с веткой','Topic actions')}">⋯</button>`:''}</nav>`;
+}
+function topicBadge(m){
+  const c=S.conversations.find(x=>x.id===m.conversationId||x.id===S.selected);
+  if(!m.topicId||!c||!topicsOn(c)||topicView(c.id)!=='all')return '';
+  const title=topicTitle(c.id,m.topicId);
+  return title?`<button class="topic-badge pressable" data-topic-view="${esc(m.topicId)}" title="${T('Открыть ветку','Open topic')}"># ${esc(title)}</button>`:'';
+}
+async function setTopicView(id,view){
+  (S.topicView??=new Map()).set(id,view);
+  if(view!=='all'&&view!=='general'){
+    try{
+      const {items}=await api(`/api/v1/conversations/${id}/topics/${view}/messages?limit=200`);
+      const list=S.messages.get(id)||[];const have=new Set(list.map(m=>m.id));
+      for(const m of items)if(!have.has(m.id))list.push(m);
+      list.sort((a,b)=>Date.parse(a.createdAt)-Date.parse(b.createdAt));S.messages.set(id,list);
+    }catch(error){toast(error.message)}
+  }
+  S.streamPos=null;render();
+}
+async function newTopic(){
+  const id=S.selected;if(!id)return;
+  modal(T('Новая ветка','New topic'),`<form id="topic-form" class="form-stack"><p class="muted">${T('Ветка — отдельный разговор по теме внутри беседы: «Договоры», «Закупки», «Релиз».','A topic is a separate conversation inside this one: “Contracts”, “Purchasing”, “Release”.')}</p><label class="field-group"><span>${T('Название','Title')}</span><input name="title" maxlength="80" required autofocus></label><button class="button primary" type="submit">${T('Создать ветку','Create topic')}</button></form>`,()=>{
+    $('#topic-form').onsubmit=async(event)=>{
+      event.preventDefault();
+      try{
+        const{topic}=await api(`/api/v1/conversations/${id}/topics`,{method:'POST',body:JSON.stringify({title:new FormData(event.target).get('title')})});
+        closeModal();await loadTopics(id);await setTopicView(id,topic.id);toast(T('Ветка создана','Topic created'));
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+function topicMenu(topicId){
+  const id=S.selected;const t=topicState(id).items.find(x=>x.id===topicId);if(!t)return;
+  modal(`# ${t.title}`,`<div class="stack"><button class="row pressable" data-tm="rename">${T('Переименовать','Rename')}</button><button class="row pressable" data-tm="pin">${t.pinned?T('Открепить','Unpin'):T('Закрепить вверху','Pin to the top')}</button><button class="row pressable" data-tm="archive">${T('В архив','Archive')}</button></div>`,()=>{
+    const patch=async(body,after)=>{try{await api(`/api/v1/conversations/${id}/topics/${topicId}`,{method:'PATCH',body:JSON.stringify(body)});closeModal();await loadTopics(id);after?.();render()}catch(error){toast(error.message)}};
+    $('[data-tm="pin"]').onclick=()=>patch({pinned:!t.pinned});
+    $('[data-tm="archive"]').onclick=()=>patch({archived:true},()=>{S.topicView.set(id,'all')});
+    $('[data-tm="rename"]').onclick=()=>{
+      const next=prompt(T('Новое название ветки','New topic title'),t.title);
+      if(next&&next.trim())patch({title:next.trim()});
+    };
+  });
+}
+function moveToTopicModal(messageId){
+  const message=(S.messages.get(S.selected)||[]).find(x=>x.id===messageId);if(!message)return;
+  const st=topicState(S.selected);
+  modal(T('В какую ветку перенести','Move to topic'),`<div class="stack">${[{id:'',title:T('Общая лента','General feed')},...st.items].map(t=>`<button class="row pressable${(message.topicId||'')===t.id?' on':''}" data-move-topic="${esc(t.id)}">${t.id?'# ':''}${esc(t.title)}</button>`).join('')}<button class="row pressable" data-move-new>＋ ${T('Новая ветка…','New topic…')}</button></div>`,()=>{
+    $$('[data-move-topic]').forEach(b=>b.onclick=async()=>{
+      try{await api(`/api/v1/messages/${messageId}/topic`,{method:'PATCH',body:JSON.stringify({topicId:b.dataset.moveTopic||null})});closeModal();await loadTopics(S.selected);toast(T('Сообщение перенесено','Message moved'))}
+      catch(error){toast(error.message)}
+    });
+    $('[data-move-new]').onclick=()=>{
+      const title=prompt(T('Название новой ветки','New topic title'));
+      if(!title||!title.trim())return;
+      api(`/api/v1/conversations/${S.selected}/topics`,{method:'POST',body:JSON.stringify({title:title.trim()})})
+        .then(({topic})=>api(`/api/v1/messages/${messageId}/topic`,{method:'PATCH',body:JSON.stringify({topicId:topic.id})}))
+        .then(async()=>{closeModal();await loadTopics(S.selected);toast(T('Сообщение перенесено в новую ветку','Moved to the new topic'))})
+        .catch(error=>toast(error.message));
+    };
+  });
+}
+document.addEventListener('click',(event)=>{
+  const view=event.target.closest('[data-topic-view]');if(view&&S.selected){setTopicView(S.selected,view.dataset.topicView);return}
+  if(event.target.closest('[data-topic-new]')){newTopic();return}
+  const menu=event.target.closest('[data-topic-menu]');if(menu)topicMenu(menu.dataset.topicMenu);
+});
+let gateTimer=null;
+new MutationObserver(()=>{clearTimeout(gateTimer);gateTimer=setTimeout(()=>gateFeatures(),0)}).observe(document.body,{childList:true,subtree:true});
 // Обязательство берёт на себя сотрудник компании. Гость — представитель
 // заказчика: предлагать его ответственным значит обещать то, чего сервер
 // не позволит, и заодно показывать чужим людям штат.
@@ -224,6 +335,7 @@ async function api(path,o={}){
     const code=p?.error?.code;
     const e=new Error(plainServerError(ERROR_MESSAGE[code]||p?.error?.message,r.status));
     e.status=r.status;e.code=code;e.serverMessage=p?.error?.message;
+    if(code==='FEATURE_DISABLED')refreshFeatures(false);
     // Сессия кончилась посреди работы: без этого приложение выглядело живым и
     // отвечало на каждое действие сырой ошибкой.
     if(r.status===401&&code==='UNAUTHENTICATED'&&S.boot&&!S.sessionLost){
@@ -917,6 +1029,7 @@ function message(m,grouped=false){
     ${mine||grouped?'':`${personAvatar(m.authorId,name(m.authorId))}`}
     <div class="msg-column">
       ${mine||grouped?'':`<div class="message-meta"><span class="message-author">${esc(name(m.authorId))}</span></div>`}
+      ${topicBadge(m)}
       <div class="msg-bubble">
         ${outside}${forwarded}${quote}${body}${stamp}
       </div>
@@ -2142,7 +2255,7 @@ async function openChat(id){
   // На телефоне открытая беседа — следующий экран после списка: «назад» браузера возвращает к списку, а не из раздела.
   if(fromList){try{history.pushState(null,'','#/chats');S.chatPushed=true}catch{}}
   else if(location.hash!=='#/chats'){try{history.replaceState(null,'','#/chats')}catch{}}
-  await loadMessages(id);
+  await Promise.all([loadMessages(id),loadTopics(id)]);
   const conversation=S.conversations.find(c=>c.id===id);
   const unread=Number(conversation?.unreadCount||0);
   const list=S.messages.get(id)||[];
@@ -4422,6 +4535,7 @@ const JOURNAL_EVENT={
   'integration.telegram.removed':['Мост с Telegram отключён', ()=>''],
   'api_key.created':['Выдан ключ API', e=>`${e.payload?.name??''}${e.payload?.readOnly?T(' — только чтение',' — read-only'):''}`],
   'api_key.revoked':['Ключ API отозван', e=>e.payload?.name??''],
+  'feature.toggled':['Изменены функции компании', e=>(e.payload?.changes||[]).map(c=>`${c.id}: ${c.enabled?'вкл':'выкл'}`).join(', ')],
   'conversation.ownership_claimed':['Беседа осталась без владельца и принята', e=>e.payload?.title??''],
 };
 
@@ -5236,7 +5350,7 @@ function editProfile(person){
 
 // Разделы «Ещё», у которых есть свой адрес: #/more/team открывает «Команду» и после обновления страницы,
 // и по ссылке коллеге. Окно рисуется поверх «Ещё», поэтому «назад» возвращает на плитки.
-const MORE_SCREENS=new Set(['apikeys','archived','calls','catalogue','company','contacts','dashboard','decisions','digest','files','games','integrations','invite','journal','knowledge','labels','meeting-ops','org','plan','presence','reminders','report','requests','saved','settings','stories','team','time-report','vault','wiki']);
+const MORE_SCREENS=new Set(['apikeys','archived','calls','catalogue','company','contacts','dashboard','decisions','digest','files','games','integrations','invite','journal','knowledge','labels','meeting-ops','org','plan','presence','features','reminders','report','requests','saved','settings','stories','team','time-report','vault','wiki']);
 async function action(a){
   const before=overlayStack.length;
   await actions[a]?.();
@@ -5244,7 +5358,7 @@ async function action(a){
   const mark=()=>{if(MORE_SCREENS.has(a)&&overlayStack.length>before&&location.hash.startsWith('#/more')){try{history.replaceState(history.state,'',`#/more/${a}`)}catch{}return true}return false};
   if(!mark()&&MORE_SCREENS.has(a))[500,1500].forEach((ms)=>setTimeout(mark,ms));
 }
-async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';writeDraft(S.selected,'');try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null})});append(S.selected,message);S.reply=null;S.streamPos=null;render()}catch(e){
+async function send(){const i=$('#message-input'),body=i?.value.trim();if(!body)return;i.value='';writeDraft(S.selected,'');try{const{message}=await api(`/api/v1/conversations/${S.selected}/messages`,{method:'POST',body:JSON.stringify({body,replyToId:S.reply?.id||null,...(()=>{const v=topicView(S.selected);return v!=='all'&&v!=='general'&&topicsOn(S.conversations.find(x=>x.id===S.selected))?{topicId:v}:{}})()})});append(S.selected,message);S.reply=null;S.streamPos=null;render()}catch(e){
     // Текст не должен пропадать вместе с неудачной отправкой: возвращаем его в поле.
     const again=$('#message-input');if(again&&!again.value){again.value=body;writeDraft(S.selected,body)}
     toast(e.message)}}
@@ -5252,7 +5366,7 @@ function append(id,m){
   // Беседа ещё не открывалась: историю подгрузит открытие. Положить сюда одно
   // пришедшее по сокету сообщение значило бы выдать его за всю переписку.
   const loaded=S.messages.has(id);
-  const list=S.messages.get(id)||[];if(loaded&&!list.some(x=>x.id===m.id))list.push(m);if(loaded)S.messages.set(id,list);const c=S.conversations.find(x=>x.id===id);if(c)c.lastMessage=m}
+  const list=S.messages.get(id)||[];if(loaded&&!list.some(x=>x.id===m.id)){list.push(m);{const st=S.topics?.get(id);if(st&&!m.threadRootId){if(m.topicId){const t=st.items.find(x=>x.id===m.topicId);if(t)t.messageCount+=1}else st.generalCount+=1}}}if(loaded)S.messages.set(id,list);const c=S.conversations.find(x=>x.id===id);if(c)c.lastMessage=m}
 const REACTIONS=['👍','👏','🔥','✅','❤️','😀','🤔','👀','🙏','🎯','⏱','❌'];
 /**
  * Плавающая панель маркера.
@@ -5580,6 +5694,7 @@ function messageMenu(messageId){
     ['label','Метка',tileIcon.labels],
     ['pin',message.pinned?'Открепить':'Закрепить',msgIcon.pin],
     ['task','В задачу',msgIcon.task],
+    ...(topicsOn(S.conversations.find(x=>x.id===S.selected))&&!message.threadRootId&&(mine||can('channel.manage'))?[['topic','В ветку…','#']]:[]),
     ['link','Скопировать ссылку','🔗'],
     ...((S.highlights?.get(message.id)||[]).length?[['unhighlight','Снять выделение',msgIcon.pin]]:[]),
     ...(mine&&message.kind==='text'&&!message.forwarded?[['edit','Изменить',msgIcon.edit]]:[]),
@@ -5612,6 +5727,7 @@ function messageMenu(messageId){
         try{await navigator.clipboard.writeText(url);toast(T('Ссылка скопирована','Link copied'))}
         catch{toast(url)}
       },
+      topic:()=>replaceModal(()=>moveToTopicModal(messageId)),
       edit:()=>replaceModal(()=>editMessageModal(messageId)),
       delete:()=>replaceModal(()=>deleteMessageModal(messageId)),
     };
@@ -7713,7 +7829,9 @@ function connect(){
     const root=list?.find(x=>x.id===d.message.threadRootId);
     if(root){root.replyCount=(root.replyCount||0)+1;root.lastReplyAt=d.message.createdAt}
   }else append(d.conversationId,d.message);
-  if(S.view==='chats')render()}if(p.event==='message.reaction'){for(const list of S.messages.values()){const m=list.find(x=>x.id===d.messageId);if(m)m.reactions=d.reactions}if(S.view==='chats')render()}if(p.event==='message.updated'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.deleted'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.pin'){updateMessage(d.messageId,{pinned:d.pinned});if(S.view==='chats')render()}if(p.event==='conversation.created'){rememberConversation(d);shell();if(S.view==='chats')render()}if(p.event==='presence.updated'){const x=person(d.userId);if(x)x.presence=d.presence;lists()}if(p.event==='task.created'&&!S.tasks.some(x=>x.id===d.id)){S.tasks.unshift(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='task.updated'){upsertTask(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='calendar.created'&&!S.calendar.some(x=>x.id===d.id)){S.calendar.push(d);if(['today','calendar'].includes(S.view))render()}if(p.event==='typing.start'||p.event==='typing.stop'){
+  if(S.view==='chats')render()}if(p.event==='message.reaction'){for(const list of S.messages.values()){const m=list.find(x=>x.id===d.messageId);if(m)m.reactions=d.reactions}if(S.view==='chats')render()}if(p.event==='message.updated'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.deleted'){updateMessage(d.message.id,d.message);if(S.view==='chats')render()}if(p.event==='message.pin'){updateMessage(d.messageId,{pinned:d.pinned});if(S.view==='chats')render()}if(p.event==='conversation.created'){rememberConversation(d);shell();if(S.view==='chats')render()}if(p.event==='presence.updated'){const x=person(d.userId);if(x)x.presence=d.presence;lists()}if(p.event==='task.created'&&!S.tasks.some(x=>x.id===d.id)){S.tasks.unshift(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='task.updated'){upsertTask(d);if(S.view==='tasks')await loadTaskPage();if(['today','tasks'].includes(S.view))render()}if(p.event==='calendar.created'&&!S.calendar.some(x=>x.id===d.id)){S.calendar.push(d);if(['today','calendar'].includes(S.view))render()}if(p.event==='features.updated'){refreshFeatures(true)}
+    if(p.event==='topic.updated'){loadTopics(d.conversationId).then(()=>{if(S.view==='chats'&&S.selected===d.conversationId)render()})}
+    if(p.event==='typing.start'||p.event==='typing.stop'){
       // Печатающих может быть несколько, и у каждого своё время жизни: оборвавшийся сокет не присылает «перестал».
       const t=(S.typingNow??=new Map());
       if(p.event==='typing.start')t.set(d.userId,{conv:d.conversationId,until:Date.now()+5000});else t.delete(d.userId);
