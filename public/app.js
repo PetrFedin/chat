@@ -3123,7 +3123,7 @@ async function wikiModal(pageId=null){
             await refresh();
           }catch(error){toast(error.message)}
         });
-        $('[data-wiki-call-open]').forEach(button=>button.onclick=()=>{
+        $$('[data-wiki-call-open]').forEach(button=>button.onclick=()=>{
           const id=button.dataset.wikiCallOpen;
           overlayStack.length=0;renderOverlay();
           if(!window.ChatMeetingIntelligence?.openMeeting){
