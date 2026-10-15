@@ -109,26 +109,23 @@ test('второй множитель закрывает вход и откры�
   assert.equal(enrolmentReplay.code, 'TWO_FACTOR_BAD_CODE', 'код подтверждения настройки не должен работать на входе');
 
   // Вход — кодом следующего окна (допустимый дрейф: одно окно вперёд).
+  // Два одновременных запроса спорят за один ещё не использованный counter:
+  // PostgreSQL должен атомарно отдать его только одному.
   const code = codeAt(secret, now() + 1);
-  const good = await request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code } });
-  assert.equal(good.status, 200);
-
-  // Тот же код второй раз не проходит: подсмотренный через плечо код не
-  // должен работать все тридцать секунд.
-  const replay = await request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code } });
-  assert.equal(replay.code, 'TWO_FACTOR_BAD_CODE');
-  assert.equal(replay.status, 401);
-
-  // Два одновременных запроса с одним ещё не использованным TOTP:
-  // PostgreSQL должен атомарно отдать окно только одному из них.
-  const concurrentCode = codeAt(secret, now() + 2);
   const concurrent = await Promise.all([
-    request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code: concurrentCode } }),
-    request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code: concurrentCode } }),
+    request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code } }),
+    request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code } }),
   ]);
   assert.deepEqual(concurrent.map((x) => x.status).sort(), [200, 401]);
   assert.equal(concurrent.filter((x) => x.code === 'TWO_FACTOR_BAD_CODE').length, 1,
     'one concurrent replay must lose the atomic TOTP counter claim');
+  const good = concurrent.find((x) => x.status === 200);
+  assert.ok(good?.cookie);
+
+  // Тот же код после победившего входа уже не проходит.
+  const replay = await request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code } });
+  assert.equal(replay.code, 'TWO_FACTOR_BAD_CODE');
+  assert.equal(replay.status, 401);
 
   // Телефон потерян — вход по запасному коду, и он одноразовый.
   const rescued = await request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code: recovery[0] } });
