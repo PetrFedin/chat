@@ -63,6 +63,9 @@ import { createPeopleRepository } from './people/people-repository.js';
 import { createOrgRepository } from './org/org-repository.js';
 import { createRequestRepository } from './requests/request-repository.js';
 import { createRequestsHandler } from './http/requests.js';
+import { createFeatureRepository } from './features/feature-repository.js';
+import { createTopicRepository } from './messaging/topic-repository.js';
+import { createFeaturesHandler } from './http/features.js';
 import { createWorkspaceExport } from './export/workspace-export.js';
 import { createTwoFactor } from './security/two-factor.js';
 import { createDigestMailer } from './digest/digest-mailer.js';
@@ -185,6 +188,8 @@ export async function createChatServer(options={}){
   const webhooks=options.webhooks??createWebhookRepository(pool);
   const org=options.org??createOrgRepository(pool);
   const requests=options.requests??createRequestRepository({pool,store});
+  const features=options.features??createFeatureRepository(pool);
+  const topics=options.topics??(pool?createTopicRepository(pool):null);
   const people=options.people??createPeopleRepository(pool,org);
   const games=options.games??createGameRepository(pool,store);
   const reminders=options.reminders??createReminderRepository(pool);
@@ -348,8 +353,8 @@ export async function createChatServer(options={}){
 
   if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.();mailWorker.start?.();digestMailer?.start?.();reminderWorker.start?.();retention.start?.()}
 
-  const ctx={requests,store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,telegram,icsFeed,apiKeys,chatAssistant,wiki,timeEntries,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleRequests=createRequestsHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleKnowledge=createKnowledgeHandler(),handleTelegram=createTelegramHandler(),handleIcsFeed=createIcsFeedHandler(),handleApiKeys=createApiKeysHandler(),handleChatAssistant=createChatAssistantHandler(),handleWiki=createWikiHandler(),handleTimeTracking=createTimeTrackingHandler(),handleDashboard=createDashboardHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const ctx={topics,features,requests,store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,telegram,icsFeed,apiKeys,chatAssistant,wiki,timeEntries,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleRequests=createRequestsHandler(),handleFeatures=createFeaturesHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleKnowledge=createKnowledgeHandler(),handleTelegram=createTelegramHandler(),handleIcsFeed=createIcsFeedHandler(),handleApiKeys=createApiKeysHandler(),handleChatAssistant=createChatAssistantHandler(),handleWiki=createWikiHandler(),handleTimeTracking=createTimeTrackingHandler(),handleDashboard=createDashboardHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{
     // Запись о запросе — то, чего в журнале не было вовсе: двадцать
@@ -500,6 +505,14 @@ export async function createChatServer(options={}){
     if(await handleMeetingIntelligence(req,res,ctx,path,method))return;
     if(await handlePreviewDemo(req,res,ctx,path,method))return;
     if(path.startsWith('/api/')&&cookieToken(req))assertSameOrigin(req);
+    // Отключённая в компании функция для API не существует; код FEATURE_DISABLED нужен клиенту, чтобы объяснить причину.
+    if(path.startsWith('/api/v1/')){
+      const need=features.featureForPath(path);
+      if(need){
+        const who=await authenticate(req).catch(()=>null);
+        if(who&&!(await features.isEnabled(who.workspaceId,need)))throw Object.assign(new Error('Эта функция отключена в компании'),{code:'FEATURE_DISABLED',statusCode:404,expose:true});
+      }
+    }
     if(await handleAuth(req,res,ctx,path,method,url))return;
     if(await handleDailyWork(req,res,ctx,url,path,method))return;
     if(await handleWorkspace(req,res,ctx,url,path,method))return;
@@ -515,6 +528,7 @@ export async function createChatServer(options={}){
     if(await handleIntegrations(req,res,ctx,url,path,method))return;
     if(await handleOrg(req,res,ctx,url,path,method))return;
     if(await handleRequests(req,res,ctx,url,path,method))return;
+    if(await handleFeatures(req,res,ctx,url,path,method))return;
     if(await handleExport(req,res,ctx,url,path,method))return;
     if(await handleStories(req,res,ctx,url,path,method))return;
     if(await handleAudit(req,res,ctx,url,path,method))return;
