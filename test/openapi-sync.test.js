@@ -58,3 +58,32 @@ test('спецификация не описывает того, чего нет
     .map(rootOf))].filter((name) => !served.has(name)).sort();
   assert.deepEqual(phantom, [], `спецификация обещает то, чего сервер не отдаёт: ${phantom.join(', ')}`);
 });
+
+
+test('recent compositional APIs are documented at operation level', () => {
+  const required = [
+    ['get', '/api/v1/projects'],
+    ['post', '/api/v1/projects'],
+    ['get', '/api/v1/projects/{projectId}'],
+    ['post', '/api/v1/projects/{projectId}/tasks'],
+    ['post', '/api/v1/projects/{projectId}/decisions'],
+    ['get', '/api/v1/features'],
+    ['put', '/api/v1/features/{featureId}'],
+    ['get', '/api/v1/conversations/{conversationId}/topics'],
+    ['post', '/api/v1/conversations/{conversationId}/topics'],
+    ['patch', '/api/v1/conversations/{conversationId}/topics/{topicId}'],
+    ['get', '/api/v1/conversations/{conversationId}/topics/{topicId}/messages'],
+    ['post', '/api/v1/wiki/pages/{pageId}/tasks'],
+    ['delete', '/api/v1/wiki/pages/{pageId}/tasks/{taskId}'],
+    ['post', '/api/v1/wiki/pages/{pageId}/channels'],
+    ['delete', '/api/v1/wiki/pages/{pageId}/channels/{conversationId}'],
+    ['post', '/api/v1/wiki/pages/{pageId}/decisions'],
+    ['delete', '/api/v1/wiki/pages/{pageId}/decisions/{decisionId}'],
+    ['post', '/api/v1/wiki/pages/{pageId}/projects'],
+    ['delete', '/api/v1/wiki/pages/{pageId}/projects/{projectId}'],
+    ['get', '/api/v1/wiki/decisions/{decisionId}/pages'],
+  ];
+  for (const [method, path] of required) {
+    assert.ok(openapi.paths[path]?.[method], `${method.toUpperCase()} ${path} is implemented but missing from OpenAPI`);
+  }
+});

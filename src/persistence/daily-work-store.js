@@ -662,22 +662,94 @@ export class PostgresStore extends BasePostgresStore {
 
   async linkFile(session,fileId,entityType,entityId){await this.pool.query(`INSERT INTO file_links(organization_id,workspace_id,file_id,entity_type,entity_id,linked_by) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT DO NOTHING`,[session.organizationId,session.workspaceId,fileId,entityType,entityId,session.userId])}
 
-  async canAccessFile(session,fileId){const{rowCount}=await this.pool.query(`SELECT 1 FROM files f WHERE f.workspace_id=$1 AND f.id=$2 AND f.deleted_at IS NULL AND(f.uploaded_by=$3 OR EXISTS(SELECT 1 FROM workspace_profiles wp WHERE wp.workspace_id=f.workspace_id AND wp.avatar_file_id=f.id) OR EXISTS(SELECT 1 FROM conversations ac LEFT JOIN conversation_members acm ON acm.workspace_id=ac.workspace_id AND acm.conversation_id=ac.id AND acm.user_id=$3 WHERE ac.workspace_id=f.workspace_id AND ac.avatar_file_id=f.id AND (acm.user_id IS NOT NULL OR ac.visibility IN ('workspace','organization'))) OR($4::boolean AND EXISTS(SELECT 1 FROM stories st WHERE st.workspace_id=f.workspace_id AND st.file_id=f.id AND st.deleted_at IS NULL AND st.expires_at>now())) OR EXISTS(SELECT 1 FROM file_links fl JOIN messages m ON fl.workspace_id=m.workspace_id AND fl.entity_type='message' AND fl.entity_id=m.id JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$3 WHERE fl.workspace_id=f.workspace_id AND fl.file_id=f.id AND m.deleted_at IS NULL AND c.archived_at IS NULL AND(${openConversationSql(session,'c')} OR cm.user_id IS NOT NULL)))`,[session.workspaceId,fileId,session.userId,session.role!=='guest']);return rowCount>0}
+  async canAccessFile(session,fileId){
+    const{rowCount}=await this.pool.query(
+      `SELECT 1 FROM files f
+        WHERE f.workspace_id=$1 AND f.id=$2 AND f.deleted_at IS NULL
+          AND(
+            f.uploaded_by=$3
+            OR EXISTS(SELECT 1 FROM workspace_profiles wp
+              WHERE wp.workspace_id=f.workspace_id AND wp.avatar_file_id=f.id)
+            OR EXISTS(SELECT 1 FROM conversations ac
+              LEFT JOIN conversation_members acm
+                ON acm.workspace_id=ac.workspace_id AND acm.conversation_id=ac.id AND acm.user_id=$3
+              WHERE ac.workspace_id=f.workspace_id AND ac.avatar_file_id=f.id
+                AND(acm.user_id IS NOT NULL OR ac.visibility IN ('workspace','organization')))
+            OR($4::boolean AND EXISTS(SELECT 1 FROM stories st
+              WHERE st.workspace_id=f.workspace_id AND st.file_id=f.id
+                AND st.deleted_at IS NULL AND st.expires_at>now()))
+            OR EXISTS(SELECT 1 FROM file_links fl
+              JOIN messages m ON fl.workspace_id=m.workspace_id
+                AND fl.entity_type='message' AND fl.entity_id=m.id
+              JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id
+              LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id
+                AND cm.conversation_id=c.id AND cm.user_id=$3
+              WHERE fl.workspace_id=f.workspace_id AND fl.file_id=f.id
+                AND m.deleted_at IS NULL AND c.archived_at IS NULL
+                AND(${openConversationSql(session,'c')} OR cm.user_id IS NOT NULL))
+            OR($4::boolean AND EXISTS(SELECT 1 FROM project_files pf
+              JOIN projects pr ON pr.id=pf.project_id AND pr.workspace_id=pf.workspace_id
+              LEFT JOIN project_members pm ON pm.project_id=pr.id AND pm.user_id=$3
+              WHERE pf.workspace_id=f.workspace_id AND pf.file_id=f.id
+                AND(pr.visibility='workspace' OR pr.owner_id=$3 OR pm.user_id IS NOT NULL)))
+          )`,
+      [session.workspaceId,fileId,session.userId,session.role!=='guest']);
+    return rowCount>0;
+  }
 
   async getFile(session,id){if(!await this.canAccessFile(session,id))return null;return super.getFile(session,id)}
 
   async listFiles(session,{query='',mime=null,limit=60,cursor=null}={}){
     const size=Math.min(Math.max(Number(limit)||60,1),100);
     const q=String(query??'').trim();
-    const{rows}=await this.pool.query(`SELECT f.id,f.name,f.mime_type "mimeType",f.size_bytes "sizeBytes",f.storage_key "storageKey",f.sha256,f.status,f.created_at "createdAt",f.uploaded_by "uploadedBy",p.display_name "uploaderName",ctx.message_id "messageId",ctx.conversation_id "conversationId",ctx.conversation_title "conversationTitle",ctx.conversation_kind "conversationKind"
-      FROM files f LEFT JOIN workspace_profiles p ON p.workspace_id=f.workspace_id AND p.user_id=f.uploaded_by
-      LEFT JOIN LATERAL(SELECT m.id message_id,c.id conversation_id,c.title conversation_title,c.kind conversation_kind FROM file_links fl JOIN messages m ON m.workspace_id=fl.workspace_id AND fl.entity_type='message' AND m.id=fl.entity_id JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id LEFT JOIN conversation_members cm ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$2 WHERE fl.workspace_id=f.workspace_id AND fl.file_id=f.id AND m.deleted_at IS NULL AND c.archived_at IS NULL AND(${openConversationSql(session,'c')} OR cm.user_id IS NOT NULL) ORDER BY fl.created_at DESC LIMIT 1)ctx ON true
-      WHERE f.workspace_id=$1 AND f.deleted_at IS NULL AND f.status<>'deleted' AND(f.uploaded_by=$2 OR ctx.message_id IS NOT NULL) AND($3='' OR f.name ILIKE '%'||replace(replace(replace($3,'\\','\\\\'),'%','\\%'),'_','\\_')||'%') AND($4::text IS NULL OR f.mime_type LIKE $4||'%') AND($6::timestamptz IS NULL OR f.created_at<$6) ORDER BY f.created_at DESC,f.id DESC LIMIT $5`,[session.workspaceId,session.userId,q,mime,size+1,cursor||null]);
-    // Список обрывался на сотне и молчал об этом: после сто первого
-    // файла остальные были недостижимы с экрана. Курсор — время
-    // последнего показанного файла, как у сообщений и задач.
+    const{rows}=await this.pool.query(
+      `SELECT f.id,f.name,f.mime_type "mimeType",f.size_bytes "sizeBytes",f.storage_key "storageKey",
+              f.sha256,f.status,f.created_at "createdAt",f.uploaded_by "uploadedBy",
+              p.display_name "uploaderName",
+              ctx.message_id "messageId",ctx.conversation_id "conversationId",
+              ctx.conversation_title "conversationTitle",ctx.conversation_kind "conversationKind",
+              pctx.project_id "projectId",pctx.project_name "projectName"
+         FROM files f
+         LEFT JOIN workspace_profiles p ON p.workspace_id=f.workspace_id AND p.user_id=f.uploaded_by
+         LEFT JOIN LATERAL(
+           SELECT m.id message_id,c.id conversation_id,c.title conversation_title,c.kind conversation_kind
+             FROM file_links fl
+             JOIN messages m ON m.workspace_id=fl.workspace_id AND fl.entity_type='message' AND m.id=fl.entity_id
+             JOIN conversations c ON c.workspace_id=m.workspace_id AND c.id=m.conversation_id
+             LEFT JOIN conversation_members cm
+               ON cm.workspace_id=c.workspace_id AND cm.conversation_id=c.id AND cm.user_id=$2
+            WHERE fl.workspace_id=f.workspace_id AND fl.file_id=f.id
+              AND m.deleted_at IS NULL AND c.archived_at IS NULL
+              AND(${openConversationSql(session,'c')} OR cm.user_id IS NOT NULL)
+            ORDER BY fl.created_at DESC LIMIT 1
+         )ctx ON true
+         LEFT JOIN LATERAL(
+           SELECT pr.id project_id,pr.name project_name
+             FROM project_files pf
+             JOIN projects pr ON pr.id=pf.project_id AND pr.workspace_id=pf.workspace_id
+             LEFT JOIN project_members pm ON pm.project_id=pr.id AND pm.user_id=$2
+            WHERE pf.workspace_id=f.workspace_id AND pf.file_id=f.id AND $7::boolean
+              AND(pr.visibility='workspace' OR pr.owner_id=$2 OR pm.user_id IS NOT NULL)
+            ORDER BY pf.linked_at DESC LIMIT 1
+         )pctx ON true
+        WHERE f.workspace_id=$1 AND f.deleted_at IS NULL AND f.status<>'deleted'
+          AND(f.uploaded_by=$2 OR ctx.message_id IS NOT NULL OR pctx.project_id IS NOT NULL)
+          AND($3='' OR f.name ILIKE '%'||replace(replace(replace($3,'\\','\\\\'),'%','\\%'),'_','\\_')||'%')
+          AND($4::text IS NULL OR f.mime_type LIKE $4||'%')
+          AND($6::timestamptz IS NULL OR f.created_at<$6)
+        ORDER BY f.created_at DESC,f.id DESC LIMIT $5`,
+      [session.workspaceId,session.userId,q,mime,size+1,cursor||null,session.role!=='guest']);
     const page=rows.slice(0,size);
-    const items=page.map(r=>({...r,context:r.messageId?{messageId:r.messageId,conversationId:r.conversationId,conversationTitle:r.conversationTitle,conversationKind:r.conversationKind}:null,contentUrl:`/api/v1/files/${r.id}/content`,previewUrl:/^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/.test(r.mimeType??'')?`/api/v1/files/${r.id}/preview`:null}));
+    const items=page.map(r=>({
+      ...r,
+      context:r.messageId
+        ?{type:'message',messageId:r.messageId,conversationId:r.conversationId,
+          conversationTitle:r.conversationTitle,conversationKind:r.conversationKind}
+        :r.projectId?{type:'project',projectId:r.projectId,projectName:r.projectName}:null,
+      contentUrl:`/api/v1/files/${r.id}/content`,
+      previewUrl:/^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/.test(r.mimeType??'')
+        ?`/api/v1/files/${r.id}/preview`:null
+    }));
     items.nextCursor=rows.length>size?page[page.length-1]?.createdAt??null:null;
     return items;
   }

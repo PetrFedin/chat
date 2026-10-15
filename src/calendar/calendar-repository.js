@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 
-import { parseRecurrence, formatRecurrence, expandOccurrences, describeRecurrence } from './recurrence.js';
+import { parseRecurrence, formatRecurrence, expandOccurrences, describeRecurrence, wallClock, instantOf } from './recurrence.js';
 import { holidaysBetween, upcomingBirthdays } from './holidays.js';
 
 const ANSWERS = new Set(['accepted', 'tentative', 'declined']);
 import { Permission, hasPermission } from '../rbac.js';
+import { assertTaskScheduleAuthority } from '../task/task-authority.js';
 
 const fail = (message, code, statusCode = 400) => Object.assign(new Error(message), { code, statusCode, expose: true });
 
@@ -79,6 +80,212 @@ export function createCalendarRepository(pool, store = null) {
   };
 
   /**
+   * Concrete-event collision guard.
+   *
+   * Calendar owns time, therefore it must reject an accidental double-booking
+   * before a task block or meeting becomes canonical. Recurring-series
+   * collision expansion is intentionally a later slice; this query only claims
+   * coverage for concrete rows and says so in the returned metadata.
+   */
+  const movedTimesForDate = (event,targetDate) => {
+    const match=String(targetDate??'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(!match) throw fail('Дата переноса должна быть YYYY-MM-DD','INVALID_DATE',400);
+    const [,y,m,d]=match.map(Number);
+    const tz=event.timezone||'UTC';
+    const current=wallClock(new Date(event.start_at),tz);
+    const nextStart=instantOf({year:y,month:m,day:d,hour:current.hour,minute:current.minute,second:current.second},tz);
+    const duration=event.end_at?Date.parse(event.end_at)-Date.parse(event.start_at):0;
+    if(duration<0) throw fail('Некорректная длительность события','INVALID_CALENDAR_RANGE',400);
+    const nextEnd=event.end_at?new Date(nextStart.getTime()+duration):null;
+    return {startAt:nextStart.toISOString(),endAt:nextEnd?.toISOString()??null,timezone:tz};
+  };
+
+  const findConcreteConflicts = async (client, session, { startAt, endAt, excludeEventId = null, userId = session.userId } = {}) => {
+    if (!startAt || !endAt) return [];
+    const { rows } = await client.query(
+      `SELECT DISTINCT e.id,e.kind,e.title,e.start_at "startAt",e.end_at "endAt"
+         FROM calendar_events e
+        WHERE e.workspace_id=$1
+          AND e.end_at IS NOT NULL
+          AND e.recurrence_rule IS NULL
+          AND ($5::uuid IS NULL OR e.id<>$5::uuid)
+          AND e.start_at < $3
+          AND e.end_at > $2
+          AND (
+            e.owner_id=$4 OR EXISTS(
+              SELECT 1 FROM calendar_event_participants p
+               WHERE p.workspace_id=e.workspace_id
+                 AND p.calendar_event_id=e.id
+                 AND p.user_id=$4
+                 AND p.response_status<>'declined'
+            )
+          )
+        ORDER BY e.start_at,e.id
+        LIMIT 8`,
+      [session.workspaceId, startAt, endAt, userId, excludeEventId],
+    );
+    return rows;
+  };
+
+  const findRecurringConflicts = async (client,session,{startAt,endAt,excludeEventId=null,userId=session.userId}={}) => {
+    if(!startAt||!endAt)return[];
+    const fromMs=Date.parse(startAt),toMs=Date.parse(endAt);
+    const {rows}=await client.query(
+      `SELECT e.id,e.kind,e.title,e.start_at "startAt",e.end_at "endAt",e.timezone,e.recurrence_rule "recurrenceRule",
+              COALESCE((SELECT jsonb_agg(jsonb_build_object('at',x.occurrence_at,'cancelled',x.cancelled,'startAt',x.start_at,'endAt',x.end_at,'title',x.title))
+                FROM calendar_event_exceptions x
+               WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id),'[]') "exceptions"
+         FROM calendar_events e
+        WHERE e.workspace_id=$1
+          AND e.recurrence_rule IS NOT NULL
+          AND ($2::uuid IS NULL OR e.id<>$2::uuid)
+          AND e.start_at < $4
+          AND (
+            e.owner_id=$3 OR EXISTS(
+              SELECT 1 FROM calendar_event_participants p
+               WHERE p.workspace_id=e.workspace_id
+                 AND p.calendar_event_id=e.id
+                 AND p.user_id=$3
+                 AND p.response_status<>'declined'
+            )
+          )`,
+      [session.workspaceId,excludeEventId,userId,endAt],
+    );
+    const out=[];
+    for(const row of rows){
+      let rule;
+      try{rule=parseRecurrence(row.recurrenceRule)}catch{continue}
+      const duration=Math.max(0,Date.parse(row.endAt)-Date.parse(row.startAt));
+      const changes=new Map((row.exceptions??[]).map(x=>[new Date(x.at).getTime(),x]));
+      const occurrences=expandOccurrences({
+        startAt:row.startAt,durationMs:duration,rule,timeZone:row.timezone||'UTC',
+        from:new Date(fromMs-duration).toISOString(),to:endAt,limit:500,
+      });
+      for(const at of occurrences){
+        const change=changes.get(at.getTime());
+        if(change?.cancelled)continue;
+        const occStart=change?.startAt?Date.parse(change.startAt):at.getTime();
+        const occEnd=change?.endAt?Date.parse(change.endAt):occStart+duration;
+        if(occStart<toMs&&occEnd>fromMs){
+          out.push({id:row.id,kind:row.kind,title:change?.title??row.title,startAt:new Date(occStart).toISOString(),endAt:new Date(occEnd).toISOString(),seriesId:row.id,occurrenceAt:at.toISOString()});
+          if(out.length>=8)return out;
+        }
+      }
+    }
+    return out;
+  };
+
+  const findScheduleConflicts = async (client,session,input={}) => {
+    const [concrete,recurring]=await Promise.all([
+      findConcreteConflicts(client,session,input),
+      findRecurringConflicts(client,session,input),
+    ]);
+    return [...concrete,...recurring].sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt)).slice(0,8);
+  };
+
+  const assertNoScheduleConflict = async (client, session, input) => {
+    if (input.allowConflict) return [];
+    const conflicts = await findScheduleConflicts(client, session, input);
+    if (!conflicts.length) return conflicts;
+    const names = conflicts.slice(0, 3).map((event) => event.title).join(', ');
+    throw fail(`Время пересекается с календарём: ${names}. Подтвердите сохранение поверх конфликта.`, 'CALENDAR_CONFLICT', 409);
+  };
+
+  const buildTaskBlockRescheduleProposal = async (client,session,eventId,deadline) => {
+    const dueMs=Date.parse(deadline??'');
+    if(!Number.isFinite(dueMs)) throw fail('Нужен корректный срок задачи','INVALID_DATE',400);
+    const event=await loadEvent(client,session,eventId);
+    assertMayRun(session,event,'Перепланировать блок может его владелец или тот, кто ведёт чужие встречи');
+    if(event.kind!=='task_block'||!event.commitment_id) throw fail('Это не блок работы по задаче','TASK_BLOCK_REQUIRED',409);
+    if(!event.end_at) throw fail('У блока работы нет времени окончания','CALENDAR_END_REQUIRED',400);
+    const startMs=Date.parse(event.start_at),endMs=Date.parse(event.end_at),durationMs=endMs-startMs;
+    if(!(durationMs>0)) throw fail('Некорректная длительность блока','INVALID_CALENDAR_RANGE',400);
+    if(endMs<=dueMs) throw fail('Блок уже заканчивается до обещанного срока','NO_SCHEDULE_IMPACT',409);
+
+    const windowStartMs=Math.max(dueMs-14*24*3600*1000,Date.now());
+    const windowStart=new Date(windowStartMs).toISOString();
+    const {rows:[scheduleRow]}=await client.query(
+      `SELECT p.timezone,p.working_days "workingDays",
+              to_char(p.workday_start,'HH24:MI') "workdayStart",
+              to_char(p.workday_end,'HH24:MI') "workdayEnd",
+              CASE WHEN pr.back_at IS NOT NULL AND pr.back_at<=now() THEN 'available'
+                   ELSE COALESCE(pr.availability,'available') END availability,
+              CASE WHEN pr.back_at IS NOT NULL AND pr.back_at<=now() THEN NULL ELSE pr.back_at END "backAt"
+         FROM workspace_profiles p
+         LEFT JOIN user_presence pr ON pr.workspace_id=p.workspace_id AND pr.user_id=p.user_id
+        WHERE p.workspace_id=$1 AND p.user_id=$2`,
+      [session.workspaceId,event.owner_id],
+    );
+    const schedule=scheduleRow??{timezone:'UTC',workingDays:[1,2,3,4,5],workdayStart:'09:00',workdayEnd:'18:00',availability:'available',backAt:null};
+    const minuteOf=(value)=>{const [h,m]=String(value??'').split(':').map(Number);return h*60+m};
+    const workStart=minuteOf(schedule.workdayStart),workEnd=minuteOf(schedule.workdayEnd);
+    const withinWorkingSchedule=(fromMs,toMs)=>{
+      const from=wallClock(new Date(fromMs),schedule.timezone||'UTC');
+      const to=wallClock(new Date(toMs),schedule.timezone||'UTC');
+      if(from.year!==to.year||from.month!==to.month||from.day!==to.day)return false;
+      const weekday=new Date(Date.UTC(from.year,from.month-1,from.day)).getUTCDay();
+      if(!(schedule.workingDays??[1,2,3,4,5]).includes(weekday))return false;
+      const startMinute=from.hour*60+from.minute,endMinute=to.hour*60+to.minute;
+      return startMinute>=workStart&&endMinute<=workEnd;
+    };
+    const absenceBlocks=(fromMs,toMs)=>{
+      const kind=schedule.availability;
+      if(!['vacation','sick','trip','away','lunch'].includes(kind))return false;
+      const now=Date.now(),back=schedule.backAt?Date.parse(schedule.backAt):null;
+      if(['away','lunch'].includes(kind)&&!back)return false;
+      const absenceEnd=back??Number.POSITIVE_INFINITY;
+      return toMs>now&&fromMs<absenceEnd;
+    };
+
+    let candidateEnd=dueMs,candidateStart=candidateEnd-durationMs,steps=0;
+    const collisions=[];
+    let outsideWorkingHoursSkipped=0,availabilitySkipped=0;
+    while(candidateStart>=Date.parse(windowStart)&&steps<700){
+      if(!withinWorkingSchedule(candidateStart,candidateEnd)){
+        candidateEnd-=30*60*1000;
+        candidateStart=candidateEnd-durationMs;
+        outsideWorkingHoursSkipped+=1;
+        steps+=1;
+        continue;
+      }
+      if(absenceBlocks(candidateStart,candidateEnd)){
+        candidateEnd-=30*60*1000;
+        candidateStart=candidateEnd-durationMs;
+        availabilitySkipped+=1;
+        steps+=1;
+        continue;
+      }
+      const hits=await findScheduleConflicts(client,session,{
+        startAt:new Date(candidateStart).toISOString(),
+        endAt:new Date(candidateEnd).toISOString(),
+        excludeEventId:eventId,
+        userId:event.owner_id,
+      });
+      if(!hits.length) break;
+      // Move back only as far as necessary. If several events overlap this
+      // candidate, the latest-starting one is the first boundary before the
+      // deadline; the next iteration resolves any earlier overlap.
+      const hit=hits.reduce((latest,item)=>Date.parse(item.startAt)>Date.parse(latest.startAt)?item:latest);
+      collisions.push(hit.seriesId&&hit.occurrenceAt?`${hit.seriesId}@${hit.occurrenceAt}`:hit.id);
+      candidateEnd=Date.parse(hit.startAt);
+      candidateStart=candidateEnd-durationMs;
+      steps+=1;
+    }
+    if(candidateStart<Date.parse(windowStart)) throw fail('До срока не найден свободный слот той же длительности в рабочем графике','NO_RESCHEDULE_SLOT',409);
+    return {
+      eventId:event.id,commitmentId:event.commitment_id,
+      currentStartAt:new Date(startMs).toISOString(),currentEndAt:new Date(endMs).toISOString(),
+      suggestedStartAt:new Date(candidateStart).toISOString(),suggestedEndAt:new Date(candidateEnd).toISOString(),
+      deadline:new Date(dueMs).toISOString(),durationMinutes:Math.round(durationMs/60000),
+      avoidedConflictCount:new Set(collisions).size,
+      outsideWorkingHoursSkipped,availabilitySkipped,
+      workingSchedule:{timezone:schedule.timezone||'UTC',workingDays:schedule.workingDays??[1,2,3,4,5],workdayStart:schedule.workdayStart??'09:00',workdayEnd:schedule.workdayEnd??'18:00'},
+      availability:schedule.availability??'available',availabilityBackAt:schedule.backAt??null,
+      rationale:'latest_available_working_slot_before_deadline',
+    };
+  };
+
+  /**
    * Кто видит встречу: организатор, весь штат для общей, приглашённый,
    * участник связанной комнаты — и тот, кому доверены чужие встречи (кроме
    * личных: «личная» значит только своя).
@@ -132,11 +339,107 @@ export function createCalendarRepository(pool, store = null) {
     if (row.ownerId === session.userId || participant || hasPermission(session.role, Permission.CALENDAR_MANAGE_TEAM)) return row;
     return {
       ...row, title: 'Занято', description: null, busyOnly: true, conversationId: null, conversationTitle: null,
-      commitmentId: null, commitmentTitle: null, participantCount: 0, fileCount: 0,
+      commitmentId: null, commitmentTitle: null, projectId: null, projectName: null, participantCount: 0, fileCount: 0,
     };
   };
 
   const repository = {
+    async findConflicts(session,{startAt,endAt,excludeEventId=null}={}) {
+      const client=await pool.connect();
+      try {
+        let userId=session.userId;
+        if(excludeEventId){
+          const event=await loadEvent(client,session,excludeEventId);
+          assertMayRun(session,event,'Проверить перенос может владелец встречи или тот, кто ведёт чужие встречи');
+          userId=event.owner_id;
+        }
+        return await findScheduleConflicts(client,session,{startAt,endAt,excludeEventId,userId});
+      } finally {
+        client.release();
+      }
+    },
+
+    async previewMove(session,eventId,{targetDate}={}) {
+      const client=await pool.connect();
+      try {
+        const event=await loadEvent(client,session,eventId);
+        assertMayRun(session,event,'Перенести событие может владелец или тот, кто ведёт чужие встречи');
+        const moved=movedTimesForDate(event,targetDate);
+        const conflicts=moved.endAt?await findScheduleConflicts(client,session,{
+          startAt:moved.startAt,endAt:moved.endAt,excludeEventId:eventId,userId:event.owner_id,
+        }):[];
+        return {
+          eventId:event.id,title:event.title,kind:event.kind,
+          currentStartAt:new Date(event.start_at).toISOString(),
+          currentEndAt:event.end_at?new Date(event.end_at).toISOString():null,
+          ...moved,targetDate,conflicts,
+        };
+      } finally { client.release(); }
+    },
+
+    /**
+     * Deterministic schedule proposal for a task block that now sits after a
+     * task promise. Calendar remains authority: this returns a preview only.
+     * The latest conflict-free slot of the same duration before the deadline
+     * wins; no write happens until the user explicitly approves/edits it.
+     */
+    async suggestTaskBlockReschedule(session,eventId,{deadline}={}) {
+      const client=await pool.connect();
+      try { return await buildTaskBlockRescheduleProposal(client,session,eventId,deadline); }
+      finally { client.release(); }
+    },
+
+    async resolveTaskBlockReschedule(session,eventId,{action,startAt=null,endAt=null,deadline,reason,expectedVersion,allowConflict=false}={}) {
+      if(!['approve','reject'].includes(action)) throw fail('Нужно принять или отклонить предложение','INVALID_PROPOSAL_ACTION',400);
+      return tx(async (client)=>{
+        const event=await loadEvent(client,session,eventId);
+        assertMayRun(session,event,'Перепланировать блок может его владелец или тот, кто ведёт чужие встречи');
+        if(event.kind!=='task_block'||!event.commitment_id) throw fail('Это не блок работы по задаче','TASK_BLOCK_REQUIRED',409);
+        const {rows:tasks}=await client.query(
+          `SELECT id,organization_id "organizationId",workspace_id "workspaceId",title,outcome,owner_id "ownerId",requester_id "requesterId",acceptor_id "acceptorId",source_message_id "sourceMessageId",status,priority,promised_at "promisedAt",forecast_at "forecastAt",version,created_at "createdAt",updated_at "updatedAt"
+             FROM commitments WHERE workspace_id=$1 AND id=$2 FOR UPDATE`,
+          [session.workspaceId,event.commitment_id],
+        );
+        const task=tasks[0];
+        if(!task) throw fail('Задача не найдена','TASK_NOT_FOUND',404);
+        const normalizedReason=assertTaskScheduleAuthority(task,session,{expectedVersion,reason});
+        const proposal=await buildTaskBlockRescheduleProposal(client,session,eventId,deadline??task.promisedAt);
+
+        let resolvedStartAt=null,resolvedEndAt=null;
+        if(action==='approve'){
+          resolvedStartAt=startAt??proposal.suggestedStartAt;
+          resolvedEndAt=endAt??proposal.suggestedEndAt;
+          if(!resolvedStartAt||!resolvedEndAt||Date.parse(resolvedEndAt)<=Date.parse(resolvedStartAt)) throw fail('Некорректный предлагаемый слот','INVALID_CALENDAR_RANGE',400);
+          await assertNoScheduleConflict(client,session,{startAt:resolvedStartAt,endAt:resolvedEndAt,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(allowConflict)});
+          await client.query(
+            `UPDATE calendar_events SET start_at=$3,end_at=$4,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
+            [session.workspaceId,eventId,resolvedStartAt,resolvedEndAt],
+          );
+          const {rows:attendees}=await client.query(
+            "UPDATE calendar_event_participants SET response_status='invited',responded_at=NULL WHERE workspace_id=$1 AND calendar_event_id=$2 AND response_status<>'invited' RETURNING user_id",
+            [session.workspaceId,eventId],
+          );
+          await notify(client,session,{recipients:attendees.map(x=>x.user_id),type:'calendar.updated',eventId,title:event.title,body:'Время блока изменилось — подтвердите участие заново'});
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'commitment',$3,'calendar.block_moved',$4,$5)`,
+            [session.organizationId,session.workspaceId,event.commitment_id,session.userId,{calendarEventId:eventId,previousStartAt:event.start_at,previousEndAt:event.end_at,startAt:resolvedStartAt,endAt:resolvedEndAt,source:'schedule_proposal'}],
+          );
+        }
+
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'commitment',$3,$4,$5,$6)`,
+          [session.organizationId,session.workspaceId,event.commitment_id,action==='approve'?'calendar.reschedule_proposal_approved':'calendar.reschedule_proposal_rejected',session.userId,{
+            calendarEventId:eventId,deadline:proposal.deadline,
+            suggestedStartAt:proposal.suggestedStartAt,suggestedEndAt:proposal.suggestedEndAt,
+            resolvedStartAt,resolvedEndAt,reason:normalizedReason,rationale:proposal.rationale,
+          }],
+        );
+        return {decision:action,proposal,eventId};
+      }).then(async result=>({...result,event:await repository.getEvent(session,eventId)}));
+    },
+
     /** One event with everything a person needs before deciding to attend. */
     async getEvent(session, id) {
       if (!(await maySee(session, id))) throw fail('Event not found', 'CALENDAR_EVENT_NOT_FOUND', 404);
@@ -190,13 +493,24 @@ export function createCalendarRepository(pool, store = null) {
      * A range read that also says, per event, whether this viewer still owes
      * an answer — which is what the month and week grids mark.
      */
-    async listRange(session, { from = null, to = null, limit = 2000 } = {}) {
+    async listRange(session, { from = null, to = null, limit = 2000, projectId = null } = {}) {
       // Без диапазона сервер честно собирал всю историю: пять лет работы —
       // это девять тысяч событий в одном ответе. Календарь всегда смотрят
       // вокруг какой-то даты, поэтому умолчание — три месяца в обе стороны.
       const since = from ?? new Date(Date.now() - 90 * 24 * 3600 * 1000).toISOString();
       const until = to ?? new Date(Date.now() + 90 * 24 * 3600 * 1000).toISOString();
       const size = Math.min(Math.max(Number(limit) || 2000, 1), 5000);
+      if(projectId){
+        if(session.role==='guest')throw fail('Project not found','PROJECT_NOT_FOUND',404);
+        const visible=await pool.query(
+          `SELECT 1
+             FROM projects p
+             LEFT JOIN project_members pm ON pm.project_id=p.id AND pm.user_id=$3
+            WHERE p.workspace_id=$1 AND p.id=$2
+              AND (p.visibility='workspace' OR p.owner_id=$3 OR pm.user_id IS NOT NULL)`,
+          [session.workspaceId,projectId,session.userId]);
+        if(!visible.rowCount)throw fail('Project not found','PROJECT_NOT_FOUND',404);
+      }
       const { rows } = await pool.query(
         `SELECT e.id,e.kind,e.title,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",e.all_day "allDay",
                 -- Пояс встречи нужен сетке: «весь день» — это календарная
@@ -206,11 +520,16 @@ export function createCalendarRepository(pool, store = null) {
                 -- оказывался тридцатым.
                 e.timezone,
                 e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
+                CASE WHEN p.visibility='workspace' OR p.owner_id=$4 OR ppm.user_id IS NOT NULL THEN pt.project_id ELSE NULL END "projectId",
+                CASE WHEN p.visibility='workspace' OR p.owner_id=$4 OR ppm.user_id IS NOT NULL THEN p.name ELSE NULL END "projectName",
                 pa.response_status "myResponse",
                 (SELECT count(*)::int FROM calendar_event_participants x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id) "participantCount",
                 (SELECT count(*)::int FROM calendar_event_files ef WHERE ef.workspace_id=e.workspace_id AND ef.calendar_event_id=e.id) "fileCount"
          FROM calendar_events e
          LEFT JOIN calendar_event_participants pa ON pa.workspace_id=e.workspace_id AND pa.calendar_event_id=e.id AND pa.user_id=$4
+         LEFT JOIN project_tasks pt ON pt.workspace_id=e.workspace_id AND pt.commitment_id=e.commitment_id
+         LEFT JOIN projects p ON p.id=pt.project_id AND p.workspace_id=e.workspace_id
+         LEFT JOIN project_members ppm ON ppm.project_id=p.id AND ppm.user_id=$4
          WHERE e.workspace_id=$1
            -- Серия сюда не попадает: её первая встреча — такое же
            -- вхождение, как остальные, и приходит раскрытой. Иначе
@@ -222,15 +541,17 @@ export function createCalendarRepository(pool, store = null) {
                 OR (e.visibility='workspace' AND $5<>'guest')
                 OR (e.visibility='participants' AND (pa.user_id IS NOT NULL
                     OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$4))))
+           AND ($7::uuid IS NULL OR pt.project_id=$7)
          ORDER BY e.start_at, e.id
          LIMIT $6`,
-        [session.workspaceId, since, until, session.userId, session.role, size],
+        [session.workspaceId, since, until, session.userId, session.role, size, projectId],
       );
       const single = rows.map((row) => ({ ...busyOnly(session, row, row.myResponse != null), needsMyAnswer: row.myResponse === 'invited' }));
-      const series = await repository.expandSeries(session, { since, until, size });
-      const layers = await repository.calendarLayers(session, { since, until });
-      // Одиночные и вхождения серий — один список, отсортированный по
-      // времени: сетке календаря всё равно, чем встреча была в базе.
+      const series = await repository.expandSeries(session, { since, until, size, projectId });
+      const milestones = await repository.projectMilestoneLayers(session, { since, until, projectId });
+      const layers = projectId ? milestones : [...await repository.calendarLayers(session, { since, until }), ...milestones];
+      // Milestones are read-only Project projections. Task blocks remain
+      // canonical Calendar events; neither side copies the other's authority.
       return [...single, ...series, ...layers].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)).slice(0, size);
     },
 
@@ -246,10 +567,12 @@ export function createCalendarRepository(pool, store = null) {
      * отличает одну планёрку от другой, а сервер понимает, о каком
      * вхождении речь, когда его просят отменить.
      */
-    async expandSeries(session, { since, until, size }) {
+    async expandSeries(session, { since, until, size, projectId = null }) {
       const { rows } = await pool.query(
         `SELECT e.id,e.kind,e.title,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",e.all_day "allDay",
                 e.timezone,e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
+                CASE WHEN p.visibility='workspace' OR p.owner_id=$3 OR ppm.user_id IS NOT NULL THEN pt.project_id ELSE NULL END "projectId",
+                CASE WHEN p.visibility='workspace' OR p.owner_id=$3 OR ppm.user_id IS NOT NULL THEN p.name ELSE NULL END "projectName",
                 e.recurrence_rule "recurrenceRule",
                 pa.response_status "myResponse",
                 (SELECT count(*)::int FROM calendar_event_participants x WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id) "participantCount",
@@ -259,13 +582,17 @@ export function createCalendarRepository(pool, store = null) {
                   WHERE x.workspace_id=e.workspace_id AND x.calendar_event_id=e.id),'[]') "exceptions"
          FROM calendar_events e
          LEFT JOIN calendar_event_participants pa ON pa.workspace_id=e.workspace_id AND pa.calendar_event_id=e.id AND pa.user_id=$3
+         LEFT JOIN project_tasks pt ON pt.workspace_id=e.workspace_id AND pt.commitment_id=e.commitment_id
+         LEFT JOIN projects p ON p.id=pt.project_id AND p.workspace_id=e.workspace_id
+         LEFT JOIN project_members ppm ON ppm.project_id=p.id AND ppm.user_id=$3
          WHERE e.workspace_id=$1 AND e.recurrence_rule IS NOT NULL
            AND e.start_at <= $2
            AND (e.owner_id=$3
                 OR (e.visibility='workspace' AND $4<>'guest')
                 OR (e.visibility='participants' AND (pa.user_id IS NOT NULL
-                    OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))))`,
-        [session.workspaceId, until, session.userId, session.role],
+                    OR EXISTS(SELECT 1 FROM conversation_members cm WHERE cm.workspace_id=e.workspace_id AND cm.conversation_id=e.conversation_id AND cm.user_id=$3))))
+           AND ($5::uuid IS NULL OR pt.project_id=$5)`,
+        [session.workspaceId, until, session.userId, session.role, projectId],
       );
 
       const out = [];
@@ -312,6 +639,30 @@ export function createCalendarRepository(pool, store = null) {
      * попадают в отчёты о встречах — но в сетке календаря быть обязаны,
      * иначе планёрку назначают на 9 мая.
      */
+    async projectMilestoneLayers(session,{since,until,projectId=null}={}){
+      if(session.role==='guest')return[];
+      const {rows}=await pool.query(
+        `SELECT m.id "milestoneId",m.project_id "projectId",m.title,m.target_at "startAt",
+                p.name "projectName",p.owner_id "ownerId"
+           FROM project_milestones m
+           JOIN projects p ON p.id=m.project_id AND p.workspace_id=m.workspace_id
+           LEFT JOIN project_members pm ON pm.project_id=p.id AND pm.user_id=$4
+          WHERE m.workspace_id=$1
+            AND m.status='planned'
+            AND m.target_at >= $2::timestamptz AND m.target_at <= $3::timestamptz
+            AND (p.visibility='workspace' OR p.owner_id=$4 OR pm.user_id IS NOT NULL)
+            AND ($5::uuid IS NULL OR p.id=$5)
+          ORDER BY m.target_at,m.id`,
+        [session.workspaceId,since,until,session.userId,projectId]);
+      return rows.map(row=>({
+        id:`project-milestone@${row.milestoneId}`,
+        milestoneId:row.milestoneId,projectId:row.projectId,projectName:row.projectName,
+        kind:'milestone',title:row.title,startAt:new Date(row.startAt).toISOString(),endAt:null,
+        allDay:false,timezone:'UTC',visibility:'project',ownerId:row.ownerId,
+        participantCount:0,fileCount:0,needsMyAnswer:false,readOnly:true,projectProjection:true,
+      }));
+    },
+
     async calendarLayers(session, { since, until }) {
       const { rows: settings } = await pool.query(
         'SELECT show_birthdays "showBirthdays", show_holidays "showHolidays" FROM workspaces WHERE id=$1',
@@ -417,6 +768,11 @@ export function createCalendarRepository(pool, store = null) {
     async createWithParticipants(session, body, userIds = [], { optional = false } = {}) {
       const ids = [...new Set(userIds)].filter(Boolean);
       return tx(async (client) => {
+        // Validate/normalize the submitted recurrence before conflict lookup.
+        // Invalid input must fail as INVALID_RECURRENCE, not be masked by an
+        // unrelated existing event in the same slot.
+        const recurrenceRule=checkedRule(body.recurrenceRule,body.startAt);
+        await assertNoScheduleConflict(client,session,{startAt:body.startAt,endAt:body.endAt,allowConflict:Boolean(body.allowConflict)});
         const id = randomUUID();
         const { rows } = await client.query(
           `INSERT INTO calendar_events(id,organization_id,workspace_id,kind,title,description,owner_id,start_at,end_at,timezone,all_day,visibility,commitment_id,conversation_id,recurrence_rule)
@@ -427,11 +783,16 @@ export function createCalendarRepository(pool, store = null) {
           [id, session.organizationId, session.workspaceId, body.kind || 'meeting', body.title, body.description,
            session.userId, body.startAt, body.endAt, body.timezone || 'UTC', Boolean(body.allDay),
            body.visibility || 'participants', body.commitmentId ?? null, body.conversationId ?? null,
-           // Разбор здесь, а не в маршруте: негодное правило не должно
-           // доехать до базы ни одним путём.
-           checkedRule(body.recurrenceRule, body.startAt)],
+           recurrenceRule],
         );
         const event = rows[0];
+        if (event.kind === 'task_block' && event.commitmentId) {
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'commitment',$3,'calendar.block_linked',$4,$5)`,
+            [session.organizationId,session.workspaceId,event.commitmentId,session.userId,{calendarEventId:event.id,startAt:event.startAt,endAt:event.endAt}],
+          );
+        }
         if (!ids.length) return { event, invited: 0 };
 
         const { rows: staff } = await client.query(
@@ -528,6 +889,15 @@ export function createCalendarRepository(pool, store = null) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
         assertMayRun(session, event, 'Править встречу может организатор или тот, кто ведёт чужие встречи');
+        if(patch.targetDate!==undefined){
+          const reason=String(patch.moveReason??'').trim();
+          if(reason.length<3)throw fail('Для переноса укажите причину','CALENDAR_MOVE_REASON_REQUIRED',400);
+          const moved=movedTimesForDate(event,patch.targetDate);
+          patch.startAt=moved.startAt;
+          patch.endAt=moved.endAt;
+          patch.changeSource=patch.changeSource||'move';
+          patch.moveReason=reason;
+        }
         const columns = { title: 'title', description: 'description', startAt: 'start_at', endAt: 'end_at', visibility: 'visibility', kind: 'kind', recurrenceRule: 'recurrence_rule', allDay: 'all_day' };
         const fields = Object.keys(columns).filter((f) => patch[f] !== undefined);
         if (!fields.length) throw fail('Nothing to update', 'EMPTY_PATCH');
@@ -538,6 +908,9 @@ export function createCalendarRepository(pool, store = null) {
         const start = patch.startAt ?? event.start_at;
         const end = patch.endAt === undefined ? event.end_at : patch.endAt;
         if (end && new Date(end) <= new Date(start)) throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');
+        if ((fields.includes('startAt')||fields.includes('endAt'))&&end) {
+          await assertNoScheduleConflict(client,session,{startAt:start,endAt:end,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(patch.allowConflict)});
+        }
 
         const setters = fields.map((f, i) => `${columns[f]}=$${i + 3}`).join(',');
         const { rows } = await client.query(
@@ -545,6 +918,24 @@ export function createCalendarRepository(pool, store = null) {
           [session.workspaceId, eventId, ...fields.map((f) => patch[f])],
         );
         const timeChanged = fields.includes('startAt') || fields.includes('endAt');
+        if(timeChanged&&patch.moveReason){
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'calendar_event',$3,'calendar.event_moved',$4,$5)`,
+            [session.organizationId,session.workspaceId,eventId,session.userId,{
+              previousStartAt:event.start_at,previousEndAt:event.end_at,
+              startAt:rows[0].start_at,endAt:rows[0].end_at,
+              reason:patch.moveReason,source:patch.changeSource||'move',
+            }],
+          );
+        }
+        if (event.kind === 'task_block' && event.commitment_id) {
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'commitment',$3,$4,$5,$6)`,
+            [session.organizationId,session.workspaceId,event.commitment_id,timeChanged?'calendar.block_moved':'calendar.block_updated',session.userId,{calendarEventId:eventId,previousStartAt:event.start_at,previousEndAt:event.end_at,startAt:rows[0].start_at,endAt:rows[0].end_at,reason:patch.moveReason??null,source:patch.changeSource??null}],
+          );
+        }
         if (timeChanged) {
           // A moved meeting invalidates the answers people already gave.
           const { rows: attendees } = await client.query(
@@ -632,6 +1023,13 @@ export function createCalendarRepository(pool, store = null) {
           recipients: attendees.map((a) => a.user_id), type: 'calendar.cancelled', eventId,
           title: event.title, body: 'Встреча отменена',
         });
+        if (event.kind === 'task_block' && event.commitment_id) {
+          await client.query(
+            `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+             VALUES($1,$2,'commitment',$3,'calendar.block_unlinked',$4,$5)`,
+            [session.organizationId,session.workspaceId,event.commitment_id,session.userId,{calendarEventId:eventId,startAt:event.start_at,endAt:event.end_at}],
+          );
+        }
         await client.query('DELETE FROM calendar_events WHERE workspace_id=$1 AND id=$2', [session.workspaceId, eventId]);
         return { cancelled: true };
       });

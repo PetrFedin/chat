@@ -12,6 +12,8 @@ export const FEATURES = Object.freeze([
     descRu: 'Таймер на задачах и отчёт по часам.', descEn: 'Timers on tasks and the hours report.', requires: ['tasks'] },
   { id: 'dashboard', group: 'work', ru: 'Дашборд и отчёты', en: 'Dashboard and reports',
     descRu: 'Тренды по задачам и времени, отчёт по обязательствам.', descEn: 'Task and time trends, the commitments report.', requires: ['tasks'] },
+  { id: 'projects', group: 'work', ru: 'Проекты', en: 'Projects',
+    descRu: 'Цели, вехи, команда и исполнение на канонических задачах.', descEn: 'Goals, milestones, team and execution over canonical tasks.', requires: ['tasks'] },
   { id: 'requests', group: 'work', ru: 'Заявки и согласования', en: 'Requests and approvals',
     descRu: 'Отпуск, покупка, доступ — по шаблону и с цепочкой согласования.', descEn: 'Time off, purchases, access — by template with an approval chain.', requires: [] },
   { id: 'plan', group: 'work', ru: 'Личные дела', en: 'Personal to-dos',
@@ -114,6 +116,12 @@ export function planChange(state, id, enable) {
  * Маршрут → функция. Порядок важен: частные правила раньше общих. Пути без сессии (ICS по токену, вход) сюда не попадают.
  */
 const ROUTES = [
+  [/^\/api\/v1\/wiki\/pages\/[^/]+\/projects(\/|$)/, ['wiki','projects']],
+  [/^\/api\/v1\/wiki\/pages\/[^/]+\/tasks(\/|$)/, ['wiki','tasks']],
+  [/^\/api\/v1\/wiki\/(pages\/[^/]+\/decisions|decisions\/[^/]+\/pages)(\/|$)/, ['wiki','decisions']],
+  [/^\/api\/v1\/projects\/[^/]+\/tasks(\/|$)/, ['projects','tasks']],
+  [/^\/api\/v1\/projects\/[^/]+\/decisions(\/|$)/, ['projects','decisions']],
+  [/^\/api\/v1\/projects(\/|$)/, 'projects'],
   [/^\/api\/v1\/(time-entries)(\/|$)|^\/api\/v1\/tasks\/[^/]+\/time-entries/, 'time_tracking'],
   [/^\/api\/v1\/dashboard(\/|$)|^\/api\/v1\/tasks\/report(\/|$)/, 'dashboard'],
   [/^\/api\/v1\/tasks(\/|$)/, 'tasks'],
@@ -136,7 +144,10 @@ const ROUTES = [
   [/^\/api\/v1\/(labels|labelled)(\/|$)/, 'labels'],
   [/^\/api\/v1\/(requests|request-templates)(\/|$)/, 'requests'],
 ];
-export const featureForPath = (path) => {
-  for (const [pattern, id] of ROUTES) if (pattern.test(path)) return id;
-  return null;
+export const featuresForPath = (path) => {
+  for (const [pattern, ids] of ROUTES) if (pattern.test(path)) return Array.isArray(ids) ? ids : [ids];
+  return [];
 };
+
+// Compatibility helper for callers that only need the primary feature.
+export const featureForPath = (path) => featuresForPath(path)[0] ?? null;

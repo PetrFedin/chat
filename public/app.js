@@ -1,4 +1,4 @@
-const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],selected:null,messages:new Map(),messageCursor:new Map(),unreadFrom:new Map(),readUpTo:new Map(),tasksFromMessage:new Map(),invitations:[],taskFilter:'active',taskScope:'mine',taskCounts:null,tasksPage:null,tasksCursor:null,loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
+const S={view:'today',boot:null,voice:null,highlights:new Map(),notes:new Map(),favourites:new Set(),conversations:[],people:[],tasks:[],calendar:[],projects:[],projectSelected:null,projectDetail:null,projectsUnavailable:false,selected:null,messages:new Map(),messageCursor:new Map(),unreadFrom:new Map(),readUpTo:new Map(),tasksFromMessage:new Map(),invitations:[],taskFilter:'active',taskScope:'mine',taskCounts:null,tasksPage:null,tasksCursor:null,loadingOlder:false,keepScroll:null,ws:null,mobileChat:false,reply:null,recorder:null,recordingAt:0,chatFilter:'all',gameFrom:null,gameWatch:null,labels:null,plan:[],planFilter:'open',labelsUnavailable:false,planUnavailable:false};
 const $=(q,r=document)=>r.querySelector(q),$$=(q,r=document)=>[...r.querySelectorAll(q)];
 const esc=(v='')=>String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 // Stroke icons on currentColor: the nav sits on both themes and the glyphs it
@@ -9,6 +9,7 @@ const navIcon={
   chats:svg('<path d="M20.2 12.4c0 3.9-3.7 7-8.2 7a9.4 9.4 0 0 1-2.6-.35L4.4 20.4l1.2-3.5A6.6 6.6 0 0 1 3.8 12.4c0-3.9 3.7-7 8.2-7s8.2 3.1 8.2 7Z"/>'),
   tasks:svg('<path d="M4.6 6.6h6.2M4.6 12h6.2M4.6 17.4h6.2"/><path d="m14.4 6.2 1.9 1.9 3.5-3.5"/><path d="m14.4 15.6 1.9 1.9 3.5-3.5"/>'),
   calendar:svg('<rect x="3.6" y="5.2" width="16.8" height="15.2" rx="2.4"/><path d="M3.6 10h16.8M8.4 3.6v3.2M15.6 3.6v3.2"/>'),
+  projects:svg('<path d="M4 7.2h6l1.6 2h8.4v9.6a1.6 1.6 0 0 1-1.6 1.6H5.6A1.6 1.6 0 0 1 4 18.8Z"/><path d="M4 7.2V5.6A1.6 1.6 0 0 1 5.6 4h4.2l1.8 2h6.8A1.6 1.6 0 0 1 20 7.6v1.6"/>'),
   more:svg('<circle cx="5.4" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="18.6" cy="12" r="1.5" fill="currentColor" stroke="none"/>'),
 };
 const msgIcon={
@@ -72,13 +73,13 @@ const guestShell=()=>me()?.role==='guest';
 // Пустые карточки с призывом «создайте задачу» — обещание вместо границы.
 // Функции компании: отключённое не рисуется и не вызывается. Состояние приходит с bootstrap и по событию features.updated.
 const feat=(id)=>S.boot?.features?.[id]!==false;
-const VIEW_FEATURE={tasks:'tasks',calendar:'calendar'};
+const VIEW_FEATURE={tasks:'tasks',calendar:'calendar',projects:'projects'};
 /** Кнопка или плитка → функция, без которой она не нужна. */
 const ELEMENT_FEATURE={
   task:'tasks','time-report':'time_tracking',dashboard:'dashboard',report:'dashboard',event:'calendar','calendar-subscribe':'calendar',
   plan:'plan',reminders:'reminders',labels:'labels',decisions:'decisions','meeting-ops':'meetings',games:'games','room-games':'games',stories:'stories',
   vault:'vault',integrations:'integrations',apikeys:'api_keys',knowledge:'knowledge',wiki:'wiki',org:'org_structure',calls:'calls',audio:'calls',video:'calls',
-  'assistant-summarize':'assistant','assistant-suggest':'assistant',requests:'requests',topics:'topics',
+  'assistant-summarize':'assistant','assistant-suggest':'assistant',requests:'requests',topics:'topics',projects:'projects','project-new':'projects',
 };
 const tasksVisible=()=>!guestShell()&&feat('tasks'),calendarVisible=()=>!guestShell()&&feat('calendar');
 const visibleNav=()=>(guestShell()?nav.filter(([id])=>!GUEST_HIDDEN_VIEWS.has(id)):nav).filter(([id])=>!VIEW_FEATURE[id]||feat(VIEW_FEATURE[id]));
@@ -290,6 +291,12 @@ const ERROR_MESSAGE={
   NOT_A_PLAYER:'Вы не играете в этой партии.',
   LABEL_NOT_FOUND:'Метка недоступна.',
   TARGET_NOT_FOUND:'Объект недоступен.',
+  FILE_NOT_FOUND:'Файл недоступен или у вас больше нет к нему доступа.',
+  PROJECT_FILE_ALREADY_LINKED:'Этот файл уже связан с проектом.',
+  PROJECT_FILE_NOT_FOUND:'Связь с файлом уже удалена.',
+  CONVERSATION_NOT_FOUND:'Беседа недоступна.',
+  PROJECT_DISCUSSION_ALREADY_LINKED:'Эта беседа уже связана с проектом.',
+  PROJECT_DISCUSSION_NOT_FOUND:'Связь с беседой уже удалена.',
 };
 
 /**
@@ -452,7 +459,7 @@ function forgotPasswordModal(){
   });
 }
 
-async function bootstrap(){S.sessionLost=false;try{const b=await (window.ChatBootstrap?.get({force:true})??api('/api/v1/bootstrap'));window.ChatBootstrap?.put(b);S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadOnboarding(),loadTasks(),loadTaskPage(),loadCalendar(),loadInvitations(),loadPlan(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash();
+async function bootstrap(){S.sessionLost=false;try{const b=await (window.ChatBootstrap?.get({force:true})??api('/api/v1/bootstrap'));window.ChatBootstrap?.put(b);S.boot=b;S.conversations=b.conversations||[];S.people=b.people||[];S.selected=S.selected||S.conversations[0]?.id||null;await Promise.all([loadOnboarding(),loadTasks(),loadTaskPage(),loadCalendar(),loadInvitations(),loadPlan(),loadProjects(),loadLabelTargets().catch(()=>{}),loadMarks()]);$('#auth-view').hidden=true;$('#app-view').hidden=false;shell();render();startClock();connect();await routeFromHash();
     // Адрес «#/chats» без беседы выбирает первую, но не грузил её сообщения:
     // экран показывал «Начните разговор» над пустой лентой.
     if(S.view==='chats'&&S.selected&&!(S.messages.get(S.selected)||[]).length){await loadMessages(S.selected);render()}}catch(e){
@@ -478,11 +485,15 @@ window.addEventListener('online',()=>toast(T('Связь восстановле�
  * коллеге было не дать.
  */
 const VIEWS=new Set(nav.map(([id])=>id));
+VIEWS.add('projects');
 async function routeFromHash(){
   if(!S.boot)return;
   const raw=location.hash.replace(/^#\/?/,''),[pathPart,query='']=raw.split('?');
   const parts=pathPart.split('/').filter(Boolean),params=new URLSearchParams(query);
+  const routedFeature=VIEW_FEATURE[parts[0]];
+  if(routedFeature&&!feat(routedFeature)){history.replaceState(null,'','#/today');go('today',{silent:true});return}
   if(parts[0]==='tasks'&&parts[1]){S.view='tasks';render();await openTask(parts[1]);if(!document.querySelector('#modal-heading'))history.replaceState(null,'','#/tasks');return}
+  if(parts[0]==='projects'&&parts[1]){if(guestShell()){history.replaceState(null,'','#/today');go('today',{silent:true});return}await openProject(parts[1],{silent:true});return}
   if(parts[0]==='chats'&&parts[1]){await openChatAtMessage(parts[1],params.get('message'));return}
   // У задачи и беседы адрес был, у встречи — нет: уведомление «вас позвали»
   // вело в общий календарь, и человек искал нужную встречу глазами.
@@ -525,6 +536,20 @@ function indexTasksByMessage(){
     index.set(task.sourceMessageId,list);
   }
   S.tasksFromMessage=index;
+}
+
+async function loadProjects(){
+  if(guestShell()||!feat('projects')){S.projects=[];S.projectsUnavailable=true;return}
+  try{S.projects=(await api('/api/v1/projects')).items||[];S.projectsUnavailable=false}
+  catch(error){S.projects=[];S.projectsUnavailable=error.code==='PROJECTS_UNAVAILABLE'||error.status===503}
+}
+async function openProject(id,{silent=false}={}){
+  try{
+    const{project}=await api(`/api/v1/projects/${id}`);
+    S.projectSelected=id;S.projectDetail=project;S.view='projects';
+    if(!silent){try{history.pushState(null,'',`#/projects/${id}`)}catch{}}
+    render();
+  }catch(error){toast(error.message)}
 }
 
 async function loadTasks(){
@@ -612,7 +637,13 @@ function shell(){const s=me();$('#profile-card').innerHTML=`${personAvatar(s.use
   navs();lists()}
 
 /** What the workspace actually is, since the switcher implies there is more than one. */
-function navs(){const html=visibleNav().map(([id,i,l])=>`<button class="nav-item pressable ${S.view===id?'active':''}" data-nav="${id}"${S.view===id?' aria-current="page"':''}><span class="nav-icon">${i}</span><span>${l}</span></button>`).join('');$('#desktop-nav').innerHTML=$('#mobile-nav').innerHTML=html}
+function navMarkup(items){return items.map(([id,i,l])=>`<button class="nav-item pressable ${S.view===id?'active':''}" data-nav="${id}"${S.view===id?' aria-current="page"':''}><span class="nav-icon">${i}</span><span>${l}</span></button>`).join('')}
+function navs(){const html=visibleNav().map(([id,i,l])=>`<button class="nav-item pressable ${S.view===id?'active':''}" data-nav="${id}"${S.view===id?' aria-current="page"':''}><span class="nav-icon">${i}</span><span>${l}</span></button>`).join('');
+  $('#mobile-nav').innerHTML=html;
+  const desktop=[...visibleNav()];
+  if(!guestShell()&&feat('projects')&&!S.projectsUnavailable)desktop.splice(Math.max(0,desktop.length-1),0,['projects',navIcon.projects,T('Проекты','Projects')]);
+  $('#desktop-nav').innerHTML=navMarkup(desktop);
+}
 function lists(){const channels=S.conversations.filter(c=>['channel','team','project'].includes(c.kind)),dm=S.conversations.filter(c=>['direct','group'].includes(c.kind));$('#channel-list').innerHTML=channels.map(c=>side(c,'#')).join('');$('#direct-list').innerHTML=dm.map(c=>side(c,'')).join('')}
 function side(c,prefix){return `<button class="sidebar-row pressable ${S.selected===c.id?'active':''}" data-conversation="${c.id}"><span>${prefix||'<span class="presence-dot online"></span>'}</span><span class="label">${esc(c.title||'Диалог')}</span></button>`}
 /**
@@ -647,9 +678,9 @@ function renderInner(){
   if(S.view==='today'){
     heading.innerHTML=`<span class="brand">${BRAND_MARK}<span>ChatX</span></span>`;
   }else{
-    heading.textContent=nav.find(x=>x[0]===S.view)?.[2]||'ChatX';
+    heading.textContent=S.view==='projects'?T('Проекты','Projects'):(nav.find(x=>x[0]===S.view)?.[2]||'ChatX');
   }
-  $('#screen').innerHTML=({today,chats,tasks,calendar,more})[S.view]();
+  $('#screen').innerHTML=({today,chats,tasks,calendar,projects,more})[S.view]();
   bind();bindCalendar();bindPeopleAvatars();
 }
 /**
@@ -852,6 +883,12 @@ const TASK_EVENT={
   'commitment.transitioned':'смена состояния',
   'commitment.rescheduled':'перенос срока',
   'commitment.reassigned':'передана другому',
+  'calendar.block_linked':'время выделено в календаре',
+  'calendar.block_moved':'время в календаре перенесено',
+  'calendar.block_updated':'блок календаря изменён',
+  'calendar.block_unlinked':'время убрано из календаря',
+  'calendar.reschedule_proposal_approved':'предложенный перенос принят',
+  'calendar.reschedule_proposal_rejected':'предложенный перенос отклонён',
   'evidence.added':'добавлено доказательство',
   'acceptance.recorded':'решение о приёмке',
 };
@@ -875,7 +912,7 @@ function taskRow(t){
   return `<button class="task-card pressable${late?' overdue':''}" data-task-open="${t.id}"><span class="task-status"></span><span><div class="task-title">${esc(t.title)}</div><div class="task-meta"><span>${esc(TASK_STATUS[t.status]||t.status)}</span><span>·</span><span class="${late?'task-late':soon?'task-soon':''}">${late?'<span>просрочено</span> — ':soon?'<span>сегодня</span> — ':''}${when}</span><span>·</span><span>${esc(name(t.ownerId))}</span></div>${labels.length?`<div class="chip-row msg-labels">${labels.map(labelChip).join('')}</div>`:''}</span><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span></button>`;
 }
 function kindLabel(k){return({voice:T('Голосовое сообщение','Voice message'),file:T('Файл','File'),call:T('Звонок','Call'),task:T('Задача','Task'),calendar:T('Событие','Event')})[k]||''}
-function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}">${roomAvatar(x)}<span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${previewOf(x,x.lastMessage?(x.lastMessage.body?escWithMentions(x.lastMessage.body):esc(kindLabel(x.lastMessage.kind))):'')}</div>${x.lastMessage?'':'<div class="preview preview-empty">Нет сообщений</div>'}</span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?'<span> · уведомления выключены</span>':''}</p></div></div><div class="inline-actions"><button data-action="audio" class="round-button pressable call-button" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable call-button" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="assistant-summarize" class="round-button pressable" title="Обзор беседы" aria-label="Коротко о чём был разговор">${msgIcon.assistant}</button><button data-action="materials" class="round-button pressable" title="Материалы беседы" aria-label="Фото, видео, ссылки и переносы">${tileIcon.files}</button><button data-action="import" class="round-button pressable" title="Перенести из мессенджера" aria-label="Перенести переписку из WhatsApp или Telegram">⇥</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button>${guestShell()?'':`<button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button>`}<button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}</div></header>${topicBar(c)}<div id="message-stream" class="message-stream">${S.messageCursor.get(c.id)?'<button id="load-older" class="button secondary pressable" style="margin:0 auto 10px;display:block">Показать более ранние</button>':''}${messageStream(visibleMessages(c,messages))}</div><div id="typing" class="typing"></div><div class="composer-wrap">${awayNotice(c)}${S.reply?`<div class="reply-preview visible"><span><span>Ответ на:</span> ${S.reply.body?escWithMentions(S.reply.body):esc(kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><button data-action="assistant-suggest" class="composer-button pressable" title="Предложить ответ" aria-label="Предложить варианты ответа">${msgIcon.assistant}</button>${(()=>{const quiet=c?.announcementOnly&&!can('channel.manage')&&!['owner','moderator'].includes(c.memberRole);return quiet?`<textarea id="message-input" rows="1" disabled placeholder="${T('В этом канале пишут только его руководители','Only channel managers can post here')}"></textarea>`:`<textarea id="message-input" rows="1" placeholder="${(()=>{const v=topicView(c.id);return v!=='all'&&v!=='general'&&topicsOn(c)?`${T('Сообщение в ветку','Message to topic')} «${esc(topicTitle(c.id,v))}»`:T('Сообщение','Message')})()}"></textarea>`})()}<button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
+function chats(){const c=S.conversations.find(x=>x.id===S.selected),messages=S.messages.get(c?.id)||[],muted=c?.mutedUntil&&Date.parse(c.mutedUntil)>Date.now();return `<div class="chat-shell"><aside class="conversation-pane ${S.mobileChat?'hidden-mobile':''}"><div class="conversation-pane-header"><div class="chip-row">${CONVERSATION_GROUPS.map(([key,caption])=>`<button class="chipbtn pressable${(S.chatFilter||'all')===key?' on':''}" data-chat-filter="${key}">${esc(caption)}${countIn(key)?`<i>${countIn(key)}</i>`:''}</button>`).join('')}</div><div class="inline-actions"><button data-action="group" class="round-button pressable" title="Новая группа" aria-label="Новая группа">${tileIcon.team}</button><button data-action="dm" class="round-button pressable" aria-label="Новый чат">＋</button></div></div>${visibleConversations().map(x=>`<button class="conversation-card pressable ${x.id===S.selected?'active':''}" data-conversation="${x.id}">${roomAvatar(x)}<span><strong>${esc(x.title||'Диалог')}</strong><div class="preview">${previewOf(x,x.lastMessage?(x.lastMessage.body?escWithMentions(x.lastMessage.body):esc(kindLabel(x.lastMessage.kind))):'')}</div>${x.lastMessage?'':'<div class="preview preview-empty">Нет сообщений</div>'}</span><span class="time">${time(x.lastMessage?.createdAt)}</span></button>`).join('')}</aside><section class="message-pane ${!S.mobileChat?'hidden-mobile':''}">${c?`<header class="message-header"><div class="inline-actions"><button data-action="back" class="round-button pressable mobile-back" aria-label="Назад к списку">‹</button><div><h2>${esc(c.kind==='channel'?'# '+c.title:(c.title||'Диалог'))}</h2><p>${esc(c.purpose||'Рабочая переписка')}${muted?'<span> · уведомления выключены</span>':''}</p></div></div><div class="inline-actions"><button data-action="audio" class="round-button pressable call-button" title="Аудиозвонок" aria-label="Аудиозвонок">${tileIcon.calls}</button><button data-action="video" class="round-button pressable call-button" title="Видеозвонок" aria-label="Видеозвонок">${roomIcon.video}</button><button data-action="favour-room" class="round-button pressable${S.favourites?.has('conversation:'+c.id)?' on':''}" title="${S.favourites?.has('conversation:'+c.id)?'Убрать из избранного':'В избранное'}" aria-label="${S.favourites?.has('conversation:'+c.id)?'Убрать беседу из избранного':'Добавить беседу в избранное'}">${msgIcon.star}</button><button data-action="pins" class="round-button pressable" title="Закреплённые" aria-label="Закреплённые сообщения">${roomIcon.pins}</button><button data-action="mute" class="round-button pressable" title="${muted?'Включить уведомления':'Отключить на 8 часов'}" aria-label="${muted?'Включить уведомления':'Отключить уведомления'}">${muted?roomIcon.muted:roomIcon.bell}</button><button data-action="assistant-summarize" class="round-button pressable" title="Обзор беседы" aria-label="Коротко о чём был разговор">${msgIcon.assistant}</button><button data-action="materials" class="round-button pressable" title="Материалы беседы" aria-label="Фото, видео, ссылки и переносы">${tileIcon.files}</button><button data-action="import" class="round-button pressable" title="Перенести из мессенджера" aria-label="Перенести переписку из WhatsApp или Telegram">⇥</button><button data-action="archive" class="round-button pressable" title="Архивировать" aria-label="Убрать в архив">${tileIcon.archive}</button>${guestShell()?'':`<button data-action="room-games" class="round-button pressable" title="Игры" aria-label="Игры в этой беседе">${tileIcon.games}</button>`}<button data-action="conversation" class="round-button pressable" title="О беседе" aria-label="О беседе">${tileIcon.settings}</button>${c.kind!=='direct'?`<button data-action="members" class="round-button pressable" title="Участники" aria-label="Участники беседы">${tileIcon.team}</button>`:''}</div></header>${topicBar(c)}<div id="message-stream" class="message-stream">${S.messageCursor.get(c.id)?'<button id="load-older" class="button secondary pressable" style="margin:0 auto 10px;display:block">Показать более ранние</button>':''}${messageStream(visibleMessages(c,messages))}</div><div id="typing" class="typing"></div><div class="composer-wrap">${awayNotice(c)}${S.reply?`<div class="reply-preview visible"><span><span>Ответ на:</span> ${S.reply.body?escWithMentions(S.reply.body):esc(kindLabel(S.reply.kind))}</span><button data-action="cancel-reply" class="close-button">×</button></div>`:''}<div class="composer"><button data-action="attach" class="composer-button pressable" aria-label="Прикрепить файл">＋</button><button data-action="assistant-suggest" class="composer-button pressable" title="Предложить ответ" aria-label="Предложить варианты ответа">${msgIcon.assistant}</button>${(()=>{const quiet=c?.announcementOnly&&!can('channel.manage')&&!['owner','moderator'].includes(c.memberRole);return quiet?`<textarea id="message-input" rows="1" disabled placeholder="${T('В этом канале пишут только его руководители','Only channel managers can post here')}"></textarea>`:`<textarea id="message-input" rows="1" placeholder="${(()=>{const v=topicView(c.id);return v!=='all'&&v!=='general'&&topicsOn(c)?`${T('Сообщение в ветку','Message to topic')} «${esc(topicTitle(c.id,v))}»`:T('Сообщение','Message')})()}"></textarea>`})()}<button data-action="voice" class="composer-button pressable" aria-label="Голосовое сообщение">◖</button><button data-action="send" class="composer-button send pressable" aria-label="Отправить">↑</button></div></div>`:'<div class="empty"><strong>Выберите разговор</strong></div>'}</section></div>`}
 /**
  * Лента переписки.
  *
@@ -1088,7 +1125,7 @@ async function loadTaskPage({append=false}={}){
   }catch(error){toast(error.message)}
 }
 function calendar(){
-  const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
+  const c=S.cal||(S.cal={view:(window.matchMedia&&window.matchMedia('(max-width:700px)').matches)?'agenda':'week',cursor:new Date(),selected:null});
   const base=new Date(c.cursor);
   const fmt=(o)=>new Intl.DateTimeFormat(locale()==='en'?'en-GB':'ru',o);
   const sameDay=(a,b)=>a.toDateString()===b.toDateString();
@@ -1142,16 +1179,18 @@ function calendar(){
   const header=()=>{
     const label=c.view==='day'?fmt({day:'numeric',month:'long',year:'numeric'}).format(base)
       :c.view==='week'?`${fmt({day:'numeric',month:'short'}).format(weekStart())} — ${fmt({day:'numeric',month:'short',year:'numeric'}).format(new Date(weekStart().getTime()+6*864e5))}`
+      :c.view==='agenda'?`${fmt({day:'numeric',month:'short'}).format(base)} — ${fmt({day:'numeric',month:'short',year:'numeric'}).format(new Date(base.getTime()+13*864e5))}`
       :fmt({month:'long',year:'numeric'}).format(base);
     return `<div class="calendar-toolbar">
       <div><h2>${esc(label)}</h2></div>
-      <div class="inline-actions">
+      <div class="inline-actions calendar-toolbar-actions">
+        ${S.projects?.length?`<label class="calendar-project-filter"><span>${esc(T('Проект','Project'))}</span><select data-calendar-project-filter><option value="">${esc(T('Все проекты','All projects'))}</option>${S.projects.map(p=>`<option value="${esc(p.id)}"${c.projectId===p.id?' selected':''}>${esc(p.name)}</option>`).join('')}</select></label>`:''}
         <button data-action="calendar-subscribe" class="button secondary small pressable">Подписка</button>
         ${can('calendar.create')?'<button data-action="event" class="button primary small pressable">＋ Событие</button>':''}
       </div>
     </div>
     <div class="cal-controls">
-      <div class="cal-switch">${['day','week','month'].map(v=>`<button class="cal-tab ${c.view===v?'active':''}" data-cal-view="${v}">${v==='day'?'День':v==='week'?'Неделя':'Месяц'}</button>`).join('')}</div>
+      <div class="cal-switch">${['day','week','agenda','month'].map(v=>`<button class="cal-tab ${c.view===v?'active':''}" data-cal-view="${v}">${v==='day'?'День':v==='week'?'Неделя':v==='agenda'?'Повестка':'Месяц'}</button>`).join('')}</div>
       <div class="cal-nav"><button data-cal-step="-1" class="round-button pressable" aria-label="Назад">‹</button><button data-cal-today class="button secondary small pressable">Сегодня</button><button data-cal-step="1" class="round-button pressable" aria-label="Вперёд">›</button></div>
     </div>`;
   };
@@ -1188,21 +1227,22 @@ function calendar(){
     const d=eventDay(e);
     if(c.view==='day')return eventsOn(base).includes(e);
     if(c.view==='week'){const s0=weekStart();return overlaps(e,s0,new Date(s0.getTime()+7*864e5))}
+    if(c.view==='agenda'){const s0=new Date(base);s0.setHours(0,0,0,0);return overlaps(e,s0,new Date(s0.getTime()+14*864e5))}
     return overlaps(e,new Date(base.getFullYear(),base.getMonth(),1),new Date(base.getFullYear(),base.getMonth()+1,1));
   };
   const onSelectedDay=(e)=>{const [y,m,d]=String(c.selected).split('-').map(Number);return eventsOn(new Date(y,m,d)).includes(e)};
   const shown=(S.calendar||[]).filter(e=>c.selected?onSelectedDay(e):inPeriod(e));
-  const heading=c.selected?'Выбранный день':(c.view==='day'?'События дня':c.view==='week'?'События недели':'События месяца');
+  const heading=c.selected?'Выбранный день':(c.view==='day'?'События дня':c.view==='week'?'События недели':c.view==='agenda'?'Повестка на 14 дней':'События месяца');
   // Праздники и дни рождения — не встречи: их никто не заводил, открыть
   // у них нечего, и кнопкой они быть не должны. Строка, а не карточка.
   const rows=shown.length?shown.map(e=>e.readOnly?`<div class="calendar-event layer ${esc(e.kind)}">
-      <strong>${e.kind==='birthday'?'🎂':(e.dayOff?'☼':'◔')}</strong>
+      <strong>${e.kind==='birthday'?'🎂':e.kind==='milestone'?'◆':(e.dayOff?'☼':'◔')}</strong>
       <div><div class="row-title">${esc(e.title)}</div>
-        <div class="row-sub">${e.kind==='birthday'?'поздравьте коллегу':(e.dayOff?'нерабочий день':'сокращённый день')}</div></div>
+        <div class="row-sub">${e.kind==='milestone'?`${esc(T('Веха проекта','Project milestone'))}${e.projectName?` · ${esc(e.projectName)}`:''}`:e.kind==='birthday'?T('Поздравьте коллегу','Congratulate your colleague'):(e.dayOff?T('Нерабочий день','Non-working day'):T('Сокращённый день','Short day'))}</div></div>
       <span class="chip">${esc(new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'short'}))}</span>
-    </div>`:`<button class="calendar-event pressable ${esc(e.kind)} ${e.needsMyAnswer?'needs-answer':''}" data-cal-event="${esc(e.id)}">
+    </div>`:`<button class="calendar-event pressable ${esc(e.kind)} ${e.needsMyAnswer?'needs-answer':''}" data-cal-event="${esc(e.id)}" data-cal-drag="${esc(e.id)}">
       <strong>${e.allDay?'весь день':esc(time(e.startAt))}${(c.view!=='day'&&!c.selected)?`<i class="event-day">${esc(new Date(e.startAt).toLocaleDateString(locale()==='en'?'en-GB':'ru-RU',c.view==='month'?{day:'numeric',month:'short'}:{weekday:'short',day:'numeric'}))}</i>`:''}</strong><span class="event-line"></span>
-      <div><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(KIND_LABEL[e.kind]||e.kind)}${e.participantCount?` · ${e.participantCount} участн.`:''}${e.fileCount?` · ${e.fileCount} файл.`:''}</div></div>
+      <div><div class="row-title">${esc(e.title)}</div><div class="row-sub">${esc(KIND_LABEL[e.kind]||e.kind)}${e.projectName?` · ${esc(e.projectName)}`:''}${e.participantCount?` · ${e.participantCount} участн.`:''}${e.fileCount?` · ${e.fileCount} файл.`:''}</div></div>
       ${e.needsMyAnswer?'<span class="chip pulse">нужен ответ</span>':`<span class="chip warm">${e.allDay?esc(T('весь день','all day')):e.endAt?esc(time(e.endAt)):'—'}</span>`}
     </button>`).join(''):'<div class="surface empty"><strong>Здесь пусто</strong></div>';
 
@@ -1211,6 +1251,46 @@ function calendar(){
     <div class="calendar-list">${rows}</div>`;
 }
 const KIND_LABEL={meeting:'Встреча',focus:'Фокус',task_block:'Работа над задачей',deadline:'Дедлайн',reminder:'Напоминание',milestone:'Веха',other:'Событие'};
+
+async function calendarMoveModal(eventId,targetDate){
+  try{
+    const result=await api('/api/v1/calendar-events/'+encodeURIComponent(eventId)+'/move-preview?targetDate='+encodeURIComponent(targetDate));
+    const preview=result.preview,conflicts=preview.conflicts||[],hasConflicts=conflicts.length>0;
+    const conflictHtml=hasConflicts
+      ? `<div class="away-notice"><strong>${esc(T('Есть конфликт','There is a conflict'))}</strong><div class="stack" style="margin-top:8px">${conflicts.map(item=>`<div class="row"><span>◷</span><span><div class="row-title">${esc(item.title)}</div><div class="row-sub">${esc(dateTime(item.startAt))} — ${esc(time(item.endAt))}${item.occurrenceAt?` · ${esc(T('повторяющаяся серия','recurring series'))}`:''}</div></span></div>`).join('')}</div></div>`
+      : '';
+    const overlapHtml=hasConflicts
+      ? `<label class="checkline"><input type="checkbox" name="allowConflict"> <span>${esc(T('Сохранить несмотря на показанный конфликт','Save despite the shown conflict'))}</span></label>`
+      : '';
+    modal(T('Перенести событие','Move event'),`<form id="calendar-move-form" class="form-stack">
+      <div class="surface"><div class="section-title">${esc(preview.title)}</div>
+        <div class="row-sub">${esc(T('Сейчас','Current'))}: ${esc(dateTime(preview.currentStartAt))}${preview.currentEndAt?` — ${esc(time(preview.currentEndAt))}`:''}</div>
+        <div class="row-sub">${esc(T('Будет','New'))}: ${esc(dateTime(preview.startAt))}${preview.endAt?` — ${esc(time(preview.endAt))}`:''} · ${esc(preview.timezone||'UTC')}</div>
+      </div>
+      ${conflictHtml}
+      <label>${esc(T('Причина переноса','Move reason'))}<textarea name="reason" rows="3" required minlength="3" maxlength="500" placeholder="${esc(T('Почему меняется время','Why the time is changing'))}"></textarea></label>
+      ${overlapHtml}
+      <div class="inline-actions"><button class="button primary" type="submit">${esc(T('Перенести','Move'))}</button><button class="button secondary" type="button" data-close>${esc(T('Отмена','Cancel'))}</button></div>
+    </form>`);
+    const form=$('#calendar-move-form');
+    form.onsubmit=async event=>{
+      event.preventDefault();
+      const data=new FormData(form),reason=String(data.get('reason')||'').trim();
+      if(reason.length<3){toast(T('Укажите причину переноса','Add a move reason'));return}
+      if(hasConflicts&&!data.get('allowConflict')){toast(T('Подтвердите конфликт или выберите другой день','Confirm the conflict or choose another day'));return}
+      try{
+        await api('/api/v1/calendar-events/'+encodeURIComponent(eventId),{method:'PATCH',body:JSON.stringify({
+          targetDate,moveReason:reason,changeSource:'drag',allowConflict:Boolean(data.get('allowConflict')),
+        })});
+        toast(T('Событие перенесено','Event moved'));
+        closeModal();await loadCalendarRange();render();
+      }catch(error){
+        toast(error.message);
+        if(error.code==='CALENDAR_CONFLICT'){closeModal();await calendarMoveModal(eventId,targetDate)}
+      }
+    };
+  }catch(error){toast(error.message)}
+}
 
 // Bindings for the calendar grid, re-attached on every render.
 function bindCalendar(){
@@ -1244,9 +1324,12 @@ function bindCalendar(){
     const step=Number(b.dataset.calStep),d=new Date(c.cursor);
     if(c.view==='month')d.setMonth(d.getMonth()+step);
     else if(c.view==='week')d.setDate(d.getDate()+7*step);
+    else if(c.view==='agenda')d.setDate(d.getDate()+14*step);
     else d.setDate(d.getDate()+step);
     c.cursor=d;c.selected=null;await loadCalendarRange();render();
   });
+  const projectFilter=$('[data-calendar-project-filter]');
+  if(projectFilter)projectFilter.onchange=async()=>{c.projectId=projectFilter.value||null;c.selected=null;await loadCalendarRange();render()};
   const todayButton=$('[data-cal-today]');
   if(todayButton)todayButton.onclick=async()=>{c.cursor=new Date();c.selected=null;await loadCalendarRange();render()};
   $$('[data-cal-day]').forEach(b=>b.onclick=()=>{
@@ -1254,7 +1337,30 @@ function bindCalendar(){
     if(c.view==='day'){c.cursor=d}else{const key=`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;c.selected=c.selected===key?null:key}
     render();
   });
-  $$('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
+  const dragEnabled=Boolean(window.matchMedia&&window.matchMedia('(pointer:fine)').matches&&(c.view==='week'||c.view==='month'));
+  $$('[data-cal-event]').forEach(b=>{
+    b.onclick=()=>eventPage(b.dataset.calEvent);
+    b.draggable=dragEnabled;
+    if(dragEnabled)b.ondragstart=(event)=>{
+      event.dataTransfer.effectAllowed='move';
+      event.dataTransfer.setData('text/plain',b.dataset.calEvent);
+      b.classList.add('dragging');
+    };
+    b.ondragend=()=>b.classList.remove('dragging');
+  });
+  $$('[data-cal-day]').forEach(day=>{
+    if(!dragEnabled)return;
+    day.ondragover=(event)=>{event.preventDefault();event.dataTransfer.dropEffect='move';day.classList.add('drop-target')};
+    day.ondragleave=()=>day.classList.remove('drop-target');
+    day.ondrop=(event)=>{
+      event.preventDefault();day.classList.remove('drop-target');
+      const eventId=event.dataTransfer.getData('text/plain');
+      if(!eventId)return;
+      const d=new Date(day.dataset.calDay);
+      const targetDate=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      void calendarMoveModal(eventId,targetDate);
+    };
+  });
 }
 
 /** Кружки людей: клик и клавиша открывают карточку. */
@@ -1271,10 +1377,10 @@ function bindPeopleAvatars(){
 // Load a window wide enough for the current view, so the grid never shows a
 // month with events missing from its edges.
 async function loadCalendarRange(){
-  const c=S.cal||(S.cal={view:'week',cursor:new Date(),selected:null});
+  const c=S.cal||(S.cal={view:(window.matchMedia&&window.matchMedia('(max-width:700px)').matches)?'agenda':'week',cursor:new Date(),selected:null});
   const from=new Date(c.cursor),to=new Date(c.cursor);
   from.setDate(from.getDate()-45);to.setDate(to.getDate()+45);
-  try{S.calendar=((await api(`/api/v1/calendar-events?from=${from.toISOString()}&to=${to.toISOString()}`)).items||[]).map(e=>e.busyOnly?{...e,title:T('Занято','Busy')}:e)}catch{}
+  try{const query=new URLSearchParams({from:from.toISOString(),to:to.toISOString()});if(c.projectId)query.set('projectId',c.projectId);S.calendar=((await api(`/api/v1/calendar-events?${query}`)).items||[]).map(e=>e.busyOnly?{...e,title:T('Занято','Busy')}:e)}catch{}
 }
 
 const RESPONSE_LABEL={invited:'ждёт ответа',accepted:'придёт',tentative:'под вопросом',declined:'не придёт'};
@@ -1377,6 +1483,40 @@ async function eventPage(id){
  * самого начала, а в интерфейсе не было ни одной кнопки: договорённость
  * жила в календаре как высеченная.
  */
+async function calendarConflictDecision({startAt,endAt,eventId=null,message=''}){
+  let conflicts=[];
+  try{
+    const query=new URLSearchParams({startAt,endAt});
+    if(eventId)query.set('eventId',eventId);
+    conflicts=(await api(`/api/v1/calendar-conflicts?${query}`)).items||[];
+  }catch(error){
+    toast(error.message);
+    return false;
+  }
+  return await new Promise((resolve)=>{
+    let settled=false;
+    modal(T('Конфликт времени','Time conflict'),`<div class="stack" data-calendar-conflict-dialog>
+      <div class="away-notice"><strong>${esc(T('Это время уже занято','This time is already occupied'))}</strong><div class="row-sub" style="margin-top:4px">${esc(message||T('Выберите другое время или подтвердите наложение осознанно.','Choose another time or explicitly approve the overlap.'))}</div></div>
+      <div><div class="section-title">${esc(T('Пересечения','Conflicts'))} · ${conflicts.length}</div>
+        <div class="stack" style="margin-top:8px">${conflicts.map(item=>`<div class="row"><span>◷</span><span><div class="row-title">${esc(item.title||T('Занято','Busy'))}</div><div class="row-sub">${esc(dateTime(item.startAt))} — ${esc(time(item.endAt))}${item.occurrenceAt?` · ${esc(T('повторяющаяся серия','recurring series'))}`:''}</div></span></div>`).join('')||`<div class="empty">${esc(T('Конфликт уже изменился. Вернитесь и повторите сохранение.','The conflict has changed. Go back and retry saving.'))}</div>`}</div>
+      </div>
+      <p class="muted">${esc(T('Сохранение поверх конфликта не отменяет и не переносит существующие события.','Saving over the conflict does not cancel or move existing events.'))}</p>
+      <div class="inline-actions"><button type="button" class="button primary" data-conflict-edit>${esc(T('Изменить время','Change time'))}</button><button type="button" class="button secondary" data-conflict-override>${esc(T('Сохранить всё равно','Save anyway'))}</button></div>
+    </div>`,()=>{
+      const entry=overlayStack[overlayStack.length-1];
+      const finish=(answer)=>{
+        if(settled)return;
+        settled=true;
+        history.back();
+        resolve(answer);
+      };
+      if(entry)entry.onPop=()=>{if(!settled){settled=true;resolve(false)}};
+      $('[data-conflict-edit]')?.addEventListener('click',()=>finish(false));
+      $('[data-conflict-override]')?.addEventListener('click',()=>finish(true));
+    });
+  });
+}
+
 function eventEditModal(event){
   modal('Изменить встречу',`<form id="event-edit" class="form-stack">
     <label>Название<input name="title" required maxlength="240" value="${esc(event.title||'')}"></label>
@@ -1394,10 +1534,15 @@ function eventEditModal(event){
       const endAt=endRaw?new Date(endRaw):null;
       if(endAt&&endAt<=startAt)return toast('Окончание должно быть позже начала');
       try{
-        await api(`/api/v1/calendar-events/${event.id}`,{method:'PATCH',body:JSON.stringify({
-          title:form.get('title'),description:form.get('description')||null,
-          startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
-        })});
+        const payload={title:form.get('title'),description:form.get('description')||null,
+          startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null};
+        const save=allowConflict=>api(`/api/v1/calendar-events/${event.id}`,{method:'PATCH',body:JSON.stringify({...payload,allowConflict})});
+        try{await save(false)}
+        catch(error){
+          if(error.code!=='CALENDAR_CONFLICT')throw error;
+          if(!await calendarConflictDecision({startAt:payload.startAt,endAt:payload.endAt,eventId:event.id,message:error.message}))return;
+          await save(true);
+        }
         toast('Встреча изменена');closeModal();
         await loadCalendarRange();render();await eventPage(event.id);
       }catch(error){toast(error.message)}
@@ -1442,8 +1587,429 @@ function eventCancelModal(event){
   });
 }
 
+const PROJECT_DONE=new Set(['accepted_result','closed']);
+const PROJECT_DROPPED=new Set(['cancelled','rejected']);
+const PROJECT_COLUMNS=[
+  ['planned',T('Запланировано','Planned'),new Set(['inbox','clarify','proposed','accepted','scheduled','deferred'])],
+  ['doing',T('В работе','In progress'),new Set(['in_progress'])],
+  ['blocked',T('Блокировки','Blocked'),new Set(['blocked'])],
+  ['review',T('Проверка','Review'),new Set(['in_review'])],
+  ['done',T('Готово','Done'),PROJECT_DONE],
+];
+function projectCard(p){
+  const target=p.targetAt?new Intl.DateTimeFormat(locale()==='en'?'en-GB':'ru-RU',{day:'numeric',month:'short',year:'numeric'}).format(new Date(p.targetAt)):T('без целевой даты','no target date');
+  return `<button type="button" class="surface project-card pressable" data-project-open="${esc(p.id)}">
+    <div class="section-head"><div><h3>${esc(p.name)}</h3><p class="muted">${esc(p.goal||T('Цель не описана','No goal set'))}</p></div><span class="chip">${esc(p.status)}</span></div>
+    <div class="project-card-meta"><span>${esc(p.ownerName||name(p.ownerId))}</span><span>·</span><span>${esc(target)}</span><span>·</span><span>${Number(p.memberCount||0)} ${T('в команде','team')}</span></div>
+  </button>`;
+}
+function projectProgress(project){
+  const m=project.metrics||{};
+  return `<section class="surface">
+    <div class="section-head"><div><h3>${T('Прогресс','Progress')}</h3><p class="muted">${T('По доступным вам каноническим задачам','From canonical tasks visible to you')}</p></div><strong class="project-progress-value">${Number(m.progress||0)}%</strong></div>
+    <div class="project-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Number(m.progress||0)}"><span style="width:${Number(m.progress||0)}%"></span></div>
+    <div class="project-progress-legend"><span>${Number(m.active||0)} ${T('активно','active')}</span><span>${Number(m.done||0)} ${T('готово','done')}</span><span>${Number(m.blocked||0)} ${T('заблокировано','blocked')}</span><span>${Number(m.overdue||0)} ${T('просрочено','overdue')}</span></div>
+    <div class="project-kpi-strip"><span><small>${T('Время · 30 дней','Time · 30 days')}</small><strong class="mono">${formatDuration(Number(m.trackedSeconds||0))}</strong></span><span><small>${T('Закрыто · 30 дней','Closed · 30 days')}</small><strong class="mono">${Number(m.throughput30d||0)}</strong></span></div>
+  </section>`;
+}
+function projectRisk(project){
+  const m=project.metrics||{},next=m.nextMilestone;
+  const signals=[
+    [Number(m.overdue||0)>0,`${Number(m.overdue||0)} ${T('просрочено','overdue')}`],
+    [Number(m.dependencyBlocked||0)>0,`${Number(m.dependencyBlocked||0)} ${T('ждут зависимость','waiting on dependency')}`],
+    [Number(m.forecastRisk||0)>0,`${Number(m.forecastRisk||0)} ${T('рискуют выйти за обещанный срок','forecast beyond promise')}`],
+    [Boolean(m.projectTargetRisk),T('есть задача позже целевой даты проекта','work extends beyond project target')],
+  ].filter(([on])=>on).map(([,label])=>label);
+  return `<section class="surface project-risk-card">
+    <div class="section-head"><div><h3>${T('Риск исполнения','Execution risk')}</h3><p class="muted">${T('Сигналы из задач и вех, без отдельного project score','Signals from tasks and milestones, without a separate project score')}</p></div><span class="chip ${signals.length?'danger':''}">${signals.length?T('Нужно внимание','Needs attention'):T('Без явных рисков','No explicit risks')}</span></div>
+    ${signals.length?`<div class="stack compact">${signals.map(s=>`<div class="row-sub">• ${esc(s)}</div>`).join('')}</div>`:`<div class="row-sub">${T('Просрочек, незакрытых зависимостей и превышения прогноза сейчас не видно.','No overdue work, unresolved dependencies or forecast overruns are currently visible.')}</div>`}
+    ${next?`<div class="project-next-milestone"><small>${T('Ближайшая веха','Next milestone')}</small><strong>${esc(next.title)}</strong><span class="row-sub">${esc(dateTime(next.targetAt))}</span></div>`:''}
+  </section>`;
+}
+function projectWorkload(project){
+  const rows=project.workload||[];
+  return `<section class="surface"><div class="section-head"><div><h3>${T('Нагрузка','Workload')}</h3><p class="muted">${T('Только работа, которую вам разрешено видеть','Only work you are allowed to see')}</p></div></div>
+    ${rows.length?rows.map(r=>`<div class="project-workload-row"><span><div class="row-title">${esc(r.displayName||name(r.userId))}</div><div class="row-sub">${r.blocked?`${r.blocked} ${T('блокировки','blocked')} · `:''}${r.overdue?`${r.overdue} ${T('просрочено','overdue')}`:T('без просрочки','no overdue')}</div></span><strong>${r.total}</strong></div>`).join(''):`<div class="empty">${T('Активной работы пока нет','No active work yet')}</div>`}
+  </section>`;
+}
+function projectBoard(project){
+  const tasks=project.tasks||[];
+  return `<section class="surface"><div class="section-head"><div><h3>${T('Доска исполнения','Execution board')}</h3><p class="muted">${T('Это представление Task Authority, а не отдельная система статусов','A projection of Task Authority, not a second status system')}</p></div></div>
+    <div class="project-kanban">${PROJECT_COLUMNS.map(([key,label,statuses])=>{const items=tasks.filter(t=>statuses.has(t.status));return `<section class="project-kanban-column" data-project-column="${key}"><div class="project-kanban-head"><strong>${esc(label)}</strong><span class="chip">${items.length}</span></div><div class="project-kanban-list">${items.map(t=>`<article class="project-kanban-card${taskOverdue(t)?' overdue':''}">
+          <button class="project-kanban-open pressable" data-task-open="${esc(t.id)}"><span class="row-title">${esc(t.title)}</span><span class="row-sub">${esc(name(t.ownerId))}${t.promisedAt?` · ${esc(dateTime(t.promisedAt))}`:''}</span><span class="project-task-meta"><span class="chip ${['high','urgent'].includes(t.priority)?'danger':''}">${esc(t.priority||'normal')}</span>${Number(t.checklistTotal||0)?`<span class="chip">${Number(t.checklistDone||0)}/${Number(t.checklistTotal||0)} ✓</span>`:''}${Number(t.blockedBy||0)?`<span class="chip danger">${Number(t.blockedBy)} ${T('завис.','deps')}</span>`:''}${Number(t.evidenceCount||0)?`<span class="chip">${Number(t.evidenceCount)} ${T('доказ.','evidence')}</span>`:''}</span></button>
+          ${(t.allowedTransitions||[]).length?`<div class="project-task-actions">${(t.allowedTransitions||[]).map(to=>`<button class="text-button" data-project-task-transition="${esc(t.id)}" data-project-task-to="${esc(to)}">${esc(taskActionLabel(t,to))}</button>`).join('')}</div>`:''}
+        </article>`).join('')||`<div class="project-kanban-empty">${T('Пусто','Empty')}</div>`}</div></section>`}).join('')}</div>
+  </section>`;
+}
+function projectFiles(project){
+  const rows=project.files||[];
+  return `<section class="surface project-files">
+    <div class="section-head">
+      <div>
+        <h3>${T('Файлы','Files')}</h3>
+        <p class="muted">${T(
+          'Файл остаётся в общем хранилище; проект хранит только рабочую связь с ним.',
+          'The file stays in shared File Authority; the project stores only the work relation.'
+        )}</p>
+      </div>
+      ${project.canContribute?`<button class="button secondary small" data-project-file-new>＋ ${T('Файл','File')}</button>`:''}
+    </div>
+    ${rows.length?rows.map(file=>`<div class="row project-file-row" data-project-file-row="${esc(file.id)}">
+      <span class="file-mark" aria-hidden="true">${tileIcon.files}</span>
+      <span>
+        <div class="row-title">${esc(file.name)}</div>
+        <div class="row-sub">${[
+          file.uploaderName?esc(file.uploaderName):'',
+          fileSize(Number(file.sizeBytes||0)),
+          file.linkedAt?esc(dateTime(file.linkedAt)):'',
+        ].filter(Boolean).join(' · ')}</div>
+      </span>
+      <span class="inline-actions">
+        <a class="text-button" data-project-file-open="${esc(file.id)}" href="${esc(file.previewUrl||file.contentUrl)}" target="_blank" rel="noopener">${T('Открыть','Open')}</a>
+        ${project.canManage?`<button class="text-button" data-project-file-remove="${esc(file.id)}">${T('Убрать из проекта','Unlink')}</button>`:''}
+      </span>
+    </div>`).join(''):`<div class="empty"><strong>${T('Файлов пока нет','No files yet')}</strong>${T('Добавьте уже существующий файл или загрузите новый.','Link an existing file or upload a new one.')}</div>`}
+  </section>`;
+}
 
-/** Подтянуть состояние функций и перерисовать: после переключения, по событию от другого администратора и при отказе API. */
+function projectDiscussions(project){
+  const rows=project.discussions||[];
+  return `<section class="surface project-discussions">
+    <div class="section-head">
+      <div>
+        <h3>${T('Обсуждения','Discussions')}</h3>
+        <p class="muted">${T(
+          'Проект хранит только связь. Состав, сообщения и доступ остаются у обычной беседы.',
+          'Project stores only the relation. Membership, messages and access stay with the canonical conversation.'
+        )}</p>
+      </div>
+      ${project.canContribute?`<button class="button secondary small" data-project-discussion-new>＋ ${T('Обсуждение','Discussion')}</button>`:''}
+    </div>
+    ${rows.length?rows.map(room=>`<div class="row project-discussion-row" data-project-discussion-row="${esc(room.id)}">
+      <span class="file-mark" aria-hidden="true">${roomIcon[room.kind]||roomIcon.group||'◌'}</span>
+      <span>
+        <div class="row-title">${esc(room.title||T('Беседа','Conversation'))}</div>
+        <div class="row-sub">${[
+          room.purpose?esc(room.purpose):'',
+          room.memberRole?esc(room.memberRole):T('по видимости канала','by channel visibility'),
+        ].filter(Boolean).join(' · ')}</div>
+      </span>
+      <span class="inline-actions">
+        <button class="text-button" data-project-discussion-open="${esc(room.id)}">${T('Открыть','Open')}</button>
+        ${project.canManage?`<button class="text-button" data-project-discussion-remove="${esc(room.id)}">${T('Убрать из проекта','Unlink')}</button>`:''}
+      </span>
+    </div>`).join(''):`<div class="empty"><strong>${T('Обсуждений пока нет','No discussions yet')}</strong>${T('Свяжите существующую рабочую беседу с проектом.','Link an existing work conversation to the project.')}</div>`}
+  </section>`;
+}
+
+function projectDecisions(project){
+  const rows=project.decisions||[];
+  return `<section class="surface project-decisions">
+    <div class="section-head">
+      <div>
+        <h3>${T('Решения','Decisions')}</h3>
+        <p class="muted">${T(
+          'Проект хранит только связь. Источник, подтверждение и доступ остаются у реестра решений.',
+          'Project stores only the relation. Source, confirmation and access stay with Decision Authority.'
+        )}</p>
+      </div>
+      ${project.canContribute?`<button class="button secondary small" data-project-decision-new>＋ ${T('Решение','Decision')}</button>`:''}
+    </div>
+    ${rows.length?rows.map(decision=>`<div class="row project-decision-row" data-project-decision-row="${esc(decision.id)}">
+      <span class="file-mark" aria-hidden="true">✓</span>
+      <span>
+        <div class="row-title">${esc(decision.title)}</div>
+        ${decision.body?`<div class="row-sub">${esc(decision.body)}</div>`:''}
+        <div class="row-sub">${[
+          decision.callTitle?esc(decision.callTitle):'',
+          decision.acceptedByName?esc(decision.acceptedByName):'',
+          decision.acceptedAt?esc(dateTime(decision.acceptedAt)):'',
+        ].filter(Boolean).join(' · ')}</div>
+      </span>
+      <span class="inline-actions">
+        ${project.canManage?`<button class="text-button" data-project-decision-remove="${esc(decision.id)}">${T('Убрать из проекта','Unlink')}</button>`:''}
+      </span>
+    </div>`).join(''):`<div class="empty"><strong>${T('Решений пока нет','No decisions yet')}</strong>${T('Свяжите подтверждённое решение из доступной вам встречи.','Link a confirmed decision from a meeting you can access.')}</div>`}
+  </section>`;
+}
+
+async function projectDecisionModal(){
+  const project=S.projectDetail;
+  if(!project||!project.canContribute)return;
+  let accessible=[];
+  try{accessible=(await api('/api/v1/meetings/decisions?limit=200')).items||[]}
+  catch(error){toast(ERROR_MESSAGE[error.code]||error.message);return}
+  const linked=new Set((project.decisions||[]).map(decision=>decision.id));
+  const candidates=accessible.filter(decision=>!linked.has(decision.id));
+  if(!candidates.length)return toast(T(
+    'Нет доступного подтверждённого решения для связи',
+    'There is no accessible confirmed decision to link'
+  ));
+  modal(T('Связать решение','Link decision'),`<form id="project-decision-form" class="form-stack">
+    <p class="muted">${T(
+      'Связь не меняет доступ к исходной встрече. Участник проекта увидит решение только если Decision Authority уже разрешает ему его читать.',
+      'Linking does not change source-meeting access. A project member sees the decision only when Decision Authority already allows it.'
+    )}</p>
+    <label>${T('Решение','Decision')}
+      <select name="decisionId" required>
+        ${candidates.map(decision=>`<option value="${esc(decision.id)}">${esc(decision.title)}${decision.callTitle?` · ${esc(decision.callTitle)}`:''}</option>`).join('')}
+      </select>
+    </label>
+    <button class="button primary" type="submit">${T('Связать с проектом','Link to project')}</button>
+  </form>`,()=>{
+    $('#project-decision-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+      const decisionId=String(new FormData(form).get('decisionId')||'');
+      button.disabled=true;
+      try{
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}/decisions`,{
+          method:'POST',body:JSON.stringify({decisionId}),
+        });
+        S.projectDetail=fresh;closeModal();render();
+        toast(T('Решение связано с проектом','Decision linked to project'));
+      }catch(error){
+        button.disabled=false;
+        toast(ERROR_MESSAGE[error.code]||error.message);
+      }
+    };
+  });
+}
+
+async function projectDiscussionOpen(conversationId){
+  if(!S.conversations.some(room=>room.id===conversationId)){
+    try{S.conversations=(await api('/api/v1/conversations')).items||[]}
+    catch(error){toast(error.message);return}
+  }
+  // openChat uses replaceState for cross-surface jumps. From a Project that
+  // would erase the Project URL and make Back skip the context we came from.
+  // Add the canonical Chats history entry first; Conversation Authority still
+  // owns the room, messages and selected conversation state.
+  if(location.hash!=='#/chats'){
+    try{history.pushState(null,'','#/chats')}catch{}
+  }
+  await openChatAtMessage(conversationId);
+}
+
+function projectDiscussionModal(){
+  const project=S.projectDetail;
+  if(!project||!project.canContribute)return;
+  const linked=new Set((project.discussions||[]).map(room=>room.id));
+  // Direct messages stay private. A Project Discussion is a shared work room.
+  const candidates=(S.conversations||[]).filter(room=>room.kind!=='direct'&&!linked.has(room.id));
+  if(!candidates.length)return toast(T(
+    'Нет доступной общей беседы для связи с проектом',
+    'There is no accessible shared conversation to link'
+  ));
+  modal(T('Связать обсуждение','Link discussion'),`<form id="project-discussion-form" class="form-stack">
+    <p class="muted">${T(
+      'Связь не меняет состав беседы. Если участнику проекта нужен доступ, добавьте его в беседу обычным способом.',
+      'Linking does not change conversation membership. Add project participants through the normal conversation flow if they need access.'
+    )}</p>
+    <label>${T('Беседа','Conversation')}
+      <select name="conversationId" required>
+        ${candidates.map(room=>`<option value="${esc(room.id)}">${esc(room.title||T('Беседа','Conversation'))}</option>`).join('')}
+      </select>
+    </label>
+    <button class="button primary" type="submit">${T('Связать с проектом','Link to project')}</button>
+  </form>`,()=>{
+    $('#project-discussion-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+      const conversationId=String(new FormData(form).get('conversationId')||'');
+      button.disabled=true;
+      try{
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}/discussions`,{
+          method:'POST',body:JSON.stringify({conversationId}),
+        });
+        S.projectDetail=fresh;closeModal();render();
+        toast(T('Обсуждение связано с проектом','Discussion linked to project'));
+      }catch(error){
+        button.disabled=false;
+        toast(ERROR_MESSAGE[error.code]||error.message);
+      }
+    };
+  });
+}
+
+async function executeProjectTaskTransition(task,to,reason){
+  try{
+    const{task:updated}=await api(`/api/v1/tasks/${task.id}/transitions`,{method:'POST',body:JSON.stringify({to,reason,expectedVersion:task.version})});
+    upsertTask(updated);
+    if(S.projectSelected){
+      const{project}=await api(`/api/v1/projects/${S.projectSelected}`);
+      S.projectDetail=project;
+    }
+    toast(TASK_STATUS[updated.status]||T('Задача обновлена','Task updated'));
+    render();
+  }catch(error){
+    toast(error.message);
+    if(error.code==='STALE_TASK_ACTION'&&S.projectSelected){
+      const current=await api(`/api/v1/projects/${S.projectSelected}`).catch(()=>null);
+      if(current?.project)S.projectDetail=current.project;
+      render();
+    }
+  }
+}
+function projectTaskTransition(task,to){
+  if(taskReasonRequired(task,to)){
+    modal(taskActionLabel(task,to),`<form id="project-task-transition-form" class="form-stack"><p class="muted">${T('Причина будет сохранена в истории канонической задачи.','The reason will be stored in the canonical task history.')}</p><label>${T('Причина','Reason')}<textarea name="reason" rows="4" required></textarea></label><button class="button primary">${esc(taskActionLabel(task,to))}</button></form>`,()=>{
+      $('#project-task-transition-form').onsubmit=async event=>{event.preventDefault();const reason=new FormData(event.currentTarget).get('reason');closeModal();await executeProjectTaskTransition(task,to,reason)};
+    });
+    return;
+  }
+  executeProjectTaskTransition(task,to,null);
+}
+
+function projectTaskModal(){
+  const project=S.projectDetail;
+  if(!project)return;
+  const admitted=new Set((project.members||[]).map(m=>m.userId));
+  const staff=colleagues().filter(p=>admitted.has(p.userId));
+  modal(T('Задача проекта','Project task'),`<form id="project-task-form" class="form-stack">
+    <label>${T('Задача','Task')}<input name="title" maxlength="200" required></label>
+    <label>${T('Результат','Outcome')}<textarea name="outcome" maxlength="2000"></textarea></label>
+    <div class="quiet-row"><label>${T('Ответственный','Owner')}<select name="ownerId">${staff.map(p=>`<option value="${esc(p.userId)}">${esc(p.displayName||p.email)}</option>`).join('')}</select></label><label>${T('Принимает результат','Acceptor')}<select name="acceptorId">${staff.map(p=>`<option value="${esc(p.userId)}">${esc(p.displayName||p.email)}</option>`).join('')}</select></label></div>
+    <div class="quiet-row"><label>${T('Срок','Due')}<input name="promisedAt" type="datetime-local"></label><label>${T('Приоритет','Priority')}<select name="priority"><option value="normal">${T('Обычный','Normal')}</option><option value="high">${T('Высокий','High')}</option><option value="urgent">${T('Срочный','Urgent')}</option></select></label></div>
+    <button class="button primary" type="submit">${T('Создать задачу','Create task')}</button>
+  </form>`,()=>{
+    $('#project-task-form').onsubmit=async event=>{
+      event.preventDefault();
+      const body=Object.fromEntries(new FormData(event.currentTarget));
+      if(body.promisedAt)body.promisedAt=new Date(body.promisedAt).toISOString();else delete body.promisedAt;
+      if(!body.outcome)delete body.outcome;
+      try{
+        await api(`/api/v1/projects/${project.id}/tasks`,{method:'POST',body:JSON.stringify(body)});
+        closeModal();
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}`);S.projectDetail=fresh;render();toast(T('Задача добавлена в проект','Task added to project'));
+      }catch(error){toast(error.message)}
+    };
+  });
+}
+function projectMilestoneModal(){
+  const project=S.projectDetail;
+  if(!project)return;
+  modal(T('Новая веха','New milestone'),`<form id="project-milestone-form" class="form-stack">
+    <label>${T('Название','Title')}<input name="title" maxlength="200" required></label>
+    <label>${T('Описание','Description')}<textarea name="description" maxlength="2000"></textarea></label>
+    <label>${T('Дата и время','Date and time')}<input name="targetAt" type="datetime-local" required></label>
+    <button class="button primary" type="submit">${T('Добавить веху','Add milestone')}</button>
+  </form>`,()=>{
+    $('#project-milestone-form').onsubmit=async event=>{
+      event.preventDefault();
+      const body=Object.fromEntries(new FormData(event.currentTarget));body.targetAt=new Date(body.targetAt).toISOString();if(!body.description)delete body.description;
+      try{await api(`/api/v1/projects/${project.id}/milestones`,{method:'POST',body:JSON.stringify(body)});closeModal();const{project:fresh}=await api(`/api/v1/projects/${project.id}`);S.projectDetail=fresh;render();toast(T('Веха добавлена','Milestone added'))}catch(error){toast(error.message)}
+    };
+  });
+}
+async function projectFileModal(){
+  const project=S.projectDetail;
+  if(!project||!project.canContribute)return;
+  let accessible=[];
+  try{accessible=(await api('/api/v1/files?limit=100')).items||[]}
+  catch(error){toast(error.message);return}
+  const linked=new Set((project.files||[]).map(file=>file.id));
+  const candidates=accessible.filter(file=>!linked.has(file.id));
+  modal(T('Добавить файл в проект','Add file to project'),`<form id="project-file-form" class="form-stack">
+    <p class="muted">${T(
+      'Можно связать уже доступный файл или загрузить новый. Сам файл останется каноническим в разделе «Файлы».',
+      'Link a file you can already access, or upload a new one. The canonical file remains in Files.'
+    )}</p>
+    <label>${T('Уже есть в файлах','Existing file')}
+      <select name="fileId">
+        <option value="">${T('Не выбрано','None selected')}</option>
+        ${candidates.map(file=>`<option value="${esc(file.id)}">${esc(file.name)} · ${esc(fileSize(Number(file.sizeBytes||0)))}</option>`).join('')}
+      </select>
+    </label>
+    <div class="muted" style="text-align:center">${T('или','or')}</div>
+    <label>${T('Загрузить новый','Upload new')}
+      <input name="upload" type="file">
+    </label>
+    <button class="button primary" type="submit">${T('Добавить в проект','Add to project')}</button>
+  </form>`,()=>{
+    $('#project-file-form').onsubmit=async event=>{
+      event.preventDefault();
+      const form=event.currentTarget;
+      const button=form.querySelector('button[type="submit"]');
+      const data=new FormData(form);
+      let fileId=String(data.get('fileId')||'');
+      const upload=form.querySelector('[name="upload"]')?.files?.[0]||null;
+      if(!fileId&&!upload)return toast(T('Выберите файл или загрузите новый','Choose a file or upload a new one'));
+      button.disabled=true;
+      try{
+        if(upload){
+          const response=await fetch('/api/v1/files',{
+            method:'POST',
+            credentials:'same-origin',
+            headers:{
+              'content-type':upload.type||'application/octet-stream',
+              'x-file-name':encodeURIComponent(upload.name),
+            },
+            body:upload,
+          });
+          const payload=await response.json().catch(()=>null);
+          if(!response.ok){
+            const code=payload?.error?.code;
+            const error=new Error(ERROR_MESSAGE[code]||payload?.error?.message||T('Не удалось загрузить файл','File upload failed'));
+            error.code=code;throw error;
+          }
+          fileId=payload.file.id;
+        }
+        const{project:fresh}=await api(`/api/v1/projects/${project.id}/files`,{
+          method:'POST',body:JSON.stringify({fileId}),
+        });
+        S.projectDetail=fresh;
+        closeModal();render();
+        toast(T('Файл добавлен в проект','File added to project'));
+      }catch(error){
+        button.disabled=false;
+        toast(ERROR_MESSAGE[error.code]||error.message);
+      }
+    };
+  });
+}
+
+function projectMemberModal(){
+  const project=S.projectDetail;
+  if(!project)return;
+  const existing=new Set((project.members||[]).map(m=>m.userId));
+  const staff=colleagues().filter(p=>!existing.has(p.userId));
+  if(!staff.length)return toast(T('Все сотрудники уже в проекте','All staff are already in the project'));
+  modal(T('Добавить в проект','Add to project'),`<form id="project-member-form" class="form-stack">
+    <label>${T('Сотрудник','Person')}<select name="userId">${staff.map(p=>`<option value="${esc(p.userId)}">${esc(p.displayName||p.email)}</option>`).join('')}</select></label>
+    <label>${T('Роль','Role')}<select name="role"><option value="member">${T('Участник','Member')}</option><option value="lead">${T('Лид','Lead')}</option><option value="observer">${T('Наблюдатель','Observer')}</option></select></label>
+    <button class="button primary" type="submit">${T('Добавить','Add')}</button>
+  </form>`,()=>{
+    $('#project-member-form').onsubmit=async event=>{
+      event.preventDefault();const body=Object.fromEntries(new FormData(event.currentTarget));
+      try{const{project:fresh}=await api(`/api/v1/projects/${project.id}/members`,{method:'POST',body:JSON.stringify(body)});closeModal();S.projectDetail=fresh;render();toast(T('Участник добавлен','Member added'))}catch(error){toast(error.message)}
+    };
+  });
+}
+
+function projectCreateModal(){
+  modal(T('Новый проект','New project'),`<form id="project-form" class="form-stack">
+    <label>${T('Название','Name')}<input name="name" maxlength="160" required></label>
+    <label>${T('Цель','Goal')}<textarea name="goal" maxlength="4000"></textarea></label>
+    <div class="quiet-row"><label>${T('Старт','Start')}<input name="startAt" type="date"></label><label>${T('Целевая дата','Target date')}<input name="targetAt" type="date"></label></div>
+    <button class="button primary" type="submit">${T('Создать проект','Create project')}</button>
+  </form>`,()=>{$('#project-form').onsubmit=async event=>{event.preventDefault();const d=Object.fromEntries(new FormData(event.target));try{const{project}=await api('/api/v1/projects',{method:'POST',body:JSON.stringify(d)});closeModal();await loadProjects();await openProject(project.id)}catch(error){toast(error.message)}}});
+}
+function projects(){
+  const p=S.projectDetail&&S.projectSelected===S.projectDetail.id?S.projectDetail:null;
+  if(!p)return `<div class="stack"><section class="surface"><div class="section-head"><div><h2>${T('Проекты','Projects')}</h2><p class="muted">${T('Цель, ответственность, сроки и доказуемое исполнение в одном контексте','Goal, accountability, timing and verifiable execution in one context')}</p></div>${can('project.create')?`<button class="button primary small pressable" data-project-new>＋ ${T('Проект','Project')}</button>`:''}</div></section>${S.projects.length?S.projects.map(projectCard).join(''):`<div class="empty"><strong>${T('Проектов пока нет','No projects yet')}</strong>${T('Создайте первый рабочий контекст','Create the first work context')}</div>`}</div>`;
+  return `<div class="stack project-home">
+    <section class="surface project-hero"><div class="section-head"><div><button class="text-button" data-project-back>← ${T('Все проекты','All projects')}</button><h2>${esc(p.name)}</h2><p class="muted">${esc(p.goal||T('Цель не описана','No goal set'))}</p></div><div class="inline-actions"><span class="chip">${esc(p.status)}</span>${p.canContribute?`<button class="button secondary small" data-project-task-new>＋ ${T('Задача','Task')}</button><button class="button secondary small" data-project-milestone-new>＋ ${T('Веха','Milestone')}</button>`:''}${p.canManage?`<button class="button secondary small" data-project-member-new>＋ ${T('Участник','Member')}</button>`:''}</div></div></section>
+    <div class="project-operating-grid">${projectProgress(p)}${projectWorkload(p)}</div>
+    ${projectRisk(p)}
+    ${projectBoard(p)}
+    ${projectFiles(p)}
+    ${projectDiscussions(p)}
+    ${projectDecisions(p)}
+    <div class="page-grid project-grid"><section class="surface"><div class="section-head"><h3>${T('Вехи','Milestones')}</h3></div>${(p.milestones||[]).map(m=>`<div class="row"><span>◆</span><span><div class="row-title">${esc(m.title)}</div><div class="row-sub">${esc(dateTime(m.targetAt))}</div></span></div>`).join('')||`<div class="empty">${T('Вех пока нет','No milestones yet')}</div>`}</section><section class="surface"><div class="section-head"><h3>${T('Команда','Team')}</h3></div>${(p.members||[]).map(m=>`<div class="row"><span>${personAvatar(m.userId,m.displayName)}</span><span><div class="row-title">${esc(m.displayName)}</div><div class="row-sub">${esc(m.role)}</div></span></div>`).join('')}</section></div>
+  </div>`;
+}
+
 async function refreshFeatures(announce){
   try{
     const{items}=await api('/api/v1/features');
@@ -1511,10 +2077,48 @@ async function featuresModal(){
     modal(T('Функции компании','Company features'),`<p class="muted">${canManage?T('Отключите то, что компании не нужно. Связанные функции отключаются вместе — перед этим вы увидите, какие именно.','Turn off what the company does not need. Dependent features go with it — you will see which before confirming.'):T('Набор функций выбирает администратор компании.','The company administrator chooses the feature set.')}</p><div id="features-list"></div>`,()=>renderFeaturesList(items));
   }catch(error){toast(error.message)}
 }
-function more(){const staff=me().role!=='guest';return `<div class="module-grid"><button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} ${pluralIn(S.people.length,['сотрудник','сотрудника','сотрудников'],['employee','employees'])}<span>, роли и статусы</span></span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.settings')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>${can('organization.manage')?'Название, реквизиты, места и передача владения':'Реквизиты, места и почтовый домен'}</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="apikeys"><span class="module-icon">${tileIcon.apikeys}</span><strong>API-ключи</strong><span>Личный доступ к API от вашего имени</span></button>`:''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button>${can('knowledge.read')?`<button class="module-card pressable" data-action="knowledge"><span class="module-icon">${tileIcon.knowledge}</span><strong>База знаний</strong><span>HR-бот отвечает по статьям компании</span></button>`:''}${can('wiki.use')?`<button class="module-card pressable" data-action="wiki"><span class="module-icon">${tileIcon.wiki}</span><strong>Вики</strong><span>Совместные страницы, которые пишет любой сотрудник</span></button>`:''}${staff?`<button class="module-card pressable" data-action="time-report"><span class="module-icon">${tileIcon.timeReport}</span><strong>Отчёт по времени</strong><span>${can('task.manage.team')?'Ваши часы и часы команды по задачам':'Ваши часы по задачам'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="dashboard"><span class="module-icon">${tileIcon.dashboard}</span><strong>Дашборд</strong><span>Тренд по задачам и учтённому времени</span></button>`:''}<button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}${staff?`<button class="module-card pressable" data-action="requests"><span class="module-icon">${tileIcon.plan}</span><strong>Заявки</strong><span>Отпуск, покупка, доступ — с согласованием</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Уведомления, упоминания и сроки</span></button>${staff?`<button class="module-card pressable" data-action="features"><span class="module-icon">${tileIcon.settings}</span><strong>Функции компании</strong><span>Что включено, что от чего зависит</span></button>`:''}<button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
+async function investorTourModal(){
+  if(guestShell())return;
+  try{
+    const module=await import('./investor-tour.js');
+    await module.openInvestorTour({api,modal,esc,T,session:me(),
+      conversations:S.conversations,tasks:S.tasks,can});
+  }catch(error){toast(error.message)}
+}
+function more(){const staff=me().role!=='guest';return `<div class="module-grid">${staff?`<button class="module-card pressable" data-action="investor-tour"><span class="module-icon">${tileIcon.dashboard}</span><strong>${T('Инвестиционный маршрут','Investor walkthrough')}</strong><span>${T('Настоящие сценарии, метрики и модель экономики','Verified workflows, metrics and scenario economics')}</span></button>`:''}${staff&&feat('projects')&&!S.projectsUnavailable?`<button class="module-card pressable" data-action="projects"><span class="module-icon">${navIcon.projects}</span><strong>${T('Проекты','Projects')}</strong><span>${T('Цели, вехи, команда и исполнение','Goals, milestones, team and execution')}</span></button>`:''}<button class="module-card pressable" data-action="saved"><span class="module-icon">${tileIcon.saved}</span><strong>Избранное</strong><span>Беседы, сообщения, задачи, выделения и заметки</span></button><button class="module-card pressable" data-action="archived"><span class="module-icon">${tileIcon.archive}</span><strong>Архив чатов</strong><span>Скрытые только для вас разговоры</span></button>${staff?`<button class="module-card pressable" data-action="team"><span class="module-icon">${tileIcon.team}</span><strong>Команда</strong><span>${S.people.length} ${pluralIn(S.people.length,['сотрудник','сотрудника','сотрудников'],['employee','employees'])}<span>, роли и статусы</span></span></button>`:''}${staff?`<button class="module-card pressable" data-action="org"><span class="module-icon">${tileIcon.org}</span><strong>Оргструктура</strong><span>Департаменты, отделы, штат и руководители</span></button>`:''}<button class="module-card pressable" data-action="presence"><span class="module-icon">${tileIcon.presence}</span><strong>Мой статус</strong><span>В сети, занят, не беспокоить</span></button>${can('organization.settings')?`<button class="module-card pressable" data-action="company"><span class="module-icon">${tileIcon.org}</span><strong>Компания</strong><span>${can('organization.manage')?'Название, реквизиты, места и передача владения':'Реквизиты, места и почтовый домен'}</span></button>`:''}${can('audit.read')?`<button class="module-card pressable" data-action="journal"><span class="module-icon">${tileIcon.journal}</span><strong>Журнал</strong><span>Кого пригласили, кто вошёл, кто раскрыл пароль</span></button>`:''}${can('integration.manage')?'<button class="module-card pressable" data-action="integrations"><span class="module-icon">⇄</span><strong>Интеграции</strong><span>Подписки на события и журнал доставок</span></button>':''}${staff?`<button class="module-card pressable" data-action="apikeys"><span class="module-icon">${tileIcon.apikeys}</span><strong>API-ключи</strong><span>Личный доступ к API от вашего имени</span></button>`:''}<button class="module-card pressable" data-action="catalogue"><span class="module-icon">${roomIcon.channel}</span><strong>Каналы компании</strong><span>Каталог: зачем нужен каждый и где сейчас живо</span></button>${can('knowledge.read')?`<button class="module-card pressable" data-action="knowledge"><span class="module-icon">${tileIcon.knowledge}</span><strong>База знаний</strong><span>HR-бот отвечает по статьям компании</span></button>`:''}${can('wiki.use')?`<button class="module-card pressable" data-action="wiki"><span class="module-icon">${tileIcon.wiki}</span><strong>Вики</strong><span>Совместные страницы, которые пишет любой сотрудник</span></button>`:''}${staff?`<button class="module-card pressable" data-action="time-report"><span class="module-icon">${tileIcon.timeReport}</span><strong>Отчёт по времени</strong><span>${can('task.manage.team')?'Ваши часы и часы команды по задачам':'Ваши часы по задачам'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="dashboard"><span class="module-icon">${tileIcon.dashboard}</span><strong>Дашборд</strong><span>Тренд по задачам и учтённому времени</span></button>`:''}<button class="module-card pressable" data-action="digest"><span class="module-icon">${tileIcon.digest}</span><strong>Что я пропустил</strong><span>Упоминания, сроки и решения, принятые без вас</span></button>${tasksVisible()?`<button class="module-card pressable" data-action="report"><span class="module-icon">${tileIcon.report}</span><strong>Отчёт по обязательствам</strong><span>${can('task.manage.team')?'Кто держит слово, на ком перегруз и что застряло':'Ваши сроки, просрочки и что застряло'}</span></button>`:''}${can('meeting.cost.read')||can('meeting.ops.manage')?`<button class="module-card pressable" data-action="meeting-ops"><span class="module-icon">${tileIcon.costs}</span><strong>${can('meeting.cost.read')?'Расходы на встречи':'Обработка встреч'}</strong><span>${can('meeting.cost.read')?'Стоимость расшифровок, тарифы и вызовы провайдера':'Очередь расшифровок и повторные запуски'}</span></button>`:''}${staff?`<button class="module-card pressable" data-action="games"><span class="module-icon">${tileIcon.games}</span><strong>Игры</strong><span>Шахматы, шашки и морской бой с коллегами</span></button>`:''}<button class="module-card pressable" data-action="contacts"><span class="module-icon">${tileIcon.contacts}</span><strong>Контакты</strong><span>Кто вам пишет и кто с вами в подразделении</span></button>${can('vault.use')?`<button class="module-card pressable" data-action="vault"><span class="module-icon">${tileIcon.vault}</span><strong>Пароли</strong><span>Зашифрованное личное хранилище</span></button>`:''}<button class="module-card pressable" data-action="reminders"><span class="module-icon">${tileIcon.reminders}</span><strong>Напоминания</strong><span>Придут в назначенный час</span></button><button class="module-card pressable" data-action="plan"><span class="module-icon">${tileIcon.plan}</span><strong>Личные дела</strong><span>Список, заметки, приоритеты и сроки</span></button><button class="module-card pressable" data-action="labels"><span class="module-icon">${tileIcon.labels}</span><strong>Метки</strong><span>Важность, теги и папки для всего</span></button>${can('member.invite')?`<button class="module-card pressable" data-action="invite"><span class="module-icon">${tileIcon.invite}</span><strong>Пригласить</strong><span>Добавить сотрудника</span></button>`:''}${staff?`<button class="module-card pressable" data-action="requests"><span class="module-icon">${tileIcon.plan}</span><strong>Заявки</strong><span>Отпуск, покупка, доступ — с согласованием</span></button>`:''}<button class="module-card pressable" data-action="files"><span class="module-icon">${tileIcon.files}</span><strong>Файлы</strong><span>Вложения из рабочих контекстов</span></button><button class="module-card pressable" data-action="calls"><span class="module-icon">${tileIcon.calls}</span><strong>Звонки</strong><span>Аудио, видео и демонстрация экрана</span></button>${staff?`<button class="module-card pressable" data-action="decisions"><span class="module-icon">${tileIcon.meetings}</span><strong>Решения</strong><span>Что решили на встречах — одним списком</span></button>`:''}${staff?`<button class="module-card pressable" data-action="stories"><span class="module-icon">◉</span><strong>Сторис</strong><span>Как выглядит работа сегодня — и архив снятого</span></button>`:''}<button class="module-card pressable" data-action="push"><span class="module-icon">${tileIcon.notifications}</span><strong>Уведомления</strong><span>Уведомления, упоминания и сроки</span></button>${staff?`<button class="module-card pressable" data-action="features"><span class="module-icon">${tileIcon.settings}</span><strong>Функции компании</strong><span>Что включено, что от чего зависит</span></button>`:'' }<button class="module-card pressable" data-action="settings"><span class="module-icon">${tileIcon.settings}</span><strong>Настройки</strong><span>Пароль, входы и уведомления</span></button></div>`}
 function bind(){
   // Строка встречи в расписании дня выглядела нажимаемой и не открывала
   // ничего: карточку встречи знал только календарь.
+  $$('[data-project-open]').forEach(b=>b.onclick=()=>openProject(b.dataset.projectOpen));
+  $$('[data-project-new]').forEach(b=>b.onclick=projectCreateModal);
+  $$('[data-project-task-new]').forEach(b=>b.onclick=projectTaskModal);
+  $$('[data-project-milestone-new]').forEach(b=>b.onclick=projectMilestoneModal);
+  $$('[data-project-member-new]').forEach(b=>b.onclick=projectMemberModal);
+  $$('[data-project-discussion-new]').forEach(b=>b.onclick=projectDiscussionModal);
+  $$('[data-project-discussion-open]').forEach(b=>b.onclick=()=>projectDiscussionOpen(b.dataset.projectDiscussionOpen));
+  $$('[data-project-decision-new]').forEach(b=>b.onclick=projectDecisionModal);
+  $$('[data-project-decision-remove]').forEach(b=>b.onclick=()=>confirmTap(b,async()=>{
+    const project=S.projectDetail;if(!project)return;
+    try{
+      const{project:fresh}=await api(`/api/v1/projects/${project.id}/decisions/${b.dataset.projectDecisionRemove}`,{method:'DELETE'});
+      S.projectDetail=fresh;render();toast(T('Решение убрано из проекта','Decision unlinked from project'));
+    }catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}
+  },T('Убрать?','Unlink?')));
+  $$('[data-project-discussion-remove]').forEach(b=>b.onclick=async()=>{
+    const project=S.projectDetail;if(!project)return;
+    try{
+      const{project:fresh}=await api(`/api/v1/projects/${project.id}/discussions/${b.dataset.projectDiscussionRemove}`,{method:'DELETE'});
+      S.projectDetail=fresh;render();toast(T('Обсуждение убрано из проекта','Discussion unlinked from project'));
+    }catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}
+  });
+  $$('[data-project-file-new]').forEach(b=>b.onclick=projectFileModal);
+  $$('[data-project-file-remove]').forEach(b=>b.onclick=()=>confirmTap(b,async()=>{const project=S.projectDetail;if(!project)return;try{const{project:fresh}=await api(`/api/v1/projects/${project.id}/files/${b.dataset.projectFileRemove}`,{method:'DELETE'});S.projectDetail=fresh;render();toast(T('Файл убран из проекта','File unlinked from project'))}catch(error){toast(ERROR_MESSAGE[error.code]||error.message)}},T('Убрать?','Unlink?')));
+  $$('[data-project-back]').forEach(b=>b.onclick=()=>{S.projectSelected=null;S.projectDetail=null;go('projects')});
+  $$('[data-project-task-transition]').forEach(b=>b.onclick=event=>{
+    event.stopPropagation();
+    const task=(S.projectDetail?.tasks||[]).find(t=>t.id===b.dataset.projectTaskTransition);
+    if(task)projectTaskTransition(task,b.dataset.projectTaskTo);
+  });
   $$('[data-cal-event]').forEach(b=>b.onclick=()=>eventPage(b.dataset.calEvent));
   $$('[data-task-filter]').forEach(b=>b.onclick=async()=>{
     S.taskFilter=b.dataset.taskFilter;S.tasksCursor=null;
@@ -1668,7 +2272,7 @@ function go(v,{silent=false}={}){
   if(VIEW_FEATURE[v]&&!feat(VIEW_FEATURE[v]))v='today';
   // Адресом можно попасть куда угодно, в том числе на скрытый от гостя
   // раздел: тогда он увидел бы вечно пустой экран без объяснений.
-  if(guestShell()&&GUEST_HIDDEN_VIEWS.has(v)){v='today';silent=false}
+  if(guestShell()&&(GUEST_HIDDEN_VIEWS.has(v)||v==='projects')){v='today';silent=false}
   S.view=v;
   // Раздел записывается в адрес: перезагрузка возвращает туда, где человек
   // был, а ссылкой можно поделиться. `silent` — когда мы сюда и пришли по
@@ -1682,6 +2286,8 @@ function go(v,{silent=false}={}){
   // заводил задачу, шёл в «Задачи» — и видел «здесь пусто»: список был
   // тот же, что при входе. Входя на экран, перечитываем его.
   if(v==='tasks')loadTaskPage().then(()=>render());
+  if(v==='calendar')loadCalendarRange().then(()=>render());
+  if(v==='projects'){S.projectSelected=null;S.projectDetail=null;loadProjects().then(()=>render())}
   if(v!=='chats')S.mobileChat=false;
   // A screen opened after scrolling another one started halfway down it: the
   // conversation header, the calendar toolbar and the day's greeting were all
@@ -1787,7 +2393,7 @@ async function openChatAtMessage(id,messageId=null){
     row.classList.remove('flash');void row.offsetWidth;row.classList.add('flash');
   },60);
 }
-const actions={quick:quick,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{if(S.chatPushed){S.chatPushed=false;history.back();return}S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),knowledge:()=>knowledgeModal(),wiki:()=>wikiModal(),'calendar-subscribe':()=>calendarSubscribeModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,apikeys:()=>apiKeysModal(),'time-report':()=>timeReportModal(),dashboard:()=>dashboardModal(),'assistant-summarize':()=>assistantSummarizeModal(),'assistant-suggest':()=>assistantSuggestModal(),journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,features:()=>featuresModal(),requests:()=>window.ChatRequests?.open?.()??toast('Экран заявок не загрузился — обновите страницу.'),decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
+const actions={'investor-tour':()=>investorTourModal(),quick:quick,projects:()=>go('projects'),'project-new':projectCreateModal,task:()=>taskModal(),event:eventModal,dm:directModal,group:groupModal,members:membersModal,pins:pinsModal,mute:toggleMute,archive:archiveCurrent,saved:()=>favouritesModal(),archived:archivedModal,'new-direct':directModal,'new-channel':channelModal,back:()=>{if(S.chatPushed){S.chatPushed=false;history.back();return}S.mobileChat=false;render()},send,attach:()=>$('#file-picker').click(),voice:voice,'cancel-reply':()=>{S.reply=null;render()},invite:inviteModal,team:teamModal,org:orgModal,conversation:conversationModal,plan:()=>planModal(),reminders:()=>remindersModal(),vault:()=>vaultModal(),knowledge:()=>knowledgeModal(),wiki:()=>wikiModal(),'calendar-subscribe':()=>calendarSubscribeModal(),labels:labelsModal,contacts:contactsModal,games:()=>gamesModal(),presence:presenceModal,integrations:integrationsModal,apikeys:()=>apiKeysModal(),'time-report':()=>timeReportModal(),dashboard:()=>dashboardModal(),'assistant-summarize':()=>assistantSummarizeModal(),'assistant-suggest':()=>assistantSuggestModal(),journal:()=>journalModal(),report:()=>reportModal(),digest:()=>digestModal(),catalogue:()=>catalogueModal(),company:()=>companyModal(),'meeting-ops':()=>window.ChatMeetingOperations?.open?.(can('meeting.cost.read')?'costs':'jobs')??toast('Контроль встреч недоступен.'),'room-games':()=>gamesModal(S.selected),'favour-room':()=>S.selected&&toggleFavourite('conversation',S.selected),search:()=>window.ChatDailyWork?.openSearch?.(),profile:()=>personPage(me().userId),settings:()=>profileModal(),push:()=>window.ChatDailyWork?.openNotifications?.()??toast('Центр уведомлений недоступен.'),files:()=>window.ChatDailyWork?.openFiles?.()??toast('Экран файлов не загрузился — обновите страницу.'),calls:callsModal,features:()=>featuresModal(),requests:()=>window.ChatRequests?.open?.()??toast('Экран заявок не загрузился — обновите страницу.'),decisions:()=>decisionsModal(),stories:()=>storiesModal(),materials:()=>materialsModal(),import:()=>importModal(),audio:()=>window.ChatCalls?.startOutgoing?.('audio'),video:()=>window.ChatCalls?.startOutgoing?.('video')};
 
 /**
  * Роль по-русски.
@@ -2447,6 +3053,11 @@ function knowledgeFormModal(article,after){
  * по проекту обычно ближе тому, кто их и заводит. `pageId=null` —
  * страницы верхнего уровня; иначе — сама страница и её подстраницы.
  */
+// Wiki headline markers are PostgreSQL-generated <b> tags, but the snippet
+// also contains untrusted page text. Escape first, then allow only static marks.
+function wikiSearchSnippet(value){
+  return esc(String(value??'')).replace(/&lt;b&gt;/gi,'<mark>').replace(/&lt;\/b&gt;/gi,'</mark>');
+}
 async function wikiModal(pageId=null){
   const build=async()=>{
     let page=null,items=[];
@@ -2460,17 +3071,90 @@ async function wikiModal(pageId=null){
     return{
       title:page?page.title:'Вики',
       body:`
-        ${page?`<div class="message-body" style="white-space:pre-wrap">${page.content?esc(page.content):'<span class="muted">Пусто. Нажмите «Изменить», чтобы написать текст.</span>'}</div>
-        <div class="chip-row" style="margin-top:10px"><button data-wiki-edit class="chipbtn pressable">Изменить</button><button data-wiki-history class="chipbtn pressable">История</button><button data-wiki-archive class="chipbtn pressable">Архивировать</button></div>`
+        ${page?`<div class="wiki-rich-content wiki-document-view" data-wiki-view></div>
+        <div class="chip-row" style="margin-top:10px"><button data-wiki-edit class="chipbtn pressable">Изменить</button><button data-wiki-history class="chipbtn pressable">История</button><button data-wiki-archive class="chipbtn pressable">Архивировать</button></div>
+        <div class="surface" style="margin-top:14px;padding:12px">
+          <div class="section-head"><div><strong>${T('Связанные проекты','Related projects')}</strong><div class="row-sub">${T('Связь не меняет доступ к проекту.','The relation does not change project access.')}</div></div><button data-wiki-project-new class="chipbtn pressable">＋ ${T('Проект','Project')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.projects||[]).length?(page.projects||[]).map(project=>`<div class="row" data-wiki-project-row="${esc(project.id)}"><button class="text-button" data-wiki-project-open="${esc(project.id)}">${esc(project.name)}</button><button class="text-button" data-wiki-project-remove="${esc(project.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет связанных доступных проектов','No visible related projects')}</span>`}</div>
+        </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-task-section>
+          <div class="section-head"><div><strong>${T('Связанные задачи','Related tasks')}</strong><div class="row-sub">${T('Задача остаётся в Task Authority. Доступ по ссылке не расширяется.','Task Authority remains the source of truth. Linking does not grant access.')}</div></div><button data-wiki-task-new class="chipbtn pressable">＋ ${T('Задача','Task')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.tasks||[]).length?(page.tasks||[]).map(task=>`<div class="row" data-wiki-task-row="${esc(task.id)}"><button type="button" class="text-button" data-wiki-task-open="${esc(task.id)}">${esc(task.title)} · ${esc(task.status)}</button><button type="button" class="text-button" data-wiki-task-remove="${esc(task.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет связанных доступных задач','No visible related tasks')}</span>`}</div>
+        </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-channel-section>
+          <div class="section-head"><div><strong>${T('Связанные каналы','Related channels')}</strong><div class="row-sub">${T('Связь не открывает приватный канал другим людям.','The relation does not grant access to private channels.')}</div></div><button data-wiki-channel-new class="chipbtn pressable">＋ ${T('Канал','Channel')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.channels||[]).length?(page.channels||[]).map(channel=>`<div class="row" data-wiki-channel-row="${esc(channel.id)}"><button type="button" class="text-button" data-wiki-channel-open="${esc(channel.id)}">${esc(channel.title||T('Без названия','Untitled'))}</button><button type="button" class="text-button" data-wiki-channel-remove="${esc(channel.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных связанных каналов','No visible related channels')}</span>`}</div>
+        </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-decision-section>
+          <div class="section-head"><div><strong>${T('Принятые решения','Accepted decisions')}</strong><div class="row-sub">${T('Только решения из встреч, к которым у вас есть доступ.','Only decisions from meetings you can access.')}</div></div><button type="button" data-wiki-decision-new class="chipbtn pressable">＋ ${T('Решение','Decision')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.decisions||[]).length?(page.decisions||[]).map(decision=>`<div class="row" data-wiki-decision-row="${esc(decision.id)}"><button type="button" class="text-button" data-wiki-decision-open="${esc(decision.id)}">${esc(decision.title)} · ${esc(dateTime(decision.acceptedAt))}</button><button type="button" class="text-button" data-wiki-decision-remove="${esc(decision.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных принятых решений','No visible accepted decisions')}</span>`}</div>
+        </div>`
         :`<form id="wiki-search-form" class="form-stack"><label>Поиск по вики<input name="q" placeholder="Например: отпуск"></label></form><div id="wiki-search-results"></div>`}
         <p class="muted" style="margin-top:16px">${page?'Подстраницы':'Страницы'}</p>
         <div class="stack">${items.length?rows:'<div class="empty"><strong>Пока пусто</strong>Создайте первую страницу.</div>'}</div>
         <button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?'Новая подстраница':'Новая страница'}</span></button>`,
       after:()=>{
+        if(page){import('./wiki-document-view.js').then(m=>m.renderPageDocument($('[data-wiki-view]'),page.document??m.textPageDocument(page.content??''))).catch(error=>toast(error.message));}
         $$('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
         $('[data-wiki-new]')?.addEventListener('click',()=>wikiPageFormModal(null,pageId,refresh));
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
+        $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
+        $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
+        $('[data-wiki-channel-new]')?.addEventListener('click',()=>wikiChannelLinkModal(page,refresh));
+        $('[data-wiki-decision-new]')?.addEventListener('click',()=>wikiDecisionLinkModal(page,refresh));
+        $$('[data-wiki-decision-open]').forEach(button=>button.onclick=()=>{
+          overlayStack.length=0;renderOverlay();decisionDetailModal(button.dataset.wikiDecisionOpen);
+        });
+        $$('[data-wiki-decision-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/decisions/${button.dataset.wikiDecisionRemove}`,{method:'DELETE'});
+            toast(T('Решение убрано со страницы','Decision unlinked from Page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
+        $$('[data-wiki-channel-open]').forEach(button=>button.onclick=async()=>{
+          const id=button.dataset.wikiChannelOpen;
+          try{
+            // The user may have received a Page link after their chat list last loaded.
+            // Re-check canonical membership and refresh local navigation state.
+            const result=await api('/api/v1/conversations');
+            S.conversations=result.items||[];
+            // Canonical sheet-to-chat navigation updates both route and state.
+            // Avoid clearing the overlay stack and calling a second route
+            // handler that races against the pending browser history entries.
+            openChatFromSheet(id);
+          }catch(error){toast(error.message)}
+        });
+        $$('[data-wiki-channel-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/channels/${button.dataset.wikiChannelRemove}`,{method:'DELETE'});
+            toast(T('Канал убран со страницы','Channel unlinked from page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
+        $$('[data-wiki-task-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiTaskOpen;
+          overlayStack.length=0;renderOverlay();openTask(id);
+        });
+        $$('[data-wiki-task-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/tasks/${button.dataset.wikiTaskRemove}`,{method:'DELETE'});
+            toast(T('Задача убрана со страницы','Task unlinked from page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
+        $$('[data-wiki-project-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiProjectOpen;
+          overlayStack.length=0;renderOverlay();openProject(id);
+        });
+        $$('[data-wiki-project-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/projects/${button.dataset.wikiProjectRemove}`,{method:'DELETE'});
+            toast(T('Проект убран со страницы','Project unlinked from page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
         $('[data-wiki-archive]')?.addEventListener('click',()=>{
           modal('Архивировать страницу?','<p class="muted">Страница пропадёт из дерева, но останется доступна в истории.</p><button id="confirm-wiki-archive" class="button danger" style="width:100%">Архивировать</button>',()=>{
             $('#confirm-wiki-archive').onclick=async()=>{
@@ -2514,7 +3198,7 @@ async function wikiModal(pageId=null){
           try{
             const{items:found}=await api(`/api/v1/wiki/search?q=${encodeURIComponent(q)}`);
             box.innerHTML=found.length
-              ?found.map(p=>`<button class="surface pressable" style="width:100%;text-align:left;display:block;margin-top:10px" data-wiki-found="${esc(p.id)}"><strong>${esc(p.title)}</strong><p class="muted" style="margin:6px 0 0">${p.snippet}</p></button>`).join('')
+              ?found.map(p=>`<button class="surface pressable" style="width:100%;text-align:left;display:block;margin-top:10px" data-wiki-found="${esc(p.id)}"><strong>${esc(p.title)}</strong><p class="muted" style="margin:6px 0 0">${wikiSearchSnippet(p.snippet)}</p></button>`).join('')
               :'<div class="empty"><strong>Ничего не найдено</strong>Попробуйте другое слово.</div>';
             $$('[data-wiki-found]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiFound));
           }catch(error){toast(error.message)}
@@ -2523,41 +3207,347 @@ async function wikiModal(pageId=null){
     };
   };
   const refresh=async()=>{
-    const next=await build();
+    // An old async response must never overwrite a newer modal. History's
+    // popstate already calls resumeTop() after removing the child.
     const top=overlayStack[overlayStack.length-1];
-    if(top){Object.assign(top,next);renderOverlay()}
+    if(!top || top.refresh!==build)return;
+    const next=await build();
+    if(overlayStack[overlayStack.length-1]!==top)return;
+    const dialog=$('.modal');
+    Object.assign(top,next);
+    renderOverlay(dialog?{top:dialog.scrollTop}:null);
   };
   const first=await build();
   modal(first.title,first.body,first.after,build);
 }
-function wikiPageFormModal(page,parentId,after){
-  const editing=Boolean(page);
-  modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">
-    <label>Заголовок<input name="title" required maxlength="200" value="${esc(page?.title??'')}"></label>
-    <label>Текст<textarea name="content" rows="10">${esc(page?.content??'')}</textarea></label>
-    <button class="button primary">${editing?'Сохранить':'Создать'}</button>
+async function wikiProjectLinkModal(page,after){
+  let projects=[];
+  try{projects=(await api('/api/v1/projects')).items||[]}
+  catch(error){toast(error.message);return}
+  const linked=new Set((page.projects||[]).map(project=>project.id));
+  const candidates=projects.filter(project=>!linked.has(project.id));
+  if(!candidates.length)return toast(T('Нет доступного проекта для связи','There is no visible project to link'));
+  modal(T('Связать проект','Link project'),`<form id="wiki-project-form" class="form-stack">
+    <p class="muted">${T(
+      'Связь не меняет доступ к проекту. Приватный проект увидят здесь только его участники.',
+      'Linking does not change project access. A private project is shown here only to its members.'
+    )}</p>
+    <label>${T('Проект','Project')}<select name="projectId" required>
+      ${candidates.map(project=>`<option value="${esc(project.id)}">${esc(project.name)}</option>`).join('')}
+    </select></label>
+    <button class="button primary" type="submit">${T('Связать','Link')}</button>
   </form>`,()=>{
-    $('#wiki-page-form').onsubmit=async(event)=>{
+    $('#wiki-project-form').onsubmit=async event=>{
       event.preventDefault();
-      const form=new FormData(event.currentTarget);
-      const submit=event.currentTarget.querySelector('button');if(submit)submit.disabled=true;
+      const form=event.currentTarget,button=form.querySelector('button[type="submit"]');
+      const projectId=String(new FormData(form).get('projectId')||'');
+      button.disabled=true;
       try{
-        if(editing)await api(`/api/v1/wiki/pages/${page.id}`,{method:'PATCH',body:JSON.stringify({title:form.get('title'),content:form.get('content'),expectedVersion:page.version})});
-        else await api('/api/v1/wiki/pages',{method:'POST',body:JSON.stringify({title:form.get('title'),content:form.get('content'),parentId})});
-        history.back();setTimeout(()=>after?.(),250);
-        toast(editing?'Страница сохранена':'Страница создана');
-      }catch(error){
-        toast(error.code==='STALE_VERSION'?'Страницу успели изменить, пока вы её редактировали. Откройте её заново.':error.message);
-        if(submit)submit.disabled=false;
-      }
+        await api(`/api/v1/wiki/pages/${page.id}/projects`,{
+          method:'POST',body:JSON.stringify({projectId}),
+        });
+        history.back(); // popstate restores and revalidates the parent Wiki Page
+        toast(T('Проект связан со страницей','Project linked to page'));
+      }catch(error){button.disabled=false;toast(error.message)}
     };
   });
+}
+
+async function wikiDecisionLinkModal(page,after){
+  let items=[];
+  try{
+    const [response,current]=await Promise.all([
+      api('/api/v1/meetings/decisions?limit=200'),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.decisions||[]).map(item=>item.id));
+    items=(response.items||[]).filter(item=>!linked.has(item.id));
+  }catch(error){toast(error.message);return}
+  if(!items.length)return toast(T('Нет новых доступных решений','No further accepted decisions are visible'));
+  modal(T('Связать решение','Link decision'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Выберите принятое решение. Ссылка не изменит его статус и не откроет доступ другим участникам.',
+      'Select an accepted decision. The link will not change its status or grant access.'
+    )}</p>
+    <label>${T('Поиск среди решений','Filter decisions')}
+      <input data-wiki-decision-filter autocomplete="off" placeholder="${T('Название решения','Decision title')}">
+    </label>
+    <div data-wiki-decision-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const filter=$('[data-wiki-decision-filter]'),results=$('[data-wiki-decision-candidates]');
+    if(!filter||!results)return;
+    const draw=()=>{
+      const q=filter.value.trim().toLocaleLowerCase();
+      const visible=items.filter(item=>(item.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=visible.slice(0,100).map(item=>`
+        <button type="button" role="listitem" class="row flow pressable"
+          data-wiki-decision-select="${esc(item.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(item.title)}</strong><span class="row-sub">${esc(dateTime(item.acceptedAt))}</span></span>
+        </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching decisions')}</div>`;
+      $$('[data-wiki-decision-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/decisions`,{
+            method:'POST',body:JSON.stringify({decisionId:button.dataset.wikiDecisionSelect}),
+          });
+          // The modal stack's popstate handler restores the parent via
+          // resumeTop(). Do not enqueue a second refresh that could overwrite
+          // a different sheet opened immediately after returning.
+          history.back();
+          toast(T('Решение связано со страницей','Decision linked to Page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    filter.addEventListener('input',draw);
+    draw();
+  });
+}
+
+async function wikiChannelLinkModal(page,after){
+  let visible=[];
+  try{
+    // Re-read the canonical Page before filtering. The modal's page argument
+    // can predate a just-completed unlink; stale closures must not hide channels.
+    const [response,current]=await Promise.all([
+      api('/api/v1/conversations'),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.channels||[]).map(channel=>channel.id));
+    visible=(response.items||[]).filter(channel=>channel.kind==='channel'&&!linked.has(channel.id));
+  }catch(error){toast(error.message);return}
+  if(!visible.length)return toast(T('Нет доступного канала для связи','There are no visible channels to link'));
+  modal(T('Связать канал','Link channel'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Показываются только доступные вам каналы. Личные переписки не связываются со страницами.',
+      'Only channels already accessible to you are shown. Private direct messages cannot be linked.'
+    )}</p>
+    <label>${T('Поиск каналов','Filter channels')}
+      <input data-wiki-channel-filter autocomplete="off" placeholder="${T('Название канала','Channel name')}">
+    </label>
+    <div data-wiki-channel-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const input=$('[data-wiki-channel-filter]'),results=$('[data-wiki-channel-candidates]');
+    if(!input||!results)return;
+    const draw=()=>{
+      const q=input.value.trim().toLocaleLowerCase();
+      const candidates=visible.filter(channel=>(channel.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=candidates.length?candidates.slice(0,50).map(channel=>`
+        <button class="row flow pressable" type="button" role="listitem"
+          data-wiki-channel-select="${esc(channel.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(channel.title||T('Без названия','Untitled'))}</strong></span>
+        </button>`).join(''):`<div class="empty">${T('Совпадений нет','No matching channels')}</div>`;
+      $$('[data-wiki-channel-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/channels`,{
+            method:'POST',body:JSON.stringify({conversationId:button.dataset.wikiChannelSelect}),
+          });
+          history.back(); // popstate restores and revalidates the parent Wiki Page
+          toast(T('Канал связан со страницей','Channel linked to page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    input.addEventListener('input',draw);
+    draw();
+  });
+}
+
+async function wikiTaskLinkModal(page,after){
+  const linked=new Set((page.tasks||[]).map(task=>task.id));
+  let items=[],cursor=null,busy=false;
+  modal(T('Связать задачу','Link task'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Выберите задачу, к которой у вас уже есть доступ. Ссылка не меняет исполнителя, состояние и права.',
+      'Choose a task you can already open. Linking does not change ownership, state or permissions.'
+    )}</p>
+    <label>${T('Поиск среди загруженных задач','Filter loaded tasks')}
+      <input data-wiki-task-filter autocomplete="off" placeholder="${T('Название задачи','Task title')}">
+    </label>
+    <div data-wiki-task-candidates class="stack" role="list"></div>
+    <button type="button" data-wiki-task-more class="button secondary">${T('Загрузить ещё задачи','Load more tasks')}</button>
+  </div>`,()=>{
+    const filter=$('[data-wiki-task-filter]');
+    const results=$('[data-wiki-task-candidates]');
+    const more=$('[data-wiki-task-more]');
+    const draw=()=>{
+      if(!results||!results.isConnected)return;
+      const q=filter.value.trim().toLocaleLowerCase();
+      const candidates=items.filter(task=>!linked.has(task.id)&&task.title.toLocaleLowerCase().includes(q));
+      results.innerHTML=candidates.length?candidates.map(task=>`
+        <button type="button" class="row flow pressable" role="listitem"
+          style="width:100%;text-align:left;background:transparent"
+          data-wiki-task-select="${esc(task.id)}">
+          <span><strong>${esc(task.title)}</strong><span class="row-sub">${esc(task.status)}</span></span>
+        </button>`).join(''):`<div class="empty">${T('Совпадений среди загруженных задач нет','No matches among loaded tasks')}</div>`;
+      $$('[data-wiki-task-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/tasks`,{
+            method:'POST',body:JSON.stringify({taskId:button.dataset.wikiTaskSelect}),
+          });
+          // Parent Page is reloaded by popstate / resumeTop, not by a
+          // detached timeout holding an obsolete modal closure.
+          history.back();
+          toast(T('Задача связана со страницей','Task linked to page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+      more.hidden=!cursor;
+    };
+    const load=async()=>{
+      if(busy)return;
+      busy=true;more.disabled=true;
+      try{
+        const query=new URLSearchParams({limit:'50',scope:'all'});
+        if(cursor)query.set('cursor',cursor);
+        const result=await api(`/api/v1/tasks?${query.toString()}`);
+        items.push(...(result.items||[]));
+        cursor=result.nextCursor||null;
+        draw();
+      }catch(error){
+        if(results)results.textContent=error.message;
+      }finally{busy=false;more.disabled=false}
+    };
+    filter?.addEventListener('input',draw);
+    more?.addEventListener('click',load);
+    // A first request with no cursor loads the most recent visible commitments.
+    more.hidden=true;
+    load();
+  });
+}
+
+function wikiPageFormModal(page,parentId,after){
+  const editing=Boolean(page);
+  let rich=null,dirty=false,saving=false,closed=false;
+  const buttons=[
+    ['paragraph','¶'],['h1','H1'],['h2','H2'],['h3','H3'],
+    ['bold','B'],['italic','I'],['underline','U'],['strike','S'],['code','<>'],
+    ['bullet','• List'],['numbered','1. List'],['quote','❝'],['codeblock','Code'],
+    ['rule','—'],['link','Link'],['undo','↶'],['redo','↷'],
+  ];
+  const beforeUnload=event=>{if(!dirty)return;event.preventDefault();event.returnValue='';};
+  window.addEventListener('beforeunload',beforeUnload);
+  const cleanup=()=>{
+    if(closed)return;
+    closed=true;
+    window.removeEventListener('beforeunload',beforeUnload);
+    rich?.destroy();
+  };
+  const closeGuard=()=>{
+    if(!dirty||confirm(T('Несохранённые изменения будут потеряны. Закрыть редактор?','Unsaved edits will be lost. Close editor?'))){cleanup();return true}
+    return false;
+  };
+  modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">
+    <label>${T('Заголовок','Title')}<input name="title" required maxlength="200" value="${esc(page?.title??'')}"></label>
+    <div class="wiki-editor-toolbar" data-wiki-toolbar role="toolbar" aria-label="${T('Форматирование','Formatting')}">
+      ${buttons.map(([action,label])=>`<button type="button" class="chipbtn" data-format="${action}" aria-label="${action}">${esc(label)}</button>`).join('')}
+    </div>
+    <div class="wiki-rich-content wiki-editor-host" data-wiki-editor aria-label="${T('Содержимое страницы','Page content')}"></div>
+    <p class="muted" data-wiki-editor-status role="status">${T('Подготовка редактора…','Loading editor…')}</p>
+    <div data-wiki-conflict hidden class="surface wiki-conflict" role="alert">
+      <strong>${T('Конфликт версий: другая правка уже сохранена','Version conflict: another edit was saved')}</strong>
+      <p>${T('Ваша работа не удалена. Сравните версии, затем выберите действие.','Your local edits are preserved. Compare versions before acting.')}</p>
+      <div class="wiki-conflict-grid">
+        <section><strong>${T('Ваш текст','Your draft')}</strong><pre data-local-version></pre></section>
+        <section><strong>${T('Версия сервера','Server version')}</strong><pre data-server-version></pre></section>
+      </div>
+      <div class="chip-row">
+        <button type="button" class="chipbtn" data-wiki-retry>${T('Сохранить мою версию поверх новой','Save my version over new')}</button>
+        <button type="button" class="chipbtn" data-wiki-reload>${T('Загрузить серверную версию','Load server version')}</button>
+      </div>
+    </div>
+    <button class="button primary" type="submit" disabled data-wiki-save>${editing?'Сохранить':'Создать'}</button>
+  </form>`,()=>{
+    const form=$('#wiki-page-form'),submit=form?.querySelector('[data-wiki-save]');
+    const status=form?.querySelector('[data-wiki-editor-status]');
+    const conflict=form?.querySelector('[data-wiki-conflict]');
+    if(!form)return;
+    let expectedVersion=page?.version;
+    const updateStatus=()=>{
+      if(status)status.textContent=dirty?T('Есть несохранённые изменения','Unsaved changes'):T('Все изменения сохранены','All changes saved');
+    };
+    form.querySelector('[name="title"]').addEventListener('input',()=>{dirty=true;updateStatus()});
+    const showError=event=>{if(status)status.textContent=event.detail;};
+    window.addEventListener('chat:wiki-editor-error',showError);
+    const oldOnPop=overlayStack[overlayStack.length-1]?.onPop;
+    import('./wiki-editor.bundle.js').then(module=>{
+      if(closed||!form.isConnected)return;
+      rich=module.mountWikiEditor({
+        element:form.querySelector('[data-wiki-editor]'),
+        toolbar:form.querySelector('[data-wiki-toolbar]'),
+        document:page?.document,
+        legacyText:page?.content??'',
+        onDirty:()=>{dirty=true;updateStatus()},
+      });
+      submit.disabled=false;
+      updateStatus();
+    }).catch(error=>{if(status)status.textContent=T('Редактор недоступен: ','Editor unavailable: ')+error.message;});
+    form.onsubmit=async event=>{
+      event.preventDefault();
+      if(!rich||saving)return;
+      saving=true;submit.disabled=true;
+      let local=null;
+      try{
+        local=rich.getDocument();
+        const title=form.querySelector('[name="title"]').value;
+        if(editing){
+          await api(`/api/v1/wiki/pages/${page.id}`,{
+            method:'PATCH',
+            body:JSON.stringify({title,document:local,expectedVersion}),
+          });
+        }else{
+          await api('/api/v1/wiki/pages',{
+            method:'POST',body:JSON.stringify({title,document:local,parentId}),
+          });
+        }
+        dirty=false;cleanup();
+        history.back();setTimeout(()=>after?.(),250);
+        toast(editing?T('Страница сохранена','Page saved'):T('Страница создана','Page created'));
+      }catch(error){
+        if(error.status===409&&editing){
+          try{
+            const server=await api(`/api/v1/wiki/pages/${page.id}`);
+            conflict.hidden=false;
+            form.querySelector('[data-local-version]').textContent=JSON.stringify(local,null,2);
+            form.querySelector('[data-server-version]').textContent=JSON.stringify(server.document,null,2);
+            form.querySelector('[data-wiki-retry]').onclick=()=>{
+              expectedVersion=server.version;
+              conflict.hidden=true;
+              // A deliberate 409 resolution is a new submission, not a
+              // double-click of the original attempt blocked by global debounce.
+              form.dataset.busyUntil='0';
+              submit.disabled=false;
+              status.textContent=T('Нажмите «Сохранить» для явной перезаписи','Choose Save to overwrite explicitly');
+            };
+            form.querySelector('[data-wiki-reload]').onclick=()=>{
+              if(!confirm(T('Заменить свои правки новой версией с сервера?','Replace local edits with the server version?')))return;
+              // The user explicitly chose to discard; do not prompt again
+              // when browser Back closes the old modal.
+              dirty=false;cleanup();history.back();
+              setTimeout(()=>wikiPageFormModal(server,server.parentId,after),200);
+            };
+            status.textContent=T('Конфликт. Ваш текст остаётся в редакторе.','Conflict. Your draft remains in the editor.');
+          }catch(fetchError){status.textContent=fetchError.message}
+        }else{status.textContent=error.message;toast(error.message)}
+      }finally{saving=false;submit.disabled=false}
+    };
+    // The modal system owns navigation. Guard at the centralized close/pop boundaries.
+    const entry=overlayStack[overlayStack.length-1];
+    if(entry){entry.onPop=()=>{window.removeEventListener('chat:wiki-editor-error',showError);cleanup();oldOnPop?.()};entry.beforeClose=closeGuard}
+  });
+  return;
 }
 async function wikiHistoryModal(pageId){
   let items=[];
   try{items=(await api(`/api/v1/wiki/pages/${pageId}/history`)).items||[]}
   catch(error){toast(error.message);return}
-  modal('История страницы',items.length?items.map(v=>`<div class="person-event"><span><strong>${esc(v.title)}</strong><p class="muted" style="white-space:pre-wrap;margin:4px 0 0">${esc((v.content||'').slice(0,300))}</p></span><time>${esc(dateTime(v.replacedAt))}</time></div>`).join(''):'<div class="empty"><strong>Правок ещё не было</strong>История появится после первой правки.</div>',()=>{});
+  modal('История страницы',items.length?items.map((v,index)=>`<div class="person-event"><span><strong>${esc(v.title)}</strong><div class="wiki-rich-content wiki-history-document" data-wiki-history-index="${index}"></div></span><time>${esc(dateTime(v.replacedAt))}</time></div>`).join(''):'<div class="empty"><strong>Правок ещё не было</strong>История появится после первой правки.</div>',()=>{
+    import('./wiki-document-view.js').then(m=>{
+      items.forEach((version,index)=>{
+        const root=$(`[data-wiki-history-index="${index}"]`);
+        if(root)m.renderPageDocument(root,version.document??m.textPageDocument(version.content??''));
+      });
+    }).catch(error=>toast(error.message));
+  });
 }
 
 const TIME_REPORT_PERIODS=[['7','неделя'],['30','месяц'],['365','год']];
@@ -4412,12 +5402,20 @@ function editProfile(person){
       if(!zones.includes(chosen))zones=[chosen,...zones];
       return `<label class="field-group"><span>${T('Часовой пояс','Time zone')}</span><select name="timezone" class="field">${zones.map(z=>`<option value="${esc(z)}"${z===chosen?' selected':''}>${esc(z)}${z===here?` — ${T('как в этом браузере','this browser')}`:''}</option>`).join('')}</select></label>
       <p class="muted" style="margin:-4px 0 0;font-size:12px">${T('От него зависят тихие часы, час сводки и тексты напоминаний.','It sets quiet hours, the digest hour and reminder texts.')}</p>`})()}
+    <div class="surface"><div class="section-title">${T('Рабочий график','Working schedule')}</div>
+      <div class="chip-row" style="margin-top:8px">${[[1,'Пн','Mon'],[2,'Вт','Tue'],[3,'Ср','Wed'],[4,'Чт','Thu'],[5,'Пт','Fri'],[6,'Сб','Sat'],[0,'Вс','Sun']].map(([value,ru,en])=>`<label class="chipbtn"><input type="checkbox" name="workingDay" value="${value}" ${(person.workingDays||[1,2,3,4,5]).includes(value)?'checked':''}> ${T(ru,en)}</label>`).join('')}</div>
+      <div class="form-grid" style="margin-top:10px"><label class="field-group"><span>${T('Начало дня','Day starts')}</span><input type="time" name="workdayStart" value="${esc(person.workdayStart||'09:00')}" required></label><label class="field-group"><span>${T('Конец дня','Day ends')}</span><input type="time" name="workdayEnd" value="${esc(person.workdayEnd||'18:00')}" required></label></div>
+      <p class="muted" style="margin:8px 0 0;font-size:12px">${T('Этот график используется только для предложений времени. Calendar ничего не переносит автоматически.','This schedule is used only for time proposals. Calendar never moves anything automatically.')}</p>
+    </div>
     <label class="field-group"><span>О себе</span><textarea name="about" rows="3" maxlength="2000">${esc(person.about??'')}</textarea></label>
     <button class="button primary" type="submit">Сохранить</button>
   </form>`,()=>{
     $('#profile-form').onsubmit=async(event)=>{
       event.preventDefault();
-      const data=Object.fromEntries(new FormData(event.target).entries());
+      const formData=new FormData(event.target);
+      const data=Object.fromEntries(formData.entries());
+      data.workingDays=formData.getAll('workingDay').map(Number);
+      delete data.workingDay;
       try{
         await api(`/api/v1/people/${person.userId}`,{method:'PATCH',body:JSON.stringify(data)});
         toast('Карточка обновлена');
@@ -4430,7 +5428,7 @@ function editProfile(person){
 
 // Разделы «Ещё», у которых есть свой адрес: #/more/team открывает «Команду» и после обновления страницы,
 // и по ссылке коллеге. Окно рисуется поверх «Ещё», поэтому «назад» возвращает на плитки.
-const MORE_SCREENS=new Set(['apikeys','archived','calls','catalogue','company','contacts','dashboard','decisions','digest','files','games','integrations','invite','journal','knowledge','labels','meeting-ops','org','plan','presence','features','reminders','report','requests','saved','settings','stories','team','time-report','vault','wiki']);
+const MORE_SCREENS=new Set(['investor-tour','apikeys','archived','calls','catalogue','company','contacts','dashboard','decisions','digest','files','games','integrations','invite','journal','knowledge','labels','meeting-ops','org','plan','presence','features','reminders','report','requests','saved','settings','stories','team','time-report','vault','wiki']);
 async function action(a){
   const before=overlayStack.length;
   await actions[a]?.();
@@ -4957,6 +5955,37 @@ async function notesModal(eventId,eventTitle=''){
   });
 }
 
+async function decisionDetailModal(id){
+  try{
+    const [{decision},related]=await Promise.all([
+      api(`/api/v1/meetings/decisions/${encodeURIComponent(id)}`),
+      api(`/api/v1/wiki/decisions/${encodeURIComponent(id)}/pages`).catch(()=>({items:[]})),
+    ]);
+    const relatedPages=related.items||[];
+    modal(T('Принятое решение','Accepted decision'),`<article class="surface" style="padding:12px">
+      <h3>${esc(decision.title)}</h3>
+      ${decision.body?`<p class="muted" style="white-space:pre-wrap">${esc(decision.body)}</p>`:''}
+      <p class="row-sub">${esc(dateTime(decision.acceptedAt))}${decision.acceptedByName?` · ${esc(decision.acceptedByName)}`:''}</p>
+      ${decision.callTitle?`<p class="row-sub">${esc(decision.callTitle)}</p>`:''}
+      ${relatedPages.length?`<div class="stack" style="margin-top:12px" data-decision-related-pages>
+        <strong>${T('Связанные страницы','Related Pages')}</strong>
+        ${relatedPages.map(page=>`<button class="text-button" data-decision-detail-page="${esc(page.id)}" type="button">${esc(page.title)}</button>`).join('')}
+      </div>`:''}
+      ${decision.conversationId?`<button class="button secondary" data-decision-detail-room="${esc(decision.conversationId)}">${T('К беседе','Open conversation')}</button>`:''}
+    </article>`,()=>{
+      $$('[data-decision-detail-page]').forEach(button=>button.addEventListener('click',()=>{
+        const pageId=button.dataset.decisionDetailPage;
+        overlayStack.length=0;renderOverlay();wikiModal(pageId);
+      }));
+      $('[data-decision-detail-room]')?.addEventListener('click',event=>{
+        const conversationId=event.currentTarget.dataset.decisionDetailRoom;
+        overlayStack.length=0;renderOverlay();openChatAtMessage(conversationId,null);
+      });
+    });
+  }catch(error){toast([403,404].includes(error.status)
+    ?T('Решение не найдено или недоступно','Decision not found or inaccessible'):error.message)}
+}
+
 async function decisionsModal(query=''){
   let items=[];
   let failed=null;
@@ -5339,13 +6368,14 @@ window.addEventListener('popstate',()=>{
   // глотать следующие нажатия «назад» (из-за этого ‹ в окнах иногда не делала ничего).
   if(unwinding>0&&Date.now()<unwindDeadline){unwinding-=1;return}
   unwinding=0;
-  if(overlayStack.length){overlayStack.pop().onPop?.();renderOverlay();resumeTop();return}
+  if(overlayStack.length){const top=overlayStack[overlayStack.length-1];if(top.beforeClose?.()===false){history.pushState({overlay:overlayStack.length},'',location.href);return}overlayStack.pop().onPop?.();renderOverlay();resumeTop();return}
   // Окон не осталось — «назад» возвращает на прошлый раздел, а не выкидывает
   // из приложения.
   routeFromHash().catch(error=>toast(error.message));
 });
 let unwinding=0,unwindDeadline=0;
 function closeModal(){
+  if(overlayStack.some(entry=>entry.beforeClose?.()===false))return;
   const depth=overlayStack.length;
   overlayStack.splice(0).forEach((entry)=>entry.onPop?.());
   renderOverlay();
@@ -5612,7 +6642,9 @@ function taskStructureSection(task){
 }
 
 function taskDetailModal(task){
-  const evidence=task.evidence||[],acceptances=task.acceptances||[],audit=task.audit||[];
+  const evidence=task.evidence||[],acceptances=task.acceptances||[],audit=task.audit||[],calendarBlocks=task.calendarBlocks||[];
+  const promisedMs=task.promisedAt?Date.parse(task.promisedAt):NaN;
+  const blocksAfterDeadline=Number.isFinite(promisedMs)?calendarBlocks.filter(block=>block.endAt&&Date.parse(block.endAt)>promisedMs):[];
   // Labels are read when the card opens: the list screen would need one
   // request per row to show them, and that is not worth the round trips.
   let labelsCache=null;
@@ -5634,6 +6666,7 @@ function taskDetailModal(task){
     ${task.sourceMessageId?`<div class="row"><span><div class="section-title">Из сообщения</div><div class="row-sub">Обсуждение, из которого выросла эта задача</div></span><button class="button small secondary pressable" data-task-source="${esc(task.sourceMessageId)}">Открыть</button></div>`:''}
     <div class="surface"><div class="section-title">Ожидаемый результат</div><p class="muted">${task.outcome?esc(task.outcome):'Не задан. Пока его нет, «сделано» решается спором, а не проверкой.'}</p><div class="row-sub"><span>Ответственный:</span> ${esc(name(task.ownerId))} <span>· Принимает:</span> ${esc(name(task.acceptorId))} <span>· Поставил:</span> ${esc(name(task.requesterId))}</div></div>
     <div><div class="section-title">Время</div><div id="task-time-slot"><span class="muted">загружаем…</span></div></div>
+    <div><div class="section-title">Запланированная работа · ${calendarBlocks.length}</div>${blocksAfterDeadline.length?`<div class="away-notice" data-task-schedule-impact><strong>${esc(T('Нужно перепланировать','Rescheduling needed'))}</strong> · ${blocksAfterDeadline.length} ${esc(T('блок(а) заканчиваются после обещанного срока. ChatX может предложить ближайший свободный слот до срока, но перенесёт его только после подтверждения.','block(s) end after the promised deadline. ChatX can suggest the latest free slot before the deadline, but only moves it after approval.'))}</div>`:''}${calendarBlocks.length?`<div class="stack" style="margin-top:8px">${calendarBlocks.map(block=>{const late=blocksAfterDeadline.some(x=>x.id===block.id);return `<div class="row${late?' task-overdue':''}"><button type="button" class="pressable" data-task-calendar-block="${esc(block.id)}" style="border:0;background:transparent;padding:0;text-align:left;flex:1;min-width:0"><div class="row-title">◷ ${esc(block.title)}</div><div class="row-sub">${esc(dateTime(block.startAt))}${block.endAt?` — ${esc(time(block.endAt))}`:''}${late?` · <span class="task-late">${esc(T('после срока','after deadline'))}</span>`:''}</div></button>${late?`<button type="button" class="button small secondary" data-task-reschedule-proposal="${esc(block.id)}">${esc(T('Найти слот','Find slot'))}</button>`:`<span class="chip">Календарь</span>`}</div>`}).join('')}</div>`:`<div class="empty">${esc(T('Время под эту задачу пока не выделено в календаре.','No calendar time has been allocated to this task yet.'))}</div>`}</div>
     <div><div class="section-title">Следующее действие</div>${task.status==='in_progress'&&!evidence.length?'<p class="muted" style="margin:6px 0 0">Чтобы сдать работу на проверку, приложите хотя бы одно доказательство — форма ниже.</p>':''}<div class="inline-actions" style="margin-top:8px">${(task.allowedTransitions||[]).map(to=>`<button class="button ${to==='accepted_result'||to==='closed'?'primary':'secondary'} small" data-task-transition="${esc(to)}" data-skip-autofocus>${esc(taskActionLabel(task,to))}</button>`).join('')||'<span class="muted">Доступных переходов сейчас нет.</span>'}</div></div>
     <form id="task-evidence-form" class="form-stack"><div class="section-title">Добавить результат / доказательство</div><label>Тип<select name="type" class="field"><option value="note">Комментарий / результат</option><option value="url">Ссылка</option><option value="metric">Метрика</option><option value="message">Ссылка на сообщение</option><option value="file">Идентификатор файла</option></select></label><label>Данные<textarea name="value" rows="3" required placeholder="Что сделано, где результат или чем это подтверждается"></textarea></label><button class="button secondary">Добавить доказательство</button></form>
     <button data-task-favour class="button secondary">${S.favourites?.has('task:'+task.id)?'Убрать из избранного':'В избранное'}</button><button data-task-remind class="button secondary">Напомнить о задаче</button>${canReassignTask(task)?'<button data-task-reassign class="button secondary">Передать задачу</button>':''}${canRescheduleTask(task)?'<button class="button secondary" data-task-reschedule>Изменить срок / прогноз</button>':''}
@@ -5686,6 +6719,11 @@ function taskDetailModal(task){
     catch(error){toast(error.message)}
   });
   $$('[data-link-open]').forEach(b=>b.onclick=()=>{closeModal();openTask(b.dataset.linkOpen)});
+  $$('[data-task-calendar-block]').forEach(b=>b.onclick=()=>{
+    const id=b.dataset.taskCalendarBlock;
+    closeModal();S.view='calendar';render();history.pushState(null,'',`#/calendar/${id}`);void eventPage(id);
+  });
+  $$('[data-task-reschedule-proposal]').forEach(b=>b.onclick=()=>taskScheduleProposalModal(task,b.dataset.taskRescheduleProposal));
   $$('[data-task-transition]').forEach(b=>b.onclick=()=>taskTransition(task,b.dataset.taskTransition));
   $('[data-task-labels]').onclick=()=>labelPicker('task',task.id,{title:`Метки: ${task.title}`});
   const form=$('#task-evidence-form');if(form)form.onsubmit=async e=>{e.preventDefault();const f=new FormData(form);try{const r=await api(`/api/v1/tasks/${task.id}/evidence`,{method:'POST',body:JSON.stringify({type:f.get('type'),value:f.get('value'),expectedVersion:task.version})});upsertTask(r.task);toast('Доказательство добавлено');await openTask(task.id);if(S.view==='tasks'){await loadTaskPage();render()}}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}};
@@ -5753,6 +6791,37 @@ function canReassignTask(task){
     && (task.requesterId===me().userId||['owner','admin','manager'].includes(me().role));
 }
 
+async function taskScheduleProposalModal(task,eventId){
+  try{
+    const{proposal}=await api(`/api/v1/tasks/${task.id}/schedule-proposal?eventId=${encodeURIComponent(eventId)}`);
+    modal(T('Предложение перепланирования','Reschedule proposal'),`<form id="task-schedule-proposal-form" class="form-stack">
+      <div class="surface"><div class="section-title">${esc(T('Почему этот слот','Why this slot'))}</div><p class="muted">${esc(T('Последний свободный интервал той же длительности до обещанного срока внутри рабочего графика. Никакого автоматического переноса.','Latest free interval of the same duration before the promised deadline, inside the working schedule. Nothing moves automatically.'))}</p><div class="row-sub">${proposal.durationMinutes} ${esc(T('мин','min'))} · ${proposal.avoidedConflictCount} ${esc(T('конфликтов обойдено','conflicts avoided'))} · ${proposal.outsideWorkingHoursSkipped||0} ${esc(T('нерабочих окон пропущено','off-hours candidates skipped'))}${proposal.availabilitySkipped?` · ${proposal.availabilitySkipped} ${esc(T('окон недоступности пропущено','availability candidates skipped'))}`:''}</div><div class="row-sub" style="margin-top:4px">${esc(T('График','Schedule'))}: ${esc((proposal.workingSchedule?.workingDays||[]).join(', '))} · ${esc(proposal.workingSchedule?.workdayStart||'09:00')}–${esc(proposal.workingSchedule?.workdayEnd||'18:00')} · ${esc(proposal.workingSchedule?.timezone||'UTC')}</div></div>
+      <div><div class="section-title">${esc(T('Сейчас','Current'))}</div><div class="row-sub">${esc(dateTime(proposal.currentStartAt))} — ${esc(dateTime(proposal.currentEndAt))}</div></div>
+      <label>${esc(T('Предлагаемое начало','Suggested start'))}<input name="startAt" type="datetime-local" value="${esc(toLocalInput(proposal.suggestedStartAt))}" required></label>
+      <label>${esc(T('Предлагаемое окончание','Suggested end'))}<input name="endAt" type="datetime-local" value="${esc(toLocalInput(proposal.suggestedEndAt))}" required></label>
+      <label>${esc(T('Причина решения','Decision reason'))}<textarea name="reason" rows="3" required placeholder="${esc(T('Почему переносим или оставляем как есть','Why move it or keep it as-is'))}"></textarea></label>
+      <div class="inline-actions"><button class="button primary" type="submit">${esc(T('Принять перенос','Approve move'))}</button><button class="button secondary" type="button" data-proposal-reject>${esc(T('Оставить как есть','Keep current'))}</button></div>
+    </form>`);
+    const form=$('#task-schedule-proposal-form');
+    const resolve=async(action)=>{
+      const data=new FormData(form),reason=String(data.get('reason')||'').trim();
+      if(!reason){toast(T('Укажите причину решения','Add a decision reason'));return}
+      const payload={eventId,action,reason,expectedVersion:task.version};
+      if(action==='approve'){
+        payload.startAt=new Date(data.get('startAt')).toISOString();
+        payload.endAt=new Date(data.get('endAt')).toISOString();
+      }
+      try{
+        await api(`/api/v1/tasks/${task.id}/schedule-proposal`,{method:'POST',body:JSON.stringify(payload)});
+        toast(action==='approve'?T('Блок перепланирован','Block rescheduled'):T('Предложение отклонено','Proposal rejected'));
+        closeModal();await openTask(task.id);
+      }catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION'){closeModal();await openTask(task.id)}}
+    };
+    form.onsubmit=async e=>{e.preventDefault();await resolve('approve')};
+    $('[data-proposal-reject]')?.addEventListener('click',()=>resolve('reject'));
+  }catch(error){toast(error.message)}
+}
+
 function taskRescheduleModal(task){modal('Изменить срок',`<form id="task-reschedule-form" class="form-stack"><label>Обещанный срок<input name="promisedAt" type="datetime-local" value="${esc(toLocalInput(task.promisedAt))}"></label><label>Прогноз<input name="forecastAt" type="datetime-local" value="${esc(toLocalInput(task.forecastAt))}"></label><label>Причина<textarea name="reason" rows="3" required placeholder="Почему срок или прогноз изменился"></textarea></label><button class="button primary">Сохранить изменение</button></form>`);$('#task-reschedule-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const{task:updated}=await api(`/api/v1/tasks/${task.id}/schedule`,{method:'PATCH',body:JSON.stringify({promisedAt:f.get('promisedAt')?new Date(f.get('promisedAt')).toISOString():null,forecastAt:f.get('forecastAt')?new Date(f.get('forecastAt')).toISOString():null,reason:f.get('reason'),expectedVersion:task.version})});upsertTask(updated);toast('Срок обновлён');await openTask(task.id);if(S.view==='tasks')await loadTaskPage();render()}catch(error){toast(error.message);if(error.code==='STALE_TASK_ACTION')await openTask(task.id)}}}
 /**
  * A meeting is people plus a time. The form asked only for the time: the
@@ -5803,6 +6872,7 @@ function eventModal(prefill=''){
     <label>Тип<select name="kind" class="field">
       ${EVENT_KIND_CHOICES.map(([value,caption])=>`<option value="${value}">${caption}</option>`).join('')}
     </select></label>
+    <label id="event-task-row" hidden>Задача<select name="commitmentId" class="field"><option value="">${esc(T('Выберите задачу','Select a task'))}</option>${(S.tasks||[]).filter(t=>!['closed','cancelled','rejected'].includes(t.status)).map(t=>`<option value="${esc(t.id)}">${esc(t.title)}</option>`).join('')}</select><span class="row-sub">${esc(T('Календарь хранит время работы, задача — свой статус и ответственность.','Calendar owns work time; the task owns its status and accountability.'))}</span></label>
     <label class="switch-row"><input type="checkbox" name="allDay">
       <span><span class="section-title">Весь день</span><span class="row-sub">Без конкретного часа — на день или на несколько дней подряд</span></span></label>
     <label>Начало<input name="start" type="datetime-local" required value="${esc(toLocalInput(start.toISOString()))}"></label>
@@ -5823,6 +6893,8 @@ function eventModal(prefill=''){
   </form>`,()=>{
     const form=$('#event-form');
     const kindField=form.querySelector('[name="kind"]');
+    const taskRow=form.querySelector('#event-task-row');
+    const taskField=form.querySelector('[name="commitmentId"]');
     const allDayField=form.querySelector('[name="allDay"]');
     const startField=form.querySelector('[name="start"]');
     const endField=form.querySelector('[name="end"]');
@@ -5846,6 +6918,10 @@ function eventModal(prefill=''){
       // сервере — иначе человек либо видит лишнюю звёздочку, либо не
       // видит нужную.
       endField.required=EVENT_KINDS_NEEDING_END.has(kindField.value);
+      const taskBlock=kindField.value==='task_block';
+      taskRow.hidden=!taskBlock;
+      taskField.required=taskBlock;
+      if(!taskBlock)taskField.value='';
     };
     allDayField.onchange=syncFields;
     kindField.onchange=syncFields;
@@ -5865,20 +6941,28 @@ function eventModal(prefill=''){
       const endAt=parseField(data.get('end'),true);
       if(endAt&&endAt<=startAt)return toast('Окончание должно быть позже начала');
       const invited=data.getAll('guest');
+      const payload={
+        title:data.get('title'),kind:data.get('kind'),allDay:wholeDay,
+        commitmentId:data.get('kind')==='task_block'?data.get('commitmentId')||null:null,
+        visibility:data.get('visibility'),
+        description:data.get('description')||null,
+        startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
+        timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+        // «Каждую неделю» без дня недели значило бы «в тот же день, что
+        // и первая встреча» — но человек выбирает день, ставя дату
+        // начала, и правило обязано её повторить, а не гадать.
+        recurrenceRule:repeatRule(data.get('repeat'),startAt),
+        participantIds:invited,
+      };
       try{
         // Встреча и приглашения — одним запросом, без половинчатого результата.
-        await api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({
-          title:data.get('title'),kind:data.get('kind'),allDay:wholeDay,
-          visibility:data.get('visibility'),
-          description:data.get('description')||null,
-          startAt:startAt.toISOString(),endAt:endAt?endAt.toISOString():null,
-          timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
-          // «Каждую неделю» без дня недели значило бы «в тот же день, что
-          // и первая встреча» — но человек выбирает день, ставя дату
-          // начала, и правило обязано её повторить, а не гадать.
-          recurrenceRule:repeatRule(data.get('repeat'),startAt),
-          participantIds:invited,
-        })});
+        const create=allowConflict=>api('/api/v1/calendar-events',{method:'POST',body:JSON.stringify({...payload,allowConflict})});
+        try{await create(false)}
+        catch(error){
+          if(error.code!=='CALENDAR_CONFLICT')throw error;
+          if(!await calendarConflictDecision({startAt:payload.startAt,endAt:payload.endAt,message:error.message}))return;
+          await create(true);
+        }
         // Land on the day the event is on, or the person stares at a week
         // that does not contain what they just made.
         S.cal=S.cal||{view:'week',cursor:new Date(),selected:null};
@@ -6892,7 +7976,7 @@ window.CHAT_ERRORS=ERROR_MESSAGE;
 // разметке двенадцать раз подряд и молча сдавались.
 // Поиск живёт в отдельном файле и не видит внутренностей приложения:
 // всё, чем он открывает найденное, проходит через эту дверь.
-window.ChatApp={openChatAtMessage,ghostOverlay,toast,role:()=>me()?.role??null,userId:()=>me()?.userId??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter};
+window.ChatApp={openChatAtMessage,ghostOverlay,toast,role:()=>me()?.role??null,userId:()=>me()?.userId??null,openPerson:personPage,openTask,openEvent:eventPage,openTaskFilter,openProject,openWikiPage:wikiModal,openDecision:decisionDetailModal};
 // Страховка навигации: после ошибки и перерисовки кнопки меню оставались без обработчика (нижнее меню
 // «умирало» до перезагрузки). Если у кнопки раздела обработчика нет, переходим сами.
 document.addEventListener('click',(event)=>{

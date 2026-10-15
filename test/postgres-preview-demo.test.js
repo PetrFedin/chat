@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import pg from 'pg';
+import { chromium } from 'playwright';
 import { createChatServer } from '../src/server.js';
 import { LocalObjectStore } from '../src/storage/object-store.js';
 import { PostgresStore } from '../src/persistence/store.js';
@@ -39,6 +40,10 @@ async function demoCounts(pool,workspaceId){
         AND (summary_json->>'syntheticDemo'='true' OR transcript_provider LIKE 'demo-fixture%' OR summary_provider LIKE 'demo-fixture%')`,[workspaceId]),
     pool.query(`SELECT count(*)::int n FROM files WHERE workspace_id=$1 AND name=ANY($2::text[])`,
       [workspaceId,['mobile-call-review.svg','release-checklist.md','launch-metrics.csv']]),
+    pool.query("SELECT count(*)::int n FROM projects WHERE workspace_id=$1 AND name='Mobile Launch · Northstar Studio (demo)'",[workspaceId]),
+    pool.query("SELECT count(*)::int n FROM project_tasks pt JOIN projects p ON p.id=pt.project_id WHERE p.workspace_id=$1 AND p.name='Mobile Launch · Northstar Studio (demo)'",[workspaceId]),
+    pool.query("SELECT count(*)::int n FROM project_milestones m JOIN projects p ON p.id=m.project_id WHERE p.workspace_id=$1 AND p.name='Mobile Launch · Northstar Studio (demo)'",[workspaceId]),
+    pool.query("SELECT count(*)::int n FROM project_discussions d JOIN projects p ON p.id=d.project_id WHERE p.workspace_id=$1 AND p.name='Mobile Launch · Northstar Studio (demo)'",[workspaceId]),
   ]);
   return{
     members:queries[0].rows[0].n,
@@ -46,6 +51,10 @@ async function demoCounts(pool,workspaceId){
     calendar:queries[2].rows[0].n,
     syntheticMeetings:queries[3].rows[0].n,
     demoFiles:queries[4].rows[0].n,
+    investorProjects:queries[5].rows[0].n,
+    investorProjectTasks:queries[6].rows[0].n,
+    investorMilestones:queries[7].rows[0].n,
+    investorDiscussions:queries[8].rows[0].n,
   };
 }
 
@@ -58,6 +67,12 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   // Демонстрационное пространство заводится под одной и той же почтой, а
   // тестовая база живёт между прогонами. Убираем прошлый прогон целиком —
   // так же чисто, как на пустой базе в CI.
+  // Demo project relations have restrictive composite FK to memberships:
+  // delete their aggregate first so cleanup of a previously seeded test tenant
+  // never weakens referential integrity or depends on cascade order.
+  await probe.query(`DELETE FROM projects WHERE workspace_id IN (
+    SELECT m.workspace_id FROM memberships m
+    JOIN users u ON u.id=m.user_id WHERE u.email LIKE '%@northstar.example')`);
   await probe.query(`DELETE FROM organizations WHERE id IN (
     SELECT m.organization_id FROM memberships m
     JOIN users u ON u.id=m.user_id WHERE u.email LIKE '%@northstar.example')`);
@@ -122,8 +137,47 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   assert.equal(meetingsOne.response.status,200);
   assert.ok(meetingsOne.payload.items.some((item)=>item.synthetic&&item.intelligenceStatus==='review_ready'));
 
+  // Investor demo Project must be an actual permission-scoped canonical object.
+  const apiProjects=await request(first.base,'/api/v1/projects',{cookie:loginOne.cookie});
+  assert.equal(apiProjects.response.status,200);
+  const investorProject=apiProjects.payload.items.find(item=>item.name==='Mobile Launch · Northstar Studio (demo)');
+  assert.ok(investorProject?.id);
+  const detailed=await request(first.base,'/api/v1/projects/'+investorProject.id,{cookie:loginOne.cookie});
+  assert.equal(detailed.response.status,200);
+  assert.equal(detailed.payload.project.metrics.visibleTasks,4);
+  assert.equal(detailed.payload.project.milestones.length,2);
+  assert.equal(detailed.payload.project.discussions.length,1);
+
+  // Browser admission: investor path must be reachable by touch-sized navigation
+  // and display source-derived data without pretending that ROI was measured.
+  const browser=await chromium.launch();
+  t.after(()=>browser.close());
+  const page=await browser.newPage({viewport:{width:390,height:844}});
+  const pageErrors=[];
+  page.on('pageerror',error=>pageErrors.push(String(error)));
+  await page.goto(first.base);
+  await page.locator('#demo-login').waitFor({state:'visible'});
+  await page.locator('#demo-login').click();
+  await page.locator('#app-view').waitFor({state:'visible'});
+  await page.locator('[data-nav="more"]:visible').click();
+  await page.locator('[data-action="investor-tour"]').click();
+  await page.locator('[data-investor-result]').waitFor({state:'visible',timeout:20000});
+  assert.match(await page.locator('.investor-tour-hero').innerText(),/ДЕМО-ДАННЫЕ|DEMO/);
+  assert.equal(await page.locator('.investor-tour-stats .investor-stat').count(),4);
+  assert.ok(await page.locator('a[href="/#/projects/'+investorProject.id+'"]').count()>0);
+  assert.match(await page.locator('[data-investor-result]').innerText(),/Расчёт появится только|Complete all inputs/);
+  await page.locator('[data-investor-calculate]').click();
+  assert.match(await page.locator('[data-investor-result]').innerText(),/Проверьте все допущения|Check all assumptions/);
+  for (const [key,value] of Object.entries({
+    people:'2',hoursPerWeek:'2',hourCost:'100',platformPerMonth:'200',
+    implementationCost:'1200',months:'12',
+  })) await page.locator('[data-investor-input="'+key+'"]').fill(value);
+  await page.locator('[data-investor-calculate]').click();
+  assert.match(await page.locator('[data-investor-result]').innerText(),/Условная валовая|Hypothetical gross/);
+  assert.deepEqual(pageErrors,[],'investor modal should not raise browser errors');
+
   const firstCounts=await demoCounts(probe,workspaceId);
-  assert.deepEqual(firstCounts,{members:6,tasks:6,calendar:4,syntheticMeetings:1,demoFiles:3});
+  assert.deepEqual(firstCounts,{members:6,tasks:6,calendar:4,syntheticMeetings:1,demoFiles:3,investorProjects:1,investorProjectTasks:4,investorMilestones:2,investorDiscussions:1});
 
   const file=(await probe.query(`SELECT storage_key "storageKey" FROM files
     WHERE workspace_id=$1 AND name='release-checklist.md' LIMIT 1`,[workspaceId])).rows[0];

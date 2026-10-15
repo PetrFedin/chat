@@ -158,3 +158,48 @@ test('доступ по HTTP: гость получает честное «не 
   const guestAttempt = await request(base, '/api/v1/wiki/pages', { cookie: guestCookie });
   assert.equal(guestAttempt.response.status, 404, 'гостю вики должна выглядеть как несуществующий раздел, а не как запрещённый');
 });
+
+
+test('structured Pages persist JSON, derive searchable content and snapshot prior JSON atomically', { skip }, async (t) => {
+  const pool = new pg.Pool({ connectionString: databaseUrl });
+  t.after(() => pool.end());
+  const store = new PostgresStore(pool);
+  const { owner } = await company(store);
+  const wiki = createWikiRepository(pool);
+  const legacy = await wiki.create(owner,{title:'Legacy',content:'first line\nsecond line'});
+  assert.equal(legacy.hasStructuredDocument,false,'legacy page must remain editable in the plain-text dialog');
+  assert.equal(legacy.document.type,'doc');
+  assert.equal((await wiki.get(owner,legacy.id)).document.content.length,2);
+
+  const document={type:'doc',content:[
+    {type:'heading',attrs:{level:2},content:[{type:'text',text:'Approved plan',marks:[{type:'bold'}]}]},
+    {type:'paragraph',content:[{type:'text',text:'Project handoff'}]},
+  ]};
+  const updated=await wiki.update(owner,legacy.id,{document,expectedVersion:legacy.version});
+  assert.equal(updated.version,2);
+  assert.deepEqual(updated.document,document);
+  assert.equal(updated.hasStructuredDocument,true,'persisted rich page must use a safe title-only legacy dialog');
+  assert.equal(updated.content,'Approved plan\nProject handoff');
+
+  const fetched=await wiki.get(owner,legacy.id);
+  assert.deepEqual(fetched.document,document);
+  await assert.rejects(
+    ()=>wiki.update(owner,legacy.id,{content:'unformatted overwrite',expectedVersion:updated.version}),
+    error=>error.code==='PAGE_STRUCTURED_EDITOR_REQUIRED'&&error.statusCode===409,
+  );
+  assert.ok((await wiki.search(owner,{query:'handoff'})).some(row=>row.id===legacy.id));
+
+  const history=await wiki.history(owner,legacy.id);
+  assert.equal(history.length,1);
+  assert.equal(history[0].content,'first line\nsecond line');
+  assert.equal(history[0].document,null,'legacy version must remain an unmodified legacy snapshot');
+
+  await assert.rejects(
+    ()=>wiki.update(owner,legacy.id,{document,expectedVersion:legacy.version}),
+    error=>error.code==='STALE_VERSION'&&error.statusCode===409,
+  );
+  await assert.rejects(
+    ()=>wiki.update(owner,legacy.id,{document,content:'contradictory',expectedVersion:updated.version}),
+    error=>error.code==='AMBIGUOUS_PAGE_CONTENT',
+  );
+});

@@ -19,8 +19,11 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 test('CI прогоняет весь набор, а не выбранные файлы', () => {
   const ci = readFileSync(join(root, '.github/workflows/ci.yml'), 'utf8');
 
-  // Прогон всего набора: `node --test` без имён файлов.
-  assert.match(ci, /^\s*node --test\s*$/m, 'в CI нет прогона всего набора целиком');
+  // Прогон всего набора: `node --test` без имён файлов. Одно
+  // ограничение параллельности допустимо: оно меняет только ресурсный
+  // профиль CI, не выбор исполняемых файлов и не строгие проверки.
+  assert.match(ci, /^\s*node --test(?:\s+--test-concurrency=\d+)?\s*$/m,
+    'в CI нет прогона всего набора целиком');
 
   // Поимённых прогонов быть не должно: они и есть тот самый отстающий список.
   const named = [...ci.matchAll(/node --test\s+(test\/\S+)/g)].map((m) => m[1]);

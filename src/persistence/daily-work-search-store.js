@@ -87,7 +87,7 @@ export class PostgresStore extends DailyWorkPostgresStore {
     // остальные плечи.
     if(wanted.has('file'))jobs.push(this.listFiles(session,{query:q,limit:each}).then(rows=>items.push(...rows
       .filter(f=>(!since||new Date(f.createdAt)>=new Date(since))&&(!until||new Date(f.createdAt)<=new Date(until)))
-      .map(f=>({type:'file',id:f.id,title:f.name,snippet:f.mimeType,conversationId:f.context?.conversationId,messageId:f.context?.messageId,createdAt:f.createdAt,previewUrl:f.previewUrl,contentUrl:f.contentUrl,score:1})))));
+      .map(f=>({type:'file',id:f.id,title:f.name,snippet:f.mimeType,conversationId:f.context?.conversationId,messageId:f.context?.messageId,projectId:f.context?.projectId,createdAt:f.createdAt,previewUrl:f.previewUrl,contentUrl:f.contentUrl,score:1})))));
 
     /**
      * Поиск внутри вложений.
@@ -115,22 +115,29 @@ export class PostgresStore extends DailyWorkPostgresStore {
           -- поиск по содержимому доставал вложения из чужих переписок —
           -- то есть обходил границы, ради которых всё остальное и
           -- сделано.
-          AND (f.uploaded_by=$6 OR EXISTS (
-            SELECT 1 FROM file_links fl
-              JOIN messages fm ON fm.workspace_id=fl.workspace_id
-                   AND fl.entity_type='message' AND fm.id=fl.entity_id
-              JOIN conversations fc ON fc.workspace_id=fm.workspace_id AND fc.id=fm.conversation_id
-              LEFT JOIN conversation_members fcm ON fcm.workspace_id=fc.workspace_id
-                   AND fcm.conversation_id=fc.id AND fcm.user_id=$6
-             WHERE fl.workspace_id=f.workspace_id AND fl.file_id=f.id
-               AND fm.deleted_at IS NULL AND fc.archived_at IS NULL
-               AND(${openConversationSql(session,'fc')} OR fcm.user_id IS NOT NULL)))
+          AND (
+            f.uploaded_by=$6
+            OR EXISTS (
+              SELECT 1 FROM file_links fl
+                JOIN messages fm ON fm.workspace_id=fl.workspace_id
+                     AND fl.entity_type='message' AND fm.id=fl.entity_id
+                JOIN conversations fc ON fc.workspace_id=fm.workspace_id AND fc.id=fm.conversation_id
+                LEFT JOIN conversation_members fcm ON fcm.workspace_id=fc.workspace_id
+                     AND fcm.conversation_id=fc.id AND fcm.user_id=$6
+               WHERE fl.workspace_id=f.workspace_id AND fl.file_id=f.id
+                 AND fm.deleted_at IS NULL AND fc.archived_at IS NULL
+                 AND(${openConversationSql(session,'fc')} OR fcm.user_id IS NOT NULL))
+            OR ($7::boolean AND EXISTS (
+              SELECT 1 FROM project_files pf
+                JOIN projects pr ON pr.id=pf.project_id AND pr.workspace_id=pf.workspace_id
+                LEFT JOIN project_members pm ON pm.project_id=pr.id AND pm.user_id=$6
+               WHERE pf.workspace_id=f.workspace_id AND pf.file_id=f.id
+                 AND(pr.visibility='workspace' OR pr.owner_id=$6 OR pm.user_id IS NOT NULL)))
+          )
           AND ${inRange('f.created_at',3,4)}
         ORDER BY score DESC,f.created_at DESC LIMIT $5`,
-      // Свой список параметров: лишний placeholder, который запрос не
-      // использует, — это «could not determine data type of parameter»,
-      // и узнаётся такое в бою.
-      [session.workspaceId,q,since,until,each,session.userId])
+      // Full-text extraction follows the same File Authority boundary as listFiles.
+      [session.workspaceId,q,since,until,each,session.userId,session.role!=='guest'])
       .then(r=>items.push(...r.rows.map(row=>({
         ...row,
         // Ссылки те же, что у находки по имени: человеку всё равно,

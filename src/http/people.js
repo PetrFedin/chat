@@ -62,6 +62,36 @@ export function createPeopleHandler() {
           throw Object.assign(new Error('Такого часового пояса нет'), { code: 'INVALID_TIMEZONE', statusCode: 400, expose: true });
         }
       }
+      if (body.workingDays !== undefined) {
+        if (!Array.isArray(body.workingDays)) {
+          throw Object.assign(new Error('Рабочие дни должны быть списком'), { code: 'INVALID_WORKING_DAYS', statusCode: 400, expose: true });
+        }
+        const days=[...new Set(body.workingDays.map(Number))].sort((a,b)=>a-b);
+        if (!days.length || days.some(day=>!Number.isInteger(day)||day<0||day>6)) {
+          throw Object.assign(new Error('Рабочие дни — числа от 0 до 6'), { code: 'INVALID_WORKING_DAYS', statusCode: 400, expose: true });
+        }
+        patch.workingDays=days;
+      }
+      const hm=(value)=>{
+        const match=String(value??'').match(/^(\d{2}):(\d{2})$/);
+        if(!match)return null;
+        const h=Number(match[1]),m=Number(match[2]);
+        return h<=23&&m<=59?{text:String(value),minutes:h*60+m}:null;
+      };
+      const hasWorkStart=body.workdayStart!==undefined,hasWorkEnd=body.workdayEnd!==undefined;
+      if(hasWorkStart!==hasWorkEnd) {
+        throw Object.assign(new Error('Начало и конец рабочего дня меняются вместе'),{code:'INVALID_WORKING_HOURS',statusCode:400,expose:true});
+      }
+      const workStart=hasWorkStart?hm(body.workdayStart):null;
+      const workEnd=hasWorkEnd?hm(body.workdayEnd):null;
+      if(body.workdayStart!==undefined&&!workStart)throw Object.assign(new Error('Начало рабочего дня — HH:MM'),{code:'INVALID_WORKING_HOURS',statusCode:400,expose:true});
+      if(body.workdayEnd!==undefined&&!workEnd)throw Object.assign(new Error('Конец рабочего дня — HH:MM'),{code:'INVALID_WORKING_HOURS',statusCode:400,expose:true});
+      if(workStart)patch.workdayStart=workStart.text;
+      if(workEnd)patch.workdayEnd=workEnd.text;
+      if(workStart&&workEnd&&workEnd.minutes<=workStart.minutes) {
+        throw Object.assign(new Error('Конец рабочего дня должен быть позже начала'),{code:'INVALID_WORKING_HOURS',statusCode:400,expose:true});
+      }
+
       if (body.startedOn !== undefined) {
         // Соседние поля проходят через cleanText; дата уходила в базу
         // сырой и возвращалась пятисоткой на «когда-то».

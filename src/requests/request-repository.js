@@ -474,6 +474,41 @@ export function createRequestRepository({ pool, store = null } = {}) {
     /**
      * Очередь — для людей, которые отвечают, а не для оценки сотрудников: счётчики и сроки по статусам без разбивки по персонам.
      */
+    /**
+     * Realtime audience mirrors Request Authority read visibility.
+     * Never broadcast even a request id workspace-wide: unrelated staff must
+     * not learn that a private request exists.
+     */
+    async audience(session, id) {
+      const { rows } = await pool.query(
+        `SELECT * FROM requests WHERE workspace_id=$1 AND id=$2`,
+        [session.workspaceId, id]);
+      const request = rows[0];
+      if (!request) throw fail('Заявка не найдена', 'REQUEST_NOT_FOUND', 404);
+      const audience = new Set([request.requester_id]);
+
+      const { rows: managers } = await pool.query(
+        `SELECT m.user_id FROM memberships m JOIN users u ON u.id=m.user_id
+          WHERE m.workspace_id=$1 AND m.role=ANY($2::text[]) AND u.disabled_at IS NULL`,
+        [session.workspaceId, ['owner', 'admin']]);
+      for (const row of managers) audience.add(row.user_id);
+
+      const { rows: decided } = await pool.query(
+        `SELECT DISTINCT decided_by FROM request_steps
+          WHERE request_id=$1 AND decided_by IS NOT NULL`, [id]);
+      for (const row of decided) audience.add(row.decided_by);
+
+      if (request.status === 'submitted') {
+        const { rows: current } = await pool.query(
+          `SELECT * FROM request_steps WHERE request_id=$1 AND step=$2 AND decision='pending'`,
+          [id, request.current_step]);
+        if (current[0]) {
+          for (const userId of await approversOf(pool, request, current[0])) audience.add(userId);
+        }
+      }
+      return [...audience];
+    },
+
     async queue(session) {
       const { rows } = await pool.query(
         `SELECT count(*) FILTER (WHERE status='submitted')::int pending,

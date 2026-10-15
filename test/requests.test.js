@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createChatServer } from '../src/server.js';
-import { validateValues, normalizeFields, normalizeApproval } from '../src/requests/request-repository.js';
+import { validateValues, normalizeFields, normalizeApproval, createRequestRepository } from '../src/requests/request-repository.js';
 
 const DATABASE_URL = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 const skip = !DATABASE_URL && 'нет базы';
@@ -172,4 +172,43 @@ test('в компании из одного владельца шаг, на ко
   assert.equal(sent.status, 201);
   assert.equal(sent.payload.request.status, 'approved');
   assert.ok(sent.payload.request.events.some((e) => e.event === 'step_skipped'));
+});
+
+
+test('realtime request audience never includes an unrelated workspace member', { skip }, async (t) => {
+  const { app, base, people } = await company(t);
+  const template = await call(base, '/api/v1/request-templates', {
+    cookie: people.owner.cookie, method: 'POST', body: purchaseTemplate(),
+  });
+  const submitted = await call(base, '/api/v1/requests', {
+    cookie: people.alice.cookie, method: 'POST',
+    body: { templateId: template.payload.template.id, values: { item: 'Private purchase', amount: 3000 } },
+  });
+  assert.equal(submitted.status, 201);
+  const id = submitted.payload.request.id;
+
+  const ownerBoot = await call(base, '/api/v1/bootstrap', { cookie: people.owner.cookie });
+  const repository = createRequestRepository({ pool: app.store.pool, store: app.store });
+  const session = ownerBoot.payload.session;
+
+  const pendingAudience = new Set(await repository.audience(session, id));
+  assert.ok(pendingAudience.has(people.alice.id), 'requester receives updates');
+  assert.ok(pendingAudience.has(people.manager.id), 'current approver receives updates');
+  assert.ok(pendingAudience.has(people.admin.id), 'admin can read and receives updates');
+  assert.ok(pendingAudience.has(people.owner.id), 'owner can read and receives updates');
+  assert.equal(pendingAudience.has(people.bob.id), false, 'unrelated member must not learn request existence');
+  assert.equal(pendingAudience.has(people.guest.id), false, 'guest must not learn request existence');
+
+  const approved = await call(base, `/api/v1/requests/${id}/decision`, {
+    cookie: people.manager.cookie, method: 'POST', body: { decision: 'approve' },
+  });
+  assert.equal(approved.status, 200);
+  const decidedAudience = new Set(await repository.audience(session, id));
+  assert.ok(decidedAudience.has(people.manager.id), 'a prior decider keeps visibility to the request');
+  assert.equal(decidedAudience.has(people.bob.id), false);
+
+  const { readFile } = await import('node:fs/promises');
+  const handler = await readFile(new URL('../src/http/requests.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(handler, /broadcastWorkspace\?\.\(session\.workspaceId, 'request\.updated'/);
+  assert.match(handler, /broadcastUsers\?\.\(session\.workspaceId, audience, 'request\.updated'/);
 });

@@ -36,19 +36,229 @@ Meeting Intelligence stays frozen except bug/security fixes until these gates ar
 | External PM | Plane/Vikunja | REFERENCE |
 
 ## Phase 0 — Golden Path and single task authority
-Run:
+
+**Implementation status (2026-10-06): Golden Path GREEN; Single Task Authority GREEN.**
+
+The canonical P0 is now exercised against the real application and PostgreSQL rather than only the isolated `commitment.js` domain model:
+
 `registration -> employees -> group -> membership -> message -> reply/pin/forward/file/voice -> task -> accept -> start -> block/resume -> evidence -> review -> return -> resubmit -> accept result -> close -> notifications/deep links`
 
-Then collapse current duplicate task truth into one domain model.
+Current proof:
+- API + PostgreSQL Golden Path is mandatory in `npm run test:p0`;
+- real Chromium boot is verified against PostgreSQL on desktop and mobile viewports;
+- a multi-session browser workflow drives owner and worker through group -> message -> task -> return -> resubmit -> accepted result -> close;
+- unexpected API `5xx` responses fail the browser gate;
+- group creation is now reachable from the Messages UI instead of existing only as dormant modal code;
+- file and voice payloads, membership add/remove and exact message/task deep-links are covered by the same P0 contract.
+
+Local visual QA uses `/preview.html` with live **Phone 390x844 / Tablet 834x1112 / Monitor 1440x900** shells. This is a development/QA surface only; it must not become a separate product UI or source of responsive truth.
+
+Single Task Authority proof:
+- the historical parallel `commitment.js` implementation no longer exists in the repository;
+- transition graph, actor permissions, evidence gate, reason rules and optimistic-version checks are canonical in `src/task/task-authority.js`;
+- both memory and PostgreSQL stores call that authority rather than maintaining independent transition tables;
+- UI renders server-provided `allowedTransitions`; its local reason prompt is presentation only and server validation remains decisive.
+
+Remaining Phase 0 work:
+1. keep the browser Golden Path as a mandatory release gate;
+2. prevent future transition/state-machine duplication with authority-focused tests/code review;
+3. preserve one canonical transition/evidence/acceptance model across PostgreSQL, API and UI.
 
 ## Phase 1 — Task <-> Calendar
+
+**Implementation status (2026-10-06): core authority slice GREEN; scheduling UX expansion remains open.**
+
 Task may propose/own scheduling context; Calendar owns time blocks/events. Move/delete/reschedule are audited. Calendar status never becomes a second task status. Add ICS interoperability later via ical.js.
 
+Already proven in P0:
+- `task_block` cannot exist without a canonical `commitmentId`;
+- a task exposes its linked calendar blocks without copying calendar state into task status;
+- moving a task block updates Calendar while leaving task status/version unchanged;
+- deleting a task block removes scheduling context while leaving task execution state unchanged;
+- link/move/unlink events are written into the task audit trail;
+- the browser workflow creates, opens, moves and removes a task block through the UI;
+- concrete non-recurring collisions are rejected with `409 CALENDAR_CONFLICT`;
+- the user must explicitly confirm `allowConflict` before saving over an existing personal calendar block;
+- changing a task deadline never moves Calendar silently: linked blocks ending after the new promise are surfaced as **Schedule Impact / needs rescheduling** in the task card and remain directly openable for correction;
+- Schedule Impact now has a first-class deterministic reschedule proposal: for a late task block ChatX finds the latest concrete conflict-free slot of the same duration before the promised deadline, shows current vs suggested time, allows the user to edit it, and requires an explicit approve or reject with a reason;
+- proposal resolution is auditable (`calendar.reschedule_proposal_approved` / `calendar.reschedule_proposal_rejected`), approval writes the canonical Calendar move in the same transaction and resets participant responses exactly like a consequential time change;
+- team-calendar authority is respected: when a manager may move another person's task block, collision checks use the block owner's calendar rather than the manager's own schedule;
+- conflict detection now expands recurring RRULE series inside the candidate interval and applies stored occurrence exceptions, so a weekly/monthly series is no longer invisible to create/move/proposal checks;
+- reschedule proposals use the same combined concrete + recurring conflict engine rather than a weaker parallel availability model;
+- create/edit conflicts now open a first-class ChatX conflict-resolution surface instead of a native browser confirm: the user sees every visible overlapping event with exact time and recurring-series context, then either returns to edit the time or explicitly chooses Save anyway;
+- conflict preview is a read-only API contract (GET /api/v1/calendar-conflicts) backed by the same concrete + RRULE + occurrence-exception engine as the write-time gate, including correct task-block-owner availability when a manager edits another person's calendar block;
+- the headed PostgreSQL browser Golden Path proves the full collision flow: busy event -> 409 CALENDAR_CONFLICT -> in-app conflict detail -> explicit override -> canonical event creation;
+- Working Schedule is now explicit canonical profile data: working days plus workday start/end use the person's existing timezone. Quiet hours remain a separate notification preference rather than being reused as work availability;
+- deterministic reschedule proposals now search only future candidate intervals and require the entire block to fit the task-block owner's Working Schedule;
+- operational absence is layered on top of the schedule: vacation/sick/trip block proposals until the declared return (or indefinitely while active), while away/lunch only constrain scheduling when a concrete back-at time exists;
+- proposal scoring still uses the same concrete + recurring conflict engine and exposes explainability metadata in the UI: working schedule, calendar conflicts avoided, off-hours candidates skipped and availability candidates skipped.
+
+Current proposal boundary is explicit: one working interval per day and a 14-day search window. Split shifts, per-day hours, resource calendars and richer multi-person optimisation are not claimed yet. This remains deterministic scheduling assistance, not automatic rescheduling or AI authority.
+
+Phase 1 interaction proof:
+- Calendar now exposes Day / Week / Agenda / Month as one responsive surface; phone defaults to a 14-day Agenda while tablet/desktop default to Week, with the same canonical event data and no parallel mobile calendar model;
+- the P0 viewport gate proves phone 390x844, tablet 834x1112 and monitor 1440x900 without horizontal overflow and with the expected calendar mode;
+- fine-pointer Week/Month views support drag-to-date as a proposal, not a blind mutation: the client first requests a read-only move preview, preserves the event wall-clock time/duration in its timezone, shows resulting conflicts, and requires an explicit human reason before write;
+- the server recomputes the move, runs the canonical concrete + RRULE conflict gate, resets participant responses for a consequential time change and records `calendar.event_moved` audit with previous/new interval, actor, reason and source;
+- task blocks continue to write their existing `calendar.block_moved` task audit as well, so calendar interaction never becomes a second task state machine;
+- touch/mobile does not pretend HTML drag is reliable: Agenda remains the primary phone interaction and ordinary edit/reschedule actions remain available.
+
+Remaining Phase 1 boundary:
+- later external calendar import/two-way sync per the integration phases;
+- richer split-shift/per-day/resource/multi-person availability can extend the deterministic proposal engine later without changing Calendar authority.
+
+**Phase 1 status: GREEN for the internal Task <-> Calendar authority and interaction loop.**
+
 ## Phase 2 — Projects
-Native project, milestone, dependency, checklist and collaborator entities reference existing tasks/files/channels/decisions. Plane/Vikunja are design references only.
+
+**Implementation status (2026-10-07): native Project Authority and Operating Cockpit IN PROGRESS.**
+
+Native project, milestone, dependency, checklist and collaborator entities reference existing tasks/files/channels/decisions. Plane/Vikunja and the 2026-10-07 product-reference video are design/interaction references only.
+
+Current implementation on `feat/projects-operating-cockpit`:
+
+- PostgreSQL Project Authority: project metadata, visibility, owner, members and optimistic version;
+- project-task relation references canonical `commitments`; task status is never copied into Project;
+- creating a task from Project uses the same PostgresStore Task Authority inside the same database transaction as the project link;
+- a task belongs to at most one Project context in the first version, preventing contradictory portfolio ownership;
+- project milestones are native project target points with their own optimistic version;
+- project detail projects visible canonical tasks into progress, blocked/overdue counts and workload;
+- Project Operating Cockpit exposes portfolio -> project -> progress -> workload -> execution risk -> execution board -> milestones -> team;
+- Project Home can create canonical tasks, milestones and members directly; these actions call server authorities rather than keeping client-only state;
+- Project risk is explainable rather than scored: overdue work, unresolved task dependencies, forecast beyond promise and work beyond the project target are derived from canonical Task/Milestone data;
+- Project analytics now derives 30-day tracked time and throughput from existing time entries and task closure data;
+- monitor/tablet expose Projects in the left work rail; phone preserves the five-item bottom navigation and reaches Projects through More;
+- a dedicated PostgreSQL browser E2E covers create project -> milestone -> canonical task -> planned board -> canonical Task detail plus tablet/phone navigation;
+- Kanban columns are a read-only projection of canonical task states. Card movement must not be enabled until it invokes the normal Task Authority transition contract;
+- members-only projects return 404 to non-members instead of leaking that a private project exists;
+- guests cannot enter the Projects module.
+
+### 2026-10-07 reference-video integration matrix
+
+The supplied MP4 was reviewed from the source file, not only from screenshots. Its useful pattern is a compact project-management operating surface with first-class Projects, project KPIs, board execution, people/workload, calendar/time adjacency and appearance preferences.
+
+**ADOPT / integrate into ChatX**
+
+- first-class Projects navigation on monitor/tablet;
+- compact project portfolio and Project Home;
+- project KPI/progress surface derived from canonical work;
+- Kanban execution board derived from Task Authority;
+- project team/workload view;
+- milestone and schedule adjacency;
+- project-scoped time and throughput analytics;
+- compact information density for monitor/tablet;
+- later: accent colour preference and first-day-of-week preference.
+
+**ALREADY STRONGER IN CHATX — do not duplicate**
+
+- Tasks with accountable owner/acceptor, evidence, review, return/resubmit and closure;
+- Calendar with conflict authority, working schedule and audited move/reschedule;
+- Team/people and organisation structure;
+- Time tracking and time report;
+- Dashboard metrics;
+- notifications/mentions;
+- search;
+- messaging/calls/files.
+
+These capabilities should gain project-scoped views/links rather than new parallel systems.
+
+**DO NOT COPY**
+
+- a second task status machine owned by a Kanban board;
+- a separate project calendar truth;
+- a second time-tracking engine;
+- dashboard numbers stored independently from Task/Time authorities;
+- cosmetic drag-and-drop that bypasses transition permissions, evidence gates or audit.
+
+**NEXT acceptance for Phase 2**
+
+1. PostgreSQL/API Project test green for owner/lead/member/outsider;
+2. project create -> member -> milestone -> task -> task transition -> updated project projection;
+3. project board cards open the canonical Task;
+4. project-scoped time/throughput analytics use existing time-entry/task-report sources;
+5. governed board transition proposal calls Task Authority and handles invalid transitions honestly;
+6. responsive phone/tablet/monitor UI without duplicate mobile business logic;
+7. roadmap and OpenAPI updated in the same change.
+
+**Project ↔ Calendar authority (2026-10-07, IN PROGRESS)**
+
+The first Calendar integration deliberately avoids a second date authority:
+
+- project milestones stay authoritative in `project_milestones`;
+- Calendar reads them as read-only virtual milestone layers, so changing a milestone date in Project is visible on the next Calendar read without synchronisation jobs or copied rows;
+- canonical Calendar task blocks keep owning their scheduled time and receive `projectId/projectName` through the existing `project_tasks -> commitments` relation;
+- `GET /api/v1/calendar-events?projectId=<uuid>` returns only task blocks linked to that visible project plus that project's milestone projections;
+- private project filters return 404 to outsiders; guest users receive no project milestone layer;
+- unfiltered Calendar shows milestones for all projects already visible to the viewer;
+- moving a task block still uses Calendar conflict/move/audit authority and never mutates task deadline or milestone target;
+- milestone projections are read-only and cannot be dragged or edited from Calendar.
+
+Acceptance proof lives in `test/project-calendar-postgres.test.js`: project -> milestone -> canonical task -> task block -> filtered Calendar -> outsider 404 -> milestone target update -> Calendar immediately reflects the new target exactly once.
+
+**Tenant-simulation release gate (2026-10-08): COMPLETE / GREEN**
+
+Project/Task/Calendar authority is now exercised as a company rather than only as isolated modules:
+- Multi-role Tenant v1 covers Owner/Admin/Manager/Employee/Reviewer/Observer/Guest in one PostgreSQL workspace;
+- Parallel Workday covers concurrent work across multiple people and projects;
+- Failure & Recovery covers idempotent retry after a lost response, stale-version recovery, expired sessions and membership changes;
+- Project membership is serialized with project task admission/removal: a person with unfinished canonical project work cannot be removed, preventing Project and Task authorities from contradicting each other under concurrent requests;
+- Cross-role Leakage now attacks Guest / Observer / removed-member access through stale Project ID, Task ID, Message ID, message deep links/history, Calendar project filters, unfiltered milestone projection, Search results, file list/content/preview, notification links and canonical task evidence. Where the object is outside the caller's authority, the direct route returns 404 and discovery surfaces omit the object and its private metadata.
+
+Exact-head acceptance: CI #323 on `8f51d04d0186aa1610e4258ea989d24b61b7f1a0` passed domain tests, all PostgreSQL constraint gates and the full PostgreSQL suite (1315/1315). `postgres-webhook-fairness` also passed, and the run contained no `deadlock detected`, `lock timeout` or `could not obtain lock` signal.
+
+This tenant simulation is a permanent release gate for future execution-layer work, not a temporary test fixture.
+
+**Project ↔ Files / Discussion / Decision composition (2026-10-10): COMPLETE / GREEN**
+
+The Project layer now composes three existing authorities without copying their state:
+
+- `project_files` is a relation to canonical File Authority. Project never owns file bytes, storage keys, file lifecycle or a second ACL.
+- `project_discussions` is a relation to canonical Conversation Authority. Project membership never adds conversation membership.
+- canonical `decisions` now gives each accepted decision a stable address across both sources: accepted Meeting Intelligence proposals use their proposal UUID; manual meeting-note decisions receive per-decision UUIDs, preserve identity for unchanged lines across reorder and retract prior records when wording is replaced or removed.
+- `project_decisions` is a relation to that Decision Authority. Linking requires the actor to already see the canonical decision, and projection calls the same `getDecision` visibility rule on every read. Project membership therefore cannot escalate source-meeting access.
+- all Project relation tables remain workspace-bounded; the Decision relation has database-level cross-workspace rejection and canonical-delete cascade proof.
+- the browser surface links decisions from the existing Decision Register and renders canonical source/acceptance metadata rather than a Project-owned copy.
+
+Exact-head acceptance: CI #362 on `e9be25d0dcf4905a53def35ad9125de445ee4cc3` passed domain tests, every PostgreSQL constraint gate and the full PostgreSQL suite **1319/1319**. It explicitly passed `Project <-> Decision composes canonical Decision Authority without ACL escalation` and the combined browser Golden Path `create -> file -> discussion -> decision -> milestone -> task -> board -> canonical task`.
+
+**Decision boundary after admission**
+
+The identity prerequisite discovered in the previous slice is now resolved. Project <-> Decision is admitted without inventing a parallel decision model. The remaining Decision Register work is semantic enrichment of the same authority: explicit owner, effective date, supersedes links, evidence and affected-project semantics. Those fields must not be inferred from Project membership or AI output; AI may propose and a human remains the confirmation authority.
+
+**Still intentionally open after this slice**
+
+- richer Decision Register semantics listed above;
+- richer portfolio cross-project capacity/critical-path analysis;
+- reference-video personalisation: accent palette and first-day-of-week preference.
+
+These remain below the already-green Project execution/composition gate and must not reopen Task, Calendar, File, Conversation or Decision authority boundaries.
 
 ## Phase 3 — Pages/wiki
-Use Tiptap with hierarchy, links, mentions, history, ACL and relations to project/task/meeting/channel. Critical task state never lives only in page text.
+
+**Implementation status (2026-10-11): existing Wiki foundation retained; Page <-> Project GREEN; bounded structured JSON persistence GREEN; visual Tiptap editor and rich-content rendering still OPEN.**
+
+Gap audit before this phase confirmed that ChatX already had a canonical PostgreSQL Wiki authority with unlimited hierarchy, version history, optimistic concurrency, Russian full-text search and soft archive. Phase 3 therefore evolves that authority instead of introducing another page store.
+
+Admitted first slice:
+- `wiki_page_projects` is relation-only; neither Page nor Project copies the other's state;
+- Project visibility remains canonical in Project Authority on every Page read;
+- a workspace-visible Page cannot leak a members-only Project relation, name or existence to a caller who cannot already open the Project;
+- once canonical Project membership is granted, the same stored relation becomes visible automatically;
+- cross-workspace Page <-> Project is rejected in PostgreSQL;
+- browser flow proves link -> render -> open canonical Project -> unlink, while unlink leaves canonical Project state intact.
+
+Exact-head proof: CI #377 on `92d6b4b9910a0beed685c5c6787f7002cf964ce5` passed domain tests, all PostgreSQL constraint gates and the full PostgreSQL suite **1321/1321**, including the dedicated non-leakage and real-Chromium Page relation tests.
+
+Structured JSON is now stored in canonical `wiki_pages.document` with a versioned history snapshot; `content` remains a derived search projection, and legacy text-only pages remain supported. The existing plain-text dialog now uses `hasStructuredDocument` from canonical persistence: legacy pages remain editable, while persisted structured pages allow title-only edits until the rich editor is admitted. No claim is made that Tiptap is rendered or editing rich content in production.
+
+Next Phase 3 boundary:
+1. introduce a structured page document contract and Tiptap editor without creating a second Page authority;
+2. preserve compatibility/migration for existing plain-text Wiki content;
+3. add explicit page links and mentions on top of that structured contract;
+4. add per-page ACL only after its relationship model is explicit and tested for non-leakage;
+5. compose Page relations to canonical Task / Meeting / Channel authorities using the same relation-only rule already proven for Project.
+
+Critical task/project state never lives only in page text.
 
 ## Phase 4 — Document extraction + search
 Tika extracts authorised content from common office/PDF files with file/version/page/section lineage. Typesense indexes messages/pages/files/tasks/projects/decisions/people as rebuildable search. Application checks permission on every result.
@@ -63,6 +273,8 @@ Add self-hosted STT provider behind existing Meeting Intelligence interface. Kee
 
 ## Phase 7 — Decision Register
 Confirmed decision contains source meeting/message, owner, affected project, effective date, supersedes links and evidence. AI may propose; human confirms.
+
+**Identity prerequisite satisfied 2026-10-10:** accepted decisions from recorded Meeting Intelligence and manual meeting notes now resolve to individually addressable canonical `decisions` records, and Project <-> Decision composes that authority without ACL escalation. Remaining Phase 7 work is the richer decision contract: explicit owner, effective date, supersedes links, evidence and affected-project semantics. AI may propose these fields, but human confirmation remains authoritative.
 
 ## Phase 8 — Source-linked AI Catch-up
 Summarise changes, decisions, tasks, blockers, mentions and files with source links. Langfuse traces/evaluates AI while respecting workspace privacy.
@@ -1150,129 +1362,3 @@ Examples:
 
 **Moat:** ChatX can become a trusted execution network where work completion and extension quality are independently verifiable rather than merely asserted.
 
-
-
-## Institutional adoption wave — Inter-company Execution Network
-
-This wave turns ChatX's Execution Receipt Standard, workflow profiles and verified extension layer into shared infrastructure for work that crosses organisational boundaries.
-
-### Execution Receipt Interchange Specification — ADOPT
-
-Define a versioned portable schema for:
-
-- originating request/decision;
-- organisation identities;
-- workflow/profile;
-- actor/role;
-- action;
-- evidence references;
-- approval/acceptance state;
-- timestamp;
-- receipt hash/version;
-- disclosure/minimum-view policy.
-
-The specification supports verification without exposing the originating workspace.
-
-### Reference Cross-company Workflow — ADOPT
-
-Publish a synthetic example:
-
-`client request -> supplier workspace -> deliverable -> reviewer acceptance -> execution receipt -> external verification`
-
-No real company/user data.
-
-### External Organisation Identity — ADOPT
-
-Create scoped organisation identities for:
-
-- customer;
-- supplier;
-- agency;
-- contractor;
-- auditor/reviewer;
-- implementation partner.
-
-Identity is separate from a user's personal account and from extension-publisher identity.
-
-### Bilateral / Multi-party Acceptance — ADOPT
-
-Support receipts where completion requires explicit acceptance by:
-
-- requester;
-- supplier;
-- reviewer;
-- multiple parties where contractually required.
-
-No party can silently forge the other's acceptance.
-
-### Verified Workflow Network — ADOPT
-
-Organisations may advertise support for exact profiles such as:
-
-- Decision-to-Execution;
-- Client Request-to-Acceptance;
-- External Workroom Handoff;
-- Evidence Review;
-- Integration Qualification.
-
-This is workflow compatibility, not general company reputation.
-
-### Federated Workrooms — CONDITIONAL
-
-Allow controlled inter-company workrooms with:
-
-- scoped membership;
-- bounded data projection;
-- explicit retention/export;
-- external receipt generation;
-- tenant-isolated internal work.
-
-A federated workroom must not become an accidental shared database.
-
-### Enterprise / OEM Distribution — ADOPT
-
-Potential packages:
-
-- Enterprise Work Graph;
-- External Workrooms;
-- Execution Receipt API;
-- Workflow Certification;
-- Extension Marketplace;
-- Embedded approval/request components.
-
-### Partner Contribution / Template Marketplace — ADOPT
-
-Approved partners can publish:
-
-- workflow templates;
-- extension packages;
-- receipt profiles;
-- integration adapters.
-
-Every publication is versioned, scoped and reviewable.
-
-### Legitimate Switching Cost — ADOPT
-
-Compounding value:
-
-- decision/action lineage;
-- acceptance history;
-- reusable workflow templates;
-- partner integrations;
-- external organisation graph;
-- receipt verification history;
-- extension compatibility history.
-
-Data remains exportable; continuity and network integration create retention.
-
-### Additional acceptance
-
-- portable receipt reveals only explicitly allowed fields;
-- bilateral acceptance is cryptographically/auditably attributable where implemented;
-- organisation trust is never reduced to an opaque universal score;
-- federated workrooms preserve tenant authority boundaries;
-- third-party templates cannot bypass capability/security policy.
-
-**Sequencing:** Execution Receipt Standard -> interchange schema -> reference workflow -> organisation identities -> bilateral acceptance -> federated workrooms -> enterprise network.
-
-**Moat:** ChatX evolves from internal collaboration software into a verifiable cross-company execution rail.

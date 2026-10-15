@@ -170,10 +170,9 @@ test('связь «это ждёт то» объясняет застрявше�
 });
 
 /**
- * Семь таблиц, за которыми не было кода, убраны из схемы.
- *
- * Пустая таблица врёт следующему разработчику («это уже есть, просто не
- * доделали экран») и тому, кто читает базу, чтобы понять продукт.
+ * Мёртвые schema promises остаются запрещены. Projects больше не входят
+ * в этот список: с migration 072 за ними есть native authority/repository/API
+ * и отдельный PostgreSQL contract test.
  */
 test('в схеме не осталось таблиц-обещаний',
   { skip: !DATABASE_URL && 'нет базы' }, async (t) => {
@@ -182,17 +181,16 @@ test('в схеме не осталось таблиц-обещаний',
   const { rows } = await pool.query(
     `SELECT table_name FROM information_schema.tables
       WHERE table_schema='public' AND table_name = ANY($1::text[])`,
-    [['projects', 'project_members', 'teams', 'team_members', 'calendar_blocks', 'device_registrations', 'message_receipts']]);
+    [['teams', 'team_members', 'calendar_blocks', 'device_registrations', 'message_receipts']]);
   assert.deepEqual(rows.map((r) => r.table_name), [], `в схеме остались таблицы без кода: ${rows.map((r) => r.table_name).join(', ')}`);
 
   const { rows: columns } = await pool.query(
     `SELECT column_name FROM information_schema.columns WHERE table_name='commitments' AND column_name='project_id'`);
-  assert.deepEqual(columns, [], 'у обязательства осталась ссылка на проект, которого нет');
+  assert.deepEqual(columns, [], 'Task не должен хранить второй project status/context в commitments');
 
-  // А те три, что остались, теперь с кодом — и это проверяют тесты выше.
   const { rows: kept } = await pool.query(
     `SELECT table_name FROM information_schema.tables
       WHERE table_schema='public' AND table_name = ANY($1::text[])`,
-    [['task_checklist_items', 'task_collaborators', 'task_dependencies']]);
-  assert.equal(kept.length, 3);
+    [['task_checklist_items', 'task_collaborators', 'task_dependencies', 'projects', 'project_members', 'project_tasks', 'project_milestones']]);
+  assert.equal(kept.length, 7, 'живые Task/Project authority tables должны присутствовать');
 });

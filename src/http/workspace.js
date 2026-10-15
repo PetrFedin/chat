@@ -229,6 +229,28 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{title:'Задача передана',body:task.title,url:`/#/tasks/${task.id}`,kind:'task.assigned'});
     json(res,200,{task});return true
   }
+  m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule-proposal$`,'i'));
+  if(m&&method==='GET'){
+    const s=await requireSession(req);
+    if(!ctx.calendar?.suggestTaskBlockReschedule)throw Object.assign(new Error('Предложения перепланирования требуют PostgreSQL Calendar'),{code:'POSTGRES_REQUIRED',statusCode:503,expose:true});
+    const task=await store.getTask(s,m[1]);if(!task)throw Object.assign(new Error('Задача не найдена'),{code:'TASK_NOT_FOUND',statusCode:404,expose:true});
+    if(!task.promisedAt)throw Object.assign(new Error('У задачи нет обещанного срока'),{code:'TASK_DEADLINE_REQUIRED',statusCode:409,expose:true});
+    const eventId=url.searchParams.get('eventId');
+    if(!eventId)throw Object.assign(new Error('Не указан блок календаря'),{code:'CALENDAR_EVENT_REQUIRED',statusCode:400,expose:true});
+    const proposal=await ctx.calendar.suggestTaskBlockReschedule(s,eventId,{deadline:task.promisedAt});
+    if(proposal.commitmentId!==task.id)throw Object.assign(new Error('Блок относится к другой задаче'),{code:'TASK_BLOCK_MISMATCH',statusCode:409,expose:true});
+    json(res,200,{proposal});return true
+  }
+  if(m&&method==='POST'){
+    const s=await requireSession(req),b=await readJson(req);
+    if(!ctx.calendar?.resolveTaskBlockReschedule)throw Object.assign(new Error('Предложения перепланирования требуют PostgreSQL Calendar'),{code:'POSTGRES_REQUIRED',statusCode:503,expose:true});
+    const task=await store.getTask(s,m[1]);if(!task)throw Object.assign(new Error('Задача не найдена'),{code:'TASK_NOT_FOUND',statusCode:404,expose:true});
+    if(!task.promisedAt)throw Object.assign(new Error('У задачи нет обещанного срока'),{code:'TASK_DEADLINE_REQUIRED',statusCode:409,expose:true});
+    const result=await ctx.calendar.resolveTaskBlockReschedule(s,b.eventId,{action:b.action,startAt:b.startAt??null,endAt:b.endAt??null,deadline:task.promisedAt,reason:b.reason,expectedVersion:b.expectedVersion,allowConflict:Boolean(b.allowConflict)});
+    hub.broadcastUsers(s.workspaceId,[task.ownerId,task.requesterId,task.acceptorId].filter(Boolean),'calendar.updated',result.event);
+    json(res,200,result);return true
+  }
+
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/schedule$`,'i'));
   if(m&&method==='PATCH'){
     const s=await requireSession(req),b=await readJson(req),task=await store.rescheduleTask(s,m[1],{promisedAt:toDateOrNull(b.promisedAt),forecastAt:toDateOrNull(b.forecastAt),reason:b.reason,expectedVersion:b.expectedVersion});
@@ -241,7 +263,16 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
       body:`${task.title}: ${when}${why}`});
     await notifyUsers(s.workspaceId,audience.filter(id=>id!==s.userId),{kind:'task.rescheduled',title:'Срок задачи изменён',body:task.title,url:`/#/tasks/${task.id}`});json(res,200,{task});return true
   }
-  if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=toDateOrNull(url.searchParams.get('from')),to=toDateOrNull(url.searchParams.get('to'));json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to}):await store.listCalendar(s,from,to)});return true}
+  if(path==='/api/v1/calendar-conflicts'&&method==='GET'){
+    const s=await requireSession(req);
+    if(!ctx.calendar?.findConflicts)throw Object.assign(new Error('Проверка конфликтов требует PostgreSQL Calendar'),{code:'POSTGRES_REQUIRED',statusCode:503,expose:true});
+    const startAt=toDateOrNull(url.searchParams.get('startAt')),endAt=toDateOrNull(url.searchParams.get('endAt'));
+    if(!startAt||!endAt||Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Нужен корректный интервал'),{code:'INVALID_CALENDAR_RANGE',statusCode:400,expose:true});
+    const excludeEventId=url.searchParams.get('eventId')||null;
+    const items=await ctx.calendar.findConflicts(s,{startAt,endAt,excludeEventId});
+    json(res,200,{items});return true
+  }
+  if(path==='/api/v1/calendar-events'&&method==='GET'){const s=await requireSession(req),from=toDateOrNull(url.searchParams.get('from')),to=toDateOrNull(url.searchParams.get('to')),projectId=url.searchParams.get('projectId')||null;if(projectId&&!/^[0-9a-f-]{36}$/i.test(projectId))throw Object.assign(new Error('Invalid project id'),{code:'INVALID_PROJECT_ID',statusCode:400,expose:true});json(res,200,{items:ctx.calendar?await ctx.calendar.listRange(s,{from,to,projectId}):await store.listCalendar(s,from,to)});return true}
   if(path==='/api/v1/calendar-events'&&method==='POST'){const s=await requireSession(req);requirePermission(s.role,Permission.CALENDAR_CREATE);const b=await readJson(req);
     // Раньше здесь стоял голый new Date: `null` давал первое января
     // 1970-го, а несуществующий день молча съезжал на следующий.
@@ -251,11 +282,13 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
     // раньше человек узнавал о нём фразой «A value failed a validation
     // rule» из базы, хотя в форме поле не помечено обязательным.
     const needsEnd=['meeting','focus','task_block'].includes(b.kind??'meeting');
-    if(needsEnd&&!endAt)throw Object.assign(new Error('У встречи должно быть время окончания'),{code:'CALENDAR_END_REQUIRED',statusCode:400,expose:true});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Встреча должна закончиться после начала'),{code:'INVALID_CALENDAR_RANGE',statusCode:400,expose:true});// Встречу нельзя «подсадить» в чужую беседу или привязать к задаче, которой человек не видит:
+    if(needsEnd&&!endAt)throw Object.assign(new Error('У встречи должно быть время окончания'),{code:'CALENDAR_END_REQUIRED',statusCode:400,expose:true});if(endAt&&Date.parse(endAt)<=Date.parse(startAt))throw Object.assign(new Error('Встреча должна закончиться после начала'),{code:'INVALID_CALENDAR_RANGE',statusCode:400,expose:true});
+    if((b.kind??'meeting')==='task_block'&&!b.commitmentId)throw Object.assign(new Error('Блок работы должен быть привязан к задаче'),{code:'TASK_BLOCK_TASK_REQUIRED',statusCode:400,expose:true});
+    // Встречу нельзя «подсадить» в чужую беседу или привязать к задаче, которой человек не видит:
     // иначе она попадала в календари участников чужой переписки, а название задачи читалось вслепую.
     if(b.conversationId&&!(await store.canAccessConversation(s,String(b.conversationId))))throw Object.assign(new Error('Беседа не найдена'),{code:'NOT_FOUND',statusCode:404,expose:true});
     if(b.commitmentId&&!(await store.getTask(s,String(b.commitmentId))))throw Object.assign(new Error('Задача не найдена'),{code:'NOT_FOUND',statusCode:404,expose:true});
-    const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:(()=>{const tz=b.timezone??'UTC';if(!validTimezone(tz))throw Object.assign(new Error('Такого часового пояса нет'),{code:'INVALID_TIMEZONE',statusCode:400,expose:true});return tz})(),allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null,recurrenceRule:b.recurrenceRule??null};
+    const draft={kind:b.kind??'meeting',title:cleanText(b.title,240),description:b.description?cleanText(b.description,2000):null,startAt,endAt,timezone:(()=>{const tz=b.timezone??'UTC';if(!validTimezone(tz))throw Object.assign(new Error('Такого часового пояса нет'),{code:'INVALID_TIMEZONE',statusCode:400,expose:true});return tz})(),allDay:Boolean(b.allDay),visibility:b.visibility??'participants',commitmentId:b.commitmentId??null,conversationId:b.conversationId??null,recurrenceRule:b.recurrenceRule??null,allowConflict:Boolean(b.allowConflict)};
     const wanted=Array.isArray(b.participantIds)?b.participantIds.filter(Boolean):[];
     // Встреча и приглашения — одно решение, поэтому и одна транзакция: иначе
     // в календаре оставалась встреча, на которую никого не позвали.
@@ -266,14 +299,23 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
       hub.broadcastUsers(s.workspaceId,[s.userId,...wanted.map(w=>w.userId??w)],'calendar.created',created.event);
       json(res,201,created);return true;
     }
-    // Повторение живёт в репозитории календаря: базовое хранилище про
-    // правило не знает и молча потеряло бы его — встреча завелась бы
-    // одиночной, и человек узнал бы об этом через неделю.
-    if(draft.recurrenceRule){
-      if(!ctx.calendar?.createWithParticipants)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
-      const created=await ctx.calendar.createWithParticipants(s,draft,[]);
-      hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',created.event);
-      json(res,201,created);return true;
+    // Task block and recurrence use the calendar repository even without invitees:
+    // the repository owns calendar audit/recurrence semantics; the base store does not.
+    if(draft.kind==='task_block'||draft.recurrenceRule){
+      if(!ctx.calendar?.createWithParticipants){
+        if(draft.recurrenceRule)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
+      }else{
+        const created=await ctx.calendar.createWithParticipants(s,draft,[]);
+        hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',created.event);
+        json(res,201,created);return true;
+      }
+    }
+    if(endAt&&ctx.calendar?.findConflicts&&!draft.allowConflict){
+      const conflicts=await ctx.calendar.findConflicts(s,{startAt,endAt});
+      if(conflicts.length){
+        const names=conflicts.slice(0,3).map(event=>event.title).join(', ');
+        throw Object.assign(new Error(`Время пересекается с календарём: ${names}. Подтвердите сохранение поверх конфликта.`),{code:'CALENDAR_CONFLICT',statusCode:409,expose:true});
+      }
     }
     const event=await store.createCalendarEvent(s,draft);hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',event);
     json(res,201,{event,invited:0});return true}

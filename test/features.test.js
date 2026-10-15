@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { createChatServer } from '../src/server.js';
-import { FEATURES, dependentsOf, requirementsOf, planChange, featureForPath } from '../src/features/registry.js';
+import { FEATURES, dependentsOf, requirementsOf, planChange, featureForPath, featuresForPath } from '../src/features/registry.js';
 
 const DATABASE_URL = process.env.POSTGRES_TEST_URL || process.env.DATABASE_URL;
 const skip = !DATABASE_URL && 'нет базы';
@@ -21,7 +21,7 @@ test('граф функций: зависимости не циклически�
   const ids = new Set(FEATURES.map((f) => f.id));
   for (const f of FEATURES) for (const need of f.requires) assert.ok(ids.has(need), `${f.id} требует несуществующее ${need}`);
   for (const f of FEATURES) assert.ok(!requirementsOf(f.id).includes(f.id), `цикл в ${f.id}`);
-  assert.deepEqual(dependentsOf('tasks').sort(), ['dashboard', 'time_tracking']);
+  assert.deepEqual(dependentsOf('tasks').sort(), ['dashboard', 'projects', 'time_tracking']);
   assert.deepEqual(dependentsOf('calls').sort(), ['decisions', 'meetings']);
   assert.deepEqual(requirementsOf('decisions').sort(), ['calendar', 'calls', 'meetings']);
 });
@@ -45,6 +45,9 @@ test('маршруты принадлежат функциям', () => {
   assert.equal(featureForPath('/api/v1/tasks/abc/time-entries'), 'time_tracking');
   assert.equal(featureForPath('/api/v1/tasks/report'), 'dashboard');
   assert.equal(featureForPath('/api/v1/tasks/abc'), 'tasks');
+  assert.equal(featureForPath('/api/v1/projects/abc'), 'projects');
+  assert.deepEqual(featuresForPath('/api/v1/wiki/pages/00000000-0000-0000-0000-000000000000/projects'), ['wiki', 'projects']);
+  assert.deepEqual(featuresForPath('/api/v1/projects/00000000-0000-0000-0000-000000000000/tasks'), ['projects', 'tasks']);
   assert.equal(featureForPath('/api/v1/meetings/decisions'), 'decisions');
   assert.equal(featureForPath('/api/v1/requests/queue'), 'requests');
   assert.equal(featureForPath('/api/v1/conversations/x/assistant/summarize'), 'assistant');
@@ -69,7 +72,7 @@ test('выключили задачи — API закрылся вместе с �
 
   assert.equal((await call(base, '/api/v1/features/tasks', { cookie: accepted.cookie, method: 'PUT', body: { enabled: false } })).status, 403, 'менять может не каждый');
   const preview = await call(base, '/api/v1/features/tasks', { cookie: owner.cookie, method: 'PUT', body: { enabled: false, dryRun: true } });
-  assert.deepEqual(preview.payload.changes.map((c) => c.id).sort(), ['dashboard', 'tasks', 'time_tracking']);
+  assert.deepEqual(preview.payload.changes.map((c) => c.id).sort(), ['dashboard', 'projects', 'tasks', 'time_tracking']);
   assert.equal((await call(base, '/api/v1/tasks', { cookie: owner.cookie })).status, 200, 'предпросмотр ничего не меняет');
 
   const off = await call(base, '/api/v1/features/tasks', { cookie: owner.cookie, method: 'PUT', body: { enabled: false } });
@@ -85,7 +88,7 @@ test('выключили задачи — API закрылся вместе с �
   assert.equal((await call(base, '/api/v1/conversations', { cookie: owner.cookie })).status, 200, 'ядро работает');
 
   const on = await call(base, '/api/v1/features/tasks', { cookie: owner.cookie, method: 'PUT', body: { enabled: true } });
-  assert.deepEqual(on.payload.changes.map((c) => c.id).sort(), ['dashboard', 'tasks', 'time_tracking']);
+  assert.deepEqual(on.payload.changes.map((c) => c.id).sort(), ['dashboard', 'projects', 'tasks', 'time_tracking']);
   assert.equal((await call(base, '/api/v1/tasks', { cookie: accepted.cookie })).status, 200);
 
   // Включение зависимой при выключенной основе включает и основу.

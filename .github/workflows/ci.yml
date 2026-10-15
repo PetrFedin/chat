@@ -23,6 +23,8 @@ jobs:
       # would normally fetch its browser) never ran — install the browser
       # explicitly instead, same principle as the Dockerfile comment: no
       # package runs its own code as a side effect of being installed.
+      - name: Build Tiptap Pages editor (local browser bundle)
+        run: sh scripts/build-pages-editor.sh
       - name: Install the headless browser for the smoke test
         run: npx playwright install --with-deps chromium
       - run: npm test
@@ -62,8 +64,6 @@ jobs:
       # not the memory store domain-tests already exercised. Needs its own
       # copy of the browser install for the same reason as domain-tests:
       # `--ignore-scripts` skipped Playwright's postinstall download.
-      - name: Install the headless browser for the smoke test
-        run: npx playwright install --with-deps chromium
       # Ubuntu's own apt repo ships one postgresql-client version tied to
       # the Ubuntu release, while the service above and the shipped
       # Dockerfile are both on 17 — `pg_dump` refuses to dump a server
@@ -80,6 +80,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
           echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+      - name: Build Tiptap Pages editor (local browser bundle)
+        run: sh scripts/build-pages-editor.sh
+      - name: Install the headless browser for the smoke test
+        run: npx playwright install --with-deps chromium
       - name: Apply migrations
         run: npm run migrate
         env:
@@ -128,6 +132,26 @@ jobs:
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chat_test
           POSTGRES_TEST_URL: postgresql://postgres:postgres@localhost:5432/chat_test
+          PROPOSED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           export VAULT_KEY="$(openssl rand -base64 32)"
-          node --test
+          export TESTED_SHA="$(git rev-parse HEAD)"
+          mkdir -p ci-evidence
+          # Run every test. A failing full suite still produces bounded
+          # diagnostic evidence, but the same nonzero exit code fails CI.
+          set +e
+          {
+            node --test --test-concurrency=1
+          } > ci-evidence/postgres.log 2>&1
+          export TEST_EXIT_CODE=$?
+          set -e
+          node scripts/ci-test-evidence.mjs ci-evidence/postgres.log ci-evidence/postgres-result.json
+          exit "$TEST_EXIT_CODE"
+      - name: Upload bounded PostgreSQL admission evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: postgres-evidence-${{ github.run_id }}
+          path: ci-evidence/postgres-result.json
+          retention-days: 7
+          if-no-files-found: warn

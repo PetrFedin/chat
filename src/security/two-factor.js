@@ -185,7 +185,17 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
         if (row.last_counter !== null && Number(row.last_counter) >= counter) {
           return { ok: false, reason: 'code_used' };
         }
-        await pool.query('UPDATE auth_totp SET last_used_at = now(), last_counter = $2 WHERE user_id = $1', [userId, counter]);
+        // Claim the counter atomically. Two simultaneous login requests may
+        // both have read the same old row above; only one is allowed to move
+        // last_counter forward.
+        const claimed = await pool.query(
+          `UPDATE auth_totp
+             SET last_used_at = now(), last_counter = $2
+           WHERE user_id = $1 AND (last_counter IS NULL OR last_counter < $2)
+           RETURNING user_id`,
+          [userId, counter],
+        );
+        if (!claimed.rowCount) return { ok: false, reason: 'code_used' };
         return { ok: true, method: 'totp' };
       }
 
@@ -199,7 +209,11 @@ export function createTwoFactor(pool, { key = readVaultKey(), previous = readVau
       let hit = null;
       for (const candidate of rows) if (equal(candidate.code_hash, hash)) hit = candidate.id;
       if (!hit) return { ok: false, reason: 'bad_code' };
-      await pool.query('UPDATE auth_recovery_codes SET used_at = now() WHERE id = $1', [hit]);
+      const claimed = await pool.query(
+        'UPDATE auth_recovery_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id',
+        [hit],
+      );
+      if (!claimed.rowCount) return { ok: false, reason: 'code_used' };
       await pool.query('UPDATE auth_totp SET last_used_at = now() WHERE user_id = $1', [userId]);
       const left = rows.length - 1;
       return { ok: true, method: 'recovery', recoveryCodesLeft: left };

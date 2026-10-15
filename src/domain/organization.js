@@ -1,4 +1,4 @@
-import { DomainError } from './commitment.js';
+import { DomainError } from './error.js';
 
 export const WorkspaceRole = Object.freeze({
   OWNER: 'owner',

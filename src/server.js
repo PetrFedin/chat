@@ -66,6 +66,8 @@ import { createRequestsHandler } from './http/requests.js';
 import { createFeatureRepository } from './features/feature-repository.js';
 import { createTopicRepository } from './messaging/topic-repository.js';
 import { createFeaturesHandler } from './http/features.js';
+import { createProjectRepository } from './project/project-repository.js';
+import { createProjectsHandler } from './http/projects.js';
 import { createWorkspaceExport } from './export/workspace-export.js';
 import { createTwoFactor } from './security/two-factor.js';
 import { createDigestMailer } from './digest/digest-mailer.js';
@@ -99,6 +101,7 @@ import { preparePreviewDemo, handlePreviewDemo } from './demo/preview-demo.js';
 import { seedDemoMeetingIntelligence } from './demo/seed-meeting-intelligence.js';
 import { seedDemoOrgStructure } from './demo/seed-org-structure.js';
 import { seedDemoCalendarParticipation } from './demo/seed-calendar-participation.js';
+import { seedDemoInvestorProject } from './demo/seed-investor-project.js';
 
 const { Pool }=pg;
 // node-pg hands bigint back as a string so no precision is lost. Nothing in
@@ -145,7 +148,14 @@ function pushConfig(){const publicKey=process.env.VAPID_PUBLIC_KEY??null,private
 
 export async function createChatServer(options={}){
   await mkdir(uploadsRoot,{recursive:true});
-  const defaults=options.store?{store:options.store,pool:options.pool??null,mode:'custom'}:defaultStore(options.databaseUrl??process.env.DATABASE_URL);
+  // Tests and embedded deployments may inject an already constructed store.
+  // A PostgresStore carries its pool; dropping that pool here silently disables
+  // every repository built alongside the store (calendar participation, marks,
+  // labels, personal planning, vault, etc.) and misreports persistence as custom.
+  const injectedPool=options.pool??options.store?.pool??null;
+  const defaults=options.store
+    ? {store:options.store,pool:injectedPool,mode:options.mode??(injectedPool?'postgres':'custom')}
+    : defaultStore(options.databaseUrl??process.env.DATABASE_URL);
   const {store,pool,mode}=defaults;
   const objectStore=options.objectStore??createObjectStore({uploadsRoot});
   const persistenceStatus=()=>{
@@ -190,6 +200,11 @@ export async function createChatServer(options={}){
   const requests=options.requests??createRequestRepository({pool,store});
   const features=options.features??createFeatureRepository(pool);
   const topics=options.topics??(pool?createTopicRepository(pool):null);
+  // Decision Authority is a dependency of Project composition. Construct it
+  // once and inject the same repository so Project never reimplements meeting
+  // visibility or invents a parallel decision permission model.
+  const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
+  const projects=options.projects??createProjectRepository({pool,store,meeting});
   const people=options.people??createPeopleRepository(pool,org);
   const games=options.games??createGameRepository(pool,store);
   const reminders=options.reminders??createReminderRepository(pool);
@@ -205,7 +220,7 @@ export async function createChatServer(options={}){
   const telegram=options.telegram??createTelegramBridgeRepository(pool,store);
   const icsFeed=options.icsFeed??createIcsFeedRepository(pool);
   const apiKeys=options.apiKeys??createApiKeyRepository(pool);
-  const wiki=options.wiki??createWikiRepository(pool);
+  const wiki=options.wiki??createWikiRepository(pool,projects,store,meeting);
   const timeEntries=options.timeEntries??createTimeEntryRepository(pool);
   const personal=options.personal??createPersonalRepository(pool,store,labels);
   // Без базы работникам нечего делать, поэтому 'custom' глушит их жёстко.
@@ -243,7 +258,6 @@ export async function createChatServer(options={}){
           {recipients:row.missed,type:'call.missed',title:'Пропущенный звонок',body:row.title??'Вам звонили'}).catch(()=>{});
       }
     }});
-  const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
   const meetingOps=options.meetingOps??createMeetingOperationsRepository(meeting,pool);
   const liveKitWebhook=options.liveKitWebhook??createLiveKitWebhookReceiver();
   const configuredMeetingProviders=createConfiguredMeetingProviders(process.env);
@@ -332,6 +346,8 @@ export async function createChatServer(options={}){
     try{demo.meeting=await seedDemoMeetingIntelligence({store,calls,meeting})}catch(error){console.error('meeting demo seed failed',error)}
     try{demo.org=await seedDemoOrgStructure(pool,org)}catch(error){console.error('org demo seed failed',error)}
     try{demo.calendar=await seedDemoCalendarParticipation(pool,calendar)}catch(error){console.error('calendar demo seed failed',error)}
+    // Synthetic investor Project exists only in the opt-in demo tenant and PostgreSQL.
+    try{demo.investorProject=await seedDemoInvestorProject({store,projects})}catch(error){console.error('investor project demo seed failed',error)}
   }
 
   const meetingWorker=options.meetingWorker??createMeetingWorker(meetingProcessor,process.env,{
@@ -353,9 +369,9 @@ export async function createChatServer(options={}){
 
   if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.();mailWorker.start?.();digestMailer?.start?.();reminderWorker.start?.();retention.start?.()}
 
-  const ctx={topics,features,requests,store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,telegram,icsFeed,apiKeys,chatAssistant,wiki,timeEntries,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
-  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleRequests=createRequestsHandler(),handleFeatures=createFeaturesHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleKnowledge=createKnowledgeHandler(),handleTelegram=createTelegramHandler(),handleIcsFeed=createIcsFeedHandler(),handleApiKeys=createApiKeysHandler(),handleChatAssistant=createChatAssistantHandler(),handleWiki=createWikiHandler(),handleTimeTracking=createTimeTrackingHandler(),handleDashboard=createDashboardHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
-  const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:process.env.CSP_FRAME_ANCESTORS});
+  const ctx={topics,features,requests,projects,store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,telegram,icsFeed,apiKeys,chatAssistant,wiki,timeEntries,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleRequests=createRequestsHandler(),handleFeatures=createFeaturesHandler(),handleProjects=createProjectsHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleKnowledge=createKnowledgeHandler(),handleTelegram=createTelegramHandler(),handleIcsFeed=createIcsFeedHandler(),handleApiKeys=createApiKeysHandler(),handleChatAssistant=createChatAssistantHandler(),handleWiki=createWikiHandler(),handleTimeTracking=createTimeTrackingHandler(),handleDashboard=createDashboardHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:options.frameAncestors??process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{
     // Запись о запросе — то, чего в журнале не было вовсе: двадцать
     // успешных обращений подряд давали ноль строк. Без неё в аварии
@@ -507,10 +523,13 @@ export async function createChatServer(options={}){
     if(path.startsWith('/api/')&&cookieToken(req))assertSameOrigin(req);
     // Отключённая в компании функция для API не существует; код FEATURE_DISABLED нужен клиенту, чтобы объяснить причину.
     if(path.startsWith('/api/v1/')){
-      const need=features.featureForPath(path);
-      if(need){
+      const needs=features.featuresForPath?.(path)??(features.featureForPath(path)?[features.featureForPath(path)]:[]);
+      if(needs.length){
         const who=await authenticate(req).catch(()=>null);
-        if(who&&!(await features.isEnabled(who.workspaceId,need)))throw Object.assign(new Error('Эта функция отключена в компании'),{code:'FEATURE_DISABLED',statusCode:404,expose:true});
+        if(who){
+          for(const need of needs) if(!(await features.isEnabled(who.workspaceId,need)))
+            throw Object.assign(new Error('Эта функция отключена в компании'),{code:'FEATURE_DISABLED',statusCode:404,expose:true,feature:need});
+        }
       }
     }
     if(await handleAuth(req,res,ctx,path,method,url))return;
@@ -529,6 +548,7 @@ export async function createChatServer(options={}){
     if(await handleOrg(req,res,ctx,url,path,method))return;
     if(await handleRequests(req,res,ctx,url,path,method))return;
     if(await handleFeatures(req,res,ctx,url,path,method))return;
+    if(await handleProjects(req,res,ctx,url,path,method))return;
     if(await handleExport(req,res,ctx,url,path,method))return;
     if(await handleStories(req,res,ctx,url,path,method))return;
     if(await handleAudit(req,res,ctx,url,path,method))return;

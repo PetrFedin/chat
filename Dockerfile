@@ -16,6 +16,9 @@ COPY package.json package-lock.json* ./
 # --ignore-scripts: ни один пакет не должен выполнять свой код при
 # установке в образ, который потом пойдёт в бой.
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+COPY public ./public
+COPY scripts/build-pages-editor.sh ./scripts/build-pages-editor.sh
+RUN sh scripts/build-pages-editor.sh
 
 FROM node:24-alpine AS runtime
 # postgresql-client — для scripts/backup.mjs и scripts/restore.mjs.
@@ -33,6 +36,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY package.json ./
 COPY src ./src
 COPY public ./public
+COPY --from=deps /app/public/wiki-editor.bundle.js ./public/wiki-editor.bundle.js
 COPY db ./db
 COPY scripts ./scripts
 

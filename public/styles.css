@@ -203,6 +203,8 @@ button{border:0;background:transparent;color:inherit}button:focus-visible,input:
 .cal-daycol.chosen .cal-wd{color:var(--bg);opacity:.72}
 .cal-wd{font-size:11px;text-transform:uppercase;color:var(--muted-2)}
 .cal-daycol strong{font-size:15px;font-variant-numeric:tabular-nums}
+.cal-cell.drop-target,.cal-daycol.drop-target{outline:2px solid var(--warm);outline-offset:2px;background:var(--warm-soft)}
+.calendar-event[draggable="true"]{cursor:grab}.calendar-event.dragging{opacity:.45;cursor:grabbing}
 .cal-dots{display:flex;align-items:center;gap:3px;min-height:8px;flex-wrap:wrap;justify-content:center}
 /* Цвет по виду события — один и тот же у точки в сетке и у полоски в
    карточке. Раньше полоска у всех была тёплой, и по ней нельзя было
@@ -622,6 +624,12 @@ h4{font-size:15px;font-weight:700}
   .text-button{display:inline-flex;align-items:center;padding-inline:8px}
   #top-avatar,.avatar-button{min-width:40px;min-height:40px}
 }
+@media (max-width:700px){
+  .cal-controls{align-items:stretch}
+  .cal-switch{width:100%;display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}
+  .cal-tab{padding-inline:5px}
+  .cal-nav{width:100%;justify-content:space-between}
+}
 
 /* Карточка задачи — кнопка, а у кнопок по умолчанию текст по центру: заголовок расходился с остальным текстом. */
 .task-card,.task-card .task-title{text-align:left}
@@ -701,3 +709,112 @@ h4{font-size:15px;font-weight:700}
 .topic-chip.add{border-style:dashed}
 .topic-badge{display:inline-flex;align-items:center;margin:0 0 3px;padding:1px 8px;border-radius:99px;border:1px solid var(--line);background:var(--surface-3);color:var(--warm);font-size:11px;font-weight:600;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (pointer:coarse){.topic-chip{min-height:40px}}
+
+
+/* Project Operating Cockpit: the project surface is a projection over
+   canonical Task/People authorities, not a second workflow engine. */
+.project-card{width:100%;text-align:left;color:inherit}
+.project-card-meta{display:flex;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:13px}
+.project-operating-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,.72fr);gap:14px}
+.project-progress-value{font-size:27px;letter-spacing:-.04em}
+.project-progress-track{height:9px;border-radius:99px;background:var(--surface-3);overflow:hidden}
+.project-progress-track>span{display:block;height:100%;border-radius:inherit;background:var(--success)}
+.project-progress-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;color:var(--muted);font-size:13px}
+.project-workload-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+.project-workload-row:last-child{border-bottom:0}
+.project-kanban{display:grid;grid-template-columns:repeat(5,minmax(170px,1fr));gap:9px;overflow-x:auto;padding:2px 1px 6px}
+.project-kanban-column{min-width:170px;padding:9px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface)}
+.project-kanban-head{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;font-size:13px}
+.project-kanban-list{display:grid;gap:7px}
+.project-kanban-card{display:grid;gap:6px;width:100%;text-align:left;padding:10px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface-2);color:inherit}
+.project-kanban-card.overdue{box-shadow:inset 3px 0 0 var(--danger)}
+.project-kanban-card .chip{justify-self:start}
+.project-kanban-empty{padding:18px 8px;text-align:center;color:var(--muted-2);font-size:13px}
+@media (max-width:980px){.project-operating-grid{grid-template-columns:1fr}}
+@media (min-width:700px) and (max-width:980px){
+  .app-shell{display:grid;grid-template-columns:220px minmax(0,1fr);padding-bottom:0}
+  .sidebar{display:flex;position:sticky;top:0;height:100dvh;padding:14px 10px 12px}
+  .desktop-nav{display:grid}
+  .mobile-nav{display:none;background:var(--surface);border-top:1px solid var(--line)}
+  .main-area{min-height:100dvh}
+  .topbar{height:72px;min-height:72px;padding:10px 18px}
+  .screen{padding:16px 16px 84px}
+  .page-grid{grid-template-columns:1fr}
+  .chat-shell{height:calc(100dvh - 112px);min-height:0;display:grid;grid-template-columns:minmax(230px,.8fr) minmax(0,1.6fr);margin:0;border:1px solid var(--line);border-radius:var(--r-4)}
+  .conversation-pane,.conversation-pane.hidden-mobile{display:block!important;border-right:1px solid var(--line)}
+  .message-pane,.message-pane.hidden-mobile{display:flex!important;height:auto;min-height:0}
+  .mobile-back{display:none!important}
+}
+@media (max-width:699px){
+  .project-kanban{grid-template-columns:repeat(5,minmax(210px,78vw))}
+}
+
+
+
+.project-kpi-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:12px}
+.project-kpi-strip>span{display:grid;gap:3px;padding:9px 10px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface-2)}
+.project-kpi-strip small{color:var(--muted);font-size:11px}
+.project-kpi-strip strong{font-size:15px}
+
+
+.project-kanban-open{display:grid;gap:6px;width:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left}
+.project-task-actions{display:flex;gap:6px;flex-wrap:wrap;padding-top:8px;margin-top:8px;border-top:1px solid var(--line)}
+.project-task-actions .text-button{font-size:11px}
+
+.project-next-milestone{display:grid;gap:3px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.project-next-milestone small{color:var(--muted);font-size:11px}
+.project-risk-card .compact{gap:4px}
+
+.project-task-meta{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+
+.calendar-toolbar-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.calendar-project-filter{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:13px}
+.calendar-project-filter select{min-width:170px;max-width:260px;padding:8px 30px 8px 10px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface-2);color:var(--text)}
+@media (max-width:699px){
+  .calendar-toolbar-actions{width:100%;justify-content:flex-start}
+  .calendar-project-filter{width:100%;display:grid;grid-template-columns:auto minmax(0,1fr)}
+  .calendar-project-filter select{min-width:0;max-width:none;width:100%}
+}
+
+/* Investor walkthrough: all quantities are canonical or explicitly hypothetical. */
+.investor-tour{display:grid;gap:12px;min-width:0;max-width:100%}
+.investor-tour-hero{padding:16px}
+.investor-tour-hero h3{font-size:21px;margin:8px 0}
+.investor-tour-hero p{margin:6px 0}
+.investor-tour-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.investor-stat{display:flex;flex-direction:column;gap:5px;padding:12px;border:1px solid var(--line);border-radius:var(--r-2);min-width:0}
+.investor-stat strong{font-size:21px;overflow-wrap:anywhere}
+.investor-tour-steps{display:grid;gap:8px}
+.investor-tour-step{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;padding:12px;align-items:center}
+.investor-tour-step p{margin:5px 0 9px}
+.investor-tour-step a{display:inline-flex;align-items:center;white-space:normal;text-decoration:none;min-height:36px}
+.investor-tour-economics{padding:14px}
+.investor-tour-economics h3{margin:0 0 8px}
+.investor-tour-inputs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.investor-input{display:flex;flex-direction:column;gap:6px;min-width:0}
+.investor-input input{width:100%;min-width:0}
+.investor-tour-economics .chip-row{margin:12px 0}
+.investor-tour-economics select{max-width:100px;margin-left:8px}
+@media(max-width:640px){
+  .investor-tour-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .investor-tour-step{grid-template-columns:minmax(0,1fr)}
+  .investor-tour-inputs{grid-template-columns:minmax(0,1fr)}
+}
+
+/* Pages rich editor: full-width reading, touch-friendly wrapping toolbar. */
+.wiki-rich-content{font-size:15px;line-height:1.65;overflow-wrap:anywhere;max-width:100%}
+.wiki-rich-content p{margin:.5em 0}.wiki-rich-content h1{font-size:1.65em}.wiki-rich-content h2{font-size:1.4em}.wiki-rich-content h3{font-size:1.15em}
+.wiki-rich-content h1,.wiki-rich-content h2,.wiki-rich-content h3{margin:1em 0 .35em}
+.wiki-rich-content ul,.wiki-rich-content ol{padding-left:1.5em}
+.wiki-rich-content blockquote{margin:.8em 0;padding:.1em .85em;border-left:3px solid var(--warm);color:var(--muted)}
+.wiki-rich-content pre{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--surface-3);padding:11px;border-radius:var(--r-2)}
+.wiki-rich-content a{color:var(--warm);text-decoration:underline}
+.wiki-editor-toolbar{display:flex;flex-wrap:wrap;gap:5px;padding:8px;border:1px solid var(--line);border-radius:var(--r-2)}
+.wiki-editor-toolbar button{min-width:36px;min-height:36px}
+.wiki-editor-host{min-height:220px;border:1px solid var(--line);border-radius:var(--r-2);padding:12px}
+.wiki-editor-host .tiptap{outline:none;min-height:190px}
+.wiki-editor-host:focus-within{border-color:var(--warm)}
+.wiki-conflict{border-color:var(--danger);padding:12px}
+.wiki-conflict-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.wiki-conflict-grid section{min-width:0}.wiki-conflict-grid pre{overflow:auto;max-height:220px;white-space:pre-wrap;word-break:break-word;font-size:11px}
+@media(max-width:560px){.wiki-conflict-grid{grid-template-columns:1fr}.wiki-editor-toolbar{gap:4px}.wiki-editor-toolbar button{padding:6px 9px}}

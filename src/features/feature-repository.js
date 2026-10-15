@@ -1,4 +1,4 @@
-import { FEATURES, GROUPS, featureById, planChange, dependentsOf, requirementsOf, featureForPath } from './registry.js';
+import { FEATURES, GROUPS, featureById, planChange, dependentsOf, requirementsOf, featureForPath, featuresForPath } from './registry.js';
 
 const TTL_MS = 5000;
 
@@ -76,5 +76,6 @@ export function createFeatureRepository(pool) {
     },
 
     featureForPath,
+    featuresForPath,
   };
 }

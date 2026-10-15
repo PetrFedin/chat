@@ -89,7 +89,13 @@ test('гостю не показывают то, чего сервер ему н
     'нижнее меню снова строится из полного списка разделов');
 
   // Адрес — тоже вход: по #/tasks гость попадал на вечно пустой экран.
-  assert.match(app, /if\(guestShell\(\)&&GUEST_HIDDEN_VIEWS\.has\(v\)\)\{v='today'/);
+  assert.match(app, /if\(guestShell\(\)&&\(GUEST_HIDDEN_VIEWS\.has\(v\)\|\|v==='projects'\)\)\{v='today'/);
+  assert.match(app, /const routedFeature=VIEW_FEATURE\[parts\[0\]\]/,
+    'deep links must pass the same company-feature gate as visible navigation');
+  assert.match(app, /if\(routedFeature&&!feat\(routedFeature\)\)\{history\.replaceState\(null,'','#\/today'\);go\('today',\{silent:true\}\);return\}/,
+    'disabled Tasks, Calendar or Projects deep links must return to Today');
+  assert.match(app, /if\(parts\[0\]==='projects'&&parts\[1\]\)\{if\(guestShell\(\)\)\{history\.replaceState\(null,'','#\/today'\);go\('today',\{silent:true\}\);return\}/,
+    'guest Project deep links must not leave an inaccessible route in the address bar');
 
   // Строки быстрого захвата на главной больше нет: на телефоне у неё
   // пряталась кнопка, и панель выглядела нерабочей. Создание живёт в

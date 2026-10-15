@@ -26,7 +26,8 @@ export const openapi = Object.freeze({
     { name: 'Chat Assistant' },
     { name: 'Wiki' },
     { name: 'Time Tracking' },
-    { name: 'Dashboard' }
+    { name: 'Dashboard' },
+    { name: 'Projects' }
   ],
   components: {
     securitySchemes: {
@@ -47,7 +48,52 @@ export const openapi = Object.freeze({
     '/api/v1/notifications/read-all': { post: { tags: ['Attention'], summary: 'Mark current notification scope as read', responses: { '200': { description: 'Read count' } } } },
     '/api/v1/notifications/{notificationId}/read': { post: { tags: ['Attention'], summary: 'Mark one notification as read', responses: { '200': { description: 'Notification read state' }, '404': { description: 'Notification not visible' } } } },
     '/api/v1/mentions': { get: { tags: ['Attention'], summary: 'List current user mentions', responses: { '200': { description: 'Mention notification list' } } } },
-    '/api/v1/search': { get: { tags: ['Search'], summary: 'Search accessible messages, conversations, tasks, files, people and calendar events', description: 'Files match on their name and on their text: plain text, docx, xlsx, pptx and PDFs with a text layer are read on upload. Scans and password-protected files are not indexed — the first needs recognition, the second cannot be opened, and pretending they are searchable is worse than saying so. A hit inside a file carries insideFile:true and a snippet where the matched word is wrapped in \\u0002 and \\u0003 rather than markup.', responses: { '200': { description: 'Permission-filtered search results' } } } },
+    '/api/v1/search': { get: { tags: ['Search'], summary: 'Search accessible messages, conversations, tasks, files, people, calendar events, projects, pages and accepted decisions', description: 'Files match on their name and on their text: plain text, docx, xlsx, pptx and PDFs with a text layer are read on upload. Scans and password-protected files are not indexed — the first needs recognition, the second cannot be opened, and pretending they are searchable is worse than saying so. A hit inside a file carries insideFile:true and a snippet where the matched word is wrapped in \\u0002 and \\u0003 rather than markup.', responses: { '200': { description: 'Permission-filtered search results' } } } },
+    '/api/v1/projects': {
+      get: { tags: ['Projects'], summary: 'List projects visible to the current user', responses: { '200': { description: 'Permission-filtered projects' } } },
+      post: { tags: ['Projects'], summary: 'Create a native project work context', description: 'Project metadata is authoritative only for the project itself. Task and Calendar state remain in their own authorities.', responses: { '201': { description: 'Project created' }, '403': { description: 'Project creation permission denied' } } }
+    },
+    '/api/v1/projects/{projectId}': {
+      get: { tags: ['Projects'], summary: 'Get a project operating cockpit', description: 'Returns members, milestones, visible canonical tasks, canonical file relations, conversation-authority-filtered discussion relations, Decision-Authority-filtered decision relations, progress/workload metrics and recent activity. Project does not copy Task, File, Conversation or Decision state.', responses: { '200': { description: 'Project detail' }, '404': { description: 'Project is not visible' } } },
+      patch: { tags: ['Projects'], summary: 'Update project metadata with optimistic versioning', responses: { '200': { description: 'Project updated' }, '403': { description: 'Project management authority denied' }, '409': { description: 'Stale project version' } } }
+    },
+    '/api/v1/projects/{projectId}/members': {
+      post: { tags: ['Projects'], summary: 'Add or update a project member role', description: 'Only active workspace staff can be project members; guests cannot be added.', responses: { '200': { description: 'Project membership updated' }, '403': { description: 'Project management authority denied' } } }
+    },
+    '/api/v1/projects/{projectId}/members/{userId}': {
+      delete: { tags: ['Projects'], summary: 'Remove a project member', responses: { '200': { description: 'Member removed' }, '409': { description: 'Project owner cannot be removed' } } }
+    },
+    '/api/v1/projects/{projectId}/tasks': {
+      post: { tags: ['Projects'], summary: 'Create or link a canonical task to a project', description: 'Creating a task and project relation is atomic. The project never copies task status; Kanban/progress are computed projections.', responses: { '201': { description: 'Canonical task created and linked' }, '200': { description: 'Existing visible task linked' }, '409': { description: 'Task already belongs to another project' } } }
+    },
+    '/api/v1/projects/{projectId}/files': {
+      post: { tags: ['Projects'], summary: 'Link a canonical file to a project', description: 'Stores only the Project-to-File relation. The actor must already be allowed to open the file through File Authority; knowing a file UUID is not sufficient.', responses: { '200': { description: 'File relation linked and refreshed project detail' }, '403': { description: 'Project contribution authority denied' }, '404': { description: 'Project or canonical file is not visible' }, '409': { description: 'File is already linked to this project' } } }
+    },
+    '/api/v1/projects/{projectId}/files/{fileId}': {
+      delete: { tags: ['Projects'], summary: 'Unlink a canonical file from a project', description: 'Removes only the Project relation. The canonical file remains in File Authority and any other valid access path remains effective.', responses: { '200': { description: 'File relation removed' }, '403': { description: 'Project management authority denied' }, '404': { description: 'Project or relation is not visible' } } }
+    },
+    '/api/v1/projects/{projectId}/discussions': {
+      post: { tags: ['Projects'], summary: 'Link an existing conversation as a project discussion', description: 'Stores only the Project-to-Conversation relation. Linking never changes conversation membership or visibility and requires the actor to already see the conversation through Conversation Authority.', responses: { '200': { description: 'Discussion relation linked and refreshed project detail' }, '403': { description: 'Project contribution authority denied' }, '404': { description: 'Project or conversation is not visible' }, '409': { description: 'Conversation is already linked to this project' } } }
+    },
+    '/api/v1/projects/{projectId}/discussions/{conversationId}': {
+      delete: { tags: ['Projects'], summary: 'Unlink a project discussion', description: 'Removes only the Project relation. Conversation membership, messages, archive state and moderation remain under Conversation Authority.', responses: { '200': { description: 'Discussion relation removed' }, '403': { description: 'Project management authority denied' }, '404': { description: 'Project or relation is not visible' } } }
+    },
+    '/api/v1/projects/{projectId}/decisions': {
+      post: { tags: ['Projects'], summary: 'Link a canonical decision to a project', description: 'Stores only the Project-to-Decision relation. The actor must already see the canonical decision through Decision Authority; project membership never grants access to the source meeting.', responses: { '200': { description: 'Decision relation linked and refreshed project detail' }, '403': { description: 'Project contribution authority denied' }, '404': { description: 'Project or canonical decision is not visible' }, '409': { description: 'Decision is already linked to this project' } } }
+    },
+    '/api/v1/projects/{projectId}/decisions/{decisionId}': {
+      delete: { tags: ['Projects'], summary: 'Unlink a canonical decision from a project', description: 'Removes only the Project relation. Decision identity, source, acceptance and visibility remain under Decision Authority.', responses: { '200': { description: 'Decision relation removed' }, '403': { description: 'Project management authority denied' }, '404': { description: 'Project or relation is not visible' } } }
+    },
+    '/api/v1/projects/{projectId}/tasks/{taskId}': {
+      delete: { tags: ['Projects'], summary: 'Unlink a task from a project without deleting the task', responses: { '200': { description: 'Task relation removed' } } }
+    },
+    '/api/v1/projects/{projectId}/milestones': {
+      post: { tags: ['Projects'], summary: 'Create a project milestone', description: 'A milestone is a project target point. Calendar may project it later but Calendar does not own milestone status.', responses: { '201': { description: 'Milestone created' } } }
+    },
+    '/api/v1/projects/{projectId}/milestones/{milestoneId}': {
+      patch: { tags: ['Projects'], summary: 'Update a milestone with optimistic versioning', responses: { '200': { description: 'Milestone updated' }, '409': { description: 'Stale milestone version' } } }
+    },
+
     '/api/v1/tasks': {
       get: { tags: ['Workspace'], summary: 'List tasks visible to the current accountable workflow participant',
         parameters: [
@@ -83,9 +129,41 @@ export const openapi = Object.freeze({
         responses: { '200': { description: 'Task schedule and version updated' }, '400': { description: 'Reason required' }, '403': { description: 'Scheduling authority denied' }, '404': { description: 'Task is not visible' }, '409': { description: 'Stale or terminal task' } }
       }
     },
+    '/api/v1/tasks/{taskId}/schedule-proposal': {
+      get: {
+        tags: ['Workspace'],
+        summary: 'Preview a deterministic conflict- and availability-aware replacement slot for a late task block',
+        description: 'Returns the latest future slot of the same duration before the task promised date that fits the block owner\'s working days/hours, operational absence and concrete/recurring calendar conflicts. Read-only: Calendar does not move until the user explicitly resolves the proposal.',
+        responses: { '200': { description: 'Reschedule proposal' }, '400': { description: 'Calendar event identifier/date required' }, '403': { description: 'Task or calendar scheduling authority denied' }, '404': { description: 'Task or block is not visible' }, '409': { description: 'No schedule impact or no candidate slot in the current search window' } }
+      },
+      post: {
+        tags: ['Workspace'],
+        summary: 'Approve, edit-and-approve, or reject a task-block reschedule proposal',
+        description: 'Requires a reason and expected task version. Approval writes the canonical Calendar move and proposal audit atomically; rejection writes audit only.',
+        responses: { '200': { description: 'Proposal decision and current calendar event' }, '400': { description: 'Invalid action/range or missing reason' }, '403': { description: 'Task or calendar scheduling authority denied' }, '404': { description: 'Task or block is not visible' }, '409': { description: 'Stale task, conflict, terminal task or no longer impacted' } }
+      }
+    },
+    '/api/v1/calendar-conflicts': {
+      get: {
+        tags: ['Workspace'],
+        summary: 'Preview concrete and recurring calendar conflicts for an interval',
+        description: 'Read-only conflict detail used by the in-app resolution surface. When eventId is supplied, authority and availability are evaluated against that event owner so team-calendar edits match the write-time conflict gate.',
+        responses: { '200': { description: 'Visible overlapping concrete events and expanded recurring occurrences' }, '400': { description: 'Invalid interval' }, '403': { description: 'Calendar authority denied for the edited event' }, '404': { description: 'Edited event is not visible' } }
+      }
+    },
     '/api/v1/calendar-events': {
-      get: { tags: ['Workspace'], summary: 'List calendar events', responses: { '200': { description: 'Calendar events' } } },
-      post: { tags: ['Workspace'], summary: 'Create meeting, focus block, deadline or reminder', responses: { '201': { description: 'Calendar event created' } } }
+      get: {
+        tags: ['Workspace'],
+        summary: 'List calendar events and read-only project milestone projections',
+        description: 'Calendar owns event time. Project milestones remain Project Authority and are projected read-only into the calendar response. projectId narrows the range to visible milestone projections plus canonical task blocks linked to that project.',
+        parameters: [
+          { name: 'from', in: 'query', schema: { type: 'string', format: 'date-time' } },
+          { name: 'to', in: 'query', schema: { type: 'string', format: 'date-time' } },
+          { name: 'projectId', in: 'query', schema: { type: 'string', format: 'uuid' }, description: 'Optional visible Project context. Private projects return 404 to outsiders.' }
+        ],
+        responses: { '200': { description: 'Calendar events and visible project milestone projections' }, '400': { description: 'Malformed project id or range' }, '404': { description: 'Filtered project is not visible' } }
+      },
+      post: { tags: ['Workspace'], summary: 'Create meeting, focus block, deadline or reminder', responses: { '201': { description: 'Calendar event created' }, '409': { description: 'Calendar conflict unless the user explicitly approves an overlap' } } }
     },
     '/api/v1/conversations': {
       get: { tags: ['Messaging'], summary: 'List visible conversations with computed unread and mention counts', responses: { '200': { description: 'Conversation list' } } },
@@ -265,8 +343,16 @@ export const openapi = Object.freeze({
     '/api/v1/labelled/{targetType}/{targetId}': { get: { tags: ['Labels'], summary: 'What is on one object, importance first', responses: { '200': { description: 'Labels on the target' } } } },
     '/api/v1/calendar-events/{id}': {
       get: { tags: ['Calendar'], summary: 'One event with participants, answers and attachments', responses: { '200': { description: 'Event detail' }, '404': { description: 'Not visible to you' } } },
-      patch: { tags: ['Calendar'], summary: 'Edit the event; moving it re-asks everyone', description: 'Organiser only. Changing startAt or endAt resets every answer to invited and notifies the attendees: an answer to the old time is not an answer to the new one.', responses: { '200': { description: 'Event updated' }, '403': { description: 'Not the organiser' }, '400': { description: 'The event must end after it starts' } } },
+      patch: { tags: ['Calendar'], summary: 'Edit or move the event; moving it re-asks everyone', description: 'Changing startAt/endAt resets attendee answers. A calendar drag uses targetDate + mandatory moveReason: the server preserves wall-clock time in the event timezone, runs the canonical conflict gate and writes calendar.event_moved audit with reason/source.', responses: { '200': { description: 'Event updated' }, '400': { description: 'Invalid range/date or move reason required' }, '403': { description: 'Not allowed to edit the event' }, '409': { description: 'Calendar conflict unless explicitly approved' } } },
       delete: { tags: ['Calendar'], summary: 'Cancel the event and tell the attendees', responses: { '204': { description: 'Cancelled' }, '403': { description: 'Not the organiser' } } }
+    },
+    '/api/v1/calendar-events/{id}/move-preview': {
+      get: {
+        tags: ['Calendar'],
+        summary: 'Preview an auditable drag move to another calendar date',
+        description: 'Read-only. Preserves the event wall-clock time and duration in its timezone, then returns the target interval and concrete/recurring conflicts before any write occurs.',
+        responses: { '200': { description: 'Move preview with target time and conflicts' }, '400': { description: 'targetDate must be YYYY-MM-DD' }, '403': { description: 'Calendar authority denied' }, '404': { description: 'Event not visible' } }
+      }
     },
     '/api/v1/calendar-events/{id}/participants': { post: { tags: ['Calendar'], summary: 'Invite staff; guests are refused', responses: { '201': { description: 'Invited' }, '409': { description: 'NOT_WORKSPACE_STAFF' } } } },
     '/api/v1/calendar-events/{id}/participants/{userId}': { delete: { tags: ['Calendar'], summary: 'Remove somebody from the guest list', responses: { '204': { description: 'Removed' } } } },
@@ -349,7 +435,7 @@ export const openapi = Object.freeze({
     '/api/v1/people': { get: { tags: ['People'], summary: 'Staff directory. A guest sees only the people they share a room with.', responses: { '200': { description: 'People' } } } },
     '/api/v1/people/{userId}': {
       get: { tags: ['People'], summary: 'One person: profile, units, reporting line, workload and recent activity', responses: { '200': { description: 'Person' }, '404': { description: 'Not visible' } } },
-      patch: { tags: ['People'], summary: 'Edit own card, or anybody\u2019s with member.manage', responses: { '200': { description: 'Updated' }, '403': { description: 'Somebody else\u2019s card' } } },
+      patch: { tags: ['People'], summary: 'Edit own card, timezone and working schedule, or anybody\u2019s with member.manage', description: 'Working schedule is explicit profile data (workingDays + workdayStart/workdayEnd) used only for scheduling proposals; quiet hours remain a separate notification preference.', responses: { '200': { description: 'Updated' }, '400': { description: 'Invalid working days/hours or profile data' }, '403': { description: 'Somebody else\u2019s card' } } },
     },
     '/api/v1/people/{userId}/activity': { get: { tags: ['People'], summary: 'What this person has been doing, from the audit trail', responses: { '200': { description: 'Activity' } } } },
     '/api/v1/people/{userId}/deactivate': { post: { tags: ['People'], summary: 'Dismiss an employee: access closes immediately, work history stays', description: 'Requires member.manage and a lower place on the role ladder. The owner and yourself cannot be dismissed.', responses: { '200': { description: 'Dismissed' }, '403': { description: 'Not allowed' } } } },
@@ -504,6 +590,50 @@ export const openapi = Object.freeze({
     },
     '/api/v1/wiki/pages/{pageId}/history': {
       get: { tags: ['Wiki'], summary: 'List prior snapshots of a page, newest first', responses: { '200': { description: 'Version history' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/tasks': {
+      post: { tags: ['Wiki'], summary: 'Link a visible canonical Task to a Page',
+        description: 'Stores only a Page-to-Task relation. Task Authority remains canonical; the relation never copies task status or grants task access.',
+        responses: { '200': { description: 'Page with permission-filtered Task relations' }, '404': { description: 'Page or Task not visible' }, '409': { description: 'Duplicate relation or Page Task limit' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/tasks/{taskId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink a visible Task from a Page',
+        description: 'Deletes only the relation; the canonical Task and Page remain unchanged.',
+        responses: { '200': { description: 'Page with updated Task relations' }, '404': { description: 'Page, Task or relation not visible' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/channels': {
+      post: { tags: ['Wiki'], summary: 'Link an accessible canonical conversation to a Page',
+        description: 'Stores only a Page-to-Conversation relation. Conversation Authority is rechecked on reads and writes; linking never changes conversation membership or visibility.',
+        responses: { '200': { description: 'Page with permission-filtered Channel relations' }, '404': { description: 'Page or conversation not visible' }, '409': { description: 'Duplicate relation or Page Channel limit' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/channels/{conversationId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink an accessible conversation from a Page',
+        description: 'Deletes only the relation and never archives or deletes the conversation.',
+        responses: { '200': { description: 'Page with updated Channel relations' }, '404': { description: 'Page, conversation or relation not visible' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/decisions': {
+      post: { tags: ['Wiki'], summary: 'Link an accepted canonical Decision to a Page',
+        description: 'Only active decisions visible via Decision Authority can be linked. The link never grants meeting access or copies decision text. Writes an auditable Page relation.',
+        responses: { '200': { description: 'Page with permission-filtered accepted Decisions' },
+          '404': { description: 'Page or Decision does not exist or is not visible' },
+          '409': { description: 'Duplicate relation or Page Decision limit' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/decisions/{decisionId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink a visible Decision without retracting or deleting it',
+        description: 'Requires current canonical Decision visibility. Only the reference is deleted; source and audit history remain unchanged.',
+        responses: { '200': { description: 'Page with updated links' },
+          '404': { description: 'Page, Decision or relation is not visible' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/projects': {
+      post: { tags: ['Wiki'], summary: 'Link a visible canonical project to a page', description: 'Stores only a Page-to-Project relation. Project visibility remains authoritative; a private project is omitted for a page reader who cannot already open it.', responses: { '200': { description: 'Page with refreshed visible project relations' }, '404': { description: 'Page or project not visible' }, '409': { description: 'Project already linked' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/projects/{projectId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink a project from a page', description: 'Removes only the relation. The canonical project and page remain unchanged.', responses: { '200': { description: 'Relation removed' }, '404': { description: 'Page, project or relation not visible' } } }
+    },
+    '/api/v1/wiki/decisions/{decisionId}/pages': {
+      get: { tags: ['Wiki'], summary: 'List accessible Pages linked to one accepted Decision',
+        description: 'Reverse relation remains permission-bounded: inaccessible or archived Pages are omitted, and the Decision must remain visible through Decision Authority.',
+        responses: { '200': { description: 'Permission-filtered linked Pages' }, '404': { description: 'Decision not visible or no longer active' } } }
     },
     '/api/v1/wiki/search': {
       get: { tags: ['Wiki'], summary: 'Full-text search across non-archived pages', responses: { '200': { description: 'Matching pages with a highlighted snippet' } } }

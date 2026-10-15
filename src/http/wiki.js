@@ -4,9 +4,20 @@ import { Permission, requirePermission } from '../rbac.js';
 const PAGE_ID = '([0-9a-f-]{36})';
 const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
 const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
+const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
+const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}$`, 'i');
+const CHANNELS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels$`, 'i');
+const CHANNEL = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels/${PAGE_ID}$`, 'i');
+const DECISION_PAGES = new RegExp(`^/api/v1/wiki/decisions/${PAGE_ID}/pages$`, 'i');
+const DECISIONS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions$`, 'i');
+const DECISION = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions/${PAGE_ID}$`, 'i');
+const PROJECTS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projects$`, 'i');
+const PROJECT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/projects/${PAGE_ID}$`, 'i');
 
 function unavailable() {
-  throw Object.assign(new Error('Вики работает только с базой данных PostgreSQL'), { code: 'WIKI_UNAVAILABLE', statusCode: 503, expose: true });
+  throw Object.assign(new Error('Вики работает только с базой данных PostgreSQL'), {
+    code: 'WIKI_UNAVAILABLE', statusCode: 503, expose: true,
+  });
 }
 
 export function createWikiHandler() {
@@ -27,14 +38,96 @@ export function createWikiHandler() {
       return true;
     }
     if (path === '/api/v1/wiki/search' && method === 'GET') {
-      json(res, 200, { items: await ctx.wiki.search(session, { query: url.searchParams.get('q'), limit: url.searchParams.get('limit') }) });
+      json(res, 200, {
+        items: await ctx.wiki.search(session, {
+          query: url.searchParams.get('q'),
+          limit: url.searchParams.get('limit'),
+        }),
+      });
       return true;
     }
+
+    const inverseDecisionPages = path.match(DECISION_PAGES);
+    if (inverseDecisionPages && method === 'GET') {
+      json(res, 200, { items: await ctx.wiki.pagesForDecision(session, inverseDecisionPages[1]) });
+      return true;
+    }
+
     const history = path.match(HISTORY);
     if (history && method === 'GET') {
       json(res, 200, { items: await ctx.wiki.history(session, history[1]) });
       return true;
     }
+
+    const taskList = path.match(TASKS);
+    if (taskList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.taskId) {
+        throw Object.assign(new Error('taskId is required'), {
+          code: 'TASK_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkTask(session, taskList[1], String(body.taskId)));
+      return true;
+    }
+    const task = path.match(TASK);
+    if (task && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkTask(session, task[1], task[2]));
+      return true;
+    }
+
+    const channelList = path.match(CHANNELS);
+    if (channelList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.conversationId) {
+        throw Object.assign(new Error('conversationId is required'), {
+          code: 'CONVERSATION_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkChannel(session, channelList[1], String(body.conversationId)));
+      return true;
+    }
+    const channel = path.match(CHANNEL);
+    if (channel && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkChannel(session, channel[1], channel[2]));
+      return true;
+    }
+
+    const decisionList = path.match(DECISIONS);
+    if (decisionList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.decisionId) {
+        throw Object.assign(new Error('decisionId is required'), {
+          code: 'DECISION_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkDecision(session, decisionList[1], String(body.decisionId)));
+      return true;
+    }
+    const decision = path.match(DECISION);
+    if (decision && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkDecision(session, decision[1], decision[2]));
+      return true;
+    }
+
+    const projectList = path.match(PROJECTS);
+    if (projectList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.projectId) {
+        throw Object.assign(new Error('projectId is required'), {
+          code: 'PROJECT_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkProject(session, projectList[1], String(body.projectId)));
+      return true;
+    }
+
+    const project = path.match(PROJECT);
+    if (project && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkProject(session, project[1], project[2]));
+      return true;
+    }
+
     const one = path.match(ONE);
     if (one && method === 'GET') {
       json(res, 200, await ctx.wiki.get(session, one[1]));

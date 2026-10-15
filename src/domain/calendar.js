@@ -1,4 +1,4 @@
-import { DomainError } from './commitment.js';
+import { DomainError } from './error.js';
 
 export const CalendarEventKind = Object.freeze({
   MEETING: 'meeting',
