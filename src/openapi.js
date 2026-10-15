@@ -606,6 +606,11 @@ export const openapi = Object.freeze({
     '/api/v1/wiki/pages/{pageId}/history': {
       get: { tags: ['Wiki'], summary: 'List prior snapshots of a page, newest first', responses: { '200': { description: 'Version history' } } }
     },
+    '/api/v1/wiki/pages/{pageId}/restore': {
+      post: { tags: ['Wiki'], summary: 'Restore a historical Page snapshot as a new version',
+        description: 'Requires version and expectedVersion. Requires current Page edit access. Restores title, content and structured document only; retains ACL, relations and hierarchy. Current version is preserved in history and an audit record identifies restored/replaced versions.',
+        responses: { '200': { description: 'Restored Page at a new version' }, '400': { description: 'Invalid or missing version' }, '404': { description: 'Page or snapshot not visible' }, '409': { description: 'Page changed since the restore was requested' } } }
+    },
     '/api/v1/wiki/pages/{pageId}/tasks': {
       post: { tags: ['Wiki'], summary: 'Link a visible canonical Task to a Page',
         description: 'Stores only a Page-to-Task relation. Task Authority remains canonical; the relation never copies task status or grants task access.',
