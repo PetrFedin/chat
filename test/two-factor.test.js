@@ -127,9 +127,14 @@ test('второй множитель закрывает вход и откры�
   assert.equal(replay.code, 'TWO_FACTOR_BAD_CODE');
   assert.equal(replay.status, 401);
 
-  // Телефон потерян — вход по запасному коду, и он одноразовый.
-  const rescued = await request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code: recovery[0] } });
-  assert.equal(rescued.status, 200);
+  // Телефон потерян — запасной код тоже атомарно одноразовый:
+  // два одновременных входа одним кодом не могут оба пройти.
+  const recoveryRace = await Promise.all([
+    request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code: recovery[0] } }),
+    request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code: recovery[0] } }),
+  ]);
+  assert.deepEqual(recoveryRace.map((x) => x.status).sort(), [200, 401]);
+  assert.equal(recoveryRace.filter((x) => x.code === 'TWO_FACTOR_BAD_CODE').length, 1);
   const reused = await request(base, '/api/v1/auth/login', { method: 'POST', body: { email, password, code: recovery[0] } });
   assert.equal(reused.status, 401);
 
