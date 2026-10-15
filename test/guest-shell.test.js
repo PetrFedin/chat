@@ -82,7 +82,9 @@ test('сейф отказывает гостю на самом маршруте,
  */
 test('гостю не показывают то, чего сервер ему не даст', () => {
   assert.match(app, /const GUEST_HIDDEN_VIEWS=new Set\(\['tasks','calendar'\]\)/);
-  assert.match(app, /const visibleNav=\(\)=>guestShell\(\)\?nav\.filter/);
+  // Скобка допускается: после списка для гостя меню дополнительно фильтруется по включённым функциям компании.
+  assert.match(app, /const visibleNav=\(\)=>\(?guestShell\(\)\?nav\.filter/);
+  assert.match(app, /\.filter\(\(\[id\]\)=>!VIEW_FEATURE\[id\]\|\|feat\(VIEW_FEATURE\[id\]\)\)/, 'меню перестало скрывать разделы отключённых функций');
   assert.match(app, /function navs\(\)\{const html=visibleNav\(\)/,
     'нижнее меню снова строится из полного списка разделов');
 
