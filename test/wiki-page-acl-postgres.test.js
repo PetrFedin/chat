@@ -105,6 +105,13 @@ test('Page ACL: restricted hierarchy, view/edit separation and no reverse/search
     const search=await req(base,'/api/v1/wiki/search?q='+encodeURIComponent(marker),{cookie:viewer.cookie});
     assert.equal(search.payload.items.some(x=>x.id===pageId),false);
 
+    const hiddenChildAttempt=await req(base,'/api/v1/wiki/pages',{
+      cookie:viewer.cookie,method:'POST',body:{title:'Cannot infer parent',parentId:pageId},
+    });
+    assert.equal(hiddenChildAttempt.status,404);
+    assert.equal(hiddenChildAttempt.payload?.error?.code,'WIKI_PARENT_NOT_FOUND',
+      'hidden and missing parents share the stable parent-not-found contract');
+
     const access=(cookie)=>req(base,`/api/v1/wiki/pages/${pageId}/access`,{cookie});
     assert.equal((await access(viewer.cookie)).status,404);
     assert.equal((await access(owner.cookie)).status,200);
