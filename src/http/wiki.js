@@ -8,6 +8,10 @@ const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
 const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}$`, 'i');
 const CHANNELS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels$`, 'i');
 const CHANNEL = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels/${PAGE_ID}$`, 'i');
+const CALENDAR_MEETINGS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/calendar-meetings$`, 'i');
+const CALENDAR_MEETING = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/calendar-meetings/${PAGE_ID}$`, 'i');
+const CALLS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/calls$`, 'i');
+const CALL = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/calls/${PAGE_ID}$`, 'i');
 const DECISION_PAGES = new RegExp(`^/api/v1/wiki/decisions/${PAGE_ID}/pages$`, 'i');
 const DECISIONS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions$`, 'i');
 const DECISION = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions/${PAGE_ID}$`, 'i');
@@ -90,6 +94,40 @@ export function createWikiHandler() {
     const channel = path.match(CHANNEL);
     if (channel && method === 'DELETE') {
       json(res, 200, await ctx.wiki.unlinkChannel(session, channel[1], channel[2]));
+      return true;
+    }
+
+    const meetingList = path.match(CALENDAR_MEETINGS);
+    if (meetingList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.eventId) {
+        throw Object.assign(new Error('eventId is required'), {
+          code: 'EVENT_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkCalendarMeeting(session, meetingList[1], String(body.eventId)));
+      return true;
+    }
+    const calendarMeeting = path.match(CALENDAR_MEETING);
+    if (calendarMeeting && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkCalendarMeeting(session, calendarMeeting[1], calendarMeeting[2]));
+      return true;
+    }
+
+    const callList = path.match(CALLS);
+    if (callList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.callId) {
+        throw Object.assign(new Error('callId is required'), {
+          code: 'CALL_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkCall(session, callList[1], String(body.callId)));
+      return true;
+    }
+    const call = path.match(CALL);
+    if (call && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkCall(session, call[1], call[2]));
       return true;
     }
 

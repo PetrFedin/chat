@@ -490,6 +490,19 @@ export function createCalendarRepository(pool, store = null) {
     },
 
     /**
+     * Page relations need a stronger boundary than a calendar grid.
+     * A workspace-visible event can legitimately render as "Busy" to a
+     * non-participant, but that must not be linkable as a named meeting.
+     */
+    async getMeetingForRelation(session, id) {
+      const event = await repository.getEvent(session, id);
+      if (!event || event.kind !== 'meeting' || event.busyOnly) {
+        throw fail('Meeting not found', 'CALENDAR_EVENT_NOT_FOUND', 404);
+      }
+      return event;
+    },
+
+    /**
      * A range read that also says, per event, whether this viewer still owes
      * an answer — which is what the month and week grids mark.
      */

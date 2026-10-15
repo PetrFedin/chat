@@ -1,3 +1,5 @@
+import { requireAccessibleCall } from './access.js';
+
 const clampLimit = (value) => Math.min(Math.max(Number(value) || 40, 1), 100);
 
 function durationMs(call) {
@@ -56,15 +58,16 @@ export async function listAccessibleMeetings({ calls, meeting, store, session, l
   const items = [];
 
   for (const candidate of candidates) {
-    if (!(await store.canAccessConversation(session, candidate.conversationId))) continue;
-    const call = await calls.get(session, candidate.id);
-    if (!call) continue;
-    // Доступ считался по беседе, а не по составу звонка: подрядчик,
-    // позванный в общий канал, получал все встречи компании, шедшие в
-    // этом канале, — включая те, куда звали двоих. Сам продукт в другом
-    // месте формулирует правило иначе: назначенный звонок — приглашение,
-    // а не объявление. Гость видит только те встречи, где он в составе.
-    if (session.role === 'guest' && !(call.participants ?? []).some((p) => p.userId === session.userId)) continue;
+    let call;
+    try {
+      call = await requireAccessibleCall({
+        store, calls, session, callId: candidate.id,
+        guestMustParticipate: true, message: 'Meeting not found',
+      });
+    } catch (error) {
+      if (error?.statusCode === 404) continue;
+      throw error;
+    }
     const intelligence = await meeting.getMeeting(session, call.id);
     const run = intelligence?.run ?? null;
     const proposals = intelligence?.proposals ?? [];

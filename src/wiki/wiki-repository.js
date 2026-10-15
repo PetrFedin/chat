@@ -1,5 +1,6 @@
 import { cleanText } from '../http/helpers.js';
 import { normalizePageDocument, plainTextPageDocument } from './page-document.js';
+import { requireAccessibleCall } from '../meeting/access.js';
 
 /**
  * Вики: дерево совместных страниц компании.
@@ -42,11 +43,13 @@ const summaryView = (row) => ({
   createdBy: row.createdBy, updatedBy: row.updatedBy, createdAt: row.createdAt, updatedAt: row.updatedAt,
 });
 
-export function createWikiRepository(pool, projects = null, store = null, meeting = null) {
+export function createWikiRepository(pool, projects = null, store = null, meeting = null, calendar = null, calls = null, features = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop };
   }
+
+  const featureOn = async (session, id) => !features?.isEnabled || await features.isEnabled(session.workspaceId, id);
 
   const ensurePage = async (session, id) => {
     const { rows } = await pool.query(
@@ -70,7 +73,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
   };
 
   const pageProjects = async (session, pageId) => {
-    if (!projects?.get) return [];
+    if (!projects?.get || !await featureOn(session, 'projects')) return [];
     const { rows } = await pool.query(
       `SELECT project_id "projectId", linked_by "linkedBy", linked_at "linkedAt"
          FROM wiki_page_projects
@@ -100,7 +103,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
   // Page-to-Task is a reference only. Resolve each Task via canonical Task
   // Authority for the viewer; even relation counts must not reveal private work.
   const pageTasks = async (session, pageId) => {
-    if (!store?.getTask) return [];
+    if (!store?.getTask || !await featureOn(session, 'tasks')) return [];
     const { rows } = await pool.query(
       `SELECT commitment_id "taskId", linked_by "linkedBy", linked_at "linkedAt"
          FROM wiki_page_tasks
@@ -144,7 +147,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
   // rechecks acceptance and source-meeting participation on every read.
   // Neither the number nor title of inaccessible decisions is exposed.
   const pageDecisions = async (session, pageId) => {
-    if (!meeting?.getDecision) return [];
+    if (!meeting?.getDecision || !await featureOn(session, 'decisions')) return [];
     const { rows } = await pool.query(
       `SELECT decision_id "decisionId", linked_at "linkedAt"
          FROM wiki_page_decisions
@@ -160,6 +163,61 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       } : null;
     }));
     return items.filter(Boolean);
+  };
+
+
+  const pageCalendarMeetings = async (session, pageId) => {
+    if (!calendar?.getMeetingForRelation || !await featureOn(session, 'calendar')) return [];
+    const { rows } = await pool.query(
+      `SELECT calendar_event_id "eventId", linked_by "linkedBy", linked_at "linkedAt"
+         FROM wiki_page_calendar_meetings
+        WHERE workspace_id=$1 AND page_id=$2
+        ORDER BY linked_at DESC, calendar_event_id LIMIT 100`,
+      [session.workspaceId, pageId],
+    );
+    const projected = await Promise.all(rows.map(async (link) => {
+      try {
+        const event = await calendar.getMeetingForRelation(session, link.eventId);
+        return {
+          id: event.id, title: event.title, startAt: event.startAt, endAt: event.endAt,
+          timezone: event.timezone, linkedBy: link.linkedBy, linkedAt: link.linkedAt,
+        };
+      } catch (error) {
+        if (error?.statusCode === 404) return null;
+        throw error;
+      }
+    }));
+    return projected.filter(Boolean);
+  };
+
+  const pageCalls = async (session, pageId) => {
+    if (!calls?.get || !store?.canAccessConversation || !await featureOn(session, 'meetings')) return [];
+    const { rows } = await pool.query(
+      `SELECT call_id "callId", linked_by "linkedBy", linked_at "linkedAt"
+         FROM wiki_page_calls
+        WHERE workspace_id=$1 AND page_id=$2
+        ORDER BY linked_at DESC, call_id LIMIT 100`,
+      [session.workspaceId, pageId],
+    );
+    const projected = await Promise.all(rows.map(async (link) => {
+      try {
+        const call = await requireAccessibleCall({
+          store, calls, session, callId: link.callId,
+          guestMustParticipate: true, message: 'Meeting not found',
+        });
+        if (!(call.recordings ?? []).length) return null;
+        return {
+          id: call.id, title: call.title ?? null, mode: call.mode, state: call.state,
+          scheduledFor: call.scheduledFor ?? null, startedAt: call.startedAt ?? null,
+          endedAt: call.endedAt ?? null, calendarEventId: call.calendarEventId ?? null,
+          linkedBy: link.linkedBy, linkedAt: link.linkedAt,
+        };
+      } catch (error) {
+        if (error?.statusCode === 404) return null;
+        throw error;
+      }
+    }));
+    return projected.filter(Boolean);
   };
 
   return {
@@ -184,7 +242,16 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         `SELECT ${SUMMARY_COLUMNS} FROM wiki_pages WHERE workspace_id=$1 AND parent_id=$2 AND archived_at IS NULL ORDER BY title`,
         [session.workspaceId, id],
       );
-      return { ...page, children: children.map(summaryView), projects: await pageProjects(session, id), tasks: await pageTasks(session, id), channels: await pageChannels(session, id), decisions: await pageDecisions(session, id) };
+      return {
+        ...page,
+        children: children.map(summaryView),
+        projects: await pageProjects(session, id),
+        tasks: await pageTasks(session, id),
+        channels: await pageChannels(session, id),
+        decisions: await pageDecisions(session, id),
+        meetings: await pageCalendarMeetings(session, id),
+        calls: await pageCalls(session, id),
+      };
     },
 
     async create(session, { title, parentId = null, content = '', document } = {}) {
@@ -418,6 +485,145 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       } finally {
         client.release();
       }
+      return this.get(session, id);
+    },
+
+    async linkCalendarMeeting(session, id, eventId) {
+      await ensureLinkablePage(session, id);
+      if (!calendar?.getMeetingForRelation) throw fail('Календарь недоступен', 'CALENDAR_UNAVAILABLE', 503);
+      await calendar.getMeetingForRelation(session, eventId);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await ensureLinkablePage(session, id, client);
+        const { rows } = await client.query(
+          'SELECT count(*)::int count FROM wiki_page_calendar_meetings WHERE workspace_id=$1 AND page_id=$2',
+          [session.workspaceId, id],
+        );
+        if (rows[0].count >= 100) throw fail('На странице может быть не более 100 связанных встреч', 'PAGE_MEETING_LIMIT', 409);
+        const { rows: latest } = await client.query(
+          "SELECT id FROM calendar_events WHERE workspace_id=$1 AND id=$2 AND kind='meeting' FOR SHARE",
+          [session.workspaceId, eventId],
+        );
+        if (!latest[0]) throw fail('Встреча не найдена', 'CALENDAR_EVENT_NOT_FOUND', 404);
+        await client.query(
+          `INSERT INTO wiki_page_calendar_meetings(organization_id,workspace_id,page_id,calendar_event_id,linked_by)
+           VALUES($1,$2,$3,$4,$5)`,
+          [session.organizationId, session.workspaceId, id, eventId, session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.meeting_linked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { eventId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        if (error.code === '23505') throw fail('Встреча уже связана со страницей', 'WIKI_MEETING_ALREADY_LINKED', 409);
+        if (error.code === '23503') throw fail('Встреча не найдена', 'CALENDAR_EVENT_NOT_FOUND', 404);
+        throw error;
+      } finally { client.release(); }
+      return this.get(session, id);
+    },
+
+    async unlinkCalendarMeeting(session, id, eventId) {
+      await ensurePage(session, id);
+      if (!calendar?.getMeetingForRelation) throw fail('Календарь недоступен', 'CALENDAR_UNAVAILABLE', 503);
+      await calendar.getMeetingForRelation(session, eventId);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rowCount } = await client.query(
+          'DELETE FROM wiki_page_calendar_meetings WHERE workspace_id=$1 AND page_id=$2 AND calendar_event_id=$3',
+          [session.workspaceId, id, eventId],
+        );
+        if (!rowCount) throw fail('Связь со встречей не найдена', 'WIKI_MEETING_NOT_LINKED', 404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.meeting_unlinked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { eventId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally { client.release(); }
+      return this.get(session, id);
+    },
+
+    async linkCall(session, id, callId) {
+      await ensureLinkablePage(session, id);
+      if (!calls?.get || !store?.canAccessConversation) throw fail('Записи встреч недоступны', 'CALLS_UNAVAILABLE', 503);
+      const call = await requireAccessibleCall({
+        store, calls, session, callId, guestMustParticipate: true, message: 'Meeting not found',
+      });
+      if (!(call.recordings ?? []).length) throw fail('У звонка нет записи', 'RECORDED_CALL_NOT_FOUND', 404);
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await ensureLinkablePage(session, id, client);
+        const { rows } = await client.query(
+          'SELECT count(*)::int count FROM wiki_page_calls WHERE workspace_id=$1 AND page_id=$2',
+          [session.workspaceId, id],
+        );
+        if (rows[0].count >= 100) throw fail('На странице может быть не более 100 связанных записей встреч', 'PAGE_CALL_LIMIT', 409);
+        const { rows: latest } = await client.query(
+          'SELECT id FROM call_sessions WHERE workspace_id=$1 AND id=$2 FOR SHARE',
+          [session.workspaceId, callId],
+        );
+        if (!latest[0]) throw fail('Запись встречи не найдена', 'RECORDED_CALL_NOT_FOUND', 404);
+        const recording = await client.query(
+          'SELECT 1 FROM call_recordings WHERE workspace_id=$1 AND call_id=$2 LIMIT 1',
+          [session.workspaceId, callId],
+        );
+        if (!recording.rowCount) throw fail('У звонка нет записи', 'RECORDED_CALL_NOT_FOUND', 404);
+        await client.query(
+          `INSERT INTO wiki_page_calls(organization_id,workspace_id,page_id,call_id,linked_by)
+           VALUES($1,$2,$3,$4,$5)`,
+          [session.organizationId, session.workspaceId, id, callId, session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.call_linked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { callId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        if (error.code === '23505') throw fail('Запись встречи уже связана со страницей', 'WIKI_CALL_ALREADY_LINKED', 409);
+        if (error.code === '23503') throw fail('Запись встречи не найдена', 'RECORDED_CALL_NOT_FOUND', 404);
+        throw error;
+      } finally { client.release(); }
+      return this.get(session, id);
+    },
+
+    async unlinkCall(session, id, callId) {
+      await ensurePage(session, id);
+      if (!calls?.get || !store?.canAccessConversation) throw fail('Записи встреч недоступны', 'CALLS_UNAVAILABLE', 503);
+      await requireAccessibleCall({
+        store, calls, session, callId, guestMustParticipate: true, message: 'Meeting not found',
+      });
+      // Cleanup remains possible even if the recording row was removed after
+      // linking. A missing recording hides the projection but must not strand
+      // the relation forever.
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rowCount } = await client.query(
+          'DELETE FROM wiki_page_calls WHERE workspace_id=$1 AND page_id=$2 AND call_id=$3',
+          [session.workspaceId, id, callId],
+        );
+        if (!rowCount) throw fail('Связь с записью встречи не найдена', 'WIKI_CALL_NOT_LINKED', 404);
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.call_unlinked',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, { callId }],
+        );
+        await client.query('COMMIT');
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally { client.release(); }
       return this.get(session, id);
     },
 

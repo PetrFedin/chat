@@ -3085,6 +3085,14 @@ async function wikiModal(pageId=null){
           <div class="section-head"><div><strong>${T('Связанные каналы','Related channels')}</strong><div class="row-sub">${T('Связь не открывает приватный канал другим людям.','The relation does not grant access to private channels.')}</div></div><button data-wiki-channel-new class="chipbtn pressable">＋ ${T('Канал','Channel')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.channels||[]).length?(page.channels||[]).map(channel=>`<div class="row" data-wiki-channel-row="${esc(channel.id)}"><button type="button" class="text-button" data-wiki-channel-open="${esc(channel.id)}">${esc(channel.title||T('Без названия','Untitled'))}</button><button type="button" class="text-button" data-wiki-channel-remove="${esc(channel.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных связанных каналов','No visible related channels')}</span>`}</div>
         </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-meeting-section>
+          <div class="section-head"><div><strong>${T('Встречи календаря','Calendar meetings')}</strong><div class="row-sub">${T('Только встречи, карточку которых вы можете открыть полностью.','Only meetings whose full calendar card you can open.')}</div></div><button type="button" data-wiki-meeting-new class="chipbtn pressable">＋ ${T('Встреча','Meeting')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.meetings||[]).length?(page.meetings||[]).map(item=>`<div class="row" data-wiki-meeting-row="${esc(item.id)}"><button type="button" class="text-button" data-wiki-meeting-open="${esc(item.id)}">${esc(item.title)} · ${esc(dateTime(item.startAt))}</button><button type="button" class="text-button" data-wiki-meeting-remove="${esc(item.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных связанных встреч','No visible related meetings')}</span>`}</div>
+        </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-call-section>
+          <div class="section-head"><div><strong>${T('Записанные звонки','Recorded calls')}</strong><div class="row-sub">${T('Страница хранит только ссылку: запись, расшифровка и участники остаются в Meeting Authority.','The Page stores only a reference; media, transcript and participants remain in Meeting Authority.')}</div></div><button type="button" data-wiki-call-new class="chipbtn pressable">＋ ${T('Запись','Recording')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.calls||[]).length?(page.calls||[]).map(item=>`<div class="row" data-wiki-call-row="${esc(item.id)}"><button type="button" class="text-button" data-wiki-call-open="${esc(item.id)}">${esc(item.title||T('Записанный звонок','Recorded call'))} · ${esc(dateTime(item.startedAt||item.scheduledFor))}</button><button type="button" class="text-button" data-wiki-call-remove="${esc(item.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных записанных звонков','No visible recorded calls')}</span>`}</div>
+        </div>
         <div class="surface" style="margin-top:14px;padding:12px" data-wiki-decision-section>
           <div class="section-head"><div><strong>${T('Принятые решения','Accepted decisions')}</strong><div class="row-sub">${T('Только решения из встреч, к которым у вас есть доступ.','Only decisions from meetings you can access.')}</div></div><button type="button" data-wiki-decision-new class="chipbtn pressable">＋ ${T('Решение','Decision')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.decisions||[]).length?(page.decisions||[]).map(decision=>`<div class="row" data-wiki-decision-row="${esc(decision.id)}"><button type="button" class="text-button" data-wiki-decision-open="${esc(decision.id)}">${esc(decision.title)} · ${esc(dateTime(decision.acceptedAt))}</button><button type="button" class="text-button" data-wiki-decision-remove="${esc(decision.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных принятых решений','No visible accepted decisions')}</span>`}</div>
@@ -3102,6 +3110,35 @@ async function wikiModal(pageId=null){
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
         $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
         $('[data-wiki-channel-new]')?.addEventListener('click',()=>wikiChannelLinkModal(page,refresh));
+        $('[data-wiki-meeting-new]')?.addEventListener('click',()=>wikiMeetingLinkModal(page,refresh));
+        $('[data-wiki-call-new]')?.addEventListener('click',()=>wikiCallLinkModal(page,refresh));
+        $$('[data-wiki-meeting-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiMeetingOpen;
+          overlayStack.length=0;renderOverlay();eventPage(id);
+        });
+        $$('[data-wiki-meeting-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/calendar-meetings/${button.dataset.wikiMeetingRemove}`,{method:'DELETE'});
+            toast(T('Встреча убрана со страницы','Meeting unlinked from Page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
+        $$('[data-wiki-call-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiCallOpen;
+          overlayStack.length=0;renderOverlay();
+          if(!window.ChatMeetingIntelligence?.openMeeting){
+            toast(T('Разбор встречи недоступен','Meeting review is unavailable'));
+            return;
+          }
+          window.ChatMeetingIntelligence.openMeeting(id,{updateHash:true}).catch(error=>toast(error.message));
+        });
+        $$('[data-wiki-call-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/calls/${button.dataset.wikiCallRemove}`,{method:'DELETE'});
+            toast(T('Запись убрана со страницы','Recorded call unlinked from Page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
         $('[data-wiki-decision-new]')?.addEventListener('click',()=>wikiDecisionLinkModal(page,refresh));
         $$('[data-wiki-decision-open]').forEach(button=>button.onclick=()=>{
           overlayStack.length=0;renderOverlay();decisionDetailModal(button.dataset.wikiDecisionOpen);
@@ -3250,6 +3287,106 @@ async function wikiProjectLinkModal(page,after){
         toast(T('Проект связан со страницей','Project linked to page'));
       }catch(error){button.disabled=false;toast(error.message)}
     };
+  });
+}
+
+async function wikiMeetingLinkModal(page,after){
+  let items=[];
+  try{
+    const now=Date.now(),from=new Date(now-180*86400000).toISOString(),to=new Date(now+365*86400000).toISOString();
+    const [response,current]=await Promise.all([
+      api(`/api/v1/calendar-events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.meetings||[]).map(item=>item.id));
+    const seen=new Set();
+    items=(response.items||[]).map(item=>{
+      const id=item.seriesId||item.id;
+      return {...item,id};
+    }).filter(item=>item.kind==='meeting'&&!item.busyOnly&&/^[0-9a-f-]{36}$/i.test(item.id)
+      &&!linked.has(item.id)&&!seen.has(item.id)&&(seen.add(item.id),true));
+  }catch(error){toast(error.message);return}
+  if(!items.length)return toast(T('Нет новой доступной встречи для связи','There is no further visible meeting to link'));
+  modal(T('Связать встречу','Link meeting'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Показываются только встречи, карточку которых вы уже можете открыть полностью. Ссылка не расширяет доступ.',
+      'Only meetings whose full calendar card you can already open are shown. Linking does not grant access.'
+    )}</p>
+    <label>${T('Поиск встреч','Filter meetings')}
+      <input data-wiki-meeting-filter autocomplete="off" placeholder="${T('Название встречи','Meeting title')}">
+    </label>
+    <div data-wiki-meeting-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const input=$('[data-wiki-meeting-filter]'),results=$('[data-wiki-meeting-candidates]');
+    if(!input||!results)return;
+    const draw=()=>{
+      const q=input.value.trim().toLocaleLowerCase();
+      const visible=items.filter(item=>(item.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=visible.slice(0,100).map(item=>`
+        <button type="button" role="listitem" class="row flow pressable"
+          data-wiki-meeting-select="${esc(item.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(item.title||T('Встреча','Meeting'))}</strong>
+            <span class="row-sub">${esc(dateTime(item.startAt))}</span></span>
+        </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching meetings')}</div>`;
+      $$('[data-wiki-meeting-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/calendar-meetings`,{
+            method:'POST',body:JSON.stringify({eventId:button.dataset.wikiMeetingSelect}),
+          });
+          history.back();
+          toast(T('Встреча связана со страницей','Meeting linked to Page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    input.addEventListener('input',draw);draw();
+  });
+}
+
+async function wikiCallLinkModal(page,after){
+  let items=[];
+  try{
+    const [response,current]=await Promise.all([
+      api('/api/v1/meetings?limit=100'),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.calls||[]).map(item=>item.id));
+    items=(response.items||[]).filter(item=>item.recordingStatus&&item.recordingStatus!=='off'&&!linked.has(item.id));
+  }catch(error){toast(error.message);return}
+  if(!items.length)return toast(T('Нет новой доступной записи встречи','There is no further visible recorded call to link'));
+  modal(T('Связать запись встречи','Link recorded call'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Страница сохранит только ссылку. Расшифровка, медиа и состав участников останутся в разделе встреч.',
+      'The Page stores only a reference. Transcript, media and participants remain in Meeting Authority.'
+    )}</p>
+    <label>${T('Поиск записей','Filter recordings')}
+      <input data-wiki-call-filter autocomplete="off" placeholder="${T('Название встречи','Meeting title')}">
+    </label>
+    <div data-wiki-call-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const input=$('[data-wiki-call-filter]'),results=$('[data-wiki-call-candidates]');
+    if(!input||!results)return;
+    const draw=()=>{
+      const q=input.value.trim().toLocaleLowerCase();
+      const visible=items.filter(item=>(item.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=visible.map(item=>`
+        <button type="button" role="listitem" class="row flow pressable"
+          data-wiki-call-select="${esc(item.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(item.title||T('Записанный звонок','Recorded call'))}</strong>
+            <span class="row-sub">${esc(dateTime(item.startedAt||item.scheduledFor||item.createdAt))}</span></span>
+        </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching recordings')}</div>`;
+      $$('[data-wiki-call-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/calls`,{
+            method:'POST',body:JSON.stringify({callId:button.dataset.wikiCallSelect}),
+          });
+          history.back();
+          toast(T('Запись встречи связана со страницей','Recorded call linked to Page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    input.addEventListener('input',draw);draw();
   });
 }
 
