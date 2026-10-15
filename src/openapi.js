@@ -611,6 +611,26 @@ export const openapi = Object.freeze({
         description: 'Deletes only the relation and never archives or deletes the conversation.',
         responses: { '200': { description: 'Page with updated Channel relations' }, '404': { description: 'Page, conversation or relation not visible' } } }
     },
+    '/api/v1/wiki/pages/{pageId}/calendar-meetings': {
+      post: { tags: ['Wiki'], summary: 'Link an accessible Calendar meeting to a Page',
+        description: 'Only a full visible meeting card may be linked; workspace busy-only visibility is insufficient. Calendar remains authoritative and the relation grants no calendar access.',
+        responses: { '200': { description: 'Page with permission-filtered meeting relations' }, '404': { description: 'Page or meeting not visible' }, '409': { description: 'Duplicate relation or Page meeting limit' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/calendar-meetings/{eventId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink a visible Calendar meeting from a Page',
+        description: 'Deletes only the relation. Cancelling the Calendar event also removes the relation through the database foreign key.',
+        responses: { '200': { description: 'Page with updated meeting relations' }, '404': { description: 'Page, meeting or relation not visible' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/calls': {
+      post: { tags: ['Wiki'], summary: 'Link an accessible recorded Call to a Page',
+        description: 'Requires an actual recording and Meeting-level access. Stores only the call UUID; transcript, recording URL, speakers and summary are never copied to the Page.',
+        responses: { '200': { description: 'Page with permission-filtered recorded-call relations' }, '404': { description: 'Page or recorded Call not visible' }, '409': { description: 'Duplicate relation or Page call limit' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/calls/{callId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink an accessible recorded Call from a Page',
+        description: 'Deletes only the relation and never deletes media, transcript or the Call.',
+        responses: { '200': { description: 'Page with updated recorded-call relations' }, '404': { description: 'Page, recorded Call or relation not visible' } } }
+    },
     '/api/v1/wiki/pages/{pageId}/decisions': {
       post: { tags: ['Wiki'], summary: 'Link an accepted canonical Decision to a Page',
         description: 'Only active decisions visible via Decision Authority can be linked. The link never grants meeting access or copies decision text. Writes an auditable Page relation.',
