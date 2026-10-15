@@ -3099,10 +3099,9 @@ async function wikiDecisionLinkModal(page,after){
           await api(`/api/v1/wiki/pages/${page.id}/decisions`,{
             method:'POST',body:JSON.stringify({decisionId:button.dataset.wikiDecisionSelect}),
           });
-          // Refresh after the browser has actually returned to the parent
-          // Page. A fixed 200ms timer can redraw the Page over a Decision
-          // detail modal the user opened immediately after linking.
-          window.addEventListener('popstate',()=>{void after?.()}, {once:true});
+          // The modal stack's popstate handler restores the parent via
+          // resumeTop(). Do not enqueue a second refresh that could overwrite
+          // a different sheet opened immediately after returning.
           history.back();
           toast(T('Решение связано со страницей','Decision linked to Page'));
         }catch(error){button.disabled=false;toast(error.message)}
@@ -3195,8 +3194,9 @@ async function wikiTaskLinkModal(page,after){
           await api(`/api/v1/wiki/pages/${page.id}/tasks`,{
             method:'POST',body:JSON.stringify({taskId:button.dataset.wikiTaskSelect}),
           });
+          // Parent Page is reloaded by popstate / resumeTop, not by a
+          // detached timeout holding an obsolete modal closure.
           history.back();
-          setTimeout(()=>after?.(),200);
           toast(T('Задача связана со страницей','Task linked to page'));
         }catch(error){button.disabled=false;toast(error.message)}
       });
