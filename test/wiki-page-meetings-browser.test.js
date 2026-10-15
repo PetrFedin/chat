@@ -40,39 +40,34 @@ test('Page Meeting pickers link canonical Calendar meeting and recorded Call on 
   assert.equal(meetingMade.status(),201);
   const meeting=(await meetingMade.json()).event;
 
+  const ownerCookie=(await page.context().cookies()).map(item=>`${item.name}=${item.value}`).join('; ');
+  const inviteResponse=await fetch(base+'/api/v1/invitations',{
+    method:'POST',headers:{cookie:ownerCookie,'content-type':'application/json'},
+    body:JSON.stringify({email:'meeting-browser-member-'+marker+'@example.test',role:'member'}),
+  });
+  assert.equal(inviteResponse.status,201);
+  const invitePayload=await inviteResponse.json();
+  const token=new URL(invitePayload.invitation.inviteUrl).searchParams.get('invite');
+  const acceptedResponse=await fetch(base+'/api/v1/invitations/accept',{
+    method:'POST',headers:{'content-type':'application/json'},
+    body:JSON.stringify({token,displayName:'Member',password:'MeetingPagesBrowserPassword42'}),
+  });
+  assert.equal(acceptedResponse.status,201);
+  const memberCookie=acceptedResponse.headers.get('set-cookie')?.split(';')[0];
+  const memberBoot=await fetch(base+'/api/v1/bootstrap',{headers:{cookie:memberCookie}});
+  assert.equal(memberBoot.status,200);
+  const memberId=(await memberBoot.json()).session.userId;
+
   const roomMade=await page.request.post(base+'/api/v1/conversations',{data:{
     kind:'channel',title:'Recorded room '+marker,visibility:'workspace',
   }});
   assert.equal(roomMade.status(),201);
   const room=(await roomMade.json()).conversation;
   const callMade=await page.request.post(base+`/api/v1/conversations/${room.id}/calls`,{data:{
-    mode:'video',title:'Recorded review '+marker,participantIds:[session.userId],
+    mode:'video',title:'Recorded review '+marker,participantIds:[session.userId,memberId],
   }});
-  // One-person calls are rejected by design, so add one real workspace member
-  // directly through the normal invitation API before retrying.
-  let call;
-  if(callMade.status()===201){
-    call=(await callMade.json()).call;
-  }else{
-    assert.equal(callMade.status(),400);
-    const invite=await page.request.post(base+'/api/v1/invitations',{data:{
-      email:'meeting-browser-member-'+marker+'@example.test',role:'member',
-    }});
-    assert.equal(invite.status(),201);
-    const token=new URL((await invite.json()).invitation.inviteUrl).searchParams.get('invite');
-    const accepted=await page.request.post(base+'/api/v1/invitations/accept',{data:{
-      token,displayName:'Member',password:'MeetingPagesBrowserPassword42',
-    }});
-    assert.equal(accepted.status(),201);
-    const memberCookie=accepted.headers()['set-cookie']?.split(';')[0];
-    const memberBoot=await fetch(base+'/api/v1/bootstrap',{headers:{cookie:memberCookie}});
-    const memberId=(await memberBoot.json()).session.userId;
-    const retried=await page.request.post(base+`/api/v1/conversations/${room.id}/calls`,{data:{
-      mode:'video',title:'Recorded review '+marker,participantIds:[session.userId,memberId],
-    }});
-    assert.equal(retried.status(),201);
-    call=(await retried.json()).call;
-  }
+  assert.equal(callMade.status(),201);
+  const call=(await callMade.json()).call;
 
   await app.store.pool.query(
     `INSERT INTO call_recordings(
