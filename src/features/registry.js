@@ -116,6 +116,8 @@ export function planChange(state, id, enable) {
  * Маршрут → функция. Порядок важен: частные правила раньше общих. Пути без сессии (ICS по токену, вход) сюда не попадают.
  */
 const ROUTES = [
+  [/^\/api\/v1\/wiki\/pages\/[^/]+\/calendar-meetings(\/|$)/, ['wiki','calendar']],
+  [/^\/api\/v1\/wiki\/pages\/[^/]+\/calls(\/|$)/, ['wiki','meetings']],
   [/^\/api\/v1\/wiki\/pages\/[^/]+\/projects(\/|$)/, ['wiki','projects']],
   [/^\/api\/v1\/wiki\/pages\/[^/]+\/tasks(\/|$)/, ['wiki','tasks']],
   [/^\/api\/v1\/wiki\/(pages\/[^/]+\/decisions|decisions\/[^/]+\/pages)(\/|$)/, ['wiki','decisions']],
