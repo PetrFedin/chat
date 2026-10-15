@@ -48,7 +48,7 @@ export const openapi = Object.freeze({
     '/api/v1/notifications/read-all': { post: { tags: ['Attention'], summary: 'Mark current notification scope as read', responses: { '200': { description: 'Read count' } } } },
     '/api/v1/notifications/{notificationId}/read': { post: { tags: ['Attention'], summary: 'Mark one notification as read', responses: { '200': { description: 'Notification read state' }, '404': { description: 'Notification not visible' } } } },
     '/api/v1/mentions': { get: { tags: ['Attention'], summary: 'List current user mentions', responses: { '200': { description: 'Mention notification list' } } } },
-    '/api/v1/search': { get: { tags: ['Search'], summary: 'Search accessible messages, conversations, tasks, files, people and calendar events', description: 'Files match on their name and on their text: plain text, docx, xlsx, pptx and PDFs with a text layer are read on upload. Scans and password-protected files are not indexed — the first needs recognition, the second cannot be opened, and pretending they are searchable is worse than saying so. A hit inside a file carries insideFile:true and a snippet where the matched word is wrapped in \\u0002 and \\u0003 rather than markup.', responses: { '200': { description: 'Permission-filtered search results' } } } },
+    '/api/v1/search': { get: { tags: ['Search'], summary: 'Search accessible messages, conversations, tasks, files, people, calendar events, projects, pages and accepted decisions', description: 'Files match on their name and on their text: plain text, docx, xlsx, pptx and PDFs with a text layer are read on upload. Scans and password-protected files are not indexed — the first needs recognition, the second cannot be opened, and pretending they are searchable is worse than saying so. A hit inside a file carries insideFile:true and a snippet where the matched word is wrapped in \\u0002 and \\u0003 rather than markup.', responses: { '200': { description: 'Permission-filtered search results' } } } },
     '/api/v1/projects': {
       get: { tags: ['Projects'], summary: 'List projects visible to the current user', responses: { '200': { description: 'Permission-filtered projects' } } },
       post: { tags: ['Projects'], summary: 'Create a native project work context', description: 'Project metadata is authoritative only for the project itself. Task and Calendar state remain in their own authorities.', responses: { '201': { description: 'Project created' }, '403': { description: 'Project creation permission denied' } } }
@@ -591,6 +591,26 @@ export const openapi = Object.freeze({
     '/api/v1/wiki/pages/{pageId}/history': {
       get: { tags: ['Wiki'], summary: 'List prior snapshots of a page, newest first', responses: { '200': { description: 'Version history' } } }
     },
+    '/api/v1/wiki/pages/{pageId}/tasks': {
+      post: { tags: ['Wiki'], summary: 'Link a visible canonical Task to a Page',
+        description: 'Stores only a Page-to-Task relation. Task Authority remains canonical; the relation never copies task status or grants task access.',
+        responses: { '200': { description: 'Page with permission-filtered Task relations' }, '404': { description: 'Page or Task not visible' }, '409': { description: 'Duplicate relation or Page Task limit' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/tasks/{taskId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink a visible Task from a Page',
+        description: 'Deletes only the relation; the canonical Task and Page remain unchanged.',
+        responses: { '200': { description: 'Page with updated Task relations' }, '404': { description: 'Page, Task or relation not visible' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/channels': {
+      post: { tags: ['Wiki'], summary: 'Link an accessible canonical conversation to a Page',
+        description: 'Stores only a Page-to-Conversation relation. Conversation Authority is rechecked on reads and writes; linking never changes conversation membership or visibility.',
+        responses: { '200': { description: 'Page with permission-filtered Channel relations' }, '404': { description: 'Page or conversation not visible' }, '409': { description: 'Duplicate relation or Page Channel limit' } } }
+    },
+    '/api/v1/wiki/pages/{pageId}/channels/{conversationId}': {
+      delete: { tags: ['Wiki'], summary: 'Unlink an accessible conversation from a Page',
+        description: 'Deletes only the relation and never archives or deletes the conversation.',
+        responses: { '200': { description: 'Page with updated Channel relations' }, '404': { description: 'Page, conversation or relation not visible' } } }
+    },
     '/api/v1/wiki/pages/{pageId}/decisions': {
       post: { tags: ['Wiki'], summary: 'Link an accepted canonical Decision to a Page',
         description: 'Only active decisions visible via Decision Authority can be linked. The link never grants meeting access or copies decision text. Writes an auditable Page relation.',
@@ -609,6 +629,11 @@ export const openapi = Object.freeze({
     },
     '/api/v1/wiki/pages/{pageId}/projects/{projectId}': {
       delete: { tags: ['Wiki'], summary: 'Unlink a project from a page', description: 'Removes only the relation. The canonical project and page remain unchanged.', responses: { '200': { description: 'Relation removed' }, '404': { description: 'Page, project or relation not visible' } } }
+    },
+    '/api/v1/wiki/decisions/{decisionId}/pages': {
+      get: { tags: ['Wiki'], summary: 'List accessible Pages linked to one accepted Decision',
+        description: 'Reverse relation remains permission-bounded: inaccessible or archived Pages are omitted, and the Decision must remain visible through Decision Authority.',
+        responses: { '200': { description: 'Permission-filtered linked Pages' }, '404': { description: 'Decision not visible or no longer active' } } }
     },
     '/api/v1/wiki/search': {
       get: { tags: ['Wiki'], summary: 'Full-text search across non-archived pages', responses: { '200': { description: 'Matching pages with a highlighted snippet' } } }
