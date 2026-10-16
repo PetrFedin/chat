@@ -89,12 +89,21 @@ test('Projects, Wiki and Topics survive OFF/ON without bypassing cross-feature a
 
     // Projects OFF: canonical rows remain, but both direct Project API and the
     // Wiki↔Project cross-feature mutation become unavailable.
+    const projectPlanRoot=`/api/v1/projects/${projectId}/plan`;
+    const beforePlan=await call(base,projectPlanRoot,{cookie:owner.cookie});
+    assert.equal(beforePlan.status,200);
+
     const projectOff = await call(base, '/api/v1/features/projects', {
       cookie: owner.cookie, method: 'PUT', body: { enabled: false },
     });
     assert.equal(projectOff.status, 200);
     assert.equal(projectOff.payload.items.find((f) => f.id === 'projects').enabled, false);
     assert.equal((await call(base, '/api/v1/projects', { cookie: owner.cookie })).code, 'FEATURE_DISABLED');
+    assert.equal((await call(base,projectPlanRoot,{cookie:owner.cookie})).code,'FEATURE_DISABLED');
+    assert.equal((await call(base,projectPlanRoot+'/preview',{
+      cookie:owner.cookie,method:'POST',body:{taskId:projectId,shiftDays:1},
+    })).code,'FEATURE_DISABLED');
+
     assert.equal((await call(base, `/api/v1/wiki/pages/${pageId}/projects/${projectId}`, {
       cookie: owner.cookie, method: 'DELETE',
     })).code, 'FEATURE_DISABLED', 'cross-feature endpoint must require Projects as well as Wiki');
@@ -106,6 +115,10 @@ test('Projects, Wiki and Topics survive OFF/ON without bypassing cross-feature a
     const projectAgain = await call(base, `/api/v1/projects/${projectId}`, { cookie: owner.cookie });
     assert.equal(projectAgain.status, 200);
     assert.equal(projectAgain.payload.project.name, project.payload.project.name);
+    const restoredPlan=await call(base,projectPlanRoot,{cookie:owner.cookie});
+    assert.equal(restoredPlan.status,200);
+    assert.deepEqual(restoredPlan.payload.plan.schedules,beforePlan.payload.plan.schedules);
+
 
     // Wiki OFF independently blocks the same relation while Projects stays on.
     assert.equal((await call(base, '/api/v1/features/wiki', {

@@ -15,8 +15,12 @@ const text=(value,{name='value',max=4000,required=false}={})=>{
 };
 const dateOnly=(value,name)=>{
   if(value==null||value==='')return null;
-  if(!/^\d{4}-\d{2}-\d{2}$/.test(String(value)))throw fail(`${name} must be YYYY-MM-DD`,`INVALID_${name.toUpperCase()}`);
-  return String(value);
+  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))
+    throw fail(`${name} must be YYYY-MM-DD`,`INVALID_${name.toUpperCase()}`);
+  const parsed=new Date(value+'T00:00:00.000Z');
+  if(!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==value)
+    throw fail(`${name} must be an existing calendar day`,`INVALID_${name.toUpperCase()}`);
+  return value;
 };
 
 export function normalizeProject(input,{partial=false}={}){

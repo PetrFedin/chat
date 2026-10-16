@@ -45,6 +45,12 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
   const outsider=await invite(base,ownerCookie,`outside-${suffix}@projects.test`,'Outside');
   const guest=await invite(base,ownerCookie,`guest-${suffix}@projects.test`,'Guest','guest');
 
+  const badDate=await request(base,'/api/v1/projects',{cookie:ownerCookie,method:'POST',body:{
+    name:'Nonexistent calendar date',startAt:'2026-02-30',targetAt:'2026-03-01',
+  }});
+  assert.equal(badDate.response.status,400);
+  assert.equal(badDate.payload.error.code,'INVALID_PROJECT_START');
+
   const projectCreated=await request(base,'/api/v1/projects',{cookie:ownerCookie,method:'POST',body:{
     name:'Investor readiness',goal:'Close the execution loop for the investor demo',visibility:'members',status:'active',
     startAt:'2026-10-07',targetAt:'2026-11-15'
@@ -138,6 +144,25 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
   const outsiderList=await request(base,'/api/v1/projects',{cookie:outsider.cookie});
   assert.equal(outsiderList.response.status,200);
   assert.ok(!outsiderList.payload.items.some(project=>project.id===projectId));
+
+  // A lead without active Task obligations can remove their own membership.
+  // The API must acknowledge the write without leaking the newly hidden project.
+  const spareLead=await invite(base,ownerCookie,`spare-lead-${suffix}@projects.test`,'Spare Lead');
+  assert.equal((await request(base,`/api/v1/projects/${projectId}/members`,{
+    cookie:ownerCookie,method:'POST',body:{userId:spareLead.userId,role:'lead'},
+  })).response.status,200);
+  const selfRemove=await request(base,`/api/v1/projects/${projectId}/members/${spareLead.userId}`,{
+    cookie:spareLead.cookie,method:'DELETE',
+  });
+  assert.equal(selfRemove.response.status,200);
+  assert.equal(selfRemove.payload.project.accessRemoved,true);
+  assert.equal((await request(base,`/api/v1/projects/${projectId}`,{cookie:spareLead.cookie})).response.status,404);
+  assert.equal((await request(base,`/api/v1/projects/${projectId}/plan`,{cookie:spareLead.cookie})).response.status,404);
+  assert.equal((await request(base,`/api/v1/projects/${projectId}/plan/preview`,{
+    cookie:spareLead.cookie,method:'POST',body:{taskId,shiftDays:1},
+  })).response.status,404);
+  const surviving=await request(base,`/api/v1/projects/${projectId}`,{cookie:ownerCookie});
+  assert.equal(surviving.response.status,200);
 
   const leadList=await request(base,'/api/v1/projects',{cookie:lead.cookie});
   assert.ok(leadList.payload.items.some(project=>project.id===projectId));
