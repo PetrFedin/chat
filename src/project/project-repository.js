@@ -1,3 +1,4 @@
+import { previewProjectShift } from './project-plan-forecast.js';
 import { randomUUID } from 'node:crypto';
 import { normalizeProject,normalizeProjectMember,normalizeMilestone,canViewProject,assertProjectManage,assertProjectContribute } from './project-authority.js';
 import { createProjectPlanning } from './project-plan-repository.js';
@@ -250,6 +251,21 @@ export function createProjectRepository({pool,store,meeting}={}){
 
   return{
     ...planning,
+    // Read-only what-if uses a fresh permission-filtered Project projection:
+    // callers cannot supply plan content, hidden Task IDs, or another tenant.
+    async previewPlan(session,id,input={}){
+      const project=await this.get(session,id);
+      const visibleTaskIds=new Set((project.tasks||[]).map(task=>task.id));
+      if(!visibleTaskIds.has(input.taskId))throw fail(
+        'Task not found in visible project','PROJECT_TASK_NOT_FOUND',404,
+      );
+      return previewProjectShift({
+        schedules:project.plan?.schedules||[],
+        dependencies:project.plan?.dependencies||[],
+        targetAt:project.targetAt,
+        visibleTaskCount:visibleTaskIds.size,
+      },{taskId:input.taskId,shiftDays:input.shiftDays});
+    },
     // Scope the search in SQL, not in a client-side filtered workspace dump:
     // project names and goals are themselves protected metadata.
     async search(session,{query,from=null,to=null,limit=40}={}){
