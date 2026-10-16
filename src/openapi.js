@@ -57,6 +57,12 @@ export const openapi = Object.freeze({
       get: { tags: ['Projects'], summary: 'Get a project operating cockpit', description: 'Returns members, milestones, visible canonical tasks, canonical file relations, conversation-authority-filtered discussion relations, Decision-Authority-filtered decision relations, progress/workload metrics and recent activity. Project does not copy Task, File, Conversation or Decision state.', responses: { '200': { description: 'Project detail' }, '404': { description: 'Project is not visible' } } },
       patch: { tags: ['Projects'], summary: 'Update project metadata with optimistic versioning', responses: { '200': { description: 'Project updated' }, '403': { description: 'Project management authority denied' }, '409': { description: 'Stale project version' } } }
     },
+    '/api/v1/projects/{projectId}/plan/preview': {
+      post: { tags: ['Projects'], summary: 'Preview task shift and dependent project finish without saving',
+        description: 'Server re-reads the permission-scoped canonical project and Task Authority visibility. Takes only taskId and shiftDays (-365..365); never accepts caller-supplied schedules. Calendar-day estimate; partial coverage is flagged, and Task/Calendar state is never modified.',
+        responses: { '200': { description: 'Read-only forecast scenario and coverage limitations' }, '400': { description: 'Invalid shift value' }, '404': { description: 'Project or task not visible' } }
+      }
+    },
     '/api/v1/projects/{projectId}/members': {
       post: { tags: ['Projects'], summary: 'Add or update a project member role', description: 'Only active workspace staff can be project members; guests cannot be added.', responses: { '200': { description: 'Project membership updated' }, '403': { description: 'Project management authority denied' } } }
     },
