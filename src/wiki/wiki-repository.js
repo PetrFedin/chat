@@ -845,11 +845,6 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           [session.workspaceId,id,next,session.userId],
         );
         if(!rows[0])throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
-        const targetAccess=await access.evaluate({...session,userId:target.userId,role:target.role},id,client);
-        if(!targetAccess?.canView)throw fail(
-          'Новый владелец доступа сначала должен получить доступ к закрытым родительским страницам',
-          'WIKI_ACCESS_OWNER_ANCESTOR_REQUIRED',409,
-        );
         await client.query(
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'wiki_page',$3,'wiki.access_visibility_changed',$4,$5)`,
@@ -945,6 +940,15 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           [session.workspaceId,id,userId],
         );
         if(!rows[0])throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
+        // The new steward receives access to the current node, but must also
+        // be able to traverse every restricted ancestor. Reject atomically.
+        const targetAccess=await access.evaluate(
+          {...session,userId:target.userId,role:target.role},id,client,
+        );
+        if(!targetAccess?.canView)throw fail(
+          'Новый владелец доступа сначала должен получить доступ к закрытым родительским страницам',
+          'WIKI_ACCESS_OWNER_ANCESTOR_REQUIRED',409,
+        );
         await client.query(
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'wiki_page',$3,'wiki.access_owner_transferred',$4,$5)`,
