@@ -3799,7 +3799,7 @@ async function wikiHistoryModal(pageId){
         if(root)m.renderPageDocument(root,version.document??m.textPageDocument(version.content??''));
       });
     }).catch(error=>toast(error.message));
-    $('[data-wiki-restore]').forEach(button=>button.onclick=async()=>{
+    $$('[data-wiki-restore]').forEach(button=>button.onclick=async()=>{
       const version=Number(button.dataset.wikiRestore);
       if(!confirm(T('Восстановить выбранную версию? Текущая сохранится в истории.','Restore this version? The current version will remain in history.')))return;
       button.disabled=true;
