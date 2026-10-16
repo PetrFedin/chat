@@ -17,6 +17,8 @@ const DECISION=new RegExp(`^/api/v1/projects/${ID}/decisions/${ID}$`,'i');
 const MILESTONES=new RegExp(`^/api/v1/projects/${ID}/milestones$`,'i');
 const MILESTONE=new RegExp(`^/api/v1/projects/${ID}/milestones/${ID}$`,'i');
 const PLAN=new RegExp(`^/api/v1/projects/${ID}/plan$`,'i');
+const PLAN_PREVIEW=new RegExp(`^/api/v1/projects/${ID}/plan/preview$`,'i');
+
 const PLAN_PHASES=new RegExp(`^/api/v1/projects/${ID}/plan/phases$`,'i');
 const PLAN_PHASE=new RegExp(`^/api/v1/projects/${ID}/plan/phases/${ID}$`,'i');
 const PLAN_TASK=new RegExp(`^/api/v1/projects/${ID}/plan/tasks/${ID}$`,'i');
@@ -131,6 +133,14 @@ export function createProjectsHandler(){
       return true;
     }
     // Planning decorates canonical Tasks, never creates a second Task state.
+    match=path.match(PLAN_PREVIEW);
+    if(match&&method==='POST'){
+      const body=await readJson(req);
+      json(res,200,{preview:await projects.previewPlan(session,match[1],{
+        taskId:body.taskId,shiftDays:body.shiftDays,
+      })});
+      return true;
+    }
     match=path.match(PLAN);
     if(match&&method==='GET'){
       json(res,200,{plan:(await projects.get(session,match[1])).plan});
