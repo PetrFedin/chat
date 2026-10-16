@@ -113,7 +113,7 @@ export function analyzeProjectForecast({schedules=[],dependencies=[],targetAt=nu
 }
 
 export function previewProjectShift(plan,{taskId,shiftDays}={}){
-  const days=Number(shiftDays);
+  const days=shiftDays;
   if(typeof taskId!=='string'||!Number.isSafeInteger(days)||Math.abs(days)>365)
     throw failure('Shift must be a whole number of calendar days between -365 and 365','PLAN_SHIFT_INVALID');
   const base=analyzeProjectForecast(plan);
