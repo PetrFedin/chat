@@ -183,10 +183,8 @@ export function createProjectRepository({pool,store,meeting}={}){
       ['owner','admin'].includes(session.role);
     return rows.filter(event=>{
       if(event.aggregateType!=='project')return true;
-      // A contributor may always view the relation operation they performed.
-      // Other actors' link/unlink activity is visible only while the source
-      // object is independently authorized by its canonical authority.
-      if(event.actorId===session.userId)return true;
+      // Even the original actor may have lost canonical access since linking.
+      // Audit history is retained, but projected references follow current ACL.
       if(!canManage&&event.eventType.startsWith('project.member_'))return false;
       const payload=event.payload&&typeof event.payload==='object'&&!Array.isArray(event.payload)
         ?event.payload:{};
