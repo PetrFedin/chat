@@ -16,6 +16,12 @@ const DECISIONS=new RegExp(`^/api/v1/projects/${ID}/decisions$`,'i');
 const DECISION=new RegExp(`^/api/v1/projects/${ID}/decisions/${ID}$`,'i');
 const MILESTONES=new RegExp(`^/api/v1/projects/${ID}/milestones$`,'i');
 const MILESTONE=new RegExp(`^/api/v1/projects/${ID}/milestones/${ID}$`,'i');
+const PLAN=new RegExp(`^/api/v1/projects/${ID}/plan$`,'i');
+const PLAN_PHASES=new RegExp(`^/api/v1/projects/${ID}/plan/phases$`,'i');
+const PLAN_PHASE=new RegExp(`^/api/v1/projects/${ID}/plan/phases/${ID}$`,'i');
+const PLAN_TASK=new RegExp(`^/api/v1/projects/${ID}/plan/tasks/${ID}$`,'i');
+const PLAN_DEPENDENCIES=new RegExp(`^/api/v1/projects/${ID}/plan/dependencies$`,'i');
+const PLAN_DEPENDENCY=new RegExp(`^/api/v1/projects/${ID}/plan/dependencies/${ID}/${ID}$`,'i');
 
 export function createProjectsHandler(){
   return async function handleProjects(req,res,ctx,url,path,method){
@@ -122,6 +128,37 @@ export function createProjectsHandler(){
     match=path.match(MILESTONE);
     if(match&&method==='PATCH'){
       json(res,200,{milestone:await projects.updateMilestone(session,match[1],match[2],await readJson(req))});
+      return true;
+    }
+    // Planning decorates canonical Tasks, never creates a second Task state.
+    match=path.match(PLAN);
+    if(match&&method==='GET'){
+      json(res,200,{plan:(await projects.get(session,match[1])).plan});
+      return true;
+    }
+    match=path.match(PLAN_PHASES);
+    if(match&&method==='POST'){
+      json(res,201,{phase:await projects.createPhase(session,match[1],await readJson(req))});
+      return true;
+    }
+    match=path.match(PLAN_PHASE);
+    if(match&&method==='PATCH'){
+      json(res,200,{phase:await projects.updatePhase(session,match[1],match[2],await readJson(req))});
+      return true;
+    }
+    match=path.match(PLAN_TASK);
+    if(match&&method==='PUT'){
+      json(res,200,{schedule:await projects.scheduleTask(session,match[1],match[2],await readJson(req))});
+      return true;
+    }
+    match=path.match(PLAN_DEPENDENCIES);
+    if(match&&method==='POST'){
+      json(res,201,{dependency:await projects.addDependency(session,match[1],await readJson(req))});
+      return true;
+    }
+    match=path.match(PLAN_DEPENDENCY);
+    if(match&&method==='DELETE'){
+      json(res,200,await projects.removeDependency(session,match[1],match[2],match[3]));
       return true;
     }
     return false;
