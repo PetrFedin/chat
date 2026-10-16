@@ -344,44 +344,50 @@ export function createProjectRepository({pool,store,meeting}={}){
     },
 
     async update(session,id,input){
-      const project=await row(session,id);
-      assertProjectManage(project,session);
       const patch=normalizeProject(input,{partial:true});
+      await tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectManage(project,session);
       const expected=patch.expectedVersion??project.version;
       const next={name:patch.name??project.name,goal:patch.goal!==undefined?patch.goal:project.goal,status:patch.status??project.status,
         visibility:patch.visibility??project.visibility,startAt:patch.startAt!==undefined?patch.startAt:project.startAt,targetAt:patch.targetAt!==undefined?patch.targetAt:project.targetAt};
       if(next.startAt&&next.targetAt&&String(next.targetAt)<String(next.startAt))throw fail('Project target must not precede start','INVALID_PROJECT_RANGE');
-      const{rows}=await pool.query(
+      const{rows}=await client.query(
         `UPDATE projects SET name=$4,goal=$5,status=$6,visibility=$7,start_at=$8,target_at=$9,version=version+1,updated_at=now()
           WHERE workspace_id=$1 AND id=$2 AND version=$3
           RETURNING id,name,goal,status,visibility,owner_id "ownerId",start_at "startAt",target_at "targetAt",version,updated_at "updatedAt"`,
         [session.workspaceId,id,expected,next.name,next.goal,next.status,next.visibility,next.startAt,next.targetAt]);
       if(!rows[0])throw fail('Project changed in another session','PROJECT_VERSION_CONFLICT',409);
-      await pool.query(
+      await client.query(
         `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
          VALUES($1,$2,'project',$3,'project.updated',$4,$5)`,
         [session.organizationId,session.workspaceId,id,session.userId,{from:{status:project.status,targetAt:project.targetAt},to:{status:next.status,targetAt:next.targetAt},version:rows[0].version}]);
+      });
       return this.get(session,id);
     },
 
     async addMember(session,id,input){
-      const project=await row(session,id);
-      assertProjectManage(project,session);
       const member=normalizeProjectMember(input);
-      const staff=await pool.query(
+      await tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectManage(project,session);
+      const staff=await client.query(
         `SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id
           WHERE m.workspace_id=$1 AND m.user_id=$2 AND m.role<>'guest' AND u.disabled_at IS NULL`,
         [session.workspaceId,member.userId]);
       if(!staff.rowCount)throw fail('Project member must be active workspace staff','INVALID_PROJECT_MEMBER',409);
-      await pool.query(
+      await client.query(
         `INSERT INTO project_members(project_id,workspace_id,user_id,role,added_by)
          VALUES($1,$2,$3,$4,$5)
          ON CONFLICT(project_id,user_id) DO UPDATE SET role=EXCLUDED.role`,
         [id,session.workspaceId,member.userId,member.role,session.userId]);
-      await pool.query(
+      await client.query(
         `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
          VALUES($1,$2,'project',$3,'project.member_upserted',$4,$5)`,
         [session.organizationId,session.workspaceId,id,session.userId,{userId:member.userId,role:member.role}]);
+      });
       return this.get(session,id);
     },
 
@@ -456,14 +462,17 @@ export function createProjectRepository({pool,store,meeting}={}){
     },
 
     async unlinkTask(session,id,taskId){
-      const project=await row(session,id);
-      assertProjectManage(project,session);
-      const removed=await pool.query('DELETE FROM project_tasks WHERE project_id=$1 AND commitment_id=$2 RETURNING commitment_id',[id,taskId]);
+      await tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectManage(project,session);
+      const removed=await client.query('DELETE FROM project_tasks WHERE workspace_id=$1 AND project_id=$2 AND commitment_id=$3 RETURNING commitment_id',[session.workspaceId,id,taskId]);
       if(!removed.rowCount)throw fail('Project task link not found','PROJECT_TASK_NOT_FOUND',404);
-      await pool.query(
+      await client.query(
         `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
          VALUES($1,$2,'project',$3,'project.task_unlinked',$4,$5)`,
         [session.organizationId,session.workspaceId,id,session.userId,{taskId}]);
+      });
       return this.get(session,id);
     },
 

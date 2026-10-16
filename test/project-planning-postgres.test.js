@@ -160,6 +160,26 @@ test('Project planning: tenant authority, canonical tasks, phases, CAS versions 
       taskId:first.id,shiftDays:500,
     }})).status,400);
 
+    const coerced=await req(base,root+'/preview',{cookie:owner.cookie,method:'POST',body:{
+      taskId:first.id,shiftDays:'3',
+    }});
+    assert.equal(coerced.status,400,'string shifts must not bypass strict input contract');
+
+    // Concurrent unlink and planning mutation must serialize on the project
+    // row and cannot leave orphaned schedules or dependency references.
+    const raceTask=(await newTask('Unlink race')).payload.task;
+    const raceWrite=req(base,taskPath(raceTask.id),{cookie:owner.cookie,method:'PUT',body:{
+      plannedStart:'2026-11-04',plannedEnd:'2026-11-06',expectedVersion:0,
+    }});
+    const raceUnlink=req(base,`/api/v1/projects/${projectId}/tasks/${raceTask.id}`,{
+      cookie:owner.cookie,method:'DELETE',
+    });
+    const [raceScheduleResult,raceUnlinkResult]=await Promise.all([raceWrite,raceUnlink]);
+    assert.equal(raceUnlinkResult.status,200);
+    assert.ok([200,404].includes(raceScheduleResult.status));
+    const finalRacePlan=(await req(base,root,{cookie:owner.cookie})).payload.plan;
+    assert.equal(finalRacePlan.schedules.some(item=>item.taskId===raceTask.id),false);
+
     const canonical=await req(base,`/api/v1/tasks/${first.id}`,{cookie:owner.cookie});
     assert.equal(canonical.status,200);
     assert.equal(canonical.payload.task.id,first.id);
