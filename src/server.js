@@ -204,7 +204,7 @@ export async function createChatServer(options={}){
   // once and inject the same repository so Project never reimplements meeting
   // visibility or invents a parallel decision permission model.
   const meeting=options.meeting??createProcessingAwareMeetingRepository(createMeetingRepository(pool),pool);
-  const projects=options.projects??createProjectRepository({pool,store,meeting});
+  const projects=options.projects??createProjectRepository({pool,store,meeting,features});
   const people=options.people??createPeopleRepository(pool,org);
   const games=options.games??createGameRepository(pool,store);
   const reminders=options.reminders??createReminderRepository(pool);
