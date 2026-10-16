@@ -3,6 +3,10 @@ BEGIN;
 -- CHATX Project Planning v1. Planning is owned by Project Authority; the
 -- canonical Task, Calendar, Conversation, Decision and File records never move.
 -- 085-087 are reserved for the independent Page draft stack.
+-- PostgreSQL requires a unique referenced key for composite workspace/project FKs.
+CREATE UNIQUE INDEX IF NOT EXISTS projects_workspace_plan_fk_uq
+  ON projects(workspace_id,id);
+
 CREATE TABLE project_plan_phases (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id uuid NOT NULL,
