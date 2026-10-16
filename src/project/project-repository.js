@@ -8,7 +8,7 @@ const ACTIVE_TASK=new Set(['proposed','accepted','scheduled','in_progress','bloc
 const DONE_TASK=new Set(['accepted_result','closed']);
 const PREVIEWABLE=/^(image\/(?!svg\+xml)|application\/pdf$|text\/plain|audio\/|video\/)/i;
 
-export function createProjectRepository({pool,store,meeting}={}){
+export function createProjectRepository({pool,store,meeting,features}={}){
   if(!pool||!store)return null;
 
   const tx=async(fn)=>{
@@ -98,7 +98,9 @@ export function createProjectRepository({pool,store,meeting}={}){
   // not gain access to a decision merely because somebody linked its UUID here:
   // the canonical source meeting/calendar visibility is evaluated every time.
   const projectDecisions=async(session,projectId)=>{
-    if(!meeting?.getDecision)return[];
+    // Feature admission applies to nested Project projections as well as
+    // the direct /meetings/decisions route. Recheck on every read (no cache).
+    if(!meeting?.getDecision||features&&!(await features.isEnabled(session.workspaceId,'decisions')))return[];
     const links=(await pool.query(
       `SELECT decision_id "decisionId",linked_by "linkedBy",linked_at "linkedAt"
          FROM project_decisions
