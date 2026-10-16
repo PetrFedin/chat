@@ -94,6 +94,7 @@ test('Project <-> Discussion keeps Conversation Authority canonical',
   assert.equal(observerProject.status,200);
   assert.equal(observerProject.payload.project.discussions.some(row=>row.id===conversationId),false,
     'linked private discussion leaked through Project membership');
+  assert.equal(observerProject.payload.project.activity.some(event=>JSON.stringify(event.payload).includes(conversationId)),false,'hidden conversation id must not leak in activity');
   const observerMessages=await request(base,`/api/v1/conversations/${conversationId}/messages`,{
     cookie:observer.cookie});
   assert.equal(observerMessages.status,404);
