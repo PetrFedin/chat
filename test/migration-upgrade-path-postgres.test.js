@@ -12,7 +12,7 @@ function schemaUrl(base, schema) {
   return url.toString();
 }
 
-test('upgrade path 001-070 -> 071-084 applies only the integrated tail in order',
+test('upgrade path 001-070 applies the integrated tail and project planning migration',
   { skip: !databaseUrl, timeout: 120000 }, async () => {
     const schema = 'upgrade_' + randomUUID().replaceAll('-', '').slice(0, 16);
     const admin = new pg.Pool({ connectionString: databaseUrl, max: 1 });
@@ -21,7 +21,7 @@ test('upgrade path 001-070 -> 071-084 applies only the integrated tail in order'
     const tail = all.filter((m) => Number(m.name.slice(0, 3)) >= 71);
     assert.equal(tail[0]?.name, '071_workspace_features.sql');
     assert.equal(tail[1]?.name, '072_conversation_topics.sql');
-    assert.equal(tail.at(-1)?.name, '084_wiki_page_decisions.sql');
+    assert.equal(tail.at(-1)?.name, '088_project_planning.sql');
 
     try {
       await admin.query(`CREATE SCHEMA "${schema}"`);
@@ -56,12 +56,12 @@ test('upgrade path 001-070 -> 071-084 applies only the integrated tail in order'
 
       const result = await migrate({ databaseUrl: url, log: () => {} });
       assert.deepEqual(result.applied, tail.map((m) => m.name),
-        'existing schema 070 must apply exactly the integrated 071-084 tail');
+        'existing schema 070 must apply exactly the integrated tail');
       assert.equal(result.total, all.length);
 
       const rows = await status({ databaseUrl: url });
       assert.equal(rows.filter((row) => !row.applied).length, 0);
-      assert.deepEqual(rows.slice(-14).map((row) => row.name), tail.map((m) => m.name));
+      assert.deepEqual(rows.slice(-tail.length).map((row) => row.name), tail.map((m) => m.name));
     } finally {
       await admin.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`).catch(() => {});
       await admin.end();
