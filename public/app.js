@@ -3783,16 +3783,40 @@ function wikiPageFormModal(page,parentId,after){
   return;
 }
 async function wikiHistoryModal(pageId){
-  let items=[];
-  try{items=(await api(`/api/v1/wiki/pages/${pageId}/history`)).items||[]}
+  let items=[],canRestore=false,openedVersion=null;
+  try{
+    const [versions,page]=await Promise.all([
+      api(`/api/v1/wiki/pages/${pageId}/history`),api(`/api/v1/wiki/pages/${pageId}`),
+    ]);
+    items=versions.items||[];canRestore=Boolean(page.permissions?.canEdit);
+    openedVersion=page.version;
+  }
   catch(error){toast(error.message);return}
-  modal('История страницы',items.length?items.map((v,index)=>`<div class="person-event"><span><strong>${esc(v.title)}</strong><div class="wiki-rich-content wiki-history-document" data-wiki-history-index="${index}"></div></span><time>${esc(dateTime(v.replacedAt))}</time></div>`).join(''):'<div class="empty"><strong>Правок ещё не было</strong>История появится после первой правки.</div>',()=>{
+  modal(T('История страницы','Page history'),items.length?items.map((v,index)=>`<div class="person-event"><span><strong>${esc(v.title)}</strong><div class="wiki-rich-content wiki-history-document" data-wiki-history-index="${index}"></div>${canRestore&&v.version?`<div class="chip-row" style="margin-top:8px"><button type="button" class="chipbtn pressable" data-wiki-restore="${esc(v.version)}">${T('Восстановить версию','Restore this version')} ${esc(v.version)}</button></div>`:''}</span><time>${esc(dateTime(v.replacedAt))}</time></div>`).join(''):'<div class="empty"><strong>Правок ещё не было</strong>История появится после первой правки.</div>',()=>{
     import('./wiki-document-view.js').then(m=>{
       items.forEach((version,index)=>{
         const root=$(`[data-wiki-history-index="${index}"]`);
         if(root)m.renderPageDocument(root,version.document??m.textPageDocument(version.content??''));
       });
     }).catch(error=>toast(error.message));
+    $$('[data-wiki-restore]').forEach(button=>button.onclick=async()=>{
+      const version=Number(button.dataset.wikiRestore);
+      if(!confirm(T('Восстановить выбранную версию? Текущая сохранится в истории.','Restore this version? The current version will remain in history.')))return;
+      button.disabled=true;
+      try{
+        // Compare against the version observed when history opened. A newer
+        // concurrent edit must result in a visible 409 rather than a reset.
+        const restored=await api(`/api/v1/wiki/pages/${pageId}/restore`,{
+          method:'POST',body:JSON.stringify({version,expectedVersion:openedVersion}),
+        });
+        toast(T('Версия восстановлена','Page version restored'));
+        const dialogs=overlayStack;
+        // Close only this dialog; the underlying Page remains in its stack
+        // and is revalidated by its own on-pop refresh.
+        if(dialogs.length)history.back();
+        return restored;
+      }catch(error){toast(error.message);button.disabled=false}
+    });
   });
 }
 

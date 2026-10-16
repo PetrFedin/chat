@@ -4,6 +4,7 @@ import { Permission, requirePermission } from '../rbac.js';
 const PAGE_ID = '([0-9a-f-]{36})';
 const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
 const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
+const RESTORE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/restore$`, 'i');
 const ACCESS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access$`, 'i');
 const ACCESS_GRANT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/${PAGE_ID}$`, 'i');
 const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
@@ -62,6 +63,13 @@ export function createWikiHandler() {
     const history = path.match(HISTORY);
     if (history && method === 'GET') {
       json(res, 200, { items: await ctx.wiki.history(session, history[1]) });
+      return true;
+    }
+
+    const restore = path.match(RESTORE);
+    if (restore && method === 'POST') {
+      const body = await readJson(req);
+      json(res, 200, await ctx.wiki.restore(session, restore[1], body));
       return true;
     }
 
