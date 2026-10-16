@@ -3106,7 +3106,8 @@ async function wikiModal(pageId=null){
         :`<form id="wiki-search-form" class="form-stack"><label>Поиск по вики<input name="q" placeholder="Например: отпуск"></label></form><div id="wiki-search-results"></div>`}
         <p class="muted" style="margin-top:16px">${page?'Подстраницы':'Страницы'}</p>
         <div class="stack">${items.length?rows:'<div class="empty"><strong>Пока пусто</strong>Создайте первую страницу.</div>'}</div>
-        ${(!page||page.permissions?.canEdit)?`<button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?T('Новая подстраница','New subpage'):T('Новая страница','New page')}</span></button>`:''}`,
+        ${(!page||page.permissions?.canEdit)?`<button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?T('Новая подстраница','New subpage'):T('Новая страница','New page')}</span></button>`:''}
+        ${!page&&me()?.role==='owner'?`<button type="button" data-wiki-access-recovery class="button secondary" style="width:100%;margin-top:8px">🔐 ${T('Восстановление доступа','Access recovery')}</button>`:''}`,
       after:()=>{
         if(page){import('./wiki-document-view.js').then(m=>m.renderPageDocument($('[data-wiki-view]'),page.document??m.textPageDocument(page.content??''))).catch(error=>toast(error.message));}
         if(page&&!page.permissions?.canEdit){
@@ -3119,6 +3120,7 @@ async function wikiModal(pageId=null){
         }
         $$('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
         $('[data-wiki-new]')?.addEventListener('click',()=>wikiPageFormModal(null,pageId,refresh));
+        $('[data-wiki-access-recovery]')?.addEventListener('click',()=>wikiAccessRecoveryModal(refresh));
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
         $('[data-wiki-access]')?.addEventListener('click',()=>wikiAccessModal(page,refresh));
@@ -3314,10 +3316,12 @@ async function wikiAccessModal(page,after){
     ]);
   }catch(error){toast(error.message);return}
   const grants=new Map((policy.grants||[]).map(item=>[item.userId,item]));
-  const candidates=people.filter(person=>{
+  const activePeople=people.filter(person=>{
     const id=person.userId||person.id;
-    return id&&id!==policy.createdBy&&person.role!=='guest'&&person.active!==false;
+    return id&&person.role!=='guest'&&person.active!==false;
   });
+  const candidates=activePeople.filter(person=>(person.userId||person.id)!==policy.createdBy);
+  const ownerCandidates=activePeople.filter(person=>(person.userId||person.id)!==policy.accessOwnerId);
   modal(T('Доступ к странице','Page access'),`<div class="form-stack">
     <div class="surface" style="padding:12px">
       <strong>${T('Кто видит страницу','Who can see this Page')}</strong>
@@ -3331,6 +3335,21 @@ async function wikiAccessModal(page,after){
       <p class="muted">${T(
         'Ограничение родительской страницы действует и на её подстраницы. Редактор страницы не может сам расширить аудиторию.',
         'A restricted parent also protects its subtree. A Page editor cannot widen the audience.'
+      )}</p>
+    </div>
+    <div class="surface" style="padding:12px">
+      <strong>${T('Владелец доступа','Access owner')}</strong>
+      <p class="muted">${esc(policy.accessOwnerName||policy.accessOwnerId)}</p>
+      <label>${T('Передать управление доступом','Transfer access management')}
+        <select data-wiki-access-owner>
+          <option value="">—</option>
+          ${ownerCandidates.map(person=>{const id=person.userId||person.id;return `<option value="${esc(id)}">${esc(person.displayName||person.email||id)}</option>`}).join('')}
+        </select>
+      </label>
+      <button type="button" class="button" data-wiki-access-owner-save>${T('Передать','Transfer')}</button>
+      <p class="muted">${T(
+        'Автор страницы не меняется. Новый владелец доступа сможет управлять аудиторией, но редактирование содержимого остаётся отдельным правом.',
+        'Page authorship does not change. The new access owner can manage the audience; content editing remains a separate permission.'
       )}</p>
     </div>
     <div class="surface" style="padding:12px">
@@ -3367,6 +3386,18 @@ async function wikiAccessModal(page,after){
         toast(T('Режим доступа сохранён','Visibility saved'));
       }catch(error){button.disabled=false;toast(error.message)}
     });
+    $('[data-wiki-access-owner-save]')?.addEventListener('click',async button=>{
+      const userId=$('[data-wiki-access-owner]')?.value;
+      if(!userId)return toast(T('Выберите нового владельца доступа','Choose a new access owner'));
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/access/owner`,{
+          method:'PUT',body:JSON.stringify({userId}),
+        });
+        history.back();
+        toast(T('Управление доступом передано','Access ownership transferred'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
     $('[data-wiki-grant-add]')?.addEventListener('click',async button=>{
       const userId=$('[data-wiki-grant-user]')?.value;
       if(!userId)return toast(T('Выберите сотрудника','Choose an employee'));
@@ -3385,6 +3416,45 @@ async function wikiAccessModal(page,after){
         await api(`/api/v1/wiki/pages/${page.id}/access/${button.dataset.wikiGrantRemove}`,{method:'DELETE'});
         history.back();
         toast(T('Доступ отозван','Access revoked'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
+  });
+}
+
+async function wikiAccessRecoveryModal(after){
+  let items=[];
+  try{items=(await api('/api/v1/wiki/access-recovery')).items||[]}
+  catch(error){toast(error.message);return}
+  const people=(S.people||[]).filter(person=>person.role!=='guest'&&person.active!==false);
+  if(!items.length)return toast(T('Страниц без активного владельца доступа нет','No Pages need access recovery'));
+  modal(T('Восстановление доступа','Access recovery'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Показываются только страницы, у которых владелец доступа больше не активен. Содержимое, история и связанные сущности здесь не раскрываются.',
+      'Only Pages whose access owner is no longer active are shown. Content, history and linked entities are not disclosed here.'
+    )}</p>
+    ${items.map(item=>`<div class="surface" style="padding:12px" data-wiki-recovery-row="${esc(item.id)}">
+      <strong>${esc(item.title)}</strong>
+      <div class="row-sub">${T('Прежний владелец доступа','Previous access owner')}: ${esc(item.accessOwnerName||item.accessOwnerId)}</div>
+      <label>${T('Новый владелец доступа','New access owner')}
+        <select data-wiki-recovery-user="${esc(item.id)}">
+          <option value="">—</option>
+          ${people.map(person=>`<option value="${esc(person.userId)}">${esc(person.displayName||person.email||person.userId)}</option>`).join('')}
+        </select>
+      </label>
+      <button type="button" class="button" data-wiki-recover="${esc(item.id)}">${T('Восстановить управление','Recover access management')}</button>
+    </div>`).join('')}
+  </div>`,()=>{
+    $$('[data-wiki-recover]').forEach(button=>button.onclick=async()=>{
+      const pageId=button.dataset.wikiRecover;
+      const userId=$(`[data-wiki-recovery-user="${pageId}"]`)?.value;
+      if(!userId)return toast(T('Выберите нового владельца доступа','Choose a new access owner'));
+      button.disabled=true;
+      try{
+        await api('/api/v1/wiki/access-recovery',{
+          method:'POST',body:JSON.stringify({pageId,userId}),
+        });
+        history.back();
+        toast(T('Управление доступом восстановлено','Access management recovered'));
       }catch(error){button.disabled=false;toast(error.message)}
     });
   });

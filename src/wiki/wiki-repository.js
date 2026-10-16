@@ -29,7 +29,7 @@ const readContent = (value) => {
   return content;
 };
 
-const COLUMNS = `id,parent_id "parentId",title,content,document,version,visibility,created_by "createdBy",updated_by "updatedBy",
+const COLUMNS = `id,parent_id "parentId",title,content,document,version,visibility,access_owner_id "accessOwnerId",created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt",archived_at "archivedAt"`;
 const SUMMARY_COLUMNS = `id,parent_id "parentId",title,version,visibility,created_by "createdBy",updated_by "updatedBy",
   created_at "createdAt",updated_at "updatedAt"`;
@@ -47,12 +47,26 @@ const summaryView = (row) => ({
 export function createWikiRepository(pool, projects = null, store = null, meeting = null, calendar = null, calls = null, features = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop, getAccess: stop, setVisibility: stop, grantAccess: stop, revokeAccess: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop, getAccess: stop, setVisibility: stop, grantAccess: stop, revokeAccess: stop, transferAccessOwner: stop, recoverAccessOwner: stop, listAccessRecovery: stop };
   }
 
   const featureOn = async (session, id) => !features?.isEnabled || await features.isEnabled(session.workspaceId, id);
 
   const access = createWikiPageAccess(pool);
+
+  const activeEmployee = async (db, session, userId) => {
+    const { rows } = await db.query(
+      `SELECT m.user_id "userId",m.role,COALESCE(p.display_name,p.email,m.user_id::text) "displayName"
+         FROM memberships m
+         JOIN users u ON u.id=m.user_id
+         LEFT JOIN workspace_profiles p ON p.workspace_id=m.workspace_id AND p.user_id=m.user_id
+        WHERE m.workspace_id=$1 AND m.user_id=$2 AND m.role<>'guest'
+          AND u.disabled_at IS NULL
+          AND (m.access_until IS NULL OR m.access_until>now())`,
+      [session.workspaceId,userId],
+    );
+    return rows[0]??null;
+  };
 
   const ensurePage = async (session, id, db = pool) => access.assertView(session, id, db);
   const ensureEditablePage = async (session, id, db = pool) => access.assertEdit(session, id, db);
@@ -256,6 +270,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       return {
         ...page,
         permissions: { canEdit: pageAccess.canEdit, canManageAccess: pageAccess.canManage },
+        ...(pageAccess.canManage ? { accessOwnerId: rows[0].accessOwnerId } : {}),
         children: (await visibleRows(session, children)).map(summaryView),
         projects: await pageProjects(session, id),
         tasks: await pageTasks(session, id),
@@ -291,11 +306,11 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         if (rows[0].visibility === 'restricted') effectiveVisibility = 'restricted';
       }
       const { rows } = await pool.query(
-        `INSERT INTO wiki_pages(organization_id,workspace_id,parent_id,title,content,document,visibility,created_by,updated_by)
-         VALUES($1,$2,$3,$4,$5,$7,$8,$6,$6) RETURNING ${COLUMNS}`,
+        `INSERT INTO wiki_pages(organization_id,workspace_id,parent_id,title,content,document,visibility,created_by,updated_by,access_owner_id)
+         VALUES($1,$2,$3,$4,$5,$7,$8,$6,$6,$6) RETURNING ${COLUMNS}`,
         [session.organizationId, session.workspaceId, parentId, cleanTitle, cleanContent, session.userId, normalized?.document??null, effectiveVisibility],
       );
-      return view(rows[0]);
+      return { ...view(rows[0]), accessOwnerId: rows[0].accessOwnerId };
     },
 
     /**
@@ -786,7 +801,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
     async getAccess(session,id){
       await access.assertManage(session,id);
       const {rows:pages}=await pool.query(
-        'SELECT visibility,created_by "createdBy" FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
+        'SELECT visibility,created_by "createdBy",access_owner_id "accessOwnerId" FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
         [session.workspaceId,id],
       );
       if(!pages[0])throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
@@ -799,7 +814,19 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           ORDER BY COALESCE(p.display_name,p.email,g.user_id::text),g.user_id`,
         [session.workspaceId,id],
       );
-      return {visibility:pages[0].visibility,createdBy:pages[0].createdBy,grants:rows};
+      const ownerProfile=await pool.query(
+        `SELECT COALESCE(p.display_name,p.email,$2::text) "displayName"
+           FROM memberships m
+           LEFT JOIN workspace_profiles p ON p.workspace_id=m.workspace_id AND p.user_id=m.user_id
+          WHERE m.workspace_id=$1 AND m.user_id=$2`,
+        [session.workspaceId,pages[0].accessOwnerId],
+      );
+      return {
+        visibility:pages[0].visibility,createdBy:pages[0].createdBy,
+        accessOwnerId:pages[0].accessOwnerId,
+        accessOwnerName:ownerProfile.rows[0]?.displayName??pages[0].accessOwnerId,
+        grants:rows,
+      };
     },
 
     async setVisibility(session,id,visibility){
@@ -842,16 +869,8 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           [session.workspaceId,id],
         );
         await access.assertManage(session,id,client);
-        const member=await client.query(
-          `SELECT 1
-             FROM memberships m
-             JOIN users u ON u.id=m.user_id
-            WHERE m.workspace_id=$1 AND m.user_id=$2 AND m.role<>'guest'
-              AND u.disabled_at IS NULL
-              AND (m.access_until IS NULL OR m.access_until>now())`,
-          [session.workspaceId,userId],
-        );
-        if(!member.rowCount)throw fail('Сотрудник не найден','WIKI_GRANTEE_NOT_FOUND',404);
+        const member=await activeEmployee(client,session,userId);
+        if(!member)throw fail('Сотрудник не найден','WIKI_GRANTEE_NOT_FOUND',404);
         const creator=await client.query(
           'SELECT created_by FROM wiki_pages WHERE workspace_id=$1 AND id=$2',
           [session.workspaceId,id],
@@ -902,6 +921,105 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         throw error;
       }finally{client.release();}
       return this.getAccess(session,id);
+    },
+
+    async transferAccessOwner(session,id,userId){
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        const locked=await client.query(
+          'SELECT id,access_owner_id "accessOwnerId" FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          [session.workspaceId,id],
+        );
+        await access.assertManage(session,id,client);
+        if(locked.rows[0]?.accessOwnerId===userId)throw fail('Этот сотрудник уже владелец доступа','WIKI_ACCESS_OWNER_UNCHANGED',409);
+        const target=await activeEmployee(client,session,userId);
+        if(!target)throw fail('Сотрудник не найден','WIKI_ACCESS_OWNER_NOT_FOUND',404);
+        const {rows}=await client.query(
+          'UPDATE wiki_pages SET access_owner_id=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2 RETURNING access_owner_id "accessOwnerId"',
+          [session.workspaceId,id,userId],
+        );
+        if(!rows[0])throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
+        // The new steward receives access to the current node, but must also
+        // be able to traverse every restricted ancestor. Reject atomically.
+        const targetAccess=await access.evaluate(
+          {...session,userId:target.userId,role:target.role},id,client,
+        );
+        if(!targetAccess?.canView)throw fail(
+          'Новый владелец доступа сначала должен получить доступ к закрытым родительским страницам',
+          'WIKI_ACCESS_OWNER_ANCESTOR_REQUIRED',409,
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.access_owner_transferred',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{toUserId:userId}],
+        );
+        await client.query('COMMIT');
+        return {pageId:id,accessOwnerId:userId,accessOwnerName:target.displayName};
+      }catch(error){
+        await client.query('ROLLBACK').catch(()=>{});
+        throw error;
+      }finally{client.release();}
+    },
+
+    async listAccessRecovery(session){
+      if(session.role!=='owner')throw fail('Восстановление доступа доступно только владельцу пространства','WIKI_ACCESS_RECOVERY_FORBIDDEN',403);
+      const {rows}=await pool.query(
+        `SELECT p.id,p.title,p.updated_at "updatedAt",p.access_owner_id "accessOwnerId",
+                COALESCE(wp.display_name,wp.email,p.access_owner_id::text) "accessOwnerName"
+           FROM wiki_pages p
+           JOIN memberships m ON m.workspace_id=p.workspace_id AND m.user_id=p.access_owner_id
+           JOIN users u ON u.id=m.user_id
+           LEFT JOIN workspace_profiles wp ON wp.workspace_id=p.workspace_id AND wp.user_id=p.access_owner_id
+          WHERE p.workspace_id=$1 AND p.archived_at IS NULL
+            AND (m.role='guest' OR u.disabled_at IS NOT NULL OR (m.access_until IS NOT NULL AND m.access_until<=now()))
+          ORDER BY p.updated_at DESC,p.id
+          LIMIT 200`,
+        [session.workspaceId],
+      );
+      return rows;
+    },
+
+    async recoverAccessOwner(session,id,userId){
+      if(session.role!=='owner')throw fail('Восстановление доступа доступно только владельцу пространства','WIKI_ACCESS_RECOVERY_FORBIDDEN',403);
+      const client=await pool.connect();
+      try{
+        await client.query('BEGIN');
+        const {rows}=await client.query(
+          `SELECT p.access_owner_id "accessOwnerId",m.role,u.disabled_at "disabledAt",m.access_until "accessUntil"
+             FROM wiki_pages p
+             JOIN memberships m ON m.workspace_id=p.workspace_id AND m.user_id=p.access_owner_id
+             JOIN users u ON u.id=m.user_id
+            WHERE p.workspace_id=$1 AND p.id=$2
+            FOR UPDATE OF p`,
+          [session.workspaceId,id],
+        );
+        const page=rows[0];
+        if(!page)throw fail('Страница не найдена','WIKI_PAGE_NOT_FOUND',404);
+        const active=page.role!=='guest'&&!page.disabledAt&&(!page.accessUntil||Date.parse(page.accessUntil)>Date.now());
+        if(active)throw fail('У страницы есть активный владелец доступа','WIKI_ACCESS_OWNER_ACTIVE',409);
+        const target=await activeEmployee(client,session,userId);
+        if(!target)throw fail('Сотрудник не найден','WIKI_ACCESS_OWNER_NOT_FOUND',404);
+        await client.query(
+          'UPDATE wiki_pages SET access_owner_id=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2',
+          [session.workspaceId,id,userId],
+        );
+        const targetAccess=await access.evaluate({...session,userId:target.userId,role:target.role},id,client);
+        if(!targetAccess?.canView)throw fail(
+          'Сначала восстановите доступ к закрытым родительским страницам',
+          'WIKI_ACCESS_OWNER_ANCESTOR_REQUIRED',409,
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.access_owner_recovered',$4,$5)`,
+          [session.organizationId,session.workspaceId,id,session.userId,{fromUserId:page.accessOwnerId,toUserId:userId}],
+        );
+        await client.query('COMMIT');
+        return {pageId:id,accessOwnerId:userId,accessOwnerName:target.displayName};
+      }catch(error){
+        await client.query('ROLLBACK').catch(()=>{});
+        throw error;
+      }finally{client.release();}
     },
 
     async search(session, { query, limit = 30, from = null, to = null } = {}) {

@@ -6,6 +6,7 @@ const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
 const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
 const ACCESS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access$`, 'i');
 const ACCESS_GRANT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/${PAGE_ID}$`, 'i');
+const ACCESS_OWNER = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/owner$`, 'i');
 const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
 const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}$`, 'i');
 const CHANNELS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels$`, 'i');
@@ -89,6 +90,29 @@ export function createWikiHandler() {
       json(res, 200, await ctx.wiki.revokeAccess(session, accessGrant[1], accessGrant[2]));
       return true;
     }
+    const accessOwner = path.match(ACCESS_OWNER);
+    if (accessOwner && method === 'PUT') {
+      const body = await readJson(req);
+      if (!body.userId) throw Object.assign(new Error('userId is required'), {
+        code:'USER_ID_REQUIRED',statusCode:400,expose:true,
+      });
+      json(res, 200, await ctx.wiki.transferAccessOwner(session, accessOwner[1], String(body.userId)));
+      return true;
+    }
+
+    if (path === '/api/v1/wiki/access-recovery' && method === 'GET') {
+      json(res, 200, { items: await ctx.wiki.listAccessRecovery(session) });
+      return true;
+    }
+    if (path === '/api/v1/wiki/access-recovery' && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.pageId || !body.userId) throw Object.assign(new Error('pageId and userId are required'), {
+        code:'RECOVERY_TARGET_REQUIRED',statusCode:400,expose:true,
+      });
+      json(res, 200, await ctx.wiki.recoverAccessOwner(session, String(body.pageId), String(body.userId)));
+      return true;
+    }
+
 
     const taskList = path.match(TASKS);
     if (taskList && method === 'POST') {
