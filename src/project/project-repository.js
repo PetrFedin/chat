@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { normalizeProject,normalizeProjectMember,normalizeMilestone,canViewProject,assertProjectManage,assertProjectContribute } from './project-authority.js';
+import { createProjectPlanning } from './project-plan-repository.js';
 
 const fail=(message,code,statusCode=400)=>Object.assign(new Error(message),{code,statusCode,expose:true});
 const ACTIVE_TASK=new Set(['proposed','accepted','scheduled','in_progress','blocked','in_review','deferred','clarify','inbox']);
@@ -130,6 +131,11 @@ export function createProjectRepository({pool,store,meeting}={}){
     if(!locked.rowCount)throw fail('Project not found','PROJECT_NOT_FOUND',404);
   };
 
+  const planning=createProjectPlanning({
+    pool,store,row,lockProject,tx,
+    assertManage:assertProjectManage,assertContribute:assertProjectContribute,
+  });
+
   const unfinishedTaskForMember=async(db,projectId,userId)=>(
     await db.query(
       `SELECT c.id,c.title,c.status
@@ -204,6 +210,9 @@ export function createProjectRepository({pool,store,meeting}={}){
       projectDiscussions(session,project.id),
       projectDecisions(session,project.id),
     ]);
+    // Task visibility is canonical: plan bars and dependency edges can only
+    // reference tasks visible through the existing Task Authority.
+    const plan=await planning.read(session,project.id,tasks.map(task=>task.id));
     const active=tasks.filter(t=>ACTIVE_TASK.has(t.status));
     const done=tasks.filter(t=>DONE_TASK.has(t.status));
     const blocked=tasks.filter(t=>t.status==='blocked');
@@ -227,7 +236,7 @@ export function createProjectRepository({pool,store,meeting}={}){
       workload.set(key,item);
     }
     const projectAnalytics=await analytics(session,project.id,tasks.map(t=>t.id));
-    return{...project,members:team,milestones:marks,tasks,files,discussions,decisions,
+    return{...project,members:team,milestones:marks,tasks,files,discussions,decisions,plan,
       metrics:{visibleTasks:tasks.length,active:active.length,done:done.length,blocked:blocked.length,dependencyBlocked:dependencyBlocked.length,
         overdue:overdue.length,forecastRisk:forecastRisk.length,projectTargetRisk,progress,nextMilestone,
         trackedSeconds:projectAnalytics.trackedSeconds,throughput30d:projectAnalytics.throughput30d},
@@ -240,6 +249,7 @@ export function createProjectRepository({pool,store,meeting}={}){
   };
 
   return{
+    ...planning,
     // Scope the search in SQL, not in a client-side filtered workspace dump:
     // project names and goals are themselves protected metadata.
     async search(session,{query,from=null,to=null,limit=40}={}){

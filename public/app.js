@@ -1632,6 +1632,9 @@ function projectWorkload(project){
     ${rows.length?rows.map(r=>`<div class="project-workload-row"><span><div class="row-title">${esc(r.displayName||name(r.userId))}</div><div class="row-sub">${r.blocked?`${r.blocked} ${T('блокировки','blocked')} · `:''}${r.overdue?`${r.overdue} ${T('просрочено','overdue')}`:T('без просрочки','no overdue')}</div></span><strong>${r.total}</strong></div>`).join(''):`<div class="empty">${T('Активной работы пока нет','No active work yet')}</div>`}
   </section>`;
 }
+function projectRoadmap(project){
+  return window.ChatProjectRoadmap?.render?.(project,T,esc,locale())||'';
+}
 function projectBoard(project){
   const tasks=project.tasks||[];
   return `<section class="surface"><div class="section-head"><div><h3>${T('Доска исполнения','Execution board')}</h3><p class="muted">${T('Это представление Task Authority, а не отдельная система статусов','A projection of Task Authority, not a second status system')}</p></div></div>
@@ -2002,6 +2005,7 @@ function projects(){
     <section class="surface project-hero"><div class="section-head"><div><button class="text-button" data-project-back>← ${T('Все проекты','All projects')}</button><h2>${esc(p.name)}</h2><p class="muted">${esc(p.goal||T('Цель не описана','No goal set'))}</p></div><div class="inline-actions"><span class="chip">${esc(p.status)}</span>${p.canContribute?`<button class="button secondary small" data-project-task-new>＋ ${T('Задача','Task')}</button><button class="button secondary small" data-project-milestone-new>＋ ${T('Веха','Milestone')}</button>`:''}${p.canManage?`<button class="button secondary small" data-project-member-new>＋ ${T('Участник','Member')}</button>`:''}</div></div></section>
     <div class="project-operating-grid">${projectProgress(p)}${projectWorkload(p)}</div>
     ${projectRisk(p)}
+    ${projectRoadmap(p)}
     ${projectBoard(p)}
     ${projectFiles(p)}
     ${projectDiscussions(p)}
@@ -2090,6 +2094,16 @@ function bind(){
   // Строка встречи в расписании дня выглядела нажимаемой и не открывала
   // ничего: карточку встречи знал только календарь.
   $$('[data-project-open]').forEach(b=>b.onclick=()=>openProject(b.dataset.projectOpen));
+  // The roadmap only decorates canonical Tasks; all writes are carried
+  // out by Project Authority and reload the same operating cockpit.
+  window.ChatProjectRoadmap?.bind?.({
+    project:S.projectDetail,api,modal,closeModal,toast,T,esc,confirmTap,
+    refresh:async projectId=>{
+      const{project:fresh}=await api(`/api/v1/projects/${projectId}`);
+      if(S.projectSelected===projectId){S.projectDetail=fresh;render();}
+    },
+  });
+
   $$('[data-project-new]').forEach(b=>b.onclick=projectCreateModal);
   $$('[data-project-task-new]').forEach(b=>b.onclick=projectTaskModal);
   $$('[data-project-milestone-new]').forEach(b=>b.onclick=projectMilestoneModal);
