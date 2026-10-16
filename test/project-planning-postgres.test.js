@@ -138,6 +138,28 @@ test('Project planning: tenant authority, canonical tasks, phases, CAS versions 
     plan=(await req(base,root,{cookie:owner.cookie})).payload.plan;
     assert.equal(plan.violations.length,0);
 
+    // A scenario previews a dependency shift, but cannot change persisted
+    // schedules, Task Authority status, or reveal a private project's tasks.
+    const baseline=(await req(base,root,{cookie:owner.cookie})).payload.plan;
+    const preview=await req(base,root+'/preview',{cookie:owner.cookie,method:'POST',body:{
+      taskId:first.id,shiftDays:3,
+    }});
+    assert.equal(preview.status,200);
+    assert.equal(preview.payload.preview.kind,'read_only_preview');
+    assert.equal(preview.payload.preview.shiftDays,3);
+    assert.ok(preview.payload.preview.changedTasks.some(t=>t.taskId===first.id));
+    assert.deepEqual((await req(base,root,{cookie:owner.cookie})).payload.plan.schedules,
+      baseline.schedules,'preview must not persist any schedule change');
+    assert.equal((await req(base,root+'/preview',{cookie:stranger.cookie,method:'POST',body:{
+      taskId:first.id,shiftDays:2,
+    }})).status,404);
+    assert.equal((await req(base,root+'/preview',{cookie:owner.cookie,method:'POST',body:{
+      taskId:other.id,shiftDays:1,
+    }})).status,404);
+    assert.equal((await req(base,root+'/preview',{cookie:owner.cookie,method:'POST',body:{
+      taskId:first.id,shiftDays:500,
+    }})).status,400);
+
     const canonical=await req(base,`/api/v1/tasks/${first.id}`,{cookie:owner.cookie});
     assert.equal(canonical.status,200);
     assert.equal(canonical.payload.task.id,first.id);
