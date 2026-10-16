@@ -10,14 +10,14 @@ UPDATE wiki_pages
 -- know only created_by/updated_by. Repository writes pass access_owner_id
 -- explicitly, while older callers inherit the creator as the initial owner.
 CREATE FUNCTION wiki_page_default_access_owner()
-RETURNS trigger LANGUAGE plpgsql AS $
+RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   IF NEW.access_owner_id IS NULL THEN
     NEW.access_owner_id := NEW.created_by;
   END IF;
   RETURN NEW;
 END;
-$;
+$$;
 
 CREATE TRIGGER wiki_pages_default_access_owner
 BEFORE INSERT ON wiki_pages
