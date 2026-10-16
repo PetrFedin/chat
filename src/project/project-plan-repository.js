@@ -95,7 +95,7 @@ export function createProjectPlanning({pool,store,row,lockProject,tx,assertManag
   };
 
   return {
-    async read(session,projectId,visibleTaskIds=[]){
+    async read(session,projectId,visibleTaskIds=[],targetAt=null){
       const [phaseResult,planResult,depResult]=await Promise.all([
         pool.query(
           `SELECT id,title,start_at "startAt",end_at "endAt",version,
@@ -127,7 +127,7 @@ export function createProjectPlanning({pool,store,row,lockProject,tx,assertManag
           : [];
       });
       const forecast=analyzeProjectForecast({
-        schedules,dependencies,targetAt:null,visibleTaskCount:visibleTaskIds.length,
+        schedules,dependencies,targetAt,visibleTaskCount:visibleTaskIds.length,
       });
       return{
         forecast,
