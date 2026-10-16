@@ -193,7 +193,7 @@ export function createProjectRepository({pool,store,meeting}={}){
       // A manager is entitled to know THAT a project relation was removed.
       // The linked resource may since be inaccessible or have been deleted:
       // do not return historical IDs, names or any unvetted payload fields.
-      if(canManage&&/^project\\.(?:task|file|discussion|decision)_unlinked$/.test(event.eventType))
+      if(canManage&&/^project\.(?:task|file|discussion|decision)_unlinked$/.test(event.eventType))
         return [{...event,payload:{redacted:true}}];
       return [];
     });
