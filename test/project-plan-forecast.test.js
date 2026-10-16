@@ -11,7 +11,7 @@ test('critical path respects linked finish-to-start and calendar day lag',()=>{
     s('build','2026-11-02','2026-11-04'),
     s('qa','2026-11-03','2026-11-05'),
     s('marketing','2026-11-01','2026-11-02'),
-  ],dependencies:[edge('design','build',1),edge('build','qa')] ,targetAt:'2026-11-12',visibleTaskCount:4};
+  ],dependencies:[edge('design','build',2),edge('build','qa')] ,targetAt:'2026-11-12',visibleTaskCount:4};
   const r=analyzeProjectForecast(input);
   assert.equal(r.status,'calculated');
   assert.equal(r.plannedFinishAt,'2026-11-05');
