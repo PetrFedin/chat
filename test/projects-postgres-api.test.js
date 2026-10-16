@@ -147,15 +147,19 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
 
   // A lead without active Task obligations can remove their own membership.
   // The API must acknowledge the write without leaking the newly hidden project.
-  const selfRemove=await request(base,`/api/v1/projects/${projectId}/members/${lead.userId}`,{
-    cookie:lead.cookie,method:'DELETE',
+  const spareLead=await invite(base,ownerCookie,`spare-lead-${suffix}@projects.test`,'Spare Lead');
+  assert.equal((await request(base,`/api/v1/projects/${projectId}/members`,{
+    cookie:ownerCookie,method:'POST',body:{userId:spareLead.userId,role:'lead'},
+  })).response.status,200);
+  const selfRemove=await request(base,`/api/v1/projects/${projectId}/members/${spareLead.userId}`,{
+    cookie:spareLead.cookie,method:'DELETE',
   });
   assert.equal(selfRemove.response.status,200);
   assert.equal(selfRemove.payload.project.accessRemoved,true);
-  assert.equal((await request(base,`/api/v1/projects/${projectId}`,{cookie:lead.cookie})).response.status,404);
-  assert.equal((await request(base,`/api/v1/projects/${projectId}/plan`,{cookie:lead.cookie})).response.status,404);
+  assert.equal((await request(base,`/api/v1/projects/${projectId}`,{cookie:spareLead.cookie})).response.status,404);
+  assert.equal((await request(base,`/api/v1/projects/${projectId}/plan`,{cookie:spareLead.cookie})).response.status,404);
   assert.equal((await request(base,`/api/v1/projects/${projectId}/plan/preview`,{
-    cookie:lead.cookie,method:'POST',body:{taskId,shiftDays:1},
+    cookie:spareLead.cookie,method:'POST',body:{taskId,shiftDays:1},
   })).response.status,404);
   const surviving=await request(base,`/api/v1/projects/${projectId}`,{cookie:ownerCookie});
   assert.equal(surviving.response.status,200);
