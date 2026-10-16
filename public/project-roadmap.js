@@ -162,6 +162,7 @@
       '<p class="muted">'+help+'</p></div><div class="project-roadmap-actions">'+
       (project.canManage?'<button type="button" class="button secondary small" data-project-plan-new-phase>＋ '+
          T('Этап','Phase')+'</button>':'')+
+      (project.canContribute?'<button type="button" class="button secondary small" data-project-plan-scenario>'+T('Сценарий','What-if')+'</button>':'')+
       (project.canContribute?'<button type="button" class="button secondary small" data-project-plan-dependency>＋ '+
          T('Связь задач','Dependency')+'</button>':'')+'</div></div>'+
       '<div class="project-roadmap-summary"><span>'+totals.phases+' '+T('этапов','phases')+'</span>'+
@@ -310,6 +311,46 @@
       });
     };
 
+    many('[data-project-plan-scenario]').forEach(button=>button.onclick=()=>{
+      const scheduled=(p.schedules||[]).filter(item=>tasks.some(task=>task.id===item.taskId));
+      if(!scheduled.length)return toast(T('Сначала запланируйте задачу','Schedule a task first'));
+      const options=scheduled.map(item=>{
+        const task=tasks.find(t=>t.id===item.taskId);
+        return '<option value="'+esc(item.taskId)+'">'+esc(task?.title||item.taskId)+'</option>';
+      }).join('');
+      const html='<form class="form-stack" id="project-plan-scenario-form">'+
+        '<p class="muted">'+T('Предпросмотр не меняет даты и статусы задач.',
+        'Preview does not save dates or task statuses.')+'</p>'+
+        '<label>'+T('Задача','Task')+'<select name="taskId" required>'+options+'</select></label>'+
+        label(T('Сдвиг в календарных днях','Shift in calendar days'),'shiftDays','number','3',
+          'min="-365" max="365" step="1" required')+
+        '<button type="submit" class="button primary">'+T('Рассчитать','Calculate')+'</button>'+
+        '<div id="project-plan-scenario-result" role="status" aria-live="polite"></div></form>';
+      modal(T('Сценарий — без сохранения','What-if — read-only'),html,()=>{
+        const form=one('#project-plan-scenario-form');
+        if(!form)return;
+        form.onsubmit=async event=>{
+          event.preventDefault();
+          const submit=form.querySelector('[type="submit"]');
+          submit.disabled=true;
+          try{
+            const values=new FormData(form);
+            const result=await api(base+'/preview',{method:'POST',body:JSON.stringify({
+              taskId:values.get('taskId'),shiftDays:Number(values.get('shiftDays')),
+            })});
+            const preview=result.preview;
+            const region=one('#project-plan-scenario-result');
+            if(region)region.textContent=T('Завершение проекта: ','Project finish: ')+
+              (preview.baselineFinishAt||'—')+' → '+(preview.scenarioFinishAt||'—')+
+              ' · '+T('Изменение, дней: ','Change in days: ')+
+              (preview.changeInFinishCalendarDays??'—')+
+              (preview.coverage.visibleUnscheduledTasks||preview.coverage.unresolvedDependencies
+                ?' · '+T('Неполные данные','Partial data'):'');
+          }catch(error){handleError(error);}
+          finally{submit.disabled=false;}
+        };
+      });
+    });
     many('[data-project-plan-new-phase]').forEach(button=>
       button.onclick=()=>phaseModal(null));
     many('[data-project-plan-phase-edit]').forEach(button=>
