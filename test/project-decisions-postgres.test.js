@@ -79,6 +79,7 @@ test('Project <-> Decision composes canonical Decision Authority without ACL esc
   const memberProject=await request(base,`/api/v1/projects/${projectId}`,{cookie:member.cookie});
   assert.equal(memberProject.status,200);
   assert.equal(memberProject.payload.project.decisions.some(row=>row.id===canonical.id),false);
+  assert.equal(memberProject.payload.project.activity.some(event=>JSON.stringify(event.payload).includes(canonical.id)),false,'hidden decision id must not leak in activity');
   const guessed=await request(base,`/api/v1/projects/${projectId}/decisions`,{
     cookie:member.cookie,method:'POST',body:{decisionId:canonical.id}});
   assert.equal(guessed.status,404);
