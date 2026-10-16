@@ -69,6 +69,21 @@
       'Временная шкала и зависимости — план; состояние выполнения всегда берётся из задач CHATX.',
       'The timeline and dependencies represent planning; task execution status always comes from CHATX Tasks.'
     );
+    const prediction=plan.forecast;
+    const forecastHtml=prediction&&prediction.status!=='empty'
+      ?'<div class="project-forecast-summary" data-project-forecast>'+
+        '<strong>'+T('Прогноз по связям задач','Dependency-based forecast')+'</strong>'+
+        '<span>'+T('Завершение','Finish')+': '+esc(prediction.forecastFinishAt||T('Не рассчитано','Unavailable'))+'</span>'+
+        (prediction.targetGapDays===null?'':'<span>'+T('Отклонение от цели, дней','Days versus target')+
+          ': '+esc(String(prediction.targetGapDays))+'</span>')+
+        '<span>'+T('Критические задачи','Critical tasks')+': '+
+          Number(prediction.criticalTaskIds?.length||0)+'</span>'+
+        (prediction.status==='partial'?'<span class="project-forecast-partial">'+
+          T('Неполные данные: часть задач без графика.','Partial: some tasks are unscheduled.')+
+          '</span>':'')+
+        '<small>'+T('Календарные дни; без учёта отпусков и загрузки команды.',
+          'Calendar days; excludes holidays and resource capacity.')+'</small>'+
+      '</div>':'';
     const header='<div class="project-roadmap-row project-roadmap-head">'+
       '<div class="project-roadmap-label">'+T('Работа / этап','Work / phase')+'</div>'+
       '<div class="project-roadmap-axis">'+axis+'</div></div>';
@@ -159,7 +174,7 @@
       header+rows.join('')+'</div></div>'+
       (clipWarning?'<p class="muted">'+T('Показаны первые 120 периодов; полный план сохранён.',
         'Showing the first 120 periods; the complete plan is preserved.')+'</p>':'')+
-      unplannedHtml+depHtml+'</section>';
+      forecastHtml+unplannedHtml+depHtml+'</section>';
   }
 
   // Form actions are explicitly delegated back to the host app. Project and

@@ -212,7 +212,7 @@ export function createProjectRepository({pool,store,meeting}={}){
     ]);
     // Task visibility is canonical: plan bars and dependency edges can only
     // reference tasks visible through the existing Task Authority.
-    const plan=await planning.read(session,project.id,tasks.map(task=>task.id));
+    const plan=await planning.read(session,project.id,tasks.map(task=>task.id),project.targetAt);
     const active=tasks.filter(t=>ACTIVE_TASK.has(t.status));
     const done=tasks.filter(t=>DONE_TASK.has(t.status));
     const blocked=tasks.filter(t=>t.status==='blocked');
