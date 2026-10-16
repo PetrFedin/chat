@@ -156,16 +156,43 @@ export function createProjectRepository({pool,store,meeting}={}){
     return tasks;
   };
 
-  const activity=async(session,projectId,taskIds=[])=>{
+  // Project activity is not a bypass around canonical resource authorities.
+  // Even a visible Project can link private Tasks, Conversations and Decisions.
+  // Do not reveal their UUIDs through the Project audit projection.
+  const activity=async(session,project,{tasks=[],files=[],discussions=[],decisions=[]}={})=>{
+    const projectId=project.id;
+    const taskIds=tasks.map(task=>task.id);
     const ids=[projectId,...taskIds].filter(Boolean);
     if(!ids.length)return[];
-    return (await pool.query(
+    const {rows}=await pool.query(
       `SELECT id,aggregate_type "aggregateType",aggregate_id "aggregateId",event_type "eventType",
               actor_id "actorId",payload,created_at "createdAt"
          FROM audit_events
         WHERE workspace_id=$1 AND aggregate_id=ANY($2::uuid[])
         ORDER BY created_at DESC,id DESC LIMIT 50`,
-      [session.workspaceId,ids])).rows;
+      [session.workspaceId,ids]);
+    const allowed={
+      taskId:new Set(taskIds),
+      predecessorTaskId:new Set(taskIds),
+      successorTaskId:new Set(taskIds),
+      fileId:new Set(files.map(file=>file.id)),
+      conversationId:new Set(discussions.map(conversation=>conversation.id)),
+      decisionId:new Set(decisions.map(decision=>decision.id)),
+    };
+    const canManage=project.ownerId===session.userId||project.memberRole==='lead'||
+      ['owner','admin'].includes(session.role);
+    return rows.filter(event=>{
+      if(event.aggregateType!=='project')return true;
+      // A contributor may always view the relation operation they performed.
+      // Other actors' link/unlink activity is visible only while the source
+      // object is independently authorized by its canonical authority.
+      if(event.actorId===session.userId)return true;
+      if(!canManage&&event.eventType.startsWith('project.member_'))return false;
+      const payload=event.payload&&typeof event.payload==='object'&&!Array.isArray(event.payload)
+        ?event.payload:{};
+      return Object.entries(allowed).every(([key,visible])=>
+        !Object.prototype.hasOwnProperty.call(payload,key)||visible.has(payload[key]));
+    });
   };
 
   const analytics=async(session,projectId,visibleTaskIds)=>{
@@ -243,7 +270,7 @@ export function createProjectRepository({pool,store,meeting}={}){
         trackedSeconds:projectAnalytics.trackedSeconds,throughput30d:projectAnalytics.throughput30d},
       analytics:projectAnalytics,
       workload:[...workload.values()].map(item=>({...item,displayName:item.userId==='unassigned'?'':(team.find(m=>m.userId===item.userId)?.displayName??item.userId)})),
-      activity:await activity(session,project.id,tasks.map(t=>t.id)),
+      activity:await activity(session,project,{tasks,files,discussions,decisions}),
       canManage:project.ownerId===session.userId||project.memberRole==='lead'||['owner','admin'].includes(session.role),
       canContribute:project.ownerId===session.userId||['lead','member'].includes(project.memberRole)||['owner','admin'].includes(session.role)
     };
