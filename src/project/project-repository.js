@@ -181,15 +181,21 @@ export function createProjectRepository({pool,store,meeting}={}){
     };
     const canManage=project.ownerId===session.userId||project.memberRole==='lead'||
       ['owner','admin'].includes(session.role);
-    return rows.filter(event=>{
-      if(event.aggregateType!=='project')return true;
-      // Even the original actor may have lost canonical access since linking.
-      // Audit history is retained, but projected references follow current ACL.
-      if(!canManage&&event.eventType.startsWith('project.member_'))return false;
+    return rows.flatMap(event=>{
+      if(event.aggregateType!=='project')return [event];
+      // Historical access never grants present-day access to linked sources.
+      if(!canManage&&event.eventType.startsWith('project.member_'))return [];
       const payload=event.payload&&typeof event.payload==='object'&&!Array.isArray(event.payload)
         ?event.payload:{};
-      return Object.entries(allowed).every(([key,visible])=>
-        !Object.prototype.hasOwnProperty.call(payload,key)||visible.has(payload[key]));
+      const invisible=Object.entries(allowed).some(([key,visible])=>
+        Object.prototype.hasOwnProperty.call(payload,key)&&!visible.has(payload[key]));
+      if(!invisible)return [event];
+      // A manager is entitled to know THAT a project relation was removed.
+      // The linked resource may since be inaccessible or have been deleted:
+      // do not return historical IDs, names or any unvetted payload fields.
+      if(canManage&&/^project\\.(?:task|file|discussion|decision)_unlinked$/.test(event.eventType))
+        return [{...event,payload:{redacted:true}}];
+      return [];
     });
   };
 
