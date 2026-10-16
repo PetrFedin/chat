@@ -4,8 +4,10 @@ const fail=(message,code,statusCode=400)=>Object.assign(new Error(message),{code
 const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const dayMs=86400000;
 const day=value=>{
-  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value)
-    ||new Date(value+'T00:00:00.000Z').toISOString?.().slice(0,10)!==value)
+  if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(value))
+    throw fail('Date must be a real YYYY-MM-DD','INVALID_PLAN_DATE');
+  const parsed=new Date(value+'T00:00:00.000Z');
+  if(!Number.isFinite(parsed.getTime())||parsed.toISOString().slice(0,10)!==value)
     throw fail('Date must be a real YYYY-MM-DD','INVALID_PLAN_DATE');
   return value;
 };
