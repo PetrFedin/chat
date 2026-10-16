@@ -71,6 +71,21 @@ test('Project <-> Decision composes canonical Decision Authority without ACL esc
   assert.ok(linked.payload.project.decisions.some(row=>row.id===canonical.id));
   assert.ok(linked.payload.project.activity.some(row=>row.eventType==='project.decision_linked'));
 
+  // The company setting must also gate nested Project projections.
+  const disabled=await request(base,'/api/v1/features/decisions',{cookie:owner.cookie,method:'PUT',body:{enabled:false}});
+  assert.equal(disabled.status,200);
+  const hiddenInProject=await request(base,`/api/v1/projects/${projectId}`,{cookie:owner.cookie});
+  assert.equal(hiddenInProject.status,200);
+  assert.equal(hiddenInProject.payload.project.decisions.some(row=>row.id===canonical.id),false);
+  assert.equal(hiddenInProject.payload.project.activity.some(row=>JSON.stringify(row.payload).includes(canonical.id)),false);
+  assert.equal((await request(base,`/api/v1/projects/${projectId}/decisions`,{
+    cookie:owner.cookie,method:'POST',body:{decisionId:canonical.id},
+  })).payload.error.code,'FEATURE_DISABLED');
+  const enabled=await request(base,'/api/v1/features/decisions',{cookie:owner.cookie,method:'PUT',body:{enabled:true}});
+  assert.equal(enabled.status,200);
+  const restored=await request(base,`/api/v1/projects/${projectId}`,{cookie:owner.cookie});
+  assert.equal(restored.payload.project.decisions.some(row=>row.id===canonical.id),true);
+
   const duplicate=await request(base,`/api/v1/projects/${projectId}/decisions`,{
     cookie:owner.cookie,method:'POST',body:{decisionId:canonical.id}});
   assert.equal(duplicate.status,409);
