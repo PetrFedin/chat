@@ -90,6 +90,44 @@ test('Page access ownership transfers normally and owner break-glass only recove
     assert.equal(successorPage.payload.permissions.canEdit,false,
       'access ownership must not silently grant content edit permission');
 
+    // Ownership does not bypass a restricted ancestor. Reject an invalid
+    // handoff without changing the steward or exposing the child.
+    const parent=await req(base,'/api/v1/wiki/pages',{cookie:author.cookie,method:'POST',body:{
+      title:'Private ancestor',content:'private parent',visibility:'restricted',
+    }});
+    assert.equal(parent.status,201);
+    const child=await req(base,'/api/v1/wiki/pages',{cookie:author.cookie,method:'POST',body:{
+      title:'Child governance',parentId:parent.payload.id,content:'private descendant',
+    }});
+    assert.equal(child.status,201);
+    const deniedTransfer=await req(base,`/api/v1/wiki/pages/${child.payload.id}/access/owner`,{
+      cookie:author.cookie,method:'PUT',body:{userId:outsider.session.userId},
+    });
+    assert.equal(deniedTransfer.status,409);
+    assert.equal(deniedTransfer.payload.error.code,'WIKI_ACCESS_OWNER_ANCESTOR_REQUIRED');
+    const unchangedChild=await req(base,`/api/v1/wiki/pages/${child.payload.id}`,{cookie:author.cookie});
+    assert.equal(unchangedChild.payload.accessOwnerId,author.session.userId);
+    assert.equal((await req(base,`/api/v1/wiki/pages/${child.payload.id}`,{cookie:outsider.cookie})).status,404);
+    assert.equal((await req(base,`/api/v1/wiki/pages/${parent.payload.id}/access`,{
+      cookie:author.cookie,method:'POST',body:{userId:outsider.session.userId,access:'view'},
+    })).status,200);
+    const allowedTransfer=await req(base,`/api/v1/wiki/pages/${child.payload.id}/access/owner`,{
+      cookie:author.cookie,method:'PUT',body:{userId:outsider.session.userId},
+    });
+    assert.equal(allowedTransfer.status,200);
+    const childAccess=await req(base,`/api/v1/wiki/pages/${child.payload.id}`,{cookie:outsider.cookie});
+    assert.equal(childAccess.status,200);
+    assert.equal(childAccess.payload.permissions.canManageAccess,true);
+    assert.equal(childAccess.payload.permissions.canEdit,false);
+
+    // Visibility modification is an audited authority operation and must not
+    // depend on the variable used only by ownership handoff.
+    const visibility=await req(base,`/api/v1/wiki/pages/${parent.payload.id}/access`,{
+      cookie:author.cookie,method:'PUT',body:{visibility:'workspace'},
+    });
+    assert.equal(visibility.status,200);
+    assert.equal(visibility.payload.visibility,'workspace');
+
     // Creator cannot take management back unilaterally after transfer.
     assert.equal((await req(base,`/api/v1/wiki/pages/${pageId}/access/owner`,{
       cookie:author.cookie,method:'PUT',body:{userId:author.session.userId},
