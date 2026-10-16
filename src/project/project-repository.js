@@ -392,7 +392,7 @@ export function createProjectRepository({pool,store,meeting}={}){
     },
 
     async removeMember(session,id,userId){
-      return tx(async client=>{
+      await tx(async client=>{
         await lockProject(client,session,id);
         const project=await row(session,id,client);
         assertProjectManage(project,session);
@@ -411,8 +411,11 @@ export function createProjectRepository({pool,store,meeting}={}){
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'project',$3,'project.member_removed',$4,$5)`,
           [session.organizationId,session.workspaceId,id,session.userId,{userId}]);
-        return this.get(session,id);
       });
+      // The write is committed before serving the updated projection.
+      // When a lead removes themselves, they must not receive project data.
+      if(userId===session.userId)return{id,accessRemoved:true};
+      return this.get(session,id);
     },
 
     async createTask(session,id,input){
@@ -440,7 +443,7 @@ export function createProjectRepository({pool,store,meeting}={}){
     async linkTask(session,id,taskId){
       const task=await store.getTask(session,taskId);
       if(!task)throw fail('Task not found','TASK_NOT_FOUND',404);
-      return tx(async client=>{
+      await tx(async client=>{
         await lockProject(client,session,id);
         const project=await row(session,id,client);
         assertProjectContribute(project,session);
@@ -457,8 +460,8 @@ export function createProjectRepository({pool,store,meeting}={}){
           `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
            VALUES($1,$2,'project',$3,'project.task_linked',$4,$5)`,
           [session.organizationId,session.workspaceId,id,session.userId,{taskId,source:'existing'}]);
-        return this.get(session,id);
       });
+      return this.get(session,id);
     },
 
     async unlinkTask(session,id,taskId){
@@ -612,42 +615,48 @@ export function createProjectRepository({pool,store,meeting}={}){
     },
 
     async addMilestone(session,id,input){
-      const project=await row(session,id);
-      assertProjectContribute(project,session);
       const value=normalizeMilestone(input);
-      const{rows}=await pool.query(
+      return tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectContribute(project,session);
+      const{rows}=await client.query(
         `INSERT INTO project_milestones(project_id,workspace_id,title,description,target_at,status,created_by)
          VALUES($1,$2,$3,$4,$5,$6,$7)
          RETURNING id,project_id "projectId",title,description,target_at "targetAt",status,version,created_by "createdBy",created_at "createdAt",updated_at "updatedAt"`,
         [id,session.workspaceId,value.title,value.description,value.targetAt,value.status,session.userId]);
-      await pool.query(
+      await client.query(
         `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
          VALUES($1,$2,'project',$3,'project.milestone_created',$4,$5)`,
         [session.organizationId,session.workspaceId,id,session.userId,{milestoneId:rows[0].id,targetAt:value.targetAt,title:value.title}]);
-      return rows[0];
+        return rows[0];
+      });
     },
 
     async updateMilestone(session,id,milestoneId,input){
-      const project=await row(session,id);
-      assertProjectContribute(project,session);
-      const current=(await pool.query(
-        `SELECT id,title,description,target_at "targetAt",status,version FROM project_milestones WHERE project_id=$1 AND id=$2`,
+      const patch=normalizeMilestone(input,{partial:true});
+      return tx(async client=>{
+        await lockProject(client,session,id);
+        const project=await row(session,id,client);
+        assertProjectContribute(project,session);
+      const current=(await client.query(
+        `SELECT id,title,description,target_at "targetAt",status,version FROM project_milestones WHERE project_id=$1 AND id=$2 FOR UPDATE`,
         [id,milestoneId])).rows[0];
       if(!current)throw fail('Milestone not found','MILESTONE_NOT_FOUND',404);
-      const patch=normalizeMilestone(input,{partial:true});
       const expected=patch.expectedVersion??current.version;
-      const{rows}=await pool.query(
+      const{rows}=await client.query(
         `UPDATE project_milestones
             SET title=$4,description=$5,target_at=$6,status=$7,version=version+1,updated_at=now()
           WHERE project_id=$1 AND id=$2 AND version=$3
           RETURNING id,project_id "projectId",title,description,target_at "targetAt",status,version,created_by "createdBy",created_at "createdAt",updated_at "updatedAt"`,
         [id,milestoneId,expected,patch.title??current.title,patch.description!==undefined?patch.description:current.description,patch.targetAt??current.targetAt,patch.status??current.status]);
       if(!rows[0])throw fail('Milestone changed in another session','MILESTONE_VERSION_CONFLICT',409);
-      await pool.query(
+      await client.query(
         `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
          VALUES($1,$2,'project',$3,'project.milestone_updated',$4,$5)`,
         [session.organizationId,session.workspaceId,id,session.userId,{milestoneId,from:{status:current.status,targetAt:current.targetAt},to:{status:rows[0].status,targetAt:rows[0].targetAt},version:rows[0].version}]);
-      return rows[0];
+        return rows[0];
+      });
     }
   };
 }

@@ -59,6 +59,11 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
   assert.equal(addLead.response.status,200);
   const addMember=await request(base,`/api/v1/projects/${projectId}/members`,{cookie:lead.cookie,method:'POST',body:{userId:member.userId,role:'member'}});
   assert.equal(addMember.response.status,200);
+  // Membership response must reflect committed changes rather than a
+  // projection read from a transaction that is still in progress.
+  assert.ok(addMember.payload.project.members.some(m=>m.userId===member.userId&&m.role==='member'));
+  assert.ok((await request(base,`/api/v1/projects/${projectId}`,{cookie:member.cookie})).response.status===200);
+
   const addObserver=await request(base,`/api/v1/projects/${projectId}/members`,{cookie:lead.cookie,method:'POST',body:{userId:observer.userId,role:'observer'}});
   assert.equal(addObserver.response.status,200);
 
