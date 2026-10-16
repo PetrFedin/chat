@@ -1,3 +1,4 @@
+import { analyzeProjectForecast, previewProjectShift } from './project-plan-forecast.js';
 // Project Planning v1: time and dependency metadata only.
 // Task status, owners, permissions and evidence remain canonical in Task Authority.
 const fail=(message,code,statusCode=400)=>Object.assign(new Error(message),{code,statusCode,expose:true});
@@ -125,7 +126,11 @@ export function createProjectPlanning({pool,store,row,lockProject,tx,assertManag
           ? [{predecessorTaskId:link.predecessorTaskId,successorTaskId:link.successorTaskId,kind:'finish_to_start'}]
           : [];
       });
+      const forecast=analyzeProjectForecast({
+        schedules,dependencies,targetAt:null,visibleTaskCount:visibleTaskIds.length,
+      });
       return{
+        forecast,
         phases:phaseResult.rows.map(phaseProjection),schedules,dependencies,violations,
         visibleScheduledTasks:schedules.length,
         visibleEstimatedMinutes:schedules.reduce((sum,s)=>sum+s.estimateMinutes,0),
