@@ -220,7 +220,7 @@ export async function createChatServer(options={}){
   const telegram=options.telegram??createTelegramBridgeRepository(pool,store);
   const icsFeed=options.icsFeed??createIcsFeedRepository(pool);
   const apiKeys=options.apiKeys??createApiKeyRepository(pool);
-  const wiki=options.wiki??createWikiRepository(pool,projects,store,meeting);
+  const wiki=options.wiki??createWikiRepository(pool,projects,store,meeting,features);
   const timeEntries=options.timeEntries??createTimeEntryRepository(pool);
   const personal=options.personal??createPersonalRepository(pool,store,labels);
   // Без базы работникам нечего делать, поэтому 'custom' глушит их жёстко.

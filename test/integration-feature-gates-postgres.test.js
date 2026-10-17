@@ -108,6 +108,11 @@ test('Projects, Wiki and Topics survive OFF/ON without bypassing cross-feature a
       cookie: owner.cookie, method: 'DELETE',
     })).code, 'FEATURE_DISABLED', 'cross-feature endpoint must require Projects as well as Wiki');
 
+    const pageWhenProjectsOff=await call(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie});
+    assert.equal(pageWhenProjectsOff.status,200);
+    assert.deepEqual(pageWhenProjectsOff.payload.projects,[],
+      'Page projection must not bypass disabled Projects authority');
+
     const projectOn = await call(base, '/api/v1/features/projects', {
       cookie: owner.cookie, method: 'PUT', body: { enabled: true },
     });
@@ -119,6 +124,21 @@ test('Projects, Wiki and Topics survive OFF/ON without bypassing cross-feature a
     assert.equal(restoredPlan.status,200);
     assert.deepEqual(restoredPlan.payload.plan.schedules,beforePlan.payload.plan.schedules);
 
+
+    const pageWhenProjectsOn=await call(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie});
+    assert.ok(pageWhenProjectsOn.payload.projects.some(p=>p.id===projectId));
+
+    // Decisions disabled independently: Page nested Decision projection cannot
+    // bypass the disabled feature, and the Page itself remains accessible.
+    assert.equal((await call(base,'/api/v1/features/decisions',{
+      cookie:owner.cookie,method:'PUT',body:{enabled:false},
+    })).status,200);
+    const pageWhenDecisionsOff=await call(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie});
+    assert.equal(pageWhenDecisionsOff.status,200);
+    assert.deepEqual(pageWhenDecisionsOff.payload.decisions,[]);
+    assert.equal((await call(base,'/api/v1/features/decisions',{
+      cookie:owner.cookie,method:'PUT',body:{enabled:true},
+    })).status,200);
 
     // Wiki OFF independently blocks the same relation while Projects stays on.
     assert.equal((await call(base, '/api/v1/features/wiki', {
