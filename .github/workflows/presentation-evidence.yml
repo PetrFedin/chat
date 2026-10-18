@@ -1,5 +1,7 @@
 name: CHATX presentation evidence
 on:
+  schedule:
+    - cron: '0 9 * * 1'
   workflow_dispatch:
     inputs:
       capture_kind:
@@ -15,7 +17,7 @@ jobs:
     timeout-minutes: 10
     env:
       CHATX_CAPTURE_URL: ${{ secrets.CHATX_CAPTURE_URL }}
-      CHATX_CAPTURE_KIND: ${{ inputs.capture_kind }}
+      CHATX_CAPTURE_KIND: ${{ github.event_name == 'schedule' && 'demo' || inputs.capture_kind }}
       CHATX_CAPTURE_OUTPUT: presentation-evidence
     steps:
       - uses: actions/checkout@v4
