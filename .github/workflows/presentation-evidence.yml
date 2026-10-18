@@ -1,0 +1,40 @@
+name: CHATX presentation evidence
+on:
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+    inputs:
+      capture_kind:
+        description: 'demo = synthetic demo, live = authenticated approved release'
+        required: true
+        type: choice
+        options: [demo, live]
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CHATX_CAPTURE_URL: ${{ secrets.CHATX_CAPTURE_URL }}
+      CHATX_CAPTURE_KIND: ${{ github.event_name == 'schedule' && 'demo' || inputs.capture_kind }}
+      CHATX_CAPTURE_OUTPUT: presentation-evidence
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - name: Check explicit capture URL
+        run: test -n "$CHATX_CAPTURE_URL"
+      - name: Capture actual browser scenes
+        run: node scripts/capture-presentation-evidence.mjs
+      - name: Save provenance and visuals
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chatx-presentation-${{ github.sha }}-${{ github.run_id }}
+          path: presentation-evidence/
+          retention-days: 90
+          if-no-files-found: warn

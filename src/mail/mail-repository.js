@@ -77,19 +77,19 @@ export function createMailRepository(pool) {
      * перепроверять после снятия блокировки, и одно письмо достаётся
      * двум работникам — человек получает два приглашения.
      */
-    async claimDue({ limit = 10, leaseMs = 60_000, now = new Date(), workspaceIds = null } = {}) {
+    async claimDue({ limit = 10, leaseMs = 60_000, now = null, workspaceIds = null } = {}) {
       const { rows } = await pool.query(
         `UPDATE mail_messages m
          SET status='sending', lock_token=gen_random_uuid(),
-             locked_until=$2::timestamptz + make_interval(secs => $3), attempts=m.attempts+1
+             locked_until=COALESCE($2::timestamptz, clock_timestamp()) + make_interval(secs => $3), attempts=m.attempts+1
          FROM (
            SELECT id FROM mail_messages
-           WHERE ((status IN ('pending','failed') AND next_attempt_at <= $2::timestamptz)
-                  OR (status='sending' AND locked_until < $2::timestamptz))
+           WHERE ((status IN ('pending','failed') AND next_attempt_at <= COALESCE($2::timestamptz, clock_timestamp()))
+                  OR (status='sending' AND locked_until < COALESCE($2::timestamptz, clock_timestamp())))
              AND id IN (
                SELECT id FROM mail_messages
-               WHERE ((status IN ('pending','failed') AND next_attempt_at <= $2::timestamptz)
-                      OR (status='sending' AND locked_until < $2::timestamptz))
+               WHERE ((status IN ('pending','failed') AND next_attempt_at <= COALESCE($2::timestamptz, clock_timestamp()))
+                      OR (status='sending' AND locked_until < COALESCE($2::timestamptz, clock_timestamp())))
                  AND ($4::uuid[] IS NULL OR workspace_id = ANY($4::uuid[]))
                ORDER BY next_attempt_at, id LIMIT $1
              )
@@ -97,7 +97,7 @@ export function createMailRepository(pool) {
          ) due
          WHERE m.id = due.id
          RETURNING m.*`,
-        [limit, now.toISOString(), Math.ceil(leaseMs / 1000), workspaceIds],
+        [limit, now?.toISOString() ?? null, Math.ceil(leaseMs / 1000), workspaceIds],
       );
       return rows.map((row) => ({
         ...view(row),

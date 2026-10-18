@@ -70,5 +70,51 @@ export async function seedDemoInvestorProject({ store, projects }) {
       targetAt:new Date(Date.now()+days*86400000).toISOString(),
     });
   }
+  // Give the real Project Planning UI a genuine, reproducible demo graph.
+  // Every phase, schedule and dependency is written through Project Authority,
+  // not injected into a screenshot. Never overwrite demo edits on restart.
+  const planDates=(offset)=>{
+    const now=new Date(),utc=new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),now.getUTCDate()));
+    const monday=utc.getUTCDay()===0?6:utc.getUTCDay()-1;
+    utc.setUTCDate(utc.getUTCDate()-monday+offset);
+    return utc.toISOString().slice(0,10);
+  };
+  let currentPlan=(await projects.get(session,project.id)).plan;
+  const phaseDefs=[
+    {title:'Discovery / Mobile QA · demo',startAt:planDates(0),endAt:planDates(7)},
+    {title:'Release readiness · demo',startAt:planDates(8),endAt:planDates(21)},
+  ];
+  for(const phase of phaseDefs){
+    if(currentPlan.phases.some(p=>p.title===phase.title))continue;
+    await projects.createPhase(session,project.id,phase);
+    currentPlan=(await projects.get(session,project.id)).plan;
+  }
+  const phaseIds=phaseDefs.map(p=>currentPlan.phases.find(item=>item.title===p.title)?.id);
+  const scheduleDefs=[
+    {name:TASK_TITLES[0],start:0,end:3,estimate:900,phase:0},
+    {name:TASK_TITLES[1],start:4,end:6,estimate:540,phase:0},
+    {name:TASK_TITLES[2],start:8,end:10,estimate:600,phase:1},
+    {name:TASK_TITLES[3],start:11,end:14,estimate:420,phase:1},
+  ];
+  for(const config of scheduleDefs){
+    const task=tasks.find(item=>item.title===config.name);
+    if(!task||currentPlan.schedules.some(item=>item.taskId===task.id))continue;
+    await projects.scheduleTask(session,project.id,task.id,{
+      plannedStart:planDates(config.start),plannedEnd:planDates(config.end),
+      phaseId:phaseIds[config.phase],estimateMinutes:config.estimate,expectedVersion:0,
+    });
+    currentPlan=(await projects.get(session,project.id)).plan;
+  }
+  for(let i=0;i<scheduleDefs.length-1;i++){
+    const predecessor=tasks.find(item=>item.title===scheduleDefs[i].name);
+    const successor=tasks.find(item=>item.title===scheduleDefs[i+1].name);
+    if(!predecessor||!successor||
+       currentPlan.dependencies.some(link=>
+         link.predecessorTaskId===predecessor.id&&link.successorTaskId===successor.id))continue;
+    await projects.addDependency(session,project.id,{
+      predecessorTaskId:predecessor.id,successorTaskId:successor.id,lagDays:0,
+    });
+    currentPlan=(await projects.get(session,project.id)).plan;
+  }
   return { id:project.id,name:INVESTOR_PROJECT_NAME,synthetic:true };
 }
