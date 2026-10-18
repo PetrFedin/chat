@@ -1,7 +1,8 @@
 import { Permission, requirePermission } from '../rbac.js';
 import { json, readJson } from './helpers.js';
 
-const UUID='([0-9a-f-]{36})';
+const UUID='([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
+const VALID_UUID=new RegExp('^'+UUID+'$', 'i');
 const TASKS=new RegExp('^/api/v1/meetings/decisions/'+UUID+'/tasks$', 'i');
 const TASK=new RegExp('^/api/v1/meetings/decisions/'+UUID+'/tasks/'+UUID+'$', 'i');
 
@@ -24,8 +25,8 @@ export function createDecisionTaskHandler(){
     }
     if(list && method==='POST'){
       const body=await readJson(req);
-      if(!body.taskId)throw Object.assign(new Error('taskId is required'),{
-        code:'TASK_ID_REQUIRED',statusCode:400,expose:true,
+      if(!body.taskId || !VALID_UUID.test(String(body.taskId)))throw Object.assign(new Error('A valid taskId is required'),{
+        code:'TASK_ID_INVALID',statusCode:400,expose:true,
       });
       json(res,200,{items:await ctx.decisionTasks.link(session,list[1],String(body.taskId),body.reason)});
       return true;
