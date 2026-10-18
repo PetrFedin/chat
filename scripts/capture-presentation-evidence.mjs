@@ -86,8 +86,13 @@ try{
   await linger('home');
   await nav(page,'chats');
   // Select a real demo room, rather than recording an empty chat pane.
-  const room=page.locator('.conversation-card[data-open]:visible').first();
-  await room.waitFor({state:'visible',timeout:12000});
+  // The Chats screen's cards use data-conversation; data-open belongs
+  // to the compact Today preview instead. Pick an active seeded channel.
+  const conversations=page.locator('.conversation-card[data-conversation]:visible');
+  await conversations.first().waitFor({state:'visible',timeout:12000});
+  let room=conversations.filter({hasText:'Продукт'}).first();
+  if(!await room.count())room=conversations.filter({hasText:'Операции'}).first();
+  if(!await room.count())room=conversations.first();
   await room.click();
   await page.waitForTimeout(700);
   await screenshot(page,'02-chats-desktop','chats');
