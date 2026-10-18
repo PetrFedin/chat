@@ -85,10 +85,39 @@ test('Project Gantt browser: phases, task schedule, dependencies and 390px reloa
     await page.reload();
     await page.locator('.project-roadmap-dep').waitFor({state:'visible'});
     assert.ok(await page.locator('.project-roadmap-bar-task').count()>=2);
+    // Geometric audit: an 18-day task must occupy its proportional duration,
+    // not 3 complete week cells or an entire month cell.
+    const width=async()=>page.locator(
+      '[data-project-roadmap-row="'+design.id+'"] .project-roadmap-bar-task'
+    ).evaluate(element=>element.getBoundingClientRect().width);
+    const zoom=page.locator('[data-project-roadmap-scale]');
+    await zoom.selectOption('week');
+    const weekWidth=await width();
+    assert.ok(weekWidth>110&&weekWidth<130,
+      '18 calendar days should occupy ~119 CSS px on a 48px/week scale, got '+weekWidth);
+    await zoom.selectOption('month');
+    const monthWidth=await width();
+    assert.ok(monthWidth>25&&monthWidth<40,
+      '18 November days should occupy ~32 CSS px on a 60px/month scale, got '+monthWidth);
+    await zoom.selectOption('day');
+    const dayWidth=await width();
+    assert.ok(dayWidth>560&&dayWidth<585,
+      '18 calendar days should occupy ~572 CSS px on a 32px/day scale, got '+dayWidth);
+    assert.equal(await page.locator('[data-project-roadmap-scale]').inputValue(),'day');
+    assert.equal(await page.locator('.project-roadmap-task.critical-path').count()>0,true,
+      'critical work should be highlighted without creating duplicate Task statuses');
+    assert.equal((await (await api.get(base+'/api/v1/projects/'+projectId+'/plan')).json())
+      .plan.schedules.length,2,'zoom must not write to the plan');
+
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.locator('.project-roadmap-scroll').evaluate(
       el=>el.scrollWidth>el.clientWidth),true,
       'timeline must scroll horizontally on phone');
+    await page.locator('[data-project-roadmap-scale]').selectOption('week');
+    assert.equal(await page.locator('.project-roadmap-scroll').evaluate(
+      el=>el.scrollWidth>el.clientWidth),true,
+      'changing zoom must retain the touch-scrolling region');
+    assert.equal(await page.locator('[data-project-roadmap-scale]').inputValue(),'week');
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),
       true,'timeline must not overflow the entire 390px page');
     assert.deepEqual(errors,[]);
