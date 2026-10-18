@@ -1,40 +1,116 @@
-name: CHATX presentation evidence
+name: CHATX visual evidence
 on:
+  pull_request:
+    branches: [main, feature/chatx-wiki-nested-feature-gates-20261017]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'scripts/**'
+      - 'db/**'
+      - '.github/workflows/presentation-evidence.yml'
+  push:
+    branches: [main]
   schedule:
     - cron: '0 9 * * 1'
   workflow_dispatch:
     inputs:
       capture_kind:
-        description: 'demo = synthetic demo, live = authenticated approved release'
+        description: 'Demo runs isolated with PostgreSQL; live requires approved authenticated capture setup'
         required: true
         type: choice
         options: [demo, live]
+        default: demo
 permissions:
   contents: read
+concurrency:
+  group: chatx-presentation-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   capture:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: chat_showcase
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chat_showcase"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      CHATX_CAPTURE_URL: ${{ secrets.CHATX_CAPTURE_URL }}
-      CHATX_CAPTURE_KIND: ${{ github.event_name == 'schedule' && 'demo' || inputs.capture_kind }}
+      NODE_ENV: development
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/chat_showcase
+      POSTGRES_TEST_URL: postgresql://postgres:postgres@127.0.0.1:5432/chat_showcase
+      CHATX_CAPTURE_KIND: ${{ github.event_name == 'workflow_dispatch' && inputs.capture_kind == 'live' && 'live' || 'demo' }}
+      CHATX_CAPTURE_URL: ${{ github.event_name == 'workflow_dispatch' && inputs.capture_kind == 'live' && secrets.CHATX_CAPTURE_URL || 'http://127.0.0.1:3000' }}
       CHATX_CAPTURE_OUTPUT: presentation-evidence
+      CHATX_CAPTURE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      DEMO_MODE: 'true'
+      MEETING_WORKER_ENABLED: 'false'
+      MAIL_WORKER_ENABLED: 'false'
+      REALTIME_BUS: 'false'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium
-      - name: Check explicit capture URL
-        run: test -n "$CHATX_CAPTURE_URL"
-      - name: Capture actual browser scenes
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build real Pages editor
+        run: sh scripts/build-pages-editor.sh
+      - name: Browser and MP4 toolchain
+        run: |
+          npx playwright install --with-deps chromium
+          if ! command -v ffmpeg >/dev/null; then sudo apt-get update && sudo apt-get install -y ffmpeg; fi
+          command -v ffprobe
+      - name: Verify checkout identity
+        run: |
+          test "$(git rev-parse HEAD)" = "$CHATX_CAPTURE_SHA"
+          node --check scripts/capture-presentation-evidence.mjs
+      - name: Migrate isolated PostgreSQL
+        if: env.CHATX_CAPTURE_KIND == 'demo'
+        run: |
+          export VAULT_KEY="$(openssl rand -base64 32)"
+          npm run migrate
+      - name: Launch real isolated application
+        if: env.CHATX_CAPTURE_KIND == 'demo'
+        run: |
+          export VAULT_KEY="$(openssl rand -base64 32)"
+          node src/server.js > "$RUNNER_TEMP/chatx-demo-server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/chatx-demo-server.pid"
+          for attempt in $(seq 1 80); do
+            if curl -fsS http://127.0.0.1:3000/healthz > /dev/null; then exit 0; fi
+            sleep 2
+          done
+          tail -n 90 "$RUNNER_TEMP/chatx-demo-server.log"
+          exit 1
+      - name: Capture desktop, Gantt, mobile and 27s video
         run: node scripts/capture-presentation-evidence.mjs
-      - name: Save provenance and visuals
+      - name: Archive media, hashes and screen validation
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: chatx-presentation-${{ github.sha }}-${{ github.run_id }}
+          name: chatx-portfolio-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_id }}
           path: presentation-evidence/
           retention-days: 90
           if-no-files-found: warn
+      - name: Show sanitized server errors on failure
+        if: failure() && env.CHATX_CAPTURE_KIND == 'demo'
+        run: |
+          if test -f "$RUNNER_TEMP/chatx-demo-server.log"; then
+            grep -E 'seed failed|capture|Error|error|fatal' "$RUNNER_TEMP/chatx-demo-server.log" | tail -n 40 || true
+          fi
+      - name: Stop isolated application
+        if: always() && env.CHATX_CAPTURE_KIND == 'demo'
+        run: |
+          if test -f "$RUNNER_TEMP/chatx-demo-server.pid"; then
+            kill "$(cat "$RUNNER_TEMP/chatx-demo-server.pid")" 2>/dev/null || true
+          fi

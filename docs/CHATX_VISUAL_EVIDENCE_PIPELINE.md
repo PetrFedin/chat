@@ -1,28 +1,33 @@
-# CHATX Visual Evidence · Portfolio Capture
+# CHATX Visual Evidence · Verified Browser Portfolio
 
-This is a **capture of a real rendered browser session**, not an AI-generated mockup.
-Do not label the isolated Northstar Studio demo as a customer installation.
+This pipeline captures **real running CHATX** in an isolated PostgreSQL-backed Northstar Studio demonstration workspace. Data is synthetic and must never be described as customer usage or production ROI.
 
-## Workflow and proof
+## Automated collection
 
-- GitHub Actions: `.github/workflows/presentation-evidence.yml`.
-- Manual `workflow_dispatch` with `capture_kind=demo` or `live`.
-- Weekly Monday 09:00 UTC scheduled **demo** refresh after this workflow reaches the default branch.
-- Set GitHub Actions **secret** `CHATX_CAPTURE_URL` to a validated deployment URL controlled by the owner. A missing URL must fail rather than fabricate screenshots.
-- Capture runs Chromium/Playwright against the URL; browser errors and unrecognized scenes go into `evidence-manifest.json`.
-- Outputs: up to 5 desktop PNGs, one 390px mobile PNG, and a 25-second `webm` browser recording.
-- Manifest includes timestamp, commit SHA, source URL, kind `demo` or `live`, filename inventory, and warnings. Link it beside images/videos when publishing.
-- Download the workflow artifact and review it. GitHub's 90-day artifact retention is **not permanent hosting**. Copy approved media and manifest into versioned durable portfolio media storage before that deadline.
-- For `live`, capture intentionally refuses a demo-login page or unauthenticated application. Do not store production passwords, cookies, customer messages or user data in artifacts. Use a consented sanitized review workspace and a capture-specific authentication mechanism.
-- Never use these assets as proof of production uptime or real customer ROI: only a verified deployment plus separately substantiated performance evidence can support those claims.
+Workflow: `.github/workflows/presentation-evidence.yml`.
 
-## Release admission
+- On relevant PR changes to `main` or to the active stacked integration branch, GitHub starts the exact PR head SHA, applies migrations to a disposable PostgreSQL 17 database, builds Pages and opens the app in Chromium.
+- On pushes to `main` and every Monday at 09:00 UTC (once this workflow is merged into the default branch), the same demo capture refreshes.
+- Manual `workflow_dispatch` supports `demo` and guarded `live` mode. Live currently requires an independently configured, explicitly authenticated sanitized workspace; unauthenticated or demo pages fail rather than being mislabeled.
+- Suspended Render services are **not** resumed or represented as live. The isolated running app is genuine code, while the content is synthetic demonstration content.
 
-1. Exact-commit full PostgreSQL and domain CI green, no skipped database tests.
-2. Reviewer confirms tenant isolation and role checks.
-3. Run capture against an **approved** staging/demo deploy (deployment SHA must be separately verified).
-4. Check each recorded state: Projects, Tasks, Chat, and Calendar navigation; review responsive layout and error warnings.
-5. Select portfolio-worthy frames and publish labeled **CHATX · интерактивная демонстрация** with captured timestamp and source revision.
-6. For repeat captures use the weekly workflow after its approved merge. Compare scenes with previous revision before replacing files shown on syntha.pro.
+## Deliverables per successful run
 
-Video is generated as WebM; convert a vetted video to MP4 when required by the landing site's video pipeline, preserving the original manifest and labeling. CI does not publish to syntha.pro automatically.
+- `01-home-desktop.png`, `02-chats-desktop.png`, `03-tasks-desktop.png`, `04-projects-desktop.png`, `04b-project-overview-desktop.png`, `05-project-gantt-desktop.png`, `06-calendar-desktop.png`
+- `07-home-mobile.png`, `07b-project-overview-mobile.png`, `08-project-gantt-mobile.png` captured at a CSS viewport of **390 × 844**
+- All screenshots use deviceScaleFactor 2 (2880 × 1800 desktop and 780 × 1688 mobile). Captured Chats include an opened real demo conversation and Project overviews precede the detailed Gantt.
+- `chatx-product-tour-27s.mp4`, capped at **27 seconds**, H.264 + faststart suitable for web embedding; plus source WebM
+- `evidence-manifest.json` with the exact checked-out SHA, source environment, UTC time, browser errors, scene confirmations, per-file SHA-256 and measured MP4 duration
+
+The capture job fails if a required scene is absent, the Gantt lacks its four real demo Tasks, video duration is outside 20–30 seconds, or the login/screen is invalid. Media is uploaded as an Actions artifact, **not** automatically sent to syntha.pro. At most 90 days of GitHub artifact retention: save approved versions to durable media storage.
+
+## Publishing protocol
+
+1. Require exact-head PostgreSQL/CI GREEN and independently review security, feature gates, tenant isolation, and mobile navigation.
+2. Open the artifact for that SHA and review the actual screenshots and video for credentials, private content, error states, clipping, typography and animation.
+3. Do not publish if the manifest indicates `failed`; review all `warnings` and `pageErrors`.
+4. Save a dated release folder `CHATX/<SHA>/` in controlled storage. Preserve originals and manifest. Only then replace media on the personal landing page.
+5. Label the content **CHATX · тестовая интерактивная демонстрация (синтетические данные)** with the capture date. Do not imply customer adoption or actual deployment uptime.
+6. Produce a visual diff against the previous accepted release; keep historical artifacts available instead of silently replacing investor proofs.
+
+Private production accounts, passwords, cookies, conversation content, or customer records must not enter GitHub artifacts. The capture deliberately authenticates before starting the recorded session and keeps session state in memory.
