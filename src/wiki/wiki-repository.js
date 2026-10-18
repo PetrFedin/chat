@@ -47,7 +47,7 @@ const summaryView = (row) => ({
 export function createWikiRepository(pool, projects = null, store = null, meeting = null, calendar = null, calls = null, features = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop, getAccess: stop, setVisibility: stop, grantAccess: stop, revokeAccess: stop, transferAccessOwner: stop, recoverAccessOwner: stop, listAccessRecovery: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, restore: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop, getAccess: stop, setVisibility: stop, grantAccess: stop, revokeAccess: stop, transferAccessOwner: stop, recoverAccessOwner: stop, listAccessRecovery: stop };
   }
 
   const featureOn = async (session, id) => !features?.isEnabled || await features.isEnabled(session.workspaceId, id);
@@ -786,6 +786,68 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         await client.query('ROLLBACK').catch(()=>{});
         throw error;
       } finally { client.release(); }
+    },
+
+    /**
+     * Restore is an ordinary new Page version, never a destructive rewind.
+     * Lock the canonical Page first; serialize concurrent edits, archive and
+     * creator-managed ACL changes through the same row lock.
+     * Only title/content/document are restored: parent, relations and access
+     * grants remain governed by their current authorities.
+     */
+    async restore(session, id, { version, expectedVersion } = {}) {
+      if (expectedVersion === undefined || expectedVersion === null) {
+        throw fail('Не указана текущая версия страницы', 'EXPECTED_VERSION_REQUIRED', 400);
+      }
+      const targetVersion = Number(version);
+      if (!Number.isSafeInteger(targetVersion) || targetVersion < 1 || targetVersion > 2147483647) {
+        throw fail('Неверная версия для восстановления', 'WIKI_VERSION_INVALID', 400);
+      }
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const { rows: currentRows } = await client.query(
+          'SELECT title,content,document,version,archived_at FROM wiki_pages WHERE workspace_id=$1 AND id=$2 FOR UPDATE',
+          [session.workspaceId, id],
+        );
+        await access.assertEdit(session, id, client);
+        const current = currentRows[0];
+        if (!current || current.archived_at) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+        if (current.version !== Number(expectedVersion)) {
+          throw fail('Страница изменилась. Обновите историю перед восстановлением.', 'STALE_VERSION', 409);
+        }
+        const { rows: previousRows } = await client.query(
+          'SELECT version,title,content,document FROM wiki_page_versions WHERE workspace_id=$1 AND page_id=$2 AND version=$3',
+          [session.workspaceId, id, targetVersion],
+        );
+        const previous = previousRows[0];
+        if (!previous) throw fail('Версия страницы не найдена', 'WIKI_VERSION_NOT_FOUND', 404);
+        await client.query(
+          `INSERT INTO wiki_page_versions(organization_id,workspace_id,page_id,version,title,content,document,edited_by)
+           VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8)`,
+          [session.organizationId, session.workspaceId, id, current.version, current.title, current.content, current.document, session.userId],
+        );
+        const { rows } = await client.query(
+          `UPDATE wiki_pages SET title=$3,content=$4,document=$5::jsonb,
+               version=version+1,updated_by=$6,updated_at=now()
+             WHERE workspace_id=$1 AND id=$2 RETURNING ${COLUMNS}`,
+          [session.workspaceId, id, previous.title, previous.content, previous.document, session.userId],
+        );
+        await client.query(
+          `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
+           VALUES($1,$2,'wiki_page',$3,'wiki.page_restored',$4,$5)`,
+          [session.organizationId, session.workspaceId, id, session.userId, {
+            restoredVersion: previous.version, replacedVersion: current.version,
+          }],
+        );
+        await client.query('COMMIT');
+        return view(rows[0]);
+      } catch (error) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw error;
+      } finally {
+        client.release();
+      }
     },
 
     async history(session, id) {
