@@ -3,6 +3,7 @@
 (function(){
   'use strict';
   const DAY=86400000;
+  const scaleChoices=new Map(); // UI-only zoom; never changes canonical task dates
   const iso=(value)=>String(value||'').slice(0,10);
   const dateMs=(value)=>Date.parse(iso(value)+'T00:00:00.000Z');
   const safeDate=(value)=>Number.isFinite(dateMs(value));
@@ -13,7 +14,7 @@
   };
   const monthIndex=(date)=>{const d=new Date(dateMs(date));return d.getUTCFullYear()*12+d.getUTCMonth()};
   const axisLabel=(date,lang,unit)=>new Intl.DateTimeFormat(lang==='en'?'en-GB':'ru-RU',
-    {month:'short',...(unit==='week'?{day:'numeric'}:{year:'2-digit'}),timeZone:'UTC'}
+    {month:'short',...(unit==='month'?{year:'2-digit'}:{day:'numeric'}),timeZone:'UTC'}
   ).format(new Date(date+'T00:00:00.000Z'));
   const pad=(value)=>String(value).padStart(2,'0');
   const firstOfMonth=date=>{
@@ -43,23 +44,44 @@
     const finish=allDates[allDates.length-1]||addDays(today,84);
     const start=monday(begin);
     const weeks=Math.floor((dateMs(finish)-dateMs(start))/(DAY*7))+1;
-    const unit=weeks>60?'month':'week';
+    const dailyPeriods=Math.floor((dateMs(finish)-dateMs(start))/DAY)+1;
+    const dailyAvailable=dailyPeriods<=120;
+    const chosen=scaleChoices.get(project.id)||'auto';
+    const unit=chosen==='day'&&!dailyAvailable?'week'
+      :chosen==='auto'?(weeks>60?'month':'week'):chosen;
     const anchor=unit==='month'?firstOfMonth(start):start;
-    const cell=unit==='month'?60:48;
+    const cell=unit==='month'?60:unit==='day'?32:48;
     const rawCount=unit==='month'
       ?monthIndex(finish)-monthIndex(anchor)+1
-      :Math.floor((dateMs(finish)-dateMs(anchor))/(DAY*7))+1;
+      :Math.floor((dateMs(finish)-dateMs(anchor))/(DAY*(unit==='day'?1:7)))+1;
     const count=Math.min(120,Math.max(8,rawCount));
     const clipWarning=rawCount>120;
-    const index=date=>{
+    // Exact fractional position within a week or month; a one-day task must
+    // never appear as a full week/month. UTC avoids DST-dependent rendering.
+    const position=date=>{
       if(!safeDate(date))return null;
-      return unit==='month'?monthIndex(date)-monthIndex(anchor)
-        :Math.floor((dateMs(date)-dateMs(anchor))/(DAY*7));
+      if(unit!=='month')return (dateMs(date)-dateMs(anchor))/(DAY*(unit==='day'?1:7));
+      const d=new Date(dateMs(date));
+      const daysInMonth=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();
+      return monthIndex(date)-monthIndex(anchor)+(d.getUTCDate()-1)/daysInMonth;
     };
     const axis=Array.from({length:count},(_,i)=>{
-      const date=unit==='week'?addDays(anchor,i*7):addMonths(anchor,i);
+      const date=unit==='month'?addMonths(anchor,i):addDays(anchor,i*(unit==='day'?1:7));
       return '<span class="project-roadmap-tick">'+esc(axisLabel(date,lang,unit))+'</span>';
     }).join('');
+    const scaleLabel=T('Масштаб','Scale');
+    const scaleHtml='<label class="project-roadmap-scale">'+scaleLabel+
+      '<select data-project-roadmap-scale aria-label="'+esc(scaleLabel)+'">'+
+      [['auto',T('Авто','Auto')],...(dailyAvailable?[['day',T('День','Day')]]:[]),
+        ['week',T('Неделя','Week')],['month',T('Месяц','Month')]]
+        .map(([value,label])=>'<option value="'+value+'"'+
+          (chosen===value?' selected':'')+'>'+esc(label)+'</option>').join('')+
+      '</select></label>';
+    const todayPosition=position(today);
+    const nowMarker=todayPosition!==null&&todayPosition>=0&&todayPosition<count
+      ?'<span class="project-roadmap-now" style="--today-position:'+
+        todayPosition.toFixed(6)+'" aria-label="'+esc(T('Сегодня','Today'))+
+        '" title="'+esc(T('Сегодня','Today'))+'"></span>':'';
     const totals={
       phases:phases.length,scheduled:schedules.length,
       unplanned:visibleTasks.filter(task=>!scheduleById.has(task.id)).length,
@@ -86,34 +108,46 @@
       '</div>':'';
     const header='<div class="project-roadmap-row project-roadmap-head">'+
       '<div class="project-roadmap-label">'+T('Работа / этап','Work / phase')+'</div>'+
-      '<div class="project-roadmap-axis">'+axis+'</div></div>';
-    const bar=(from,to,kind,atRisk)=>{
-      const left=index(from),right=index(to);
-      if(left===null||right===null||right<0||left>=count)return '';
-      const visibleLeft=Math.max(0,left);
-      const visibleRight=Math.min(count-1,right);
-      const span=visibleRight-visibleLeft+1;
-      return '<span class="project-roadmap-bar project-roadmap-bar-'+kind+(atRisk?' at-risk':'')+
-        '" style="--bar-start:'+visibleLeft+';--bar-span:'+span+'" aria-hidden="true"></span>';
+      '<div class="project-roadmap-axis">'+axis+nowMarker+'</div></div>';
+    const criticalIds=new Set(prediction?.criticalTaskIds||[]);
+    const forecastRows=new Map((prediction?.tasks||[]).map(task=>[task.taskId,task]));
+    const bar=(from,to,kind,atRisk,critical=false)=>{
+      const left=position(from),right=safeDate(to)?position(addDays(to,1)):null;
+      if(left===null||right===null||right<=0||left>=count)return '';
+      const visibleLeft=Math.max(0,left),visibleRight=Math.min(count,right);
+      if(visibleRight<=visibleLeft)return '';
+      const span=visibleRight-visibleLeft;
+      return '<span class="project-roadmap-bar project-roadmap-bar-'+kind+
+        (atRisk?' at-risk':'')+(critical?' critical-path':'')+
+        '" style="--bar-start:'+visibleLeft.toFixed(6)+
+        ';--bar-span:'+span.toFixed(6)+'" aria-hidden="true"></span>';
     };
-    const row=(label,meta,from,to,kind,identifier,risk)=>{
+    const row=(label,meta,from,to,kind,identifier,risk,critical=false)=>{
       const clickable=kind==='phase'?(project.canManage?' data-project-plan-phase-edit="'+esc(identifier)+'"':''):
         kind==='task'?(project.canContribute?' data-project-plan-task="'+esc(identifier)+'"':''):'';
       const name=clickable
         ?'<button type="button" class="project-roadmap-name"'+clickable+'>'+esc(label)+'</button>'
         :'<span class="project-roadmap-name">'+esc(label)+'</span>';
-      return '<div class="project-roadmap-row project-roadmap-'+kind+'" data-project-roadmap-row="'+esc(identifier)+'">'+
+      return '<div class="project-roadmap-row project-roadmap-'+kind+
+        (critical?' critical-path':'')+'" data-project-roadmap-row="'+esc(identifier)+'">'+
         '<div class="project-roadmap-label">'+name+'<small>'+esc(meta)+'</small></div>'+
-        '<div class="project-roadmap-track">'+bar(from,to,kind,risk)+'</div></div>';
+        '<div class="project-roadmap-track">'+bar(from,to,kind,risk,critical)+'</div></div>';
     };
     const rows=[];
     const showTask=schedule=>{
       const task=taskById.get(schedule.taskId);
       if(!task)return;
       const minutes=Number(schedule.estimateMinutes||0);
-      const meta=(task.status||'')+' · '+(task.ownerName||'')+(minutes?' · '+minutes+' min':'')+
-        (violations.has(task.id)?' · '+T('конфликт сроков','date conflict'):'');
-      rows.push(row(task.title,meta,schedule.plannedStart,schedule.plannedEnd,'task',task.id,violations.has(task.id)));
+      const isCritical=criticalIds.has(task.id);
+      const forecast=forecastRows.get(task.id);
+      const meta=(task.status||'')+' · '+(task.ownerName||'')+
+        ' · '+schedule.plannedStart+' — '+schedule.plannedEnd+
+        (minutes?' · '+minutes+' min':'')+
+        (violations.has(task.id)?' · '+T('конфликт сроков','date conflict'):'')+
+        (isCritical?' · '+T('критический путь (видимая часть)','critical path (visible scope)'):'')+
+        (!isCritical&&forecast?' · '+T('резерв','float')+': '+forecast.floatCalendarDays+' '+T('дн.','days'):'');
+      rows.push(row(task.title,meta,schedule.plannedStart,schedule.plannedEnd,
+        'task',task.id,violations.has(task.id),isCritical));
     };
     const shown=new Set();
     for(const phase of phases){
@@ -159,7 +193,7 @@
         }).join('')+'</div>':'';
     return '<section class="surface project-roadmap-section">'+
       '<div class="section-head"><div><h3>'+T('Дорожная карта проекта','Project roadmap')+'</h3>'+
-      '<p class="muted">'+help+'</p></div><div class="project-roadmap-actions">'+
+      '<p class="muted">'+help+'</p></div><div class="project-roadmap-actions">'+scaleHtml+
       (project.canManage?'<button type="button" class="button secondary small" data-project-plan-new-phase>＋ '+
          T('Этап','Phase')+'</button>':'')+
       (project.canContribute?'<button type="button" class="button secondary small" data-project-plan-scenario>'+T('Сценарий','What-if')+'</button>':'')+
@@ -180,10 +214,23 @@
 
   // Form actions are explicitly delegated back to the host app. Project and
   // Task permissions are enforced again by the server on every mutation.
-  function bind({project,api,modal,closeModal,toast,T,esc,confirmTap,refresh}){
+  function bind({project,api,modal,closeModal,toast,T,esc,confirmTap,refresh,lang='ru'}){
     if(!project||!document.querySelector('.project-roadmap-section'))return;
     const one=(selector)=>document.querySelector(selector);
     const many=(selector)=>Array.from(document.querySelectorAll(selector));
+    const scale=one('[data-project-roadmap-scale]');
+    if(scale)scale.onchange=()=>{
+      if(!['auto','day','week','month'].includes(scale.value))return;
+      const viewport=one('.project-roadmap-scroll');
+      const progress=(viewport?.scrollLeft||0)/Math.max(1,(viewport?.scrollWidth||0)-(viewport?.clientWidth||0));
+      scaleChoices.set(project.id,scale.value);
+      const section=one('.project-roadmap-section');
+      if(!section)return;
+      section.outerHTML=render(project,T,esc,lang);
+      bind({project,api,modal,closeModal,toast,T,esc,confirmTap,refresh,lang});
+      const updated=one('.project-roadmap-scroll');
+      if(updated)updated.scrollLeft=progress*Math.max(0,updated.scrollWidth-updated.clientWidth);
+    };
     const base='/api/v1/projects/'+project.id+'/plan';
     const p=project.plan||{};
     const tasks=project.tasks||[];
