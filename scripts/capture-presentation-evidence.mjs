@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { mkdir, copyFile, writeFile, readFile } from 'node:fs/promises';
+import { mkdir, copyFile, writeFile, readFile, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -22,7 +22,7 @@ const manifest={
   source:parsed.origin+parsed.pathname, // deliberately exclude credentials and tokens
   sha,capturedAt:new Date().toISOString(),
   screenshots:[],videos:[],scenes:[],warnings:[],pageErrors:[],
-  validation:{state:'running',expectedVideoSeconds:[20,30],requiredScreens:['home','chats','tasks','projects','gantt','calendar','mobile-home','mobile-gantt']},
+  validation:{state:'running',expectedVideoSeconds:[20,30],requiredScreens:['home','chats','tasks','projects','project-overview','gantt','calendar','mobile-home','mobile-project-overview','mobile-gantt']},
   disclosures:['Demo data is synthetic. Screenshot is an actual browser capture, not a rendering.',
     'Git commit identifies source code; deployment SHA verification is separate.'],
 };
@@ -73,7 +73,7 @@ try{
 
   // Video starts after authentication, so no sign-in flow appears in media.
   const ctx=await browser.newContext({
-    viewport:{width:1440,height:900},deviceScaleFactor:1,
+    viewport:{width:1440,height:900},deviceScaleFactor:2,
     storageState:inMemorySession,
     recordVideo:{dir:join(output,'raw-video'),size:{width:1440,height:900}},
   });
@@ -85,6 +85,11 @@ try{
   await screenshot(page,'01-home-desktop','home');
   await linger('home');
   await nav(page,'chats');
+  // Select a real demo room, rather than recording an empty chat pane.
+  const room=page.locator('.conversation-card[data-open]:visible').first();
+  await room.waitFor({state:'visible',timeout:12000});
+  await room.click();
+  await page.waitForTimeout(700);
   await screenshot(page,'02-chats-desktop','chats');
   await linger('chats');
   await nav(page,'tasks');
@@ -99,6 +104,7 @@ try{
   const projectId=await project.getAttribute('data-project-open');
   if(!projectId)throw new Error('Project detail not addressable');
   await project.click();
+  await screenshot(page,'04b-project-overview-desktop','project-overview');
   const gantt=page.locator('.project-roadmap-section .project-roadmap-scroll');
   await gantt.waitFor({state:'visible',timeout:18000});
   if(kind==='demo' && (await page.locator('.project-roadmap-task').count())<4)
@@ -119,6 +125,8 @@ try{
   const raw=await video.path();
   const webm='chatx-session-source.webm';
   await copyFile(raw,join(output,webm));
+  // Avoid uploading the same WebM twice: raw-video is only a capture scratch dir.
+  await rm(join(output,'raw-video'),{recursive:true,force:true});
   manifest.videos.push({file:webm,role:'source',sha256:await hash(join(output,webm))});
   const mp4='chatx-product-tour-27s.mp4';
   await run('ffmpeg',['-nostdin','-hide_banner','-loglevel','error','-y',
@@ -135,7 +143,7 @@ try{
 
   // Fresh mobile context, reusing only in-memory demo authorization.
   const mobile=await browser.newContext({
-    viewport:{width:390,height:844},deviceScaleFactor:1,
+    viewport:{width:390,height:844},deviceScaleFactor:2,
     isMobile:true,hasTouch:true,storageState:inMemorySession,
   });
   const mobilePage=await mobile.newPage();
@@ -148,7 +156,11 @@ try{
   await waitScreen(mobilePage);
   const mobileGantt=mobilePage.locator('.project-roadmap-section .project-roadmap-scroll');
   await mobileGantt.waitFor({state:'visible',timeout:20000});
-  await mobilePage.evaluate(() => document.querySelector('.project-roadmap-section')?.scrollIntoView({block:'start',behavior:'auto'}));
+  await screenshot(mobilePage,'07b-project-overview-mobile','mobile-project-overview');
+  await mobilePage.evaluate(() => {
+    const section=document.querySelector('.project-roadmap-section');
+    if(section){section.style.scrollMarginTop='100px';section.scrollIntoView({block:'start',behavior:'auto'});}
+  });
   await mobilePage.waitForTimeout(350);
   await screenshot(mobilePage,'08-project-gantt-mobile','mobile-gantt');
   await mobile.close();
