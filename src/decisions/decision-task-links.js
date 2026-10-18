@@ -66,6 +66,11 @@ export function createDecisionTaskLinks({pool,store,meeting}={}){
       const cleanReason=cleanText(reason,500,'Причина связи');
       await tx(async client=>{
         await lockDecision(client,session,decisionId);
+        // Reauthorize from canonical sources inside the write window.
+        // A revoked meeting participant or Task collaborator must not retain
+        // mutation rights based only on the initial preflight.
+        await requireDecision(session,decisionId);
+        await requireTask(session,taskId);
         const count=await client.query(
           'SELECT count(*)::int AS n FROM decision_task_links WHERE workspace_id=$1 AND decision_id=$2',
           [session.workspaceId,decisionId],
@@ -101,6 +106,8 @@ export function createDecisionTaskLinks({pool,store,meeting}={}){
       const cleanReason=cleanText(reason,500,'Причина удаления связи');
       await tx(async client=>{
         await lockDecision(client,session,decisionId);
+        await requireDecision(session,decisionId);
+        await requireTask(session,taskId);
         const removed=await client.query(
           'DELETE FROM decision_task_links WHERE workspace_id=$1 AND decision_id=$2 AND commitment_id=$3 RETURNING commitment_id',
           [session.workspaceId,decisionId,taskId],
