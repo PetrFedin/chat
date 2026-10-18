@@ -104,9 +104,9 @@ try{
   const projectId=await project.getAttribute('data-project-open');
   if(!projectId)throw new Error('Project detail not addressable');
   await project.click();
-  await screenshot(page,'04b-project-overview-desktop','project-overview');
   const gantt=page.locator('.project-roadmap-section .project-roadmap-scroll');
   await gantt.waitFor({state:'visible',timeout:18000});
+  await screenshot(page,'04b-project-overview-desktop','project-overview');
   if(kind==='demo' && (await page.locator('.project-roadmap-task').count())<4)
     throw new Error('Demo Gantt missing scheduled canonical Tasks');
   // Project detail may rerender after asynchronous data refresh. Scroll the
