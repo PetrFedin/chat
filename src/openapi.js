@@ -599,6 +599,19 @@ export const openapi = Object.freeze({
         description: 'The grant is additive to workspace RBAC and never grants access to linked Projects, Tasks, Channels, Meetings, Calls or Decisions.',
         responses: { '200': { description: 'Updated ACL' }, '400': { description: 'Invalid access level' }, '404': { description: 'Page or employee not visible' }, '409': { description: 'Creator does not need an explicit grant' } } }
     },
+    '/api/v1/wiki/pages/{pageId}/access/owner': {
+      put: { tags: ['Wiki'], summary: 'Transfer Page access ownership',
+        description: 'Only the current access owner may transfer audience management to an active non-guest employee. Page authorship and content-edit permission do not change.',
+        responses: { '200': { description: 'Access ownership transferred' }, '404': { description: 'Page or target employee not visible' } } }
+    },
+    '/api/v1/wiki/access-recovery': {
+      get: { tags: ['Wiki'], summary: 'List orphaned Page access ownership for workspace-owner recovery',
+        description: 'Owner-only break-glass surface. Returns orphan metadata but never Page content, history, grants or linked entities.',
+        responses: { '200': { description: 'Orphaned Pages' }, '403': { description: 'Workspace owner required' } } },
+      post: { tags: ['Wiki'], summary: 'Recover an orphaned Page access owner',
+        description: 'Allowed only when the current access owner is inactive, expired or no longer a Wiki employee. Does not grant the workspace owner Page read access.',
+        responses: { '200': { description: 'Access ownership recovered' }, '403': { description: 'Workspace owner required' }, '404': { description: 'Page or target employee not found' }, '409': { description: 'Current access owner is still active' } } }
+    },
     '/api/v1/wiki/pages/{pageId}/access/{userId}': {
       delete: { tags: ['Wiki'], summary: 'Revoke an explicit Page grant',
         responses: { '200': { description: 'Updated ACL' }, '404': { description: 'Page or grant not visible' } } }

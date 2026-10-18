@@ -81,6 +81,10 @@ test('recent compositional APIs are documented at operation level', () => {
     ['put', '/api/v1/wiki/pages/{pageId}/access'],
     ['post', '/api/v1/wiki/pages/{pageId}/access'],
     ['delete', '/api/v1/wiki/pages/{pageId}/access/{userId}'],
+    ['put', '/api/v1/wiki/pages/{pageId}/access/owner'],
+    ['get', '/api/v1/wiki/access-recovery'],
+    ['post', '/api/v1/wiki/access-recovery'],
+
     ['post', '/api/v1/wiki/pages/{pageId}/calendar-meetings'],
     ['delete', '/api/v1/wiki/pages/{pageId}/calendar-meetings/{eventId}'],
     ['post', '/api/v1/wiki/pages/{pageId}/calls'],
