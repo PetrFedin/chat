@@ -1,7 +1,7 @@
 name: CHATX visual evidence
 on:
   pull_request:
-    branches: [main, feature/chatx-wiki-nested-feature-gates-20261017]
+    branches: [main, feature/chatx-wiki-nested-feature-gates-20261017, feature/chatx-portfolio-evidence-v2-20261018]
     paths:
       - 'src/**'
       - 'public/**'
