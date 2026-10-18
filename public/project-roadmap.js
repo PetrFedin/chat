@@ -46,9 +46,9 @@
     const weeks=Math.floor((dateMs(finish)-dateMs(start))/(DAY*7))+1;
     const dailyPeriods=Math.floor((dateMs(finish)-dateMs(start))/DAY)+1;
     const dailyAvailable=dailyPeriods<=120;
-    const chosen=scaleChoices.get(project.id)||'auto';
-    const unit=chosen==='day'&&!dailyAvailable?'week'
-      :chosen==='auto'?(weeks>60?'month':'week'):chosen;
+    const requested=scaleChoices.get(project.id)||'auto';
+    const chosen=requested==='day'&&!dailyAvailable?'week':requested;
+    const unit=chosen==='auto'?(weeks>60?'month':'week'):chosen;
     const anchor=unit==='month'?firstOfMonth(start):start;
     const cell=unit==='month'?60:unit==='day'?32:48;
     const rawCount=unit==='month'
@@ -117,10 +117,13 @@
       const visibleLeft=Math.max(0,left),visibleRight=Math.min(count,right);
       if(visibleRight<=visibleLeft)return '';
       const span=visibleRight-visibleLeft;
+      const explanation=(critical?T('Критический путь. ','Critical path. '):'')+
+        T('План: ','Planned: ')+from+' — '+to;
       return '<span class="project-roadmap-bar project-roadmap-bar-'+kind+
         (atRisk?' at-risk':'')+(critical?' critical-path':'')+
         '" style="--bar-start:'+visibleLeft.toFixed(6)+
-        ';--bar-span:'+span.toFixed(6)+'" aria-hidden="true"></span>';
+        ';--bar-span:'+span.toFixed(6)+'" aria-hidden="true" title="'+
+        esc(explanation)+'"></span>';
     };
     const row=(label,meta,from,to,kind,identifier,risk,critical=false)=>{
       const clickable=kind==='phase'?(project.canManage?' data-project-plan-phase-edit="'+esc(identifier)+'"':''):
@@ -131,7 +134,7 @@
       return '<div class="project-roadmap-row project-roadmap-'+kind+
         (critical?' critical-path':'')+'" data-project-roadmap-row="'+esc(identifier)+'">'+
         '<div class="project-roadmap-label">'+name+'<small>'+esc(meta)+'</small></div>'+
-        '<div class="project-roadmap-track">'+bar(from,to,kind,risk,critical)+'</div></div>';
+        '<div class="project-roadmap-track">'+bar(from,to,kind,risk,critical)+nowMarker+'</div></div>';
     };
     const rows=[];
     const showTask=schedule=>{
@@ -230,6 +233,7 @@
       bind({project,api,modal,closeModal,toast,T,esc,confirmTap,refresh,lang});
       const updated=one('.project-roadmap-scroll');
       if(updated)updated.scrollLeft=progress*Math.max(0,updated.scrollWidth-updated.clientWidth);
+      one('[data-project-roadmap-scale]')?.focus();
     };
     const base='/api/v1/projects/'+project.id+'/plan';
     const p=project.plan||{};
