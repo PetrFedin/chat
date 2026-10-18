@@ -2097,7 +2097,7 @@ function bind(){
   // The roadmap only decorates canonical Tasks; all writes are carried
   // out by Project Authority and reload the same operating cockpit.
   window.ChatProjectRoadmap?.bind?.({
-    project:S.projectDetail,api,modal,closeModal,toast,T,esc,confirmTap,
+    project:S.projectDetail,api,modal,closeModal,toast,T,esc,confirmTap,lang:locale(),
     refresh:async projectId=>{
       const{project:fresh}=await api(`/api/v1/projects/${projectId}`);
       if(S.projectSelected===projectId){S.projectDetail=fresh;render();}
