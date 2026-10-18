@@ -94,6 +94,9 @@ test('recent compositional APIs are documented at operation level', () => {
     ['post', '/api/v1/wiki/pages/{pageId}/projects'],
     ['delete', '/api/v1/wiki/pages/{pageId}/projects/{projectId}'],
     ['get', '/api/v1/wiki/decisions/{decisionId}/pages'],
+    ['get', '/api/v1/meetings/decisions/{decisionId}/tasks'],
+    ['post', '/api/v1/meetings/decisions/{decisionId}/tasks'],
+    ['delete', '/api/v1/meetings/decisions/{decisionId}/tasks/{taskId}'],
   ];
   for (const [method, path] of required) {
     assert.ok(openapi.paths[path]?.[method], `${method.toUpperCase()} ${path} is implemented but missing from OpenAPI`);
