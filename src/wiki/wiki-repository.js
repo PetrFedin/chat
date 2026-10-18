@@ -815,7 +815,7 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         [session.workspaceId,id],
       );
       const ownerProfile=await pool.query(
-        `SELECT COALESCE(p.display_name,p.email,$2::text) "displayName"
+        `SELECT COALESCE(p.display_name,p.email,m.user_id::text) "displayName"
            FROM memberships m
            LEFT JOIN workspace_profiles p ON p.workspace_id=m.workspace_id AND p.user_id=m.user_id
           WHERE m.workspace_id=$1 AND m.user_id=$2`,
