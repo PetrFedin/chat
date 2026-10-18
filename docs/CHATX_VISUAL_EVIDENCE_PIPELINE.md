@@ -13,8 +13,9 @@ Workflow: `.github/workflows/presentation-evidence.yml`.
 
 ## Deliverables per successful run
 
-- `01-home-desktop.png`, `02-chats-desktop.png`, `03-tasks-desktop.png`, `04-projects-desktop.png`, `05-project-gantt-desktop.png`, `06-calendar-desktop.png`
-- `07-home-mobile.png`, `08-project-gantt-mobile.png` captured at **390 × 844**
+- `01-home-desktop.png`, `02-chats-desktop.png`, `03-tasks-desktop.png`, `04-projects-desktop.png`, `04b-project-overview-desktop.png`, `05-project-gantt-desktop.png`, `06-calendar-desktop.png`
+- `07-home-mobile.png`, `07b-project-overview-mobile.png`, `08-project-gantt-mobile.png` captured at a CSS viewport of **390 × 844**
+- All screenshots use deviceScaleFactor 2 (2880 × 1800 desktop and 780 × 1688 mobile). Captured Chats include an opened real demo conversation and Project overviews precede the detailed Gantt.
 - `chatx-product-tour-27s.mp4`, capped at **27 seconds**, H.264 + faststart suitable for web embedding; plus source WebM
 - `evidence-manifest.json` with the exact checked-out SHA, source environment, UTC time, browser errors, scene confirmations, per-file SHA-256 and measured MP4 duration
 
