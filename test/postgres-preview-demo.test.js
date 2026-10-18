@@ -147,6 +147,13 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   assert.equal(detailed.payload.project.metrics.visibleTasks,4);
   assert.equal(detailed.payload.project.milestones.length,2);
   assert.equal(detailed.payload.project.discussions.length,1);
+  // Investor screenshots must capture the real scheduled Project graph, not
+  // empty decorative Gantt bars. Seed remains idempotent on restart.
+  assert.equal(detailed.payload.project.plan.phases.length,2);
+  assert.equal(detailed.payload.project.plan.schedules.length,4);
+  assert.equal(detailed.payload.project.plan.dependencies.length,3);
+  assert.equal(detailed.payload.project.plan.forecast.status,'calculated');
+
 
   // Browser admission: investor path must be reachable by touch-sized navigation
   // and display source-derived data without pretending that ROI was measured.
@@ -197,6 +204,12 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
 
   const secondCounts=await demoCounts(probe,workspaceId);
   assert.deepEqual(secondCounts,firstCounts,'restart must not duplicate seeded demo entities');
+  const detailAgain=await request(second.base,'/api/v1/projects/'+investorProject.id,{cookie:loginTwo.cookie});
+  assert.equal(detailAgain.response.status,200);
+  assert.equal(detailAgain.payload.project.plan.phases.length,2);
+  assert.equal(detailAgain.payload.project.plan.schedules.length,4);
+  assert.equal(detailAgain.payload.project.plan.dependencies.length,3);
+
 
   const meetingsTwo=await request(second.base,'/api/v1/meetings?limit=20',{cookie:loginTwo.cookie});
   assert.equal(meetingsTwo.response.status,200);
