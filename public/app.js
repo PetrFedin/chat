@@ -3422,10 +3422,17 @@ async function wikiAccessModal(page,after){
 }
 
 async function wikiAccessRecoveryModal(after){
-  let items=[];
-  try{items=(await api('/api/v1/wiki/access-recovery')).items||[]}
-  catch(error){toast(error.message);return}
-  const people=(S.people||[]).filter(person=>person.role!=='guest'&&person.active!==false);
+  let items=[],people=[];
+  try{
+    // Refresh candidates at the time of recovery: the owner may have just
+    // invited or activated a successor after this browser session booted.
+    const [recovery,bootstrap]=await Promise.all([
+      api('/api/v1/wiki/access-recovery'),api('/api/v1/bootstrap'),
+    ]);
+    items=recovery.items||[];
+    S.people=bootstrap.people||S.people;
+    people=(S.people||[]).filter(person=>person.role!=='guest'&&person.active!==false);
+  }catch(error){toast(error.message);return}
   if(!items.length)return toast(T('Страниц без активного владельца доступа нет','No Pages need access recovery'));
   modal(T('Восстановление доступа','Access recovery'),`<div class="form-stack">
     <p class="muted">${T(
