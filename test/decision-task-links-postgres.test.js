@@ -91,6 +91,7 @@ test('Decision Task links: canonical visibility, audits, duplicates, tenant FKs,
     assert.equal((await req(base,'/api/v1/meetings/decisions/'+foreignDecision.id+'/tasks',
       {cookie:owner.cookie})).status,404);
     assert.equal((await link(owner.cookie,secretId,'')).status,400);
+    assert.equal((await link(owner.cookie,'not-a-uuid')).status,400);
     assert.equal((await link(owner.cookie,secretId)).status,200);
     const concurrent=await Promise.all([link(owner.cookie,sharedId),link(owner.cookie,sharedId)]);
     assert.deepEqual(concurrent.map(r=>r.status).sort((a,b)=>a-b),[200,409]);
