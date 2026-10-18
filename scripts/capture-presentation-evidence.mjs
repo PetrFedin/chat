@@ -103,7 +103,10 @@ try{
   await gantt.waitFor({state:'visible',timeout:18000});
   if(kind==='demo' && (await page.locator('.project-roadmap-task').count())<4)
     throw new Error('Demo Gantt missing scheduled canonical Tasks');
-  await gantt.scrollIntoViewIfNeeded();
+  // Project detail may rerender after asynchronous data refresh. Scroll the
+  // latest DOM node atomically rather than waiting on a detached locator.
+  await page.evaluate(() => document.querySelector('.project-roadmap-section')?.scrollIntoView({block:'start',behavior:'auto'}));
+  await page.waitForTimeout(350);
   await screenshot(page,'05-project-gantt-desktop','gantt');
   await linger('gantt',4100);
   await nav(page,'calendar');
@@ -145,7 +148,8 @@ try{
   await waitScreen(mobilePage);
   const mobileGantt=mobilePage.locator('.project-roadmap-section .project-roadmap-scroll');
   await mobileGantt.waitFor({state:'visible',timeout:20000});
-  await mobileGantt.scrollIntoViewIfNeeded();
+  await mobilePage.evaluate(() => document.querySelector('.project-roadmap-section')?.scrollIntoView({block:'start',behavior:'auto'}));
+  await mobilePage.waitForTimeout(350);
   await screenshot(mobilePage,'08-project-gantt-mobile','mobile-gantt');
   await mobile.close();
   manifest.pageErrors=pageErrors;
