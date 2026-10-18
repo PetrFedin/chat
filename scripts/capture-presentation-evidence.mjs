@@ -116,7 +116,14 @@ try{
     throw new Error('Demo Gantt missing scheduled canonical Tasks');
   // Project detail may rerender after asynchronous data refresh. Scroll the
   // latest DOM node atomically rather than waiting on a detached locator.
-  await page.evaluate(() => document.querySelector('.project-roadmap-section')?.scrollIntoView({block:'start',behavior:'auto'}));
+  await page.evaluate(() => {
+    const section=document.querySelector('.project-roadmap-section');
+    if(section){
+      // Keep the Gantt heading and controls below the sticky desktop header.
+      section.style.scrollMarginTop='110px';
+      section.scrollIntoView({block:'start',behavior:'auto'});
+    }
+  });
   await page.waitForTimeout(350);
   await screenshot(page,'05-project-gantt-desktop','gantt');
   await linger('gantt',4100);
