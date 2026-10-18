@@ -20,14 +20,14 @@
 button.project-roadmap-name{background:none;border:0;padding:0;cursor:pointer}
 button.project-roadmap-name:hover{text-decoration:underline}
 button.project-roadmap-name:focus-visible{outline:2px solid var(--warm);outline-offset:3px}
-.project-roadmap-axis{display:grid;grid-template-columns:repeat(var(--timeline-count),var(--timeline-cell));height:100%}
+.project-roadmap-axis{position:relative;display:grid;grid-template-columns:repeat(var(--timeline-count),var(--timeline-cell));height:100%}
 .project-roadmap-tick{display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);border-right:1px solid var(--line)}
 .project-roadmap-track{position:relative;background:repeating-linear-gradient(to right,transparent 0,transparent calc(var(--timeline-cell) - 1px),var(--line) calc(var(--timeline-cell) - 1px),var(--line) var(--timeline-cell))}
 .project-roadmap-phase .project-roadmap-label{background:var(--surface-2)}
 .project-roadmap-phase .project-roadmap-name{font-weight:700}
 .project-roadmap-phase .project-roadmap-track{background-color:var(--surface-2)}
 .project-roadmap-task .project-roadmap-label{padding-left:23px}
-.project-roadmap-bar{position:absolute;top:50%;transform:translateY(-50%);left:calc(var(--bar-start)*var(--timeline-cell) + 4px);width:calc(var(--bar-span)*var(--timeline-cell) - 8px);height:20px;border-radius:6px;border:1px solid currentColor;background:var(--warm-soft);color:var(--warm);box-shadow:inset 0 0 0 1px transparent}
+.project-roadmap-bar{position:absolute;top:50%;transform:translateY(-50%);left:calc(var(--bar-start)*var(--timeline-cell) + 2px);width:max(2px,calc(var(--bar-span)*var(--timeline-cell) - 4px));height:20px;border-radius:6px;border:1px solid currentColor;background:var(--warm-soft);color:var(--warm);box-shadow:inset 0 0 0 1px transparent}
 .project-roadmap-bar-phase{height:12px;border-radius:3px;opacity:.83}
 .project-roadmap-bar-task{height:22px;background:var(--surface-3);border-color:var(--warm);box-shadow:inset 3px 0 0 var(--warm)}
 .project-roadmap-bar.at-risk{background:var(--danger);color:var(--danger);opacity:.7;box-shadow:none}
@@ -53,3 +53,18 @@ button.project-roadmap-name:focus-visible{outline:2px solid var(--warm);outline-
 .project-forecast-summary>span{font-size:12px;color:var(--text)}
 .project-forecast-summary>small{flex-basis:100%;font-size:11px;color:var(--muted)}
 .project-forecast-summary>.project-forecast-partial{color:var(--danger)}
+
+/* Fractional week/month task widths reflect real calendar days. A one-day
+   task in month view remains visible as a 2px marker, never a full month. */
+.project-roadmap-scale{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:600}
+.project-roadmap-scale select{min-width:105px;height:38px;padding:6px 9px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface);color:var(--text);font:inherit}
+.project-roadmap-scale select:focus-visible{outline:2px solid var(--warm);outline-offset:2px}
+.project-roadmap-now{position:absolute;left:calc(var(--today-position)*var(--timeline-cell));top:0;bottom:0;width:2px;background:var(--warm);opacity:.8;pointer-events:none;z-index:1}
+.project-roadmap-task.critical-path .project-roadmap-name{font-weight:750}
+.project-roadmap-bar-task.critical-path:not(.at-risk){background:var(--warm-soft);border-color:var(--warm);box-shadow:inset 0 0 0 2px var(--warm)}
+.project-roadmap-bar-task.critical-path.at-risk{border-style:dashed}
+.project-roadmap-bar{max-width:100%}
+@media(max-width:699px){
+  .project-roadmap-scale{width:100%;justify-content:space-between}
+  .project-roadmap-scale select{min-height:44px}
+}
