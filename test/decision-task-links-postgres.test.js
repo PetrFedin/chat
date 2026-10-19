@@ -136,6 +136,49 @@ test('Decision Task links: canonical visibility, audits, duplicates, tenant FKs,
     assert.equal(audit.rows.filter(x=>x.event_type==='decision.task_linked').length,2);
     assert.equal(audit.rows.filter(x=>x.event_type==='decision.task_unlinked').length,1);
 
+    // Integrated Project Planning and Meeting Decision must share one
+    // canonical Task reference; never duplicate or mutate its schedule.
+    const projectCreated=await req(base,'/api/v1/projects',{cookie:owner.cookie,method:'POST',body:{
+      name:'Decision execution graph '+marker,visibility:'members',
+      startAt:'2026-11-01',targetAt:'2026-12-31',
+    }});
+    assert.equal(projectCreated.status,201);
+    const projectId=projectCreated.payload.project.id;
+    const inProject=await req(base,'/api/v1/projects/'+projectId+'/tasks',{
+      cookie:owner.cookie,method:'POST',body:{title:'Implement accepted decision',outcome:'Deployment approved'},
+    });
+    assert.equal(inProject.status,201);
+    const projectTaskId=inProject.payload.task.id;
+    const planPath='/api/v1/projects/'+projectId+'/plan';
+    const schedule=await req(base,planPath+'/tasks/'+projectTaskId,{
+      cookie:owner.cookie,method:'PUT',body:{
+        plannedStart:'2026-11-10',plannedEnd:'2026-11-12',
+        estimateMinutes:600,expectedVersion:0,
+      },
+    });
+    assert.equal(schedule.status,200);
+    const snapshotBefore=(await req(base,planPath,{cookie:owner.cookie})).payload.plan;
+    assert.equal(snapshotBefore.schedules.length,1);
+    assert.equal((await link(owner.cookie,projectTaskId,'Project release obligation')).status,200);
+    const decisionProjection=await req(base,endpoint,{cookie:owner.cookie});
+    assert.ok(decisionProjection.payload.items.some(t=>t.id===projectTaskId));
+    assert.deepEqual((await req(base,planPath,{cookie:owner.cookie})).payload.plan.schedules,
+      snapshotBefore.schedules,'linking a Decision must not change the Project plan');
+
+    // The Tasks feature gate must apply even when the relation is accessed
+    // from the Decisions namespace, and turning it back on restores links.
+    assert.equal((await req(base,'/api/v1/features/tasks',{cookie:owner.cookie,method:'PUT',
+      body:{enabled:false}})).status,200);
+    const disabled=await req(base,endpoint,{cookie:owner.cookie});
+    assert.equal(disabled.status,404);
+    assert.equal(disabled.payload?.error?.code,'FEATURE_DISABLED');
+    assert.equal((await req(base,'/api/v1/features/tasks',{cookie:owner.cookie,method:'PUT',
+      body:{enabled:true}})).status,200);
+    assert.ok((await req(base,endpoint,{cookie:owner.cookie})).payload.items
+      .some(t=>t.id===projectTaskId));
+    assert.deepEqual((await req(base,planPath,{cookie:owner.cookie})).payload.plan.schedules,
+      snapshotBefore.schedules);
+
     // Revocation is effective at the next read; the link is still stored.
     await app.store.pool.query(
       'DELETE FROM calendar_event_participants WHERE workspace_id=$1 AND calendar_event_id=$2 AND user_id=$3',
