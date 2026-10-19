@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Permission, hasPermission, requirePermission } from '../rbac.js';
 import { opaqueRoomName } from '../media/livekit-provider.js';
 import { cleanText, json, readJson, toDateOrNull } from './helpers.js';
+import { requireAccessibleCall } from '../meeting/access.js';
 
 const CALL_ID = '([0-9a-f-]+)';
 
@@ -10,9 +11,7 @@ function callNotFound() {
 }
 
 async function accessibleCall(store, calls, session, callId) {
-  const call = await calls.get(session, callId);
-  if (!call || !(await store.canAccessConversation(session, call.conversationId))) throw callNotFound();
-  return call;
+  return requireAccessibleCall({ store, calls, session, callId, message: 'Звонок не найден' });
 }
 
 export function createCallHandler() {

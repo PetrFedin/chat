@@ -2,6 +2,7 @@ import { Permission, requirePermission } from '../rbac.js';
 import { json, readJson } from './helpers.js';
 import { liveKitEventId, normalizeLiveKitEgress } from '../media/livekit-webhook.js';
 import { listAccessibleMeetings } from '../meeting/meeting-center.js';
+import { requireAccessibleCall } from '../meeting/access.js';
 import { claimWebhookEvent } from '../meeting/webhook-journal.js';
 
 const UUID = '([0-9a-f-]+)';
@@ -22,14 +23,10 @@ async function readRaw(req, maxBytes = 1024 * 1024) {
 }
 
 async function accessibleMeetingCall(ctx, session, callId) {
-  const call = await ctx.calls.get(session, callId);
-  if (!call || !(await ctx.store.canAccessConversation(session, call.conversationId))) throw notFound();
-  // Подрядчику — только те встречи, где он был. Доступ к беседе не
-  // означает доступ к каждому разговору, который в ней вели: иначе
-  // гость, позванный в комнату, получает и стенограмму встречи, на
-  // которую его не звали.
-  if (session.role === 'guest' && !(call.participants ?? []).some((p) => p.userId === session.userId)) throw notFound();
-  return call;
+  return requireAccessibleCall({
+    store: ctx.store, calls: ctx.calls, session, callId,
+    guestMustParticipate: true, message: 'Meeting not found',
+  });
 }
 
 async function proposalFor(meeting, session, proposalId) {

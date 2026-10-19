@@ -222,7 +222,6 @@ export async function createChatServer(options={}){
   const telegram=options.telegram??createTelegramBridgeRepository(pool,store);
   const icsFeed=options.icsFeed??createIcsFeedRepository(pool);
   const apiKeys=options.apiKeys??createApiKeyRepository(pool);
-  const wiki=options.wiki??createWikiRepository(pool,projects,store,meeting,features);
   const decisionTasks=options.decisionTasks??createDecisionTaskLinks({pool,store,meeting});
   const timeEntries=options.timeEntries??createTimeEntryRepository(pool);
   const personal=options.personal??createPersonalRepository(pool,store,labels);
@@ -248,6 +247,7 @@ export async function createChatServer(options={}){
   const digestMailer=options.digestMailer??(mail&&digest?createDigestMailer({pool,digest,mail}):null);
   const mediaProvider=options.mediaProvider??createMediaProvider();
   const calls=options.calls??createCallRepository(pool);
+  const wiki=options.wiki??createWikiRepository(pool,projects,store,meeting,calendar,calls,features);
   // Тот же обход времени закрывает звонки, которых никто не взял, и
   // извещает звонившего: раньше такой звонок оставался «звонящим»
   // навсегда, а тот, кому звонили, не узнавал об этом никогда.

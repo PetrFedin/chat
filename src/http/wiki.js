@@ -4,10 +4,18 @@ import { Permission, requirePermission } from '../rbac.js';
 const PAGE_ID = '([0-9a-f-]{36})';
 const ONE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}$`, 'i');
 const HISTORY = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/history$`, 'i');
+const RESTORE = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/restore$`, 'i');
+const ACCESS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access$`, 'i');
+const ACCESS_GRANT = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/${PAGE_ID}$`, 'i');
+const ACCESS_OWNER = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/access/owner$`, 'i');
 const TASKS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks$`, 'i');
 const TASK = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/tasks/${PAGE_ID}$`, 'i');
 const CHANNELS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels$`, 'i');
 const CHANNEL = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/channels/${PAGE_ID}$`, 'i');
+const CALENDAR_MEETINGS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/calendar-meetings$`, 'i');
+const CALENDAR_MEETING = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/calendar-meetings/${PAGE_ID}$`, 'i');
+const CALLS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/calls$`, 'i');
+const CALL = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/calls/${PAGE_ID}$`, 'i');
 const DECISION_PAGES = new RegExp(`^/api/v1/wiki/decisions/${PAGE_ID}/pages$`, 'i');
 const DECISIONS = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions$`, 'i');
 const DECISION = new RegExp(`^/api/v1/wiki/pages/${PAGE_ID}/decisions/${PAGE_ID}$`, 'i');
@@ -59,6 +67,61 @@ export function createWikiHandler() {
       return true;
     }
 
+    const restore = path.match(RESTORE);
+    if (restore && method === 'POST') {
+      const body = await readJson(req);
+      json(res, 200, await ctx.wiki.restore(session, restore[1], body));
+      return true;
+    }
+
+    const access = path.match(ACCESS);
+    if (access && method === 'GET') {
+      json(res, 200, await ctx.wiki.getAccess(session, access[1]));
+      return true;
+    }
+    if (access && method === 'PUT') {
+      const body = await readJson(req);
+      json(res, 200, await ctx.wiki.setVisibility(session, access[1], body.visibility));
+      return true;
+    }
+    if (access && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.userId) throw Object.assign(new Error('userId is required'), {
+        code:'USER_ID_REQUIRED',statusCode:400,expose:true,
+      });
+      json(res, 200, await ctx.wiki.grantAccess(session, access[1], String(body.userId), body.access));
+      return true;
+    }
+
+    const accessGrant = path.match(ACCESS_GRANT);
+    if (accessGrant && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.revokeAccess(session, accessGrant[1], accessGrant[2]));
+      return true;
+    }
+    const accessOwner = path.match(ACCESS_OWNER);
+    if (accessOwner && method === 'PUT') {
+      const body = await readJson(req);
+      if (!body.userId) throw Object.assign(new Error('userId is required'), {
+        code:'USER_ID_REQUIRED',statusCode:400,expose:true,
+      });
+      json(res, 200, await ctx.wiki.transferAccessOwner(session, accessOwner[1], String(body.userId)));
+      return true;
+    }
+
+    if (path === '/api/v1/wiki/access-recovery' && method === 'GET') {
+      json(res, 200, { items: await ctx.wiki.listAccessRecovery(session) });
+      return true;
+    }
+    if (path === '/api/v1/wiki/access-recovery' && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.pageId || !body.userId) throw Object.assign(new Error('pageId and userId are required'), {
+        code:'RECOVERY_TARGET_REQUIRED',statusCode:400,expose:true,
+      });
+      json(res, 200, await ctx.wiki.recoverAccessOwner(session, String(body.pageId), String(body.userId)));
+      return true;
+    }
+
+
     const taskList = path.match(TASKS);
     if (taskList && method === 'POST') {
       const body = await readJson(req);
@@ -90,6 +153,40 @@ export function createWikiHandler() {
     const channel = path.match(CHANNEL);
     if (channel && method === 'DELETE') {
       json(res, 200, await ctx.wiki.unlinkChannel(session, channel[1], channel[2]));
+      return true;
+    }
+
+    const meetingList = path.match(CALENDAR_MEETINGS);
+    if (meetingList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.eventId) {
+        throw Object.assign(new Error('eventId is required'), {
+          code: 'EVENT_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkCalendarMeeting(session, meetingList[1], String(body.eventId)));
+      return true;
+    }
+    const calendarMeeting = path.match(CALENDAR_MEETING);
+    if (calendarMeeting && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkCalendarMeeting(session, calendarMeeting[1], calendarMeeting[2]));
+      return true;
+    }
+
+    const callList = path.match(CALLS);
+    if (callList && method === 'POST') {
+      const body = await readJson(req);
+      if (!body.callId) {
+        throw Object.assign(new Error('callId is required'), {
+          code: 'CALL_ID_REQUIRED', statusCode: 400, expose: true,
+        });
+      }
+      json(res, 200, await ctx.wiki.linkCall(session, callList[1], String(body.callId)));
+      return true;
+    }
+    const call = path.match(CALL);
+    if (call && method === 'DELETE') {
+      json(res, 200, await ctx.wiki.unlinkCall(session, call[1], call[2]));
       return true;
     }
 
