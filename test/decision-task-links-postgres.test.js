@@ -174,6 +174,11 @@ test('Decision Task links: canonical visibility, audits, duplicates, tenant FKs,
     assert.equal(disabled.payload?.error?.code,'FEATURE_DISABLED');
     assert.equal((await req(base,'/api/v1/features/tasks',{cookie:owner.cookie,method:'PUT',
       body:{enabled:true}})).status,200);
+    // Projects depends on Tasks: disabling Tasks also disables Projects.
+    // Restoring a prerequisite must not silently override the admin's
+    // explicit choice for dependent features.
+    assert.equal((await req(base,'/api/v1/features/projects',{cookie:owner.cookie,method:'PUT',
+      body:{enabled:true}})).status,200);
     assert.ok((await req(base,endpoint,{cookie:owner.cookie})).payload.items
       .some(t=>t.id===projectTaskId));
     assert.deepEqual((await req(base,planPath,{cookie:owner.cookie})).payload.plan.schedules,
