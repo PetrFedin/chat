@@ -62,6 +62,9 @@ test('спецификация не описывает того, чего нет
 
 test('recent compositional APIs are documented at operation level', () => {
   const required = [
+    ['get', '/api/v1/meetings/decisions/{decisionId}/tasks'],
+    ['post', '/api/v1/meetings/decisions/{decisionId}/tasks'],
+    ['delete', '/api/v1/meetings/decisions/{decisionId}/tasks/{taskId}'],
     ['get', '/api/v1/projects'],
     ['post', '/api/v1/projects'],
     ['get', '/api/v1/projects/{projectId}'],

@@ -21,7 +21,12 @@ test('upgrade path 001-070 applies the integrated tail and project planning migr
     const tail = all.filter((m) => Number(m.name.slice(0, 3)) >= 71);
     assert.equal(tail[0]?.name, '071_workspace_features.sql');
     assert.equal(tail[1]?.name, '072_conversation_topics.sql');
-    assert.equal(tail.at(-1)?.name, '088_project_planning.sql');
+    assert.equal(tail.at(-2)?.name, '088_project_planning.sql');
+    assert.equal(tail.at(-1)?.name, '089_decision_task_links.sql');
+    assert.equal(tail.filter(m=>m.name.startsWith('088_')).length,1,
+      'migration 088 remains the published Project Planning schema');
+    assert.equal(tail.filter(m=>m.name.startsWith('089_')).length,1,
+      'Decision Task migration receives a separate monotonic version');
 
     try {
       await admin.query(`CREATE SCHEMA "${schema}"`);
