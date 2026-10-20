@@ -13,7 +13,8 @@ export function summarizeVisibleExecution(tasks,{asOf=new Date().toISOString()}=
   const cancelledCount=count('cancelled')+count('rejected');
   const overdueCount=visible.filter(task=>{
     if(EXCLUDED_FROM_OVERDUE.has(task.status))return false;
-    const due=typeof task.dueAt==='string'?Date.parse(task.dueAt):NaN;
+    const due=task.dueAt instanceof Date?task.dueAt.getTime():
+      typeof task.dueAt==='string'?Date.parse(task.dueAt):NaN;
     return Number.isFinite(due)&&due<time;
   }).length;
   // A count of zero says only that the viewer cannot see linked Tasks.
