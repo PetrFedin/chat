@@ -920,3 +920,11 @@ Canonical implementation plan:
 - [docs/CHATX_INTEGRATION_MASTER_PLAN_2026-10-01.md](./docs/CHATX_INTEGRATION_MASTER_PLAN_2026-10-01.md)
 
 This file is a planned implementation source, not evidence that every listed capability is already live. Future full-roadmap work should cite this filename and follow its sequence, authority boundaries, dependencies and acceptance gates.
+
+### Conversational email concept
+
+The planned email-as-conversation extension is specified in
+[docs/CHATX_EMAIL_WORKFLOW_CONCEPT_2026-10-20.md](./docs/CHATX_EMAIL_WORKFLOW_CONCEPT_2026-10-20.md), with dependencies in the
+[delivery backlog](./docs/CHATX_EMAIL_DELIVERY_BACKLOG_2026-10-20.md).
+It covers personal/shared mailboxes, contextual tasks and scheduling, private/internal notes, external expectations, governed AI and provider reliability.
+These documents add requirements; they do not claim a working inbound mailbox connector or a production release. Existing invitation/password-reset mail remains a separate service.
