@@ -3086,7 +3086,13 @@ async function wikiModal(pageId=null){
       title:page?page.title:'Вики',
       body:`
         ${page?`<div class="wiki-rich-content wiki-document-view" data-wiki-view></div>
-        <div class="chip-row" style="margin-top:10px"><button data-wiki-edit class="chipbtn pressable">Изменить</button><button data-wiki-history class="chipbtn pressable">История</button><button data-wiki-archive class="chipbtn pressable">Архивировать</button></div>
+        <div class="chip-row" style="margin-top:10px">
+          ${page.permissions?.canEdit?`<button data-wiki-edit class="chipbtn pressable">${T('Изменить','Edit')}</button>`:''}
+          <button data-wiki-history class="chipbtn pressable">${T('История','History')}</button>
+          ${page.permissions?.canEdit?`<button data-wiki-archive class="chipbtn pressable">${T('Архивировать','Archive')}</button>`:''}
+          ${page.permissions?.canManageAccess?`<button data-wiki-access class="chipbtn pressable">🔒 ${T('Доступ','Access')}</button>`:''}
+          ${page.visibility==='restricted'?`<span class="chip">${T('Ограниченный доступ','Restricted')}</span>`:''}
+        </div>
         <div class="surface" style="margin-top:14px;padding:12px">
           <div class="section-head"><div><strong>${T('Связанные проекты','Related projects')}</strong><div class="row-sub">${T('Связь не меняет доступ к проекту.','The relation does not change project access.')}</div></div><button data-wiki-project-new class="chipbtn pressable">＋ ${T('Проект','Project')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.projects||[]).length?(page.projects||[]).map(project=>`<div class="row" data-wiki-project-row="${esc(project.id)}"><button class="text-button" data-wiki-project-open="${esc(project.id)}">${esc(project.name)}</button><button class="text-button" data-wiki-project-remove="${esc(project.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет связанных доступных проектов','No visible related projects')}</span>`}</div>
@@ -3099,6 +3105,14 @@ async function wikiModal(pageId=null){
           <div class="section-head"><div><strong>${T('Связанные каналы','Related channels')}</strong><div class="row-sub">${T('Связь не открывает приватный канал другим людям.','The relation does not grant access to private channels.')}</div></div><button data-wiki-channel-new class="chipbtn pressable">＋ ${T('Канал','Channel')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.channels||[]).length?(page.channels||[]).map(channel=>`<div class="row" data-wiki-channel-row="${esc(channel.id)}"><button type="button" class="text-button" data-wiki-channel-open="${esc(channel.id)}">${esc(channel.title||T('Без названия','Untitled'))}</button><button type="button" class="text-button" data-wiki-channel-remove="${esc(channel.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных связанных каналов','No visible related channels')}</span>`}</div>
         </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-meeting-section>
+          <div class="section-head"><div><strong>${T('Встречи календаря','Calendar meetings')}</strong><div class="row-sub">${T('Только встречи, карточку которых вы можете открыть полностью.','Only meetings whose full calendar card you can open.')}</div></div><button type="button" data-wiki-meeting-new class="chipbtn pressable">＋ ${T('Встреча','Meeting')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.meetings||[]).length?(page.meetings||[]).map(item=>`<div class="row" data-wiki-meeting-row="${esc(item.id)}"><button type="button" class="text-button" data-wiki-meeting-open="${esc(item.id)}">${esc(item.title)} · ${esc(dateTime(item.startAt))}</button><button type="button" class="text-button" data-wiki-meeting-remove="${esc(item.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных связанных встреч','No visible related meetings')}</span>`}</div>
+        </div>
+        <div class="surface" style="margin-top:14px;padding:12px" data-wiki-call-section>
+          <div class="section-head"><div><strong>${T('Записанные звонки','Recorded calls')}</strong><div class="row-sub">${T('Страница хранит только ссылку: запись, расшифровка и участники остаются в Meeting Authority.','The Page stores only a reference; media, transcript and participants remain in Meeting Authority.')}</div></div><button type="button" data-wiki-call-new class="chipbtn pressable">＋ ${T('Запись','Recording')}</button></div>
+          <div class="stack" style="margin-top:8px">${(page.calls||[]).length?(page.calls||[]).map(item=>`<div class="row" data-wiki-call-row="${esc(item.id)}"><button type="button" class="text-button" data-wiki-call-open="${esc(item.id)}">${esc(item.title||T('Записанный звонок','Recorded call'))} · ${esc(dateTime(item.startedAt||item.scheduledFor))}</button><button type="button" class="text-button" data-wiki-call-remove="${esc(item.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных записанных звонков','No visible recorded calls')}</span>`}</div>
+        </div>
         <div class="surface" style="margin-top:14px;padding:12px" data-wiki-decision-section>
           <div class="section-head"><div><strong>${T('Принятые решения','Accepted decisions')}</strong><div class="row-sub">${T('Только решения из встреч, к которым у вас есть доступ.','Only decisions from meetings you can access.')}</div></div><button type="button" data-wiki-decision-new class="chipbtn pressable">＋ ${T('Решение','Decision')}</button></div>
           <div class="stack" style="margin-top:8px">${(page.decisions||[]).length?(page.decisions||[]).map(decision=>`<div class="row" data-wiki-decision-row="${esc(decision.id)}"><button type="button" class="text-button" data-wiki-decision-open="${esc(decision.id)}">${esc(decision.title)} · ${esc(dateTime(decision.acceptedAt))}</button><button type="button" class="text-button" data-wiki-decision-remove="${esc(decision.id)}">${T('Убрать','Unlink')}</button></div>`).join(''):`<span class="muted">${T('Нет доступных принятых решений','No visible accepted decisions')}</span>`}</div>
@@ -3106,16 +3120,56 @@ async function wikiModal(pageId=null){
         :`<form id="wiki-search-form" class="form-stack"><label>Поиск по вики<input name="q" placeholder="Например: отпуск"></label></form><div id="wiki-search-results"></div>`}
         <p class="muted" style="margin-top:16px">${page?'Подстраницы':'Страницы'}</p>
         <div class="stack">${items.length?rows:'<div class="empty"><strong>Пока пусто</strong>Создайте первую страницу.</div>'}</div>
-        <button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?'Новая подстраница':'Новая страница'}</span></button>`,
+        ${(!page||page.permissions?.canEdit)?`<button data-wiki-new class="button primary" style="width:100%;margin-top:14px">＋ <span>${page?T('Новая подстраница','New subpage'):T('Новая страница','New page')}</span></button>`:''}
+        ${!page&&me()?.role==='owner'?`<button type="button" data-wiki-access-recovery class="button secondary" style="width:100%;margin-top:8px">🔐 ${T('Восстановление доступа','Access recovery')}</button>`:''}`,
       after:()=>{
         if(page){import('./wiki-document-view.js').then(m=>m.renderPageDocument($('[data-wiki-view]'),page.document??m.textPageDocument(page.content??''))).catch(error=>toast(error.message));}
+        if(page&&!page.permissions?.canEdit){
+          for(const selector of [
+            '[data-wiki-project-new]','[data-wiki-task-new]','[data-wiki-channel-new]',
+            '[data-wiki-meeting-new]','[data-wiki-call-new]','[data-wiki-decision-new]',
+            '[data-wiki-project-remove]','[data-wiki-task-remove]','[data-wiki-channel-remove]',
+            '[data-wiki-meeting-remove]','[data-wiki-call-remove]','[data-wiki-decision-remove]'
+          ]) $$(selector).forEach(node=>node.remove());
+        }
         $$('[data-wiki-open]').forEach(b=>b.onclick=()=>wikiModal(b.dataset.wikiOpen));
         $('[data-wiki-new]')?.addEventListener('click',()=>wikiPageFormModal(null,pageId,refresh));
+        $('[data-wiki-access-recovery]')?.addEventListener('click',()=>wikiAccessRecoveryModal(refresh));
         $('[data-wiki-edit]')?.addEventListener('click',()=>wikiPageFormModal(page,page.parentId,refresh));
         $('[data-wiki-history]')?.addEventListener('click',()=>wikiHistoryModal(page.id));
+        $('[data-wiki-access]')?.addEventListener('click',()=>wikiAccessModal(page,refresh));
         $('[data-wiki-project-new]')?.addEventListener('click',()=>wikiProjectLinkModal(page,refresh));
         $('[data-wiki-task-new]')?.addEventListener('click',()=>wikiTaskLinkModal(page,refresh));
         $('[data-wiki-channel-new]')?.addEventListener('click',()=>wikiChannelLinkModal(page,refresh));
+        $('[data-wiki-meeting-new]')?.addEventListener('click',()=>wikiMeetingLinkModal(page,refresh));
+        $('[data-wiki-call-new]')?.addEventListener('click',()=>wikiCallLinkModal(page,refresh));
+        $$('[data-wiki-meeting-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiMeetingOpen;
+          overlayStack.length=0;renderOverlay();eventPage(id);
+        });
+        $$('[data-wiki-meeting-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/calendar-meetings/${button.dataset.wikiMeetingRemove}`,{method:'DELETE'});
+            toast(T('Встреча убрана со страницы','Meeting unlinked from Page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
+        $$('[data-wiki-call-open]').forEach(button=>button.onclick=()=>{
+          const id=button.dataset.wikiCallOpen;
+          overlayStack.length=0;renderOverlay();
+          if(!window.ChatMeetingIntelligence?.openMeeting){
+            toast(T('Разбор встречи недоступен','Meeting review is unavailable'));
+            return;
+          }
+          window.ChatMeetingIntelligence.openMeeting(id,{updateHash:true}).catch(error=>toast(error.message));
+        });
+        $$('[data-wiki-call-remove]').forEach(button=>button.onclick=async()=>{
+          try{
+            await api(`/api/v1/wiki/pages/${page.id}/calls/${button.dataset.wikiCallRemove}`,{method:'DELETE'});
+            toast(T('Запись убрана со страницы','Recorded call unlinked from Page'));
+            await refresh();
+          }catch(error){toast(error.message)}
+        });
         $('[data-wiki-decision-new]')?.addEventListener('click',()=>wikiDecisionLinkModal(page,refresh));
         $$('[data-wiki-decision-open]').forEach(button=>button.onclick=()=>{
           overlayStack.length=0;renderOverlay();decisionDetailModal(button.dataset.wikiDecisionOpen);
@@ -3264,6 +3318,266 @@ async function wikiProjectLinkModal(page,after){
         toast(T('Проект связан со страницей','Project linked to page'));
       }catch(error){button.disabled=false;toast(error.message)}
     };
+  });
+}
+
+async function wikiAccessModal(page,after){
+  let policy,people=[];
+  try{
+    [policy,{items:people=[]}]=await Promise.all([
+      api(`/api/v1/wiki/pages/${page.id}/access`),
+      api('/api/v1/people'),
+    ]);
+  }catch(error){toast(error.message);return}
+  const grants=new Map((policy.grants||[]).map(item=>[item.userId,item]));
+  const activePeople=people.filter(person=>{
+    const id=person.userId||person.id;
+    return id&&person.role!=='guest'&&person.active!==false;
+  });
+  const candidates=activePeople.filter(person=>(person.userId||person.id)!==policy.createdBy);
+  const ownerCandidates=activePeople.filter(person=>(person.userId||person.id)!==policy.accessOwnerId);
+  modal(T('Доступ к странице','Page access'),`<div class="form-stack">
+    <div class="surface" style="padding:12px">
+      <strong>${T('Кто видит страницу','Who can see this Page')}</strong>
+      <label style="margin-top:8px">${T('Режим','Visibility')}
+        <select data-wiki-access-visibility>
+          <option value="workspace" ${policy.visibility==='workspace'?'selected':''}>${T('Все сотрудники пространства','Everyone in the workspace')}</option>
+          <option value="restricted" ${policy.visibility==='restricted'?'selected':''}>${T('Только явно приглашённые','Explicitly invited only')}</option>
+        </select>
+      </label>
+      <button type="button" class="button" data-wiki-access-save>${T('Сохранить режим','Save visibility')}</button>
+      <p class="muted">${T(
+        'Ограничение родительской страницы действует и на её подстраницы. Редактор страницы не может сам расширить аудиторию.',
+        'A restricted parent also protects its subtree. A Page editor cannot widen the audience.'
+      )}</p>
+    </div>
+    <div class="surface" style="padding:12px">
+      <strong>${T('Владелец доступа','Access owner')}</strong>
+      <p class="muted">${esc(policy.accessOwnerName||policy.accessOwnerId)}</p>
+      <label>${T('Передать управление доступом','Transfer access management')}
+        <select data-wiki-access-owner>
+          <option value="">—</option>
+          ${ownerCandidates.map(person=>{const id=person.userId||person.id;return `<option value="${esc(id)}">${esc(person.displayName||person.email||id)}</option>`}).join('')}
+        </select>
+      </label>
+      <button type="button" class="button" data-wiki-access-owner-save>${T('Передать','Transfer')}</button>
+      <p class="muted">${T(
+        'Автор страницы не меняется. Новый владелец доступа сможет управлять аудиторией, но редактирование содержимого остаётся отдельным правом.',
+        'Page authorship does not change. The new access owner can manage the audience; content editing remains a separate permission.'
+      )}</p>
+    </div>
+    <div class="surface" style="padding:12px">
+      <strong>${T('Явный доступ','Explicit access')}</strong>
+      <div class="stack" data-wiki-access-grants style="margin-top:8px">
+        ${(policy.grants||[]).length?(policy.grants||[]).map(grant=>`
+          <div class="row" data-wiki-grant-row="${esc(grant.userId)}">
+            <span><strong>${esc(grant.displayName||grant.userId)}</strong><span class="row-sub">${grant.access==='edit'?T('Редактирование','Edit'):T('Чтение','View')}</span></span>
+            <button type="button" class="text-button" data-wiki-grant-remove="${esc(grant.userId)}">${T('Убрать','Remove')}</button>
+          </div>`).join(''):`<span class="muted">${T('Явных приглашений нет','No explicit grants')}</span>`}
+      </div>
+      <label>${T('Сотрудник','Employee')}
+        <select data-wiki-grant-user>
+          <option value="">—</option>
+          ${candidates.map(person=>{const id=person.userId||person.id;return `<option value="${esc(id)}">${esc(person.displayName||person.email||id)}</option>`}).join('')}
+        </select>
+      </label>
+      <label>${T('Уровень','Access')}
+        <select data-wiki-grant-level>
+          <option value="view">${T('Чтение','View')}</option>
+          <option value="edit">${T('Редактирование','Edit')}</option>
+        </select>
+      </label>
+      <button type="button" class="button" data-wiki-grant-add>${T('Выдать доступ','Grant access')}</button>
+    </div>
+  </div>`,()=>{
+    $('[data-wiki-access-save]')?.addEventListener('click',async button=>{
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/access`,{
+          method:'PUT',body:JSON.stringify({visibility:$('[data-wiki-access-visibility]').value}),
+        });
+        history.back();
+        toast(T('Режим доступа сохранён','Visibility saved'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
+    $('[data-wiki-access-owner-save]')?.addEventListener('click',async button=>{
+      const userId=$('[data-wiki-access-owner]')?.value;
+      if(!userId)return toast(T('Выберите нового владельца доступа','Choose a new access owner'));
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/access/owner`,{
+          method:'PUT',body:JSON.stringify({userId}),
+        });
+        history.back();
+        toast(T('Управление доступом передано','Access ownership transferred'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
+    $('[data-wiki-grant-add]')?.addEventListener('click',async button=>{
+      const userId=$('[data-wiki-grant-user]')?.value;
+      if(!userId)return toast(T('Выберите сотрудника','Choose an employee'));
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/access`,{
+          method:'POST',body:JSON.stringify({userId,access:$('[data-wiki-grant-level]').value}),
+        });
+        history.back();
+        toast(T('Доступ выдан','Access granted'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
+    $$('[data-wiki-grant-remove]').forEach(button=>button.onclick=async()=>{
+      button.disabled=true;
+      try{
+        await api(`/api/v1/wiki/pages/${page.id}/access/${button.dataset.wikiGrantRemove}`,{method:'DELETE'});
+        history.back();
+        toast(T('Доступ отозван','Access revoked'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
+  });
+}
+
+async function wikiAccessRecoveryModal(after){
+  let items=[],people=[];
+  try{
+    // Refresh candidates at the time of recovery: the owner may have just
+    // invited or activated a successor after this browser session booted.
+    const [recovery,bootstrap]=await Promise.all([
+      api('/api/v1/wiki/access-recovery'),api('/api/v1/bootstrap'),
+    ]);
+    items=recovery.items||[];
+    S.people=bootstrap.people||S.people;
+    people=(S.people||[]).filter(person=>person.role!=='guest'&&person.active!==false);
+  }catch(error){toast(error.message);return}
+  if(!items.length)return toast(T('Страниц без активного владельца доступа нет','No Pages need access recovery'));
+  modal(T('Восстановление доступа','Access recovery'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Показываются только страницы, у которых владелец доступа больше не активен. Содержимое, история и связанные сущности здесь не раскрываются.',
+      'Only Pages whose access owner is no longer active are shown. Content, history and linked entities are not disclosed here.'
+    )}</p>
+    ${items.map(item=>`<div class="surface" style="padding:12px" data-wiki-recovery-row="${esc(item.id)}">
+      <strong>${esc(item.title)}</strong>
+      <div class="row-sub">${T('Прежний владелец доступа','Previous access owner')}: ${esc(item.accessOwnerName||item.accessOwnerId)}</div>
+      <label>${T('Новый владелец доступа','New access owner')}
+        <select data-wiki-recovery-user="${esc(item.id)}">
+          <option value="">—</option>
+          ${people.map(person=>`<option value="${esc(person.userId)}">${esc(person.displayName||person.email||person.userId)}</option>`).join('')}
+        </select>
+      </label>
+      <button type="button" class="button" data-wiki-recover="${esc(item.id)}">${T('Восстановить управление','Recover access management')}</button>
+    </div>`).join('')}
+  </div>`,()=>{
+    $$('[data-wiki-recover]').forEach(button=>button.onclick=async()=>{
+      const pageId=button.dataset.wikiRecover;
+      const userId=$(`[data-wiki-recovery-user="${pageId}"]`)?.value;
+      if(!userId)return toast(T('Выберите нового владельца доступа','Choose a new access owner'));
+      button.disabled=true;
+      try{
+        await api('/api/v1/wiki/access-recovery',{
+          method:'POST',body:JSON.stringify({pageId,userId}),
+        });
+        history.back();
+        toast(T('Управление доступом восстановлено','Access management recovered'));
+      }catch(error){button.disabled=false;toast(error.message)}
+    });
+  });
+}
+
+async function wikiMeetingLinkModal(page,after){
+  let items=[];
+  try{
+    const now=Date.now(),from=new Date(now-180*86400000).toISOString(),to=new Date(now+365*86400000).toISOString();
+    const [response,current]=await Promise.all([
+      api(`/api/v1/calendar-events?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.meetings||[]).map(item=>item.id));
+    const seen=new Set();
+    items=(response.items||[]).map(item=>{
+      const id=item.seriesId||item.id;
+      return {...item,id};
+    }).filter(item=>item.kind==='meeting'&&!item.busyOnly&&/^[0-9a-f-]{36}$/i.test(item.id)
+      &&!linked.has(item.id)&&!seen.has(item.id)&&(seen.add(item.id),true));
+  }catch(error){toast(error.message);return}
+  if(!items.length)return toast(T('Нет новой доступной встречи для связи','There is no further visible meeting to link'));
+  modal(T('Связать встречу','Link meeting'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Показываются только встречи, карточку которых вы уже можете открыть полностью. Ссылка не расширяет доступ.',
+      'Only meetings whose full calendar card you can already open are shown. Linking does not grant access.'
+    )}</p>
+    <label>${T('Поиск встреч','Filter meetings')}
+      <input data-wiki-meeting-filter autocomplete="off" placeholder="${T('Название встречи','Meeting title')}">
+    </label>
+    <div data-wiki-meeting-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const input=$('[data-wiki-meeting-filter]'),results=$('[data-wiki-meeting-candidates]');
+    if(!input||!results)return;
+    const draw=()=>{
+      const q=input.value.trim().toLocaleLowerCase();
+      const visible=items.filter(item=>(item.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=visible.slice(0,100).map(item=>`
+        <button type="button" role="listitem" class="row flow pressable"
+          data-wiki-meeting-select="${esc(item.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(item.title||T('Встреча','Meeting'))}</strong>
+            <span class="row-sub">${esc(dateTime(item.startAt))}</span></span>
+        </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching meetings')}</div>`;
+      $$('[data-wiki-meeting-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/calendar-meetings`,{
+            method:'POST',body:JSON.stringify({eventId:button.dataset.wikiMeetingSelect}),
+          });
+          history.back();
+          toast(T('Встреча связана со страницей','Meeting linked to Page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    input.addEventListener('input',draw);draw();
+  });
+}
+
+async function wikiCallLinkModal(page,after){
+  let items=[];
+  try{
+    const [response,current]=await Promise.all([
+      api('/api/v1/meetings?limit=100'),
+      api(`/api/v1/wiki/pages/${page.id}`),
+    ]);
+    const linked=new Set((current.calls||[]).map(item=>item.id));
+    items=(response.items||[]).filter(item=>item.recordingStatus&&item.recordingStatus!=='off'&&!linked.has(item.id));
+  }catch(error){toast(error.message);return}
+  if(!items.length)return toast(T('Нет новой доступной записи встречи','There is no further visible recorded call to link'));
+  modal(T('Связать запись встречи','Link recorded call'),`<div class="form-stack">
+    <p class="muted">${T(
+      'Страница сохранит только ссылку. Расшифровка, медиа и состав участников останутся в разделе встреч.',
+      'The Page stores only a reference. Transcript, media and participants remain in Meeting Authority.'
+    )}</p>
+    <label>${T('Поиск записей','Filter recordings')}
+      <input data-wiki-call-filter autocomplete="off" placeholder="${T('Название встречи','Meeting title')}">
+    </label>
+    <div data-wiki-call-candidates class="stack" role="list"></div>
+  </div>`,()=>{
+    const input=$('[data-wiki-call-filter]'),results=$('[data-wiki-call-candidates]');
+    if(!input||!results)return;
+    const draw=()=>{
+      const q=input.value.trim().toLocaleLowerCase();
+      const visible=items.filter(item=>(item.title||'').toLocaleLowerCase().includes(q));
+      results.innerHTML=visible.map(item=>`
+        <button type="button" role="listitem" class="row flow pressable"
+          data-wiki-call-select="${esc(item.id)}" style="width:100%;text-align:left;background:transparent">
+          <span><strong>${esc(item.title||T('Записанный звонок','Recorded call'))}</strong>
+            <span class="row-sub">${esc(dateTime(item.startedAt||item.scheduledFor||item.createdAt))}</span></span>
+        </button>`).join('')||`<div class="empty">${T('Совпадений нет','No matching recordings')}</div>`;
+      $$('[data-wiki-call-select]',results).forEach(button=>button.onclick=async()=>{
+        button.disabled=true;
+        try{
+          await api(`/api/v1/wiki/pages/${page.id}/calls`,{
+            method:'POST',body:JSON.stringify({callId:button.dataset.wikiCallSelect}),
+          });
+          history.back();
+          toast(T('Запись встречи связана со страницей','Recorded call linked to Page'));
+        }catch(error){button.disabled=false;toast(error.message)}
+      });
+    };
+    input.addEventListener('input',draw);draw();
   });
 }
 
@@ -3452,6 +3766,12 @@ function wikiPageFormModal(page,parentId,after){
   };
   modal(editing?'Изменить страницу':'Новая страница',`<form id="wiki-page-form" class="form-stack">
     <label>${T('Заголовок','Title')}<input name="title" required maxlength="200" value="${esc(page?.title??'')}"></label>
+    ${!editing?`<label>${T('Доступ','Access')}
+      <select name="visibility">
+        <option value="workspace">${T('Все сотрудники пространства','Everyone in the workspace')}</option>
+        <option value="restricted">${T('Ограниченный доступ','Restricted')}</option>
+      </select>
+    </label>`:''}
     <div class="wiki-editor-toolbar" data-wiki-toolbar role="toolbar" aria-label="${T('Форматирование','Formatting')}">
       ${buttons.map(([action,label])=>`<button type="button" class="chipbtn" data-format="${action}" aria-label="${action}">${esc(label)}</button>`).join('')}
     </div>
@@ -3510,7 +3830,10 @@ function wikiPageFormModal(page,parentId,after){
           });
         }else{
           await api('/api/v1/wiki/pages',{
-            method:'POST',body:JSON.stringify({title,document:local,parentId}),
+            method:'POST',body:JSON.stringify({
+              title,document:local,parentId,
+              visibility:form.querySelector('[name="visibility"]')?.value||'workspace',
+            }),
           });
         }
         dirty=false;cleanup();
@@ -3551,16 +3874,40 @@ function wikiPageFormModal(page,parentId,after){
   return;
 }
 async function wikiHistoryModal(pageId){
-  let items=[];
-  try{items=(await api(`/api/v1/wiki/pages/${pageId}/history`)).items||[]}
+  let items=[],canRestore=false,openedVersion=null;
+  try{
+    const [versions,page]=await Promise.all([
+      api(`/api/v1/wiki/pages/${pageId}/history`),api(`/api/v1/wiki/pages/${pageId}`),
+    ]);
+    items=versions.items||[];canRestore=Boolean(page.permissions?.canEdit);
+    openedVersion=page.version;
+  }
   catch(error){toast(error.message);return}
-  modal('История страницы',items.length?items.map((v,index)=>`<div class="person-event"><span><strong>${esc(v.title)}</strong><div class="wiki-rich-content wiki-history-document" data-wiki-history-index="${index}"></div></span><time>${esc(dateTime(v.replacedAt))}</time></div>`).join(''):'<div class="empty"><strong>Правок ещё не было</strong>История появится после первой правки.</div>',()=>{
+  modal(T('История страницы','Page history'),items.length?items.map((v,index)=>`<div class="person-event"><span><strong>${esc(v.title)}</strong><div class="wiki-rich-content wiki-history-document" data-wiki-history-index="${index}"></div>${canRestore&&v.version?`<div class="chip-row" style="margin-top:8px"><button type="button" class="chipbtn pressable" data-wiki-restore="${esc(v.version)}">${T('Восстановить версию','Restore this version')} ${esc(v.version)}</button></div>`:''}</span><time>${esc(dateTime(v.replacedAt))}</time></div>`).join(''):'<div class="empty"><strong>Правок ещё не было</strong>История появится после первой правки.</div>',()=>{
     import('./wiki-document-view.js').then(m=>{
       items.forEach((version,index)=>{
         const root=$(`[data-wiki-history-index="${index}"]`);
         if(root)m.renderPageDocument(root,version.document??m.textPageDocument(version.content??''));
       });
     }).catch(error=>toast(error.message));
+    $$('[data-wiki-restore]').forEach(button=>button.onclick=async()=>{
+      const version=Number(button.dataset.wikiRestore);
+      if(!confirm(T('Восстановить выбранную версию? Текущая сохранится в истории.','Restore this version? The current version will remain in history.')))return;
+      button.disabled=true;
+      try{
+        // Compare against the version observed when history opened. A newer
+        // concurrent edit must result in a visible 409 rather than a reset.
+        const restored=await api(`/api/v1/wiki/pages/${pageId}/restore`,{
+          method:'POST',body:JSON.stringify({version,expectedVersion:openedVersion}),
+        });
+        toast(T('Версия восстановлена','Page version restored'));
+        const dialogs=overlayStack;
+        // Close only this dialog; the underlying Page remains in its stack
+        // and is revalidated by its own on-pop refresh.
+        if(dialogs.length)history.back();
+        return restored;
+      }catch(error){toast(error.message);button.disabled=false}
+    });
   });
 }
 
