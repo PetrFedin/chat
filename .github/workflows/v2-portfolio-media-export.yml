@@ -1,0 +1,51 @@
+name: V2 portfolio media evidence export
+on:
+  push:
+    branches: [portfolio/media-captures-20261020]
+permissions:
+  contents: write
+  actions: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Retrieve and cryptographically verify existing capture
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl -fLsS --retry 3 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" "https://api.github.com/repos/PetrFedin/chat/actions/artifacts/12148419400/zip" -o /tmp/capture.zip
+          unzip -t /tmp/capture.zip >/dev/null
+          python3 - <<'PY'
+          import json,hashlib,pathlib,zipfile
+          expected="080cb53e1ff93f85bc44ceef1b20f699340b56a9"
+          allowed=["01-home-desktop.png","02-chats-desktop.png","03-tasks-desktop.png","05-project-gantt-desktop.png","07-home-mobile.png","chatx-product-tour-27s.mp4"]
+          target=pathlib.Path("public/portfolio-v2/20261018")
+          target.mkdir(parents=True,exist_ok=True)
+          with zipfile.ZipFile("/tmp/capture.zip") as z:
+            manifest=json.loads(z.read("evidence-manifest.json"))
+            assert manifest.get("sha",manifest.get("repository_sha")) == expected, "Source commit does not match media"
+            assert manifest.get("kind")=="demo", "Only isolated demo media accepted"
+            items=(manifest.get("screenshots",[])+manifest.get("videos",[])) if "screenshots" in manifest else manifest.get("assets",[])
+            digests={i["file"]:i["sha256"] for i in items}
+            for path in allowed:
+              assert path in digests, "Media file missing from manifest: "+path
+              raw=z.read(path)
+              assert hashlib.sha256(raw).hexdigest()==digests[path], "SHA-256 mismatch: "+path
+              name=pathlib.PurePosixPath(path).name
+              (target/name).write_bytes(raw)
+            doc={"project":"chatx","source_sha":expected,"source_action_artifact":12148419400,"source_kind":"isolated-demonstration","captured_on":"2026-10-18","files":[{"name":pathlib.PurePosixPath(p).name,"sha256":digests[p]} for p in allowed],"production_admitted":False}
+            (target/"capture-manifest.json").write_text(json.dumps(doc,ensure_ascii=False,indent=2)+"\n")
+          print("Verified and prepared",len(allowed),"screenshots/video files against SHA-256")
+          PY
+      - name: Preserve verified media on this review branch only
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/portfolio-v2/20261018
+          if git diff --cached --quiet; then echo "Media is already synchronized"; exit 0; fi
+          git commit -m "media(review): snapshot verified October 18 chatx browser captures"
+          git push origin HEAD:portfolio/media-captures-20261020
