@@ -40,6 +40,12 @@ Required messaging capabilities:
 
 A consequential message should be convertible to task, calendar event, decision, approval or meeting without losing the source message.
 
+### Conversational email planned extension
+
+External email is a source-labelled conversation with explicit sender, recipients, subject, original message and transport state. Personal mailboxes, shared department inboxes, internal comments and private notes have distinct audiences. The shared composer dispatches external email and internal collaboration through separate commands.
+
+Task creation from email requires a typed source adapter and normal Task authorization; an external contact does not automatically become a workspace member or Task owner. The inbox is a view of correspondence and attention, not a second Task or Calendar authority. Detailed screens, settings, source contracts and acceptance scenarios are in [Email and external work concept](./CHATX_EMAIL_WORKFLOW_CONCEPT_2026-10-20.md).
+
 ## 3. Voice messages and files
 
 Voice message UX: hold/tap to record, pause/resume, scrub waveform, playback speed, optional transcript, reply/forward/save and convert transcript action items into tasks.
@@ -73,6 +79,8 @@ Required:
 - teammate availability and later meeting-room/resource calendars;
 - project milestones and deadlines;
 - external Google/Outlook synchronization with loop prevention and source ownership.
+
+Inline invitations and proposed time slots use the same Calendar authority. Unknown availability remains unknown; confirmation rechecks the selected slot. Recurrence exceptions, stale invitations, external RSVP and partial provider success require explicit adapter contracts. Moving a meeting does not silently change a Task promised date. These requirements are expanded in the email concept.
 
 ## 6. Meetings and calls
 
@@ -122,6 +130,8 @@ Policies:
 - bundling/deduplication to prevent notification storms;
 - daily/weekly digest with action-oriented summaries.
 
+Conversational email adds requires-reply, waiting-for-response and review-due views. Read state, snooze, response target, external expectation and Task execution remain separate. Server reminders and deduplicated notifications preserve unresolved work even when its source email is read or archived. See the email concept for the proposed Today and attention settings.
+
 ## 9. Presence and people
 
 Presence states: online, away, busy, do-not-disturb, offline. User status may include text/emoji and expiry. Calendar can influence busy/DND but must not expose private event details unless permission allows.
@@ -169,6 +179,8 @@ No-code rules later: trigger -> conditions -> actions, e.g. form submitted -> cr
 Priority: Google Calendar, Microsoft Outlook, Google Drive, OneDrive/SharePoint, GitHub, Figma, email, Telegram; then CRM/ERP/1C and customer-specific adapters.
 
 Guests/external shared spaces need narrower defaults, explicit file policies and clear visual separation from internal conversations.
+
+The [Email and external work concept](./CHATX_EMAIL_WORKFLOW_CONCEPT_2026-10-20.md) and [delivery backlog](./CHATX_EMAIL_DELIVERY_BACKLOG_2026-10-20.md) define the planned conversational email expansion: one-provider ingestion and governed sending, shared inboxes, contextual scheduling, Task/Pages links, external expectations and source-linked AI. Email-backed accepted Decisions require an explicit extension of the existing Decision source/admission contract. The concept is a requirements artifact, not proof of provider integration or production readiness.
 
 ## 15. Security and reliability
 
