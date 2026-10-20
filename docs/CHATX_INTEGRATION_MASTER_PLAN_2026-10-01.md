@@ -34,6 +34,7 @@ Meeting Intelligence stays frozen except bug/security fixes until these gates ar
 | Diagrams | Mermaid | ADOPT |
 | Calendar interchange | ical.js | ADOPT |
 | External PM | Plane/Vikunja | REFERENCE |
+| Conversational email and contextual scheduling | Talanoa interaction patterns; existing ChatX authorities | ADAPT / PLANNED — [detailed concept](./CHATX_EMAIL_WORKFLOW_CONCEPT_2026-10-20.md) |
 
 ## Phase 0 — Golden Path and single task authority
 Run:
@@ -1276,3 +1277,48 @@ Data remains exportable; continuity and network integration create retention.
 **Sequencing:** Execution Receipt Standard -> interchange schema -> reference workflow -> organisation identities -> bilateral acceptance -> federated workrooms -> enterprise network.
 
 **Moat:** ChatX evolves from internal collaboration software into a verifiable cross-company execution rail.
+
+## Conversational communication wave — email scheduling and execution
+
+**Status:** PLANNED. **Added:** 2026-10-20. This wave expands the existing email, Calendar, governed Action Copilot and external-work directions. It does not reset the prerequisites or turn pending implementation notes into production evidence.
+
+Canonical detailed requirements:
+
+- [ChatX email and external work concept](./CHATX_EMAIL_WORKFLOW_CONCEPT_2026-10-20.md)
+- [ChatX email delivery backlog](./CHATX_EMAIL_DELIVERY_BACKLOG_2026-10-20.md)
+
+The concept contains personal and shared mailbox boundaries, conversation reading, recipient-aware sending, internal/private notes, contextual Task/Pages/Calendar links, external expectations, shared-inbox coordination, AI, settings, provider lifecycle, metrics and acceptance scenarios. Talanoa is a product reference; ChatX implements the functions through its own domain contracts.
+
+### Authority and access requirements
+
+- Email and provider identities are typed external sources, not automatically internal Messages or workspace members.
+- Task status, promised date, evidence and accepted result remain in the existing Task Authority. A typed email-source adapter must exist before creating a source-linked Task; never overload `sourceMessageId` with an email ID.
+- An external sender cannot bypass the existing restriction on guest Task owners/acceptors. An internal accountable employee controls external expectations.
+- Calendar owns event time, recurrence and participation; unknown external availability is not free time. Task dates change only through their own domain commands.
+- Email-backed accepted Decisions require an explicit source-kind/admission/ACL extension. Until then email can supply a reviewable proposal, not a fabricated Meeting-backed Decision.
+- Pages, Files and source emails retain their own access checks. Publishing a private excerpt requires an explicit disclosure with a reviewable audience.
+- Reply waiting, unread state, archive and accepted Task result are distinct. AI/automation cannot silently confirm commitments, accept results or send external messages.
+
+### Delivery sequence
+
+1. Verified current Task/Calendar/Pages integration and PostgreSQL Golden Path, plus typed source and mailbox ACL contracts.
+2. One-provider ingestion, original message storage, safe attachments and honest sync coverage.
+3. Versioned drafts and durable sending with cancellation, provider reconciliation and explicit unknown outcome.
+4. Canonical Task links, manual external expectations and Today attention views.
+5. Shared inboxes and approval of exact outgoing revisions; Project/Pages links.
+6. Calendar invitations, availability and booking through explicit provider contracts.
+7. Email-source Decision extension; governed AI and automation through existing authorities.
+8. Additional providers, languages and enterprise workroom/retention/AI configurations after their dependencies pass.
+
+UI design and documentation may proceed in parallel. Runtime actions remain disabled until their actual dependencies pass. System invitation/password-reset mail retains its meaning and namespace.
+
+### Acceptance extension
+
+- Replay/reconnect does not create duplicate messages, Tasks or hidden repeated responses.
+- Internal/private notes and Bcc do not leak through sending, forwarding, search, export or AI.
+- Scheduled send works without an open client while server infrastructure is running; uncertain provider acceptance never becomes a false delivery claim.
+- Two shared-inbox drafts cannot silently send competing replies to the same source event within ChatX.
+- Revocation is rechecked for source reads, search, AI, queued sends and disclosures.
+- Calendar races, timezone changes and series exceptions have explicit outcomes; independent providers are not advertised as one atomic transaction.
+- Completed/accepted work is demonstrated through canonical evidence and acceptance, with visibility-scoped metrics.
+- Every code release records its exact SHA and applicable real-provider/browser/PostgreSQL results. Planned tests and static demos are not PASS.
