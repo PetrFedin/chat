@@ -818,3 +818,16 @@ h4{font-size:15px;font-weight:700}
 .wiki-conflict-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .wiki-conflict-grid section{min-width:0}.wiki-conflict-grid pre{overflow:auto;max-height:220px;white-space:pre-wrap;word-break:break-word;font-size:11px}
 @media(max-width:560px){.wiki-conflict-grid{grid-template-columns:1fr}.wiki-editor-toolbar{gap:4px}.wiki-editor-toolbar button{padding:6px 9px}}
+
+/* Decision Execution: dense on desktop, legible at 375px. Other dialogs stay unchanged. */
+.modal:has([data-decision-cockpit]){width:min(100%,980px);max-height:min(90dvh,900px)}
+.decision-cockpit-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.decision-cockpit-card{min-width:0;padding:16px;overflow-wrap:anywhere}
+.decision-cockpit-card .chip-row{margin-top:12px}
+[data-decision-cockpit-filters]{margin-top:12px;gap:8px}
+[data-decision-cockpit-filters] button[aria-pressed="true"]{border-color:var(--warm);color:var(--text)}
+@media(max-width:700px){
+  .modal:has([data-decision-cockpit]){width:100%;max-height:88dvh}
+  .decision-cockpit-grid{grid-template-columns:minmax(0,1fr)}
+  .decision-cockpit-card{padding:12px}
+}

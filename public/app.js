@@ -6364,25 +6364,41 @@ async function decisionDetailModal(id){
 }
 
 // Read-only snapshot: never describe visible Task counts as the Decision's total scope.
-async function decisionExecutionCockpit(query=''){
+// Read-only scoped snapshot: it never reports company-wide completion.
+async function decisionExecutionCockpit(query='',filter='all'){
   let report=null,failed=null;
   try{
     report=await api(`/api/v1/meetings/decisions/execution${query?`?q=${encodeURIComponent(query)}`:''}`);
   }catch(error){failed=ERROR_MESSAGE[error.code]||error.message}
-  const items=report?.items||[];
-  const withRisk=items.filter(row=>row.execution.overdueCount||row.execution.blockedCount).length;
-  const withNoVisibleTasks=items.filter(row=>!row.execution.visibleCount).length;
+  const all=report?.items||[];
+  const counts={
+    risks:all.filter(row=>row.execution.overdueCount||row.execution.blockedCount).length,
+    due:all.filter(row=>row.execution.dueSoonCount).length,
+    unscheduled:all.filter(row=>row.execution.unscheduledCount).length,
+    empty:all.filter(row=>!row.execution.visibleCount).length,
+  };
+  const filtered=all.filter(row=>filter==='all'||
+    (filter==='risks'&&(row.execution.overdueCount||row.execution.blockedCount))||
+    (filter==='due'&&row.execution.dueSoonCount)||
+    (filter==='unscheduled'&&row.execution.unscheduledCount)||
+    (filter==='empty'&&!row.execution.visibleCount));
   modal(T('Контроль исполнения решений','Decision execution cockpit'),failed
     ?`<div class='empty'><strong>${T('Обзор недоступен','Execution overview unavailable')}</strong>${esc(failed)}</div>`
     :`<div data-decision-cockpit>
-      <p class='muted'>${T('Только доступные принятые решения и видимые вам связанные задачи. Статистика относится к этой выборке, не ко всей компании; закрытая задача не означает исполнения решения целиком.','Only accessible accepted decisions and tasks you can view. Counts describe this page, not the whole organization; a closed task does not establish full Decision completion.')}</p>
+      <p class='muted'>${T('Только доступные решения и задачи. Показатели относятся к текущей выборке до 20 решений, а не ко всей компании.','Only accessible decisions and Tasks. Metrics describe a sample of up to 20 decisions, never the entire company.')}</p>
+      <p class='row-sub'>${T('Снимок','Snapshot')}: ${esc(dateTime(report.asOf))} · ${T('Ближайший срок: 7 календарных дней','Due soon: 7 calendar days')}</p>
       <div class='chip-row' data-decision-cockpit-metrics>
-        <span class='chip'>${T('Решений в выборке','Decisions on this page')}: ${items.length}</span>
-        <span class='chip'>${T('С видимыми рисками','With visible risks')}: ${withRisk}</span>
-        <span class='chip'>${T('Без видимых задач','Without visible tasks')}: ${withNoVisibleTasks}</span>
+        <span class='chip'>${T('Решений в выборке','Sampled decisions')}: ${all.length}</span>
+        <span class='chip'>${T('С видимыми рисками','With visible risks')}: ${counts.risks}</span>
+        <span class='chip'>${T('Срок ≤7 дней','Due ≤7 days')}: ${counts.due}</span>
+        <span class='chip'>${T('Без срока','Unscheduled')}: ${counts.unscheduled}</span>
+        <span class='chip'>${T('Без видимых задач','No visible tasks')}: ${counts.empty}</span>
       </div>
       <form id='decision-execution-search' class='form-stack' style='margin-top:12px'><label>${T('Найти решение','Find a decision')}<input name='q' value='${esc(query)}' placeholder='${T('Название или контекст','Name or context')}'></label></form>
-      ${items.length?`<div class='stack' style='margin-top:12px'>${items.map(({decision,execution})=>`<div class='surface' style='padding:12px' data-decision-cockpit-row='${esc(decision.id)}'>
+      <div class='chip-row' role='group' aria-label='${T('Фильтр исполнения','Execution filter')}' data-decision-cockpit-filters>
+        ${[['all',T('Все','All')],['risks',T('Риски','Risks')],['due',T('Срок ≤7 дней','Due ≤7d')],['unscheduled',T('Без срока','No deadline')],['empty',T('Без видимых задач','No visible Tasks')]].map(([key,label])=>`<button type='button' class='chipbtn pressable${key===filter?' active':''}' aria-pressed='${key===filter}' data-decision-cockpit-filter='${key}'>${esc(label)}</button>`).join('')}
+      </div>
+      ${filtered.length?`<div class='decision-cockpit-grid' style='margin-top:12px'>${filtered.map(({decision,execution})=>`<article class='surface decision-cockpit-card' data-decision-cockpit-row='${esc(decision.id)}'>
         <strong>${esc(decision.title)}</strong>
         <p class='row-sub'>${esc(dateTime(decision.acceptedAt))}${decision.acceptedByName?` · ${esc(decision.acceptedByName)}`:''}</p>
         <div class='chip-row'>
@@ -6390,18 +6406,24 @@ async function decisionExecutionCockpit(query=''){
           <span class='chip'>${T('Закрыты','Closed')}: ${execution.closedCount}</span>
           ${execution.overdueCount?`<span class='chip'>${T('Просрочены','Overdue')}: ${execution.overdueCount}</span>`:''}
           ${execution.blockedCount?`<span class='chip'>${T('Заблокированы','Blocked')}: ${execution.blockedCount}</span>`:''}
-          ${execution.reviewCount?`<span class='chip'>${T('На проверке/приёмке','In review/acceptance')}: ${execution.reviewCount}</span>`:''}
+          ${execution.dueSoonCount?`<span class='chip'>${T('Срок ≤7 дней','Due ≤7d')}: ${execution.dueSoonCount}</span>`:''}
+          ${execution.unscheduledCount?`<span class='chip'>${T('Без срока','No deadline')}: ${execution.unscheduledCount}</span>`:''}
+          ${execution.reviewCount?`<span class='chip'>${T('На проверке/приёмке','In review')}: ${execution.reviewCount}</span>`:''}
         </div>
         <button type='button' class='button secondary small pressable' data-decision-cockpit-open='${esc(decision.id)}' style='margin-top:10px'>${T('Открыть исполнение','Open execution')}</button>
-      </div>`).join('')}</div>`:`<div class='empty'>${T('Нет доступных решений в текущей выборке.','No accessible decisions in this selection.')}</div>`}
-      <p class='row-sub' style='margin-top:12px'>${T('Выборка ограничена 20 решениями. Скрытые связи и задачи не учитываются и не раскрываются.','The page is limited to 20 decisions. Hidden links and tasks are neither counted nor disclosed.')}</p>
+      </article>`).join('')}</div>`:`<div class='empty'>${T('В текущем фильтре нет доступных решений.','No accessible decisions match this filter.')}</div>`}
+      <p class='row-sub' style='margin-top:12px'>${T('Подсчитаны исключительно видимые задачи. Скрытые связи не раскрываются. Закрытые видимые задачи не означают исполнение всего решения.','Only visible Tasks are counted; hidden links remain private. Closing visible Tasks does not certify the entire Decision.')}</p>
     </div>`,()=>{
       if(failed)return;
       const form=$('#decision-execution-search');
       if(form)form.onsubmit=event=>{
         event.preventDefault();const next=new FormData(form).get('q')?.toString()||'';
-        closeModal();decisionExecutionCockpit(next);
+        closeModal();decisionExecutionCockpit(next,filter);
       };
+      $$('[data-decision-cockpit-filter]').forEach(button=>button.onclick=()=>{
+        const next=button.dataset.decisionCockpitFilter;
+        closeModal();decisionExecutionCockpit(query,next);
+      });
       $$('[data-decision-cockpit-open]').forEach(button=>button.onclick=()=>{
         const id=button.dataset.decisionCockpitOpen;
         closeModal();decisionDetailModal(id);

@@ -20,7 +20,8 @@ test('Execution metrics classify only currently visible Task references',()=>{
   const result=summarizeVisibleExecution(tasks,{asOf});
   assert.deepEqual(result,{
     scope:'visible_linked_tasks_only',state:'overdue_visible',visibleCount:5,
-    closedCount:1,blockedCount:1,reviewCount:2,overdueCount:1,cancelledCount:1,asOf,
+    closedCount:1,blockedCount:1,reviewCount:2,overdueCount:1,cancelledCount:1,
+    dueSoonCount:1,dueSoonDays:7,unscheduledCount:1,riskLevel:'overdue',asOf,
   });
   assert.equal('complete' in result,false,'must not imply all canonical tasks have been seen');
   assert.equal('hiddenCount' in result,false,'hidden Task count would leak private relations');
@@ -81,4 +82,28 @@ test('Cockpit fails closed when authority unavailable or an unexpected lookup fa
     }),
     /DB temporarily unavailable/,
   );
+});
+
+test('Risk is explicitly scoped, non-active Tasks never count as late, and 7-day boundary is included',()=>{
+  const at='2026-10-20T12:00:00.000Z';
+  const date=new Date(at).getTime();
+  const iso=delta=>new Date(date+delta*86400000).toISOString();
+  const report=summarizeVisibleExecution([
+    {status:'in_progress',dueAt:iso(7)},
+    {status:'in_progress',dueAt:iso(8)},
+    {status:'blocked',dueAt:null},
+    {status:'closed',dueAt:iso(-4)},
+    {status:'cancelled'},
+    {status:'rejected',dueAt:'not a date'},
+  ],{asOf:at});
+  assert.equal(report.dueSoonCount,1);
+  assert.equal(report.unscheduledCount,1);
+  assert.equal(report.overdueCount,0);
+  assert.equal(report.riskLevel,'blocked');
+  assert.equal(report.scope,'visible_linked_tasks_only');
+  assert.equal('hiddenCount' in report,false);
+  assert.equal('completionPercent' in report,false);
+  assert.equal(summarizeVisibleExecution([{status:'in_progress',dueAt:iso(7)}],{asOf:at}).riskLevel,'due_soon');
+  assert.equal(summarizeVisibleExecution([{status:'in_progress',dueAt:iso(8)}],{asOf:at}).riskLevel,'none');
+  assert.equal(summarizeVisibleExecution([{status:'in_progress',dueAt:iso(-1)}],{asOf:at}).riskLevel,'overdue');
 });
