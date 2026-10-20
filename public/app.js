@@ -6346,11 +6346,11 @@ async function decisionDetailModal(id){
       </div>`:''}
       ${decision.conversationId?`<button class="button secondary" data-decision-detail-room="${esc(decision.conversationId)}">${T('К беседе','Open conversation')}</button>`:''}
     </article>`,()=>{
-      $('[data-decision-task-open]').forEach(button=>button.addEventListener('click',()=>{
+      $$('[data-decision-task-open]').forEach(button=>button.addEventListener('click',()=>{
         const taskId=button.dataset.decisionTaskOpen;
         overlayStack.length=0;renderOverlay();openTask(taskId);
       }));
-      $('[data-decision-detail-page]').forEach(button=>button.addEventListener('click',()=>{
+      $$('[data-decision-detail-page]').forEach(button=>button.addEventListener('click',()=>{
         const pageId=button.dataset.decisionDetailPage;
         overlayStack.length=0;renderOverlay();wikiModal(pageId);
       }));
@@ -6387,11 +6387,11 @@ async function decisionsModal(query=''){
     if(failed)return;
     const form=$('#decisions-search');
     form.onsubmit=(event)=>{event.preventDefault();closeModal();decisionsModal(new FormData(form).get('q')||'')};
-    $('[data-decision-open]').forEach(button=>button.onclick=()=>{
+    $$('[data-decision-open]').forEach(button=>button.onclick=()=>{
       const decisionId=button.dataset.decisionOpen;
       closeModal();decisionDetailModal(decisionId);
     });
-    $('[data-decision-room]').forEach(button=>button.onclick=()=>openChatFromSheet(button.dataset.decisionRoom));
+    $$('[data-decision-room]').forEach(button=>button.onclick=()=>openChatFromSheet(button.dataset.decisionRoom));
   });
 }
 
