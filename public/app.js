@@ -6318,23 +6318,39 @@ async function notesModal(eventId,eventTitle=''){
 
 async function decisionDetailModal(id){
   try{
-    const [{decision},related]=await Promise.all([
+    const [{decision},related,linked]=await Promise.all([
       api(`/api/v1/meetings/decisions/${encodeURIComponent(id)}`),
       api(`/api/v1/wiki/decisions/${encodeURIComponent(id)}/pages`).catch(()=>({items:[]})),
+      // The relation is optional when Tasks are disabled; it is already
+      // visibility-filtered in canonical Decision/Task authorities.
+      api(`/api/v1/meetings/decisions/${encodeURIComponent(id)}/tasks`).catch(()=>null),
     ]);
     const relatedPages=related.items||[];
+    const linkedTasks=Array.isArray(linked?.items)?linked.items:null;
+    const closedTasks=linkedTasks?.filter(task=>task.status==='closed').length??0;
+    const taskRows=linkedTasks?.length?linkedTasks.map(task=>`<button type='button' class='row pressable' style='width:100%;background:transparent;text-align:left' data-decision-task-open='${esc(task.id)}'><span><strong>${esc(task.title)}</strong><span class='row-sub'>${esc(TASK_STATUS[task.status]||task.status)}${task.dueAt?` · ${esc(dateTime(task.dueAt))}`:''}</span></span><span aria-hidden='true'>↗</span></button>`).join(''):`<p class='muted'>${T('Нет доступных связанных задач','No accessible linked tasks')}</p>`;
+    const tasksPanel=linkedTasks===null?'':`<section class='surface' style='margin-top:12px;padding:12px' data-decision-execution>
+      <div class='section-head'><strong>${T('Исполнение решения','Decision execution')}</strong><span class='chip' data-decision-visible-progress>${closedTasks} / ${linkedTasks.length}</span></div>
+      <p class='row-sub'>${T('Закрыто среди доступных вам задач; это не окончательный статус всего решения.','Closed among tasks you can access; not the final status of the entire decision.')}</p>
+      <div class='stack' style='margin-top:8px'>${taskRows}</div>
+    </section>`;
     modal(T('Принятое решение','Accepted decision'),`<article class="surface" style="padding:12px">
       <h3>${esc(decision.title)}</h3>
       ${decision.body?`<p class="muted" style="white-space:pre-wrap">${esc(decision.body)}</p>`:''}
       <p class="row-sub">${esc(dateTime(decision.acceptedAt))}${decision.acceptedByName?` · ${esc(decision.acceptedByName)}`:''}</p>
       ${decision.callTitle?`<p class="row-sub">${esc(decision.callTitle)}</p>`:''}
+      ${tasksPanel}
       ${relatedPages.length?`<div class="stack" style="margin-top:12px" data-decision-related-pages>
         <strong>${T('Связанные страницы','Related Pages')}</strong>
         ${relatedPages.map(page=>`<button class="text-button" data-decision-detail-page="${esc(page.id)}" type="button">${esc(page.title)}</button>`).join('')}
       </div>`:''}
       ${decision.conversationId?`<button class="button secondary" data-decision-detail-room="${esc(decision.conversationId)}">${T('К беседе','Open conversation')}</button>`:''}
     </article>`,()=>{
-      $$('[data-decision-detail-page]').forEach(button=>button.addEventListener('click',()=>{
+      $('[data-decision-task-open]').forEach(button=>button.addEventListener('click',()=>{
+        const taskId=button.dataset.decisionTaskOpen;
+        overlayStack.length=0;renderOverlay();openTask(taskId);
+      }));
+      $('[data-decision-detail-page]').forEach(button=>button.addEventListener('click',()=>{
         const pageId=button.dataset.decisionDetailPage;
         overlayStack.length=0;renderOverlay();wikiModal(pageId);
       }));
@@ -6363,6 +6379,7 @@ async function decisionsModal(query=''){
           ${d.body?`<div class="row-sub">${esc(d.body)}</div>`:''}
           <div class="row-sub">${esc(dateTime(d.acceptedAt))}${d.acceptedByName?` · <span>автор:</span> ${esc(d.acceptedByName)}`:''}${
             d.callTitle?` · ${esc(d.callTitle)}`:''}</div></span>
+        <button type='button' class='button small secondary pressable' data-decision-open='${esc(d.id)}'>${T('Исполнение','Execution')}</button>
         ${d.conversationId?`<button type="button" class="button small secondary pressable" data-decision-room="${esc(d.conversationId)}">К беседе</button>`:''}
       </div>`).join('')
       :`<p class="muted">${query?'По этому слову решений нет.':'Принятых решений пока нет. Они появляются, когда на разборе встречи отмечают «Зафиксировать».'}</p>`}
@@ -6370,7 +6387,11 @@ async function decisionsModal(query=''){
     if(failed)return;
     const form=$('#decisions-search');
     form.onsubmit=(event)=>{event.preventDefault();closeModal();decisionsModal(new FormData(form).get('q')||'')};
-    $$('[data-decision-room]').forEach(button=>button.onclick=()=>openChatFromSheet(button.dataset.decisionRoom));
+    $('[data-decision-open]').forEach(button=>button.onclick=()=>{
+      const decisionId=button.dataset.decisionOpen;
+      closeModal();decisionDetailModal(decisionId);
+    });
+    $('[data-decision-room]').forEach(button=>button.onclick=()=>openChatFromSheet(button.dataset.decisionRoom));
   });
 }
 
