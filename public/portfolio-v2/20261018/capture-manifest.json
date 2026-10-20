@@ -1,0 +1,34 @@
+{
+  "project": "chatx",
+  "source_sha": "080cb53e1ff93f85bc44ceef1b20f699340b56a9",
+  "source_action_artifact": 12148419400,
+  "source_kind": "isolated-demonstration",
+  "captured_on": "2026-10-18",
+  "files": [
+    {
+      "name": "01-home-desktop.png",
+      "sha256": "48fde9bbcd39ada80246d84089cb780b882135f4982d26851fe9927685cc8006"
+    },
+    {
+      "name": "02-chats-desktop.png",
+      "sha256": "937182f2f871269fc6191ea0636bef213a1a89ae3121754f407a3aeeeb493114"
+    },
+    {
+      "name": "03-tasks-desktop.png",
+      "sha256": "22989351fc7da332364273d7fa93687b96d80d01e04b95e548d3a6e7e0b71e82"
+    },
+    {
+      "name": "05-project-gantt-desktop.png",
+      "sha256": "599cd5f0b750d9222c531bb6d35f9dd6883bd3a2929053543ab809ea8f4cd02b"
+    },
+    {
+      "name": "07-home-mobile.png",
+      "sha256": "95cad896295e20b265983f15a5cbf7b76fc9f97bacb3e9deee8d17c0d549d48f"
+    },
+    {
+      "name": "chatx-product-tour-27s.mp4",
+      "sha256": "6d9afb56f0a10eccdfacbce74618fa4d0a9861da0d7fc2b500c983d630b5cc04"
+    }
+  ],
+  "production_admitted": false
+}
