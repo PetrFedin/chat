@@ -129,6 +129,7 @@ const ROUTES = [
   [/^\/api\/v1\/(time-entries)(\/|$)|^\/api\/v1\/tasks\/[^/]+\/time-entries/, 'time_tracking'],
   [/^\/api\/v1\/dashboard(\/|$)|^\/api\/v1\/tasks\/report(\/|$)/, 'dashboard'],
   [/^\/api\/v1\/tasks(\/|$)/, 'tasks'],
+  [/^\/api\/v1\/meetings\/decisions\/execution$/, ['decisions','tasks']],
   [/^\/api\/v1\/meetings\/decisions\/[^/]+\/tasks(\/|$)/, ['decisions','tasks']],
   [/^\/api\/v1\/meetings\/decisions(\/|$)/, 'decisions'],
   [/^\/api\/v1\/(meetings|meeting-proposals)(\/|$)|^\/api\/v1\/admin\/meeting-|^\/api\/v1\/calls\/[^/]+\/meeting(\/|$)/, 'meetings'],
