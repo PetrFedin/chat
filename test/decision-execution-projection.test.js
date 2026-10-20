@@ -12,7 +12,7 @@ test('Decision cockpit route requires both canonical feature gates',()=>{
 test('Execution metrics classify only currently visible Task references',()=>{
   const tasks=[
     {id:'a',status:'closed',dueAt:'2026-10-01T00:00:00.000Z'},
-    {id:'b',status:'blocked',dueAt:'2026-10-18T00:00:00.000Z'},
+    {id:'b',status:'blocked',dueAt:new Date('2026-10-18T00:00:00.000Z')},
     {id:'c',status:'in_review',dueAt:'2026-10-25T00:00:00.000Z'},
     {id:'d',status:'cancelled',dueAt:'2026-10-01T00:00:00.000Z'},
     {id:'e',status:'accepted_result'},
