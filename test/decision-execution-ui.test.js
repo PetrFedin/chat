@@ -13,6 +13,8 @@ test('Decision Execution UI has linked canonical Task navigation and visibility-
   assert.ok(source.includes('data-decision-task-open'));
   assert.ok(source.includes('data-decision-visible-progress'));
   assert.ok(source.includes('data-decision-open'));
+  assert.ok(source.includes("$$('[data-decision-task-open]').forEach"));
+  assert.ok(source.includes("$$('[data-decision-open]').forEach"));
   assert.ok(source.includes('openTask(taskId)'));
   assert.ok(source.includes('linkedTasks===null'));
   assert.ok(source.includes('tasksPanel'));
