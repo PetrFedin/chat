@@ -31,3 +31,20 @@ The capture job fails if a required scene is absent, the Gantt lacks its four re
 6. Produce a visual diff against the previous accepted release; keep historical artifacts available instead of silently replacing investor proofs.
 
 Private production accounts, passwords, cookies, conversation content, or customer records must not enter GitHub artifacts. The capture deliberately authenticates before starting the recorded session and keeps session state in memory.
+
+## Decision Execution evidence extension (stacked Draft, not yet admitted)
+
+New isolated demo-only capture script: `scripts/capture-decision-execution-evidence.mjs`. It is invoked by the visual-evidence workflow **only** after the standard presentation capture succeeds, while `CHATX_CAPTURE_KIND=demo`. It refuses non-loopback URLs and cannot intentionally record a real external workspace.
+
+Expected deliverables in `presentation-evidence/decision-execution/`:
+
+- `decision-cockpit-mobile-375.png` — CSS viewport 375 x 812.
+- `decision-cockpit-tablet-768.png` — CSS viewport 768 x 1024.
+- `decision-cockpit-desktop-1440.png` — CSS viewport 1440 x 900.
+- `decision-detail-desktop-1440.png` and `decision-evidence-desktop-1440.png` — actual Decision -> canonical Task drill-down.
+- `chatx-decision-execution-25s.mp4`, `decision-execution-source.webm` — working browser recording with 20-30 second duration validated by ffprobe.
+- `decision-evidence-manifest.json` — source SHA, synthetic label, capture environment, timestamps, viewport, media SHA-256 and browser errors.
+
+An accepted synthetic Decision and a relation to an already seeded canonical demo Task are created via the existing authenticated Calendar/Decision/Task API (not private inserts or manufactured KPI values). The fixture is idempotent by Decision title. The video begins after demonstration authentication; credentials/cookies are not written to artifacts.
+
+**Status rule:** the existence of this script and its workflow step is not proof that a capture succeeded. Distribute these media only when the workflow on the exact reviewed SHA reports success, the manifest is valid, screenshots/video are manually inspected, and the entire application release is independently qualified. Until then, PR remains Draft and no investor-facing media is replaced.
