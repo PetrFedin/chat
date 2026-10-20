@@ -116,6 +116,10 @@ export function planChange(state, id, enable) {
  * Маршрут → функция. Порядок важен: частные правила раньше общих. Пути без сессии (ICS по токену, вход) сюда не попадают.
  */
 const ROUTES = [
+  // A Page relation must obey BOTH the source feature and the target feature.
+  // Otherwise a disabled Calendar/Meeting module remains writable via Wiki.
+  [/^\/api\/v1\/wiki\/pages\/[^/]+\/calendar-meetings(\/|$)/, ['wiki','calendar']],
+  [/^\/api\/v1\/wiki\/pages\/[^/]+\/calls(\/|$)/, ['wiki','meetings']],
   [/^\/api\/v1\/wiki\/pages\/[^/]+\/projects(\/|$)/, ['wiki','projects']],
   [/^\/api\/v1\/wiki\/pages\/[^/]+\/tasks(\/|$)/, ['wiki','tasks']],
   [/^\/api\/v1\/wiki\/(pages\/[^/]+\/decisions|decisions\/[^/]+\/pages)(\/|$)/, ['wiki','decisions']],

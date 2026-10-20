@@ -154,6 +154,11 @@ test('Page Meeting relations preserve Calendar/Call authority, privacy and tenan
     })).status,200);
     let switched=await req(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie});
     assert.deepEqual(switched.payload.calls,[]);
+    const callGate=await req(base,`/api/v1/wiki/pages/${pageId}/calls`,{
+      cookie:owner.cookie,method:'POST',body:{callId:call.id},
+    });
+    assert.equal(callGate.status,404,'disabled Meetings must block Page -> Call writes');
+    assert.equal(callGate.payload?.error?.code,'FEATURE_DISABLED');
     assert.equal(Number((await pool.query(
       'SELECT count(*) n FROM wiki_page_calls WHERE workspace_id=$1 AND page_id=$2',
       [owner.session.workspaceId,pageId],
@@ -169,6 +174,11 @@ test('Page Meeting relations preserve Calendar/Call authority, privacy and tenan
     })).status,200);
     switched=await req(base,`/api/v1/wiki/pages/${pageId}`,{cookie:owner.cookie});
     assert.deepEqual(switched.payload.meetings,[]);
+    const calendarGate=await req(base,`/api/v1/wiki/pages/${pageId}/calendar-meetings`,{
+      cookie:owner.cookie,method:'POST',body:{eventId:event.id},
+    });
+    assert.equal(calendarGate.status,404,'disabled Calendar must block Page -> Meeting writes');
+    assert.equal(calendarGate.payload?.error?.code,'FEATURE_DISABLED');
     assert.deepEqual(switched.payload.calls,[],
       'Meetings is a Calendar dependent and its Page projection must cascade off too');
     assert.equal((await req(base,'/api/v1/features/calendar',{
