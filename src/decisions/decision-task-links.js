@@ -21,7 +21,8 @@ export function createDecisionTaskLinks({pool,store,meeting}={}){
   const project=(task,link)=>({
     id:task.id,title:task.title,status:task.status,
     ownerId:task.ownerId??null,acceptorId:task.acceptorId??null,
-    dueAt:task.dueAt??null,priority:task.priority??null,
+    // Task Authority uses promisedAt as the canonical deadline field.
+    dueAt:task.promisedAt??task.dueAt??null,priority:task.priority??null,
     linkedBy:link.linkedBy,linkedAt:link.linkedAt,reason:link.reason,
   });
   const tx=async(fn)=>{
