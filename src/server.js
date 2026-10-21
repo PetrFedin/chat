@@ -91,6 +91,16 @@ import { createConfiguredChatAssistant } from './chat-assistant/chat-assistant-p
 import { createChatAssistantHandler } from './http/chat-assistant.js';
 import { createWikiRepository } from './wiki/wiki-repository.js';
 import { createWikiHandler } from './http/wiki.js';
+import { createEmailRepository } from './email/email-repository.js';
+import { createEmailProvider } from './email/email-provider.js';
+import { createEmailSecretBox } from './email/email-secret.js';
+import { createEmailWorker } from './email/email-worker.js';
+import { createEmailLinkResources } from './email/email-links.js';
+import { createEmailHandler } from './http/email.js';
+import { createEmailExtras } from './email/email-extras.js';
+import { createEmailExtrasHandler } from './http/email-extras.js';
+import { createEmailAssistant } from './email/email-assistant.js';
+import { evaluateEmailRoutingRules } from './email/email-rules.js';
 import { createDecisionTaskLinks } from './decisions/decision-task-links.js';
 import { createDecisionTaskHandler } from './http/decision-tasks.js';
 import { createTimeEntryRepository } from './time-tracking/time-entry-repository.js';
@@ -224,7 +234,7 @@ export async function createChatServer(options={}){
   const apiKeys=options.apiKeys??createApiKeyRepository(pool);
   const decisionTasks=options.decisionTasks??createDecisionTaskLinks({pool,store,meeting});
   const timeEntries=options.timeEntries??createTimeEntryRepository(pool);
-  const personal=options.personal??createPersonalRepository(pool,store,labels);
+  const personal=options.personal??createPersonalRepository(pool,store,labels,calendar);
   // Без базы работникам нечего делать, поэтому 'custom' глушит их жёстко.
   // В остальных случаях решение остаётся за переменными окружения: иначе
   // WEBHOOK_WORKER_ENABLED=false и MEETING_WORKER_ENABLED=false ничего не
@@ -267,6 +277,13 @@ export async function createChatServer(options={}){
   const transcriptionProvider=options.transcriptionProvider??configuredMeetingProviders.transcriptionProvider;
   const summaryProvider=options.summaryProvider??configuredMeetingProviders.summaryProvider;
   const chatAssistant=options.chatAssistant??createConfiguredChatAssistant(process.env).assistant;
+  const emailProvider=options.emailProvider??createEmailProvider();
+  const emailSecretBox=options.emailSecretBox??createEmailSecretBox({key:options.emailEncryptionKey??process.env.EMAIL_ENCRYPTION_KEY});
+  const emailLinks=createEmailLinkResources({pool,store,wiki,calendar,meeting,features});
+  const email=options.email??createEmailRepository({pool,store,provider:emailProvider,secretBox:emailSecretBox,linkResources:emailLinks,routingRules:evaluateEmailRoutingRules,demo:mode!=='postgres'});
+  const emailWorker=options.emailWorker??createEmailWorker(email,{enabled:options.emailWorkerEnabled??(process.env.EMAIL_WORKER_ENABLED==='false'?false:forceWorkersOff),pollMs:process.env.EMAIL_WORKER_POLL_MS});
+  const emailAssistant=options.emailAssistant??createEmailAssistant({assistant:chatAssistant});
+  const emailExtras=options.emailExtras??createEmailExtras({pool,email,calendar,linkResources:emailLinks,assistant:emailAssistant,features,key:options.emailEncryptionKey??process.env.EMAIL_ENCRYPTION_KEY});
   // Сессия запоминается на запросе: строке журнала нужны пространство и
   // человек, иначе шумного арендатора в аварии не назвать.
   /**
@@ -370,10 +387,11 @@ export async function createChatServer(options={}){
     metrics.gauge('chat_queue_oldest_seconds',()=>worker.status?.().queue?.oldestAgeSec??0,{queue:name});
   }
 
-  if(startMeetingWorker){meetingWorker.start?.();deliveryWorker.start?.();mailWorker.start?.();digestMailer?.start?.();reminderWorker.start?.();retention.start?.()}
+  if(startMeetingWorker){emailWorker.start?.();meetingWorker.start?.();deliveryWorker.start?.();mailWorker.start?.();digestMailer?.start?.();reminderWorker.start?.();retention.start?.()}
 
-  const ctx={topics,features,requests,projects,store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,telegram,icsFeed,apiKeys,chatAssistant,wiki,decisionTasks,timeEntries,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
+  const ctx={email,emailWorker,emailExtras,topics,features,requests,projects,store,mode,hub,metrics,authThrottle,apiThrottle,workspaceExport,twoFactor,digestMailer,stories,meetingNotes,webhooks,deliveryWorker,mail,mailWorker,taskReport,digest,onboarding,notificationPreferences,org,people,games,reminders,reminderWorker,vault,marks,calendar,labels,knowledge,telegram,icsFeed,apiKeys,chatAssistant,wiki,decisionTasks,timeEntries,personal,calls,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,push:{enabled:push.enabled,publicKey:push.publicKey},demo,requireSession,openSession,clearSession,cookieToken,permissions:visiblePermissions,notifyUsers};
   const handleMedia=createMediaHandler(objectStore),handleCalls=createCallHandler(),handleIntegrations=createIntegrationsHandler(),handleOrg=createOrgHandler(),handleRequests=createRequestsHandler(),handleFeatures=createFeaturesHandler(),handleProjects=createProjectsHandler(),handleExport=createExportHandler(),handleStories=createStoryHandler(),handleAudit=createAuditHandler(),handleWorkspaceSettings=createWorkspaceSettingsHandler(),handleGames=createGamesHandler(),handleReminders=createRemindersHandler(),handleVault=createVaultHandler(),handleMarks=createMarksHandler(),handlePeople=createPeopleHandler(),handleCalendar=createCalendarHandler(),handleLabels=createLabelHandler(),handleKnowledge=createKnowledgeHandler(),handleTelegram=createTelegramHandler(),handleIcsFeed=createIcsFeedHandler(),handleApiKeys=createApiKeysHandler(),handleChatAssistant=createChatAssistantHandler(),handleWiki=createWikiHandler(),handleDecisionTasks=createDecisionTaskHandler(),handleTimeTracking=createTimeTrackingHandler(),handleDashboard=createDashboardHandler(),handlePersonal=createPersonalHandler(),handleMeetingIntelligence=createMeetingIntelligenceHandler(),handleMeetingOperations=createMeetingOperationsHandler();
+  const handleEmail=createEmailHandler(),handleEmailExtras=createEmailExtrasHandler();
   const baseHeaders=securityHeaders({production:process.env.NODE_ENV==='production',frameAncestors:options.frameAncestors??process.env.CSP_FRAME_ANCESTORS});
   const server=createServer(async(req,res)=>{
     // Запись о запросе — то, чего в журнале не было вовсе: двадцать
@@ -409,7 +427,9 @@ export async function createChatServer(options={}){
     // Загрузка файла крупнее лимита JSON не может быть «снята отпечатком»: читать её целиком ради ключа нельзя
     // (раньше такая загрузка с заголовком Idempotency-Key падала с 413), и повтор загрузки безопасен.
     const oversized=Number(req.headers['content-length']??0)>MAX_JSON;
-    if(idemKey&&idempotency&&!oversized&&path.startsWith('/api/')&&['POST','PATCH','PUT','DELETE'].includes(method)){
+    // Mailbox commands re-check current ACL before their own durable idempotency replay.
+    const emailCommand=/^\/api\/v1\/(?:email(?:\/|$)|mailbox-connections(?:\/|$)|email-booking(?:\/|$))/i.test(path);
+    if(idemKey&&idempotency&&!oversized&&!emailCommand&&path.startsWith('/api/')&&['POST','PATCH','PUT','DELETE'].includes(method)){
       if(idemKey.length>200)throw Object.assign(new Error('Idempotency-Key is too long'),{code:'INVALID_IDEMPOTENCY_KEY',statusCode:400});
       const session=await authenticate(req);
       if(session){
@@ -537,6 +557,8 @@ export async function createChatServer(options={}){
     }
     if(await handleAuth(req,res,ctx,path,method,url))return;
     if(await handleDailyWork(req,res,ctx,url,path,method))return;
+    if(await handleEmailExtras(req,res,ctx,url,path,method))return;
+    if(await handleEmail(req,res,ctx,url,path,method))return;
     if(await handleWorkspace(req,res,ctx,url,path,method))return;
     if(await handleMessaging(req,res,ctx,url,path,method))return;
     if(await handleCalls(req,res,ctx,path,method))return;
@@ -680,7 +702,7 @@ hub.send(ws,'session.ready',{userId:s.userId,workspaceId:s.workspaceId});
     try{const cur=await store.pool?.query('SELECT state FROM user_presence WHERE workspace_id=$1 AND user_id=$2',[s.workspaceId,s.userId]);const was=cur?.rows?.[0]?.state;if(was&&was!=='offline')state=was}catch{}
     const p=await store.setPresence(s,{state});hub.broadcastWorkspace(s.workspaceId,'presence.updated',{userId:s.userId,presence:p},ws)}catch{}
 });
-  return{server,store,calls,webhooks,deliveryWorker,mail,mailWorker,digestMailer,reminders,reminderWorker,vault,marks,org,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await hub.detachBus?.();reminderWorker.stop?.();digestMailer?.stop?.();retention.stop?.();await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));await deliveryWorker.stop?.().catch((error)=>console.error('delivery worker shutdown failed',error));await mailWorker.stop?.().catch((error)=>console.error('mail worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
+  return{server,store,email,emailWorker,emailExtras,calls,webhooks,deliveryWorker,mail,mailWorker,digestMailer,reminders,reminderWorker,vault,marks,org,meeting,meetingOps,meetingProcessor,meetingWorker,retention,liveKitWebhook,mediaProvider,objectStore,mode,demo,close:async()=>{await emailWorker.stop?.();await hub.detachBus?.();reminderWorker.stop?.();digestMailer?.stop?.();retention.stop?.();await meetingWorker.stop?.().catch((error)=>console.error('meeting worker shutdown failed',error));await deliveryWorker.stop?.().catch((error)=>console.error('delivery worker shutdown failed',error));await mailWorker.stop?.().catch((error)=>console.error('mail worker shutdown failed',error));for(const client of wss.clients)try{client.close(1001,'Server shutdown')}catch{}await new Promise(resolve=>server.close(resolve));wss.close();if(pool)await pool.end()}};
 }
 
 // An unhandled rejection or a stray exception must not silently kill a server

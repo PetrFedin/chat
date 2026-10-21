@@ -281,14 +281,30 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
       };
     },
 
-    async create(session, { title, parentId = null, content = '', document, visibility = 'workspace' } = {}) {
+    // Source references need the Page's own authority and content, without
+    // recursively loading its relations through a second pool connection.
+    // The supplied transaction is also used by inherited Page ACL evaluation.
+    async getReference(session, id, { client = null } = {}) {
+      const db = client ?? pool;
+      const pageAccess = await access.assertView(session, id, db);
+      const { rows } = await db.query(`SELECT ${COLUMNS} FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL`, [session.workspaceId, id]);
+      if (!rows[0]) throw fail('Страница не найдена', 'WIKI_PAGE_NOT_FOUND', 404);
+      return {
+        ...view(rows[0]),
+        permissions: { canEdit: pageAccess.canEdit, canManageAccess: pageAccess.canManage },
+        ...(pageAccess.canManage ? { accessOwnerId: rows[0].accessOwnerId } : {}),
+      };
+    },
+
+    async create(session, { title, parentId = null, content = '', document, visibility = 'workspace' } = {}, { client = null } = {}) {
+      const db = client ?? pool;
       const cleanTitle = readTitle(title);
       const normalized = document === undefined ? null : normalizePageDocument(document);
       const cleanContent = normalized ? normalized.content : readContent(content);
       let effectiveVisibility = visibility === 'restricted' ? 'restricted' : 'workspace';
       if (parentId) {
         try {
-          await access.assertEdit(session, parentId);
+          await access.assertEdit(session, parentId, db);
         } catch (error) {
           // Parent admission has its own stable public contract. Hidden and
           // missing parents are intentionally indistinguishable, but callers
@@ -298,14 +314,14 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
           }
           throw error;
         }
-        const { rows } = await pool.query(
+        const { rows } = await db.query(
           'SELECT visibility FROM wiki_pages WHERE workspace_id=$1 AND id=$2 AND archived_at IS NULL',
           [session.workspaceId, parentId],
         );
         if (!rows[0]) throw fail('Родительская страница не найдена', 'WIKI_PARENT_NOT_FOUND', 404);
         if (rows[0].visibility === 'restricted') effectiveVisibility = 'restricted';
       }
-      const { rows } = await pool.query(
+      const { rows } = await db.query(
         `INSERT INTO wiki_pages(organization_id,workspace_id,parent_id,title,content,document,visibility,created_by,updated_by,access_owner_id)
          VALUES($1,$2,$3,$4,$5,$7,$8,$6,$6,$6) RETURNING ${COLUMNS}`,
         [session.organizationId, session.workspaceId, parentId, cleanTitle, cleanContent, session.userId, normalized?.document??null, effectiveVisibility],

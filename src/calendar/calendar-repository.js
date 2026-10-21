@@ -79,14 +79,7 @@ export function createCalendarRepository(pool, store = null) {
     return rows[0];
   };
 
-  /**
-   * Concrete-event collision guard.
-   *
-   * Calendar owns time, therefore it must reject an accidental double-booking
-   * before a task block or meeting becomes canonical. Recurring-series
-   * collision expansion is intentionally a later slice; this query only claims
-   * coverage for concrete rows and says so in the returned metadata.
-   */
+  /** Calendar owns the occupied intervals, including invitations not declined. */
   const movedTimesForDate = (event,targetDate) => {
     const match=String(targetDate??'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if(!match) throw fail('Дата переноса должна быть YYYY-MM-DD','INVALID_DATE',400);
@@ -139,7 +132,11 @@ export function createCalendarRepository(pool, store = null) {
         WHERE e.workspace_id=$1
           AND e.recurrence_rule IS NOT NULL
           AND ($2::uuid IS NULL OR e.id<>$2::uuid)
-          AND e.start_at < $4
+          AND (e.start_at < $4 OR EXISTS(
+            SELECT 1 FROM calendar_event_exceptions moved
+             WHERE moved.workspace_id=e.workspace_id AND moved.calendar_event_id=e.id
+               AND NOT moved.cancelled AND moved.start_at < $4
+          ))
           AND (
             e.owner_id=$3 OR EXISTS(
               SELECT 1 FROM calendar_event_participants p
@@ -157,13 +154,23 @@ export function createCalendarRepository(pool, store = null) {
       try{rule=parseRecurrence(row.recurrenceRule)}catch{continue}
       const duration=Math.max(0,Date.parse(row.endAt)-Date.parse(row.startAt));
       const changes=new Map((row.exceptions??[]).map(x=>[new Date(x.at).getTime(),x]));
+      // An occurrence can move into the requested range from a date outside
+      // it; expanding only the original dates misses that occupied interval.
+      for(const [originalAt,change] of changes){
+        if(change.cancelled||!change.startAt)continue;
+        const movedStart=Date.parse(change.startAt),movedEnd=change.endAt?Date.parse(change.endAt):movedStart+duration;
+        if(movedStart<toMs&&movedEnd>fromMs){
+          out.push({id:row.id,kind:row.kind,title:change.title??row.title,startAt:new Date(movedStart).toISOString(),endAt:new Date(movedEnd).toISOString(),seriesId:row.id,occurrenceAt:new Date(originalAt).toISOString()});
+          if(out.length>=8)return out;
+        }
+      }
       const occurrences=expandOccurrences({
         startAt:row.startAt,durationMs:duration,rule,timeZone:row.timezone||'UTC',
         from:new Date(fromMs-duration).toISOString(),to:endAt,limit:500,
       });
       for(const at of occurrences){
         const change=changes.get(at.getTime());
-        if(change?.cancelled)continue;
+        if(change?.cancelled||change?.startAt)continue;
         const occStart=change?.startAt?Date.parse(change.startAt):at.getTime();
         const occEnd=change?.endAt?Date.parse(change.endAt):occStart+duration;
         if(occStart<toMs&&occEnd>fromMs){
@@ -176,19 +183,82 @@ export function createCalendarRepository(pool, store = null) {
   };
 
   const findScheduleConflicts = async (client,session,input={}) => {
-    const [concrete,recurring]=await Promise.all([
-      findConcreteConflicts(client,session,input),
-      findRecurringConflicts(client,session,input),
-    ]);
+    const concrete = await findConcreteConflicts(client,session,input);
+    const recurring = await findRecurringConflicts(client,session,input);
     return [...concrete,...recurring].sort((a,b)=>Date.parse(a.startAt)-Date.parse(b.startAt)).slice(0,8);
   };
 
+  const lockSchedules = async (client, session, userIds) => {
+    const ids = [...new Set(userIds.filter(Boolean))].sort();
+    // Every writer takes all affected people's locks in the same order. A
+    // mailbox lock or an organiser-only lock cannot protect invitees' slots.
+    for (const id of ids) await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',
+      [`calendar:${session.workspaceId}:${id}`]);
+    return ids;
+  };
+
+  const eventScheduleUsers = async (client, session, event, { includeDeclined = false } = {}) => {
+    const { rows } = await client.query(
+      `SELECT user_id FROM calendar_event_participants
+        WHERE workspace_id=$1 AND calendar_event_id=$2
+          AND ($3::boolean OR response_status<>'declined')`,
+      [session.workspaceId, event.id, includeDeclined],
+    );
+    return [event.owner_id, ...rows.map(row => row.user_id)];
+  };
+
+  const proposedIntervals = async (client, session, input) => {
+    if (!input.startAt || !input.endAt) return [];
+    const first = new Date(input.startAt).getTime(), duration = new Date(input.endAt).getTime() - first;
+    if (!Number.isFinite(first) || !Number.isFinite(duration) || duration <= 0) {
+      throw fail('Некорректный интервал календаря', 'INVALID_CALENDAR_RANGE');
+    }
+    const rule = parseRecurrence(input.recurrenceRule);
+    if (!rule) return [{ startAt: new Date(first).toISOString(), endAt: new Date(first + duration).toISOString() }];
+    const changes = new Map();
+    if (input.excludeEventId) {
+      const { rows } = await client.query(
+        'SELECT occurrence_at,cancelled,start_at,end_at FROM calendar_event_exceptions WHERE workspace_id=$1 AND calendar_event_id=$2',
+        [session.workspaceId, input.excludeEventId],
+      );
+      for (const row of rows) changes.set(new Date(row.occurrence_at).getTime(), row);
+    }
+    const intervals = new Map();
+    const add = (at, change = changes.get(at)) => {
+      if (change?.cancelled) return;
+      const start = change?.start_at ? new Date(change.start_at).getTime() : at;
+      const end = change?.end_at ? new Date(change.end_at).getTime() : start + duration;
+      intervals.set(`${start}:${end}`, { startAt: new Date(start).toISOString(), endAt: new Date(end).toISOString() });
+    };
+    // Keep the existing first-interval check, even for a distant series. New
+    // booking links can offer starts up to 60 days away and last up to 8 hours.
+    // This is a bounded guarantee, not proof of no overlap for an infinite rule.
+    add(first);
+    const now = Date.now(), horizon = now + 60 * 86400000 + 8 * 3600000;
+    for (const at of expandOccurrences({ startAt: input.startAt, durationMs: duration, rule,
+      timeZone: input.timezone || 'UTC', from: new Date(now - duration).toISOString(),
+      to: new Date(horizon).toISOString(), limit: 400 })) add(at.getTime());
+    // An exception whose original occurrence is outside the window may have
+    // moved inside it. The exception remains occupied after a rule/time edit.
+    for (const [at, change] of changes) if (!change.cancelled && change.start_at) {
+      const start = new Date(change.start_at).getTime(), end = change.end_at ? new Date(change.end_at).getTime() : start + duration;
+      if (start < horizon && end > now) add(at, change);
+    }
+    return [...intervals.values()];
+  };
+
   const assertNoScheduleConflict = async (client, session, input) => {
+    const userIds = await lockSchedules(client, session, input.userIds ?? [input.userId ?? session.userId]);
     if (input.allowConflict) return [];
-    const conflicts = await findScheduleConflicts(client, session, input);
-    if (!conflicts.length) return conflicts;
-    const names = conflicts.slice(0, 3).map((event) => event.title).join(', ');
-    throw fail(`Время пересекается с календарём: ${names}. Подтвердите сохранение поверх конфликта.`, 'CALENDAR_CONFLICT', 409);
+    const intervals = await proposedIntervals(client, session, input);
+    for (const userId of userIds) for (const interval of intervals) {
+      const conflicts = await findScheduleConflicts(client, session, { ...interval, userId, excludeEventId: input.excludeEventId });
+      // The caller may manage a colleague's schedule without being entitled to
+      // titles of their private meetings. The editor already offers an explicit
+      // allowConflict confirmation by code; invitation/RSVP callers do not.
+      if (conflicts.length) throw fail('Время пересекается с другим событием в календаре организатора или участника.', 'CALENDAR_CONFLICT', 409);
+    }
+    return [];
   };
 
   const buildTaskBlockRescheduleProposal = async (client,session,eventId,deadline) => {
@@ -301,8 +371,8 @@ export function createCalendarRepository(pool, store = null) {
   const visibilityArgs = (session, id) => [session.workspaceId, id, session.userId, session.role,
     hasPermission(session.role, Permission.CALENDAR_MANAGE_TEAM)];
 
-  const maySee = async (session, id) => {
-    const { rowCount } = await pool.query(
+  const maySee = async (session, id, db = pool) => {
+    const { rowCount } = await db.query(
       `SELECT 1 FROM calendar_events e WHERE e.workspace_id=$1 AND e.id=$2 AND ${VISIBLE_EVENT}`,
       visibilityArgs(session, id),
     );
@@ -410,7 +480,11 @@ export function createCalendarRepository(pool, store = null) {
           resolvedStartAt=startAt??proposal.suggestedStartAt;
           resolvedEndAt=endAt??proposal.suggestedEndAt;
           if(!resolvedStartAt||!resolvedEndAt||Date.parse(resolvedEndAt)<=Date.parse(resolvedStartAt)) throw fail('Некорректный предлагаемый слот','INVALID_CALENDAR_RANGE',400);
-          await assertNoScheduleConflict(client,session,{startAt:resolvedStartAt,endAt:resolvedEndAt,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(allowConflict)});
+          await assertNoScheduleConflict(client,session,{
+            startAt:resolvedStartAt,endAt:resolvedEndAt,excludeEventId:eventId,
+            userIds:await eventScheduleUsers(client,session,event,{includeDeclined:true}),
+            recurrenceRule:event.recurrence_rule,timezone:event.timezone,allowConflict:Boolean(allowConflict),
+          });
           await client.query(
             `UPDATE calendar_events SET start_at=$3,end_at=$4,version=version+1,updated_at=now() WHERE workspace_id=$1 AND id=$2`,
             [session.workspaceId,eventId,resolvedStartAt,resolvedEndAt],
@@ -441,10 +515,9 @@ export function createCalendarRepository(pool, store = null) {
     },
 
     /** One event with everything a person needs before deciding to attend. */
-    async getEvent(session, id) {
-      if (!(await maySee(session, id))) throw fail('Event not found', 'CALENDAR_EVENT_NOT_FOUND', 404);
-      const [event, participants, files] = await Promise.all([
-        pool.query(
+    async getEvent(session, id, { client = null } = {}) {
+      const db = client ?? pool;
+      const event = await db.query(
           `SELECT e.id,e.kind,e.title,e.description,e.owner_id "ownerId",e.start_at "startAt",e.end_at "endAt",
                   e.timezone,e.all_day "allDay",e.visibility,e.commitment_id "commitmentId",e.conversation_id "conversationId",
                   e.recurrence_rule "recurrenceRule",
@@ -454,23 +527,23 @@ export function createCalendarRepository(pool, store = null) {
            LEFT JOIN workspace_profiles p ON p.workspace_id=e.workspace_id AND p.user_id=e.owner_id
            LEFT JOIN conversations c ON c.workspace_id=e.workspace_id AND c.id=e.conversation_id
            LEFT JOIN commitments cm ON cm.workspace_id=e.workspace_id AND cm.id=e.commitment_id
-           WHERE e.workspace_id=$1 AND e.id=$2`,
-          [session.workspaceId, id],
-        ),
-        pool.query(
+           WHERE e.workspace_id=$1 AND e.id=$2 AND ${VISIBLE_EVENT}`,
+          visibilityArgs(session, id),
+        );
+      if (!event.rows[0]) throw fail('Event not found', 'CALENDAR_EVENT_NOT_FOUND', 404);
+      const participants = await db.query(
           `SELECT pa.*, pr.display_name, pr.title FROM calendar_event_participants pa
            LEFT JOIN workspace_profiles pr ON pr.workspace_id=pa.workspace_id AND pr.user_id=pa.user_id
            WHERE pa.workspace_id=$1 AND pa.calendar_event_id=$2
            ORDER BY pa.optional, pr.display_name`,
           [session.workspaceId, id],
-        ),
-        pool.query(
+        );
+      const files = await db.query(
           `SELECT f.id,f.name,f.mime_type "mimeType",f.size_bytes "sizeBytes",ef.created_at "attachedAt"
            FROM calendar_event_files ef JOIN files f ON f.workspace_id=ef.workspace_id AND f.id=ef.file_id
            WHERE ef.workspace_id=$1 AND ef.calendar_event_id=$2 ORDER BY ef.created_at`,
           [session.workspaceId, id],
-        ),
-      ]);
+        );
       const mine = participants.rows.find((p) => p.user_id === session.userId);
       const shown = busyOnly(session, event.rows[0], Boolean(mine));
       return {
@@ -778,14 +851,22 @@ export function createCalendarRepository(pool, store = null) {
      * никого не позвали, и никто об этом не знал. Либо есть встреча с
      * участниками, либо нет ничего.
      */
-    async createWithParticipants(session, body, userIds = [], { optional = false } = {}) {
+    async createWithParticipants(session, body, userIds = [], { optional = false, client: suppliedClient = null } = {}) {
       const ids = [...new Set(userIds)].filter(Boolean);
-      return tx(async (client) => {
+      const run = async (client) => {
         // Validate/normalize the submitted recurrence before conflict lookup.
         // Invalid input must fail as INVALID_RECURRENCE, not be masked by an
         // unrelated existing event in the same slot.
         const recurrenceRule=checkedRule(body.recurrenceRule,body.startAt);
-        await assertNoScheduleConflict(client,session,{startAt:body.startAt,endAt:body.endAt,allowConflict:Boolean(body.allowConflict)});
+        const { rows: staff } = ids.length ? await client.query(
+          "SELECT m.user_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=ANY($2::uuid[]) AND m.role<>'guest' AND u.disabled_at IS NULL",
+          [session.workspaceId, ids],
+        ) : { rows: [] };
+        if (staff.length !== ids.length) throw fail('Those people are not workspace staff', 'NOT_WORKSPACE_STAFF', 409);
+        await assertNoScheduleConflict(client,session,{
+          startAt:body.startAt,endAt:body.endAt,recurrenceRule,timezone:body.timezone,
+          userIds:[session.userId,...staff.map(row=>row.user_id)],allowConflict:Boolean(body.allowConflict),
+        });
         const id = randomUUID();
         const { rows } = await client.query(
           `INSERT INTO calendar_events(id,organization_id,workspace_id,kind,title,description,owner_id,start_at,end_at,timezone,all_day,visibility,commitment_id,conversation_id,recurrence_rule)
@@ -808,11 +889,6 @@ export function createCalendarRepository(pool, store = null) {
         }
         if (!ids.length) return { event, invited: 0 };
 
-        const { rows: staff } = await client.query(
-          "SELECT m.user_id FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=ANY($2::uuid[]) AND m.role<>'guest' AND u.disabled_at IS NULL",
-          [session.workspaceId, ids],
-        );
-        if (staff.length !== ids.length) throw fail('Those people are not workspace staff', 'NOT_WORKSPACE_STAFF', 409);
         for (const row of staff) {
           await client.query(
             `INSERT INTO calendar_event_participants(organization_id,workspace_id,calendar_event_id,user_id,optional,invited_by)
@@ -825,7 +901,8 @@ export function createCalendarRepository(pool, store = null) {
           title: event.title, body: 'Приглашение на встречу — требуется ответ',
         });
         return { event, invited: staff.length };
-      });
+      };
+      return suppliedClient ? run(suppliedClient) : tx(run);
     },
 
     async invite(session, eventId, userIds, { optional = false } = {}) {
@@ -845,6 +922,15 @@ export function createCalendarRepository(pool, store = null) {
         if (allowed.length !== ids.length) {
           throw fail('Those people are not workspace staff', 'NOT_WORKSPACE_STAFF', 409);
         }
+        const { rows: existing } = await client.query(
+          'SELECT user_id FROM calendar_event_participants WHERE workspace_id=$1 AND calendar_event_id=$2 AND user_id=ANY($3::uuid[])',
+          [session.workspaceId,eventId,allowed],
+        );
+        const alreadyInvited = new Set(existing.map(row=>row.user_id));
+        await assertNoScheduleConflict(client,session,{
+          startAt:event.start_at,endAt:event.end_at,recurrenceRule:event.recurrence_rule,timezone:event.timezone,
+          excludeEventId:eventId,userIds:allowed.filter(id=>!alreadyInvited.has(id)),
+        });
         for (const userId of allowed) {
           // Re-inviting somebody must not erase the answer they already gave.
           await client.query(
@@ -865,6 +951,16 @@ export function createCalendarRepository(pool, store = null) {
       if (!ANSWERS.has(response)) throw fail('Answer must be accepted, tentative or declined', 'INVALID_RESPONSE');
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
+        const participant = await client.query(
+          'SELECT response_status FROM calendar_event_participants WHERE workspace_id=$1 AND calendar_event_id=$2 AND user_id=$3',
+          [session.workspaceId,eventId,session.userId],
+        );
+        if (!participant.rowCount) throw fail('You are not invited to this event', 'NOT_INVITED', 404);
+        if (response === 'declined') await lockSchedules(client,session,[session.userId]);
+        else await assertNoScheduleConflict(client,session,{
+          startAt:event.start_at,endAt:event.end_at,recurrenceRule:event.recurrence_rule,timezone:event.timezone,
+          excludeEventId:eventId,userIds:[session.userId],
+        });
         const { rows } = await client.query(
           // `RETURNING *` отдаёт только колонки самой строки, а имя и
           // должность лежат в профиле: ответивший получал в ответе
@@ -889,6 +985,7 @@ export function createCalendarRepository(pool, store = null) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
         assertMayRun(session, event, 'Менять состав может организатор или тот, кто ведёт чужие встречи');
+        await lockSchedules(client,session,[userId]);
         const { rowCount } = await client.query(
           'DELETE FROM calendar_event_participants WHERE workspace_id=$1 AND calendar_event_id=$2 AND user_id=$3',
           [session.workspaceId, eventId, userId],
@@ -921,8 +1018,15 @@ export function createCalendarRepository(pool, store = null) {
         const start = patch.startAt ?? event.start_at;
         const end = patch.endAt === undefined ? event.end_at : patch.endAt;
         if (end && new Date(end) <= new Date(start)) throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');
-        if ((fields.includes('startAt')||fields.includes('endAt'))&&end) {
-          await assertNoScheduleConflict(client,session,{startAt:start,endAt:end,excludeEventId:eventId,userId:event.owner_id,allowConflict:Boolean(patch.allowConflict)});
+        const timeChanged = fields.includes('startAt') || fields.includes('endAt');
+        if (timeChanged || fields.includes('recurrenceRule')) {
+          await assertNoScheduleConflict(client,session,{
+            startAt:start,endAt:end,excludeEventId:eventId,
+            recurrenceRule:patch.recurrenceRule===undefined?event.recurrence_rule:patch.recurrenceRule,timezone:event.timezone,
+            // Moving a meeting resets even declined answers to invited below.
+            userIds:await eventScheduleUsers(client,session,event,{includeDeclined:timeChanged}),
+            allowConflict:Boolean(patch.allowConflict),
+          });
         }
 
         const setters = fields.map((f, i) => `${columns[f]}=$${i + 3}`).join(',');
@@ -930,7 +1034,6 @@ export function createCalendarRepository(pool, store = null) {
           `UPDATE calendar_events SET ${setters}, version=version+1, updated_at=now() WHERE workspace_id=$1 AND id=$2 RETURNING *`,
           [session.workspaceId, eventId, ...fields.map((f) => patch[f])],
         );
-        const timeChanged = fields.includes('startAt') || fields.includes('endAt');
         if(timeChanged&&patch.moveReason){
           await client.query(
             `INSERT INTO audit_events(organization_id,workspace_id,aggregate_type,aggregate_id,event_type,actor_id,payload)
@@ -992,6 +1095,13 @@ export function createCalendarRepository(pool, store = null) {
         if (!cancelled && endAt && new Date(endAt) <= new Date(startAt)) {
           throw fail('Встреча должна закончиться после начала', 'INVALID_CALENDAR_RANGE');
         }
+        if (!cancelled) {
+          const duration = Math.max(0, Date.parse(event.end_at) - Date.parse(event.start_at));
+          await assertNoScheduleConflict(client, session, {
+            startAt, endAt: endAt ?? new Date(Date.parse(startAt) + duration).toISOString(),
+            userIds: await eventScheduleUsers(client,session,event), excludeEventId: eventId,
+          });
+        } else await lockSchedules(client,session,await eventScheduleUsers(client,session,event));
 
         await client.query(
           `INSERT INTO calendar_event_exceptions(organization_id,workspace_id,calendar_event_id,occurrence_at,cancelled,start_at,end_at,title,created_by)
@@ -1019,6 +1129,12 @@ export function createCalendarRepository(pool, store = null) {
       return tx(async (client) => {
         const event = await loadEvent(client, session, eventId);
         assertMayRun(session, event, 'Менять встречу может организатор или тот, кто ведёт чужие встречи');
+        const duration = Math.max(0, Date.parse(event.end_at) - Date.parse(event.start_at));
+        await assertNoScheduleConflict(client, session, {
+          startAt: new Date(occurrenceAt).toISOString(),
+          endAt: new Date(Date.parse(occurrenceAt) + duration).toISOString(),
+          userIds: await eventScheduleUsers(client,session,event), excludeEventId: eventId,
+        });
         const { rowCount } = await client.query(
           'DELETE FROM calendar_event_exceptions WHERE workspace_id=$1 AND calendar_event_id=$2 AND occurrence_at=$3',
           [session.workspaceId, eventId, new Date(occurrenceAt).toISOString()]);
@@ -1032,6 +1148,7 @@ export function createCalendarRepository(pool, store = null) {
         const event = await loadEvent(client, session, eventId);
         assertMayRun(session, event, 'Отменить встречу может организатор или тот, кто ведёт чужие встречи');
         const { rows: attendees } = await client.query('SELECT user_id FROM calendar_event_participants WHERE workspace_id=$1 AND calendar_event_id=$2', [session.workspaceId, eventId]);
+        await lockSchedules(client,session,[event.owner_id,...attendees.map(row=>row.user_id)]);
         await notify(client, session, {
           recipients: attendees.map((a) => a.user_id), type: 'calendar.cancelled', eventId,
           title: event.title, body: 'Встреча отменена',

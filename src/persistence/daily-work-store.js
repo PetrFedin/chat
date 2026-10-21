@@ -1,5 +1,6 @@
 import { openConversationSql, conversationListSql, conversationTitleSql } from './visibility.js';
 import { randomUUID } from 'node:crypto';
+import { emailNotificationVisibleSql } from '../email/email-notifications.js';
 import { MemoryStore as BaseMemoryStore } from './memory-store.js';
 import { PostgresStore as BasePostgresStore } from './postgres-store.js';
 
@@ -257,6 +258,9 @@ export class MemoryStore extends BaseMemoryStore {
 
   async listNotifications(session, { status = null, type = null, limit = 50 } = {}) {
     let rows = [...this.dailyNotifications.values()].filter((n) => n.workspaceId === session.workspaceId && n.recipientUserId === session.userId && !n.archivedAt);
+    const visible = [];
+    for (const row of rows) if (!row.type.startsWith('email.') || await this.canReadEmailNotification?.(session, row)) visible.push(row);
+    rows = visible;
     if (status) rows = rows.filter((n) => n.status === status);
     if (type === 'mentions') rows = rows.filter((n) => n.type === 'message.mentioned');
     else if (type) rows = rows.filter((n) => n.type === type);
@@ -267,6 +271,7 @@ export class MemoryStore extends BaseMemoryStore {
   async archiveNotification(session, id) {
     const row = this.dailyNotifications.get(id);
     if (!row || row.workspaceId !== session.workspaceId || row.recipientUserId !== session.userId || row.archivedAt) return null;
+    if (row.type.startsWith('email.') && !(await this.canReadEmailNotification?.(session, row))) return null;
     row.archivedAt = nowIso();
     if (row.status === 'unread') { row.status = 'read'; row.readAt = row.readAt ?? nowIso(); }
     return { id: row.id, type: row.type, status: row.status, archivedAt: row.archivedAt };
@@ -276,6 +281,7 @@ export class MemoryStore extends BaseMemoryStore {
     let count = 0;
     for (const row of this.dailyNotifications.values()) {
       if (row.workspaceId !== session.workspaceId || row.recipientUserId !== session.userId) continue;
+      if (row.type.startsWith('email.') && !(await this.canReadEmailNotification?.(session, row))) continue;
       if (row.status !== 'read' || row.archivedAt) continue;
       row.archivedAt = nowIso();
       count += 1;
@@ -286,6 +292,7 @@ export class MemoryStore extends BaseMemoryStore {
   async markNotificationRead(session, id) {
     const row = this.dailyNotifications.get(id);
     if (!row || row.workspaceId !== session.workspaceId || row.recipientUserId !== session.userId) return null;
+    if (row.type.startsWith('email.') && !(await this.canReadEmailNotification?.(session, row))) return null;
     if (row.status !== 'read') { row.status='read'; row.readAt=nowIso(); row.readBy=session.userId; row.updatedAt=row.readAt; }
     return clone(row);
   }
@@ -294,6 +301,7 @@ export class MemoryStore extends BaseMemoryStore {
     let count = 0; const at = nowIso();
     for (const row of this.dailyNotifications.values()) {
       if (row.workspaceId !== session.workspaceId || row.recipientUserId !== session.userId || row.status !== 'unread') continue;
+      if (row.type.startsWith('email.') && !(await this.canReadEmailNotification?.(session, row))) continue;
       if (type === 'mentions' && row.type !== 'message.mentioned') continue;
       if (type && type !== 'mentions' && row.type !== type) continue;
       row.status='read'; row.readAt=at; row.readBy=session.userId; row.updatedAt=at; count++;
@@ -582,7 +590,7 @@ export class PostgresStore extends BasePostgresStore {
     // должно значить у всех. Старые записи гасим на чтении — они были
     // созданы до того, как удаление стало их затирать.
     const {rows}=await this.pool.query(`SELECT n.id,n.type,n.title,
-      CASE WHEN dm.id IS NOT NULL THEN 'Сообщение удалено' ELSE n.body END AS body,n.status,n.priority,n.url,n.actor_user_id "actorUserId",n.conversation_id "conversationId",n.message_id "messageId",n.commitment_id "commitmentId",n.calendar_event_id "calendarEventId",n.metadata,n.created_at "createdAt",n.read_at "readAt",p.display_name "actorName",c.title "conversationTitle"
+      CASE WHEN dm.id IS NOT NULL THEN 'Сообщение удалено' ELSE n.body END AS body,n.status,n.priority,n.url,n.actor_user_id "actorUserId",n.conversation_id "conversationId",n.message_id "messageId",n.commitment_id "commitmentId",n.calendar_event_id "calendarEventId",n.metadata,n.email_mailbox_id "emailMailboxId",n.email_thread_id "emailThreadId",n.email_message_id "emailMessageId",n.email_send_intent_id "emailSendIntentId",n.created_at "createdAt",n.read_at "readAt",p.display_name "actorName",c.title "conversationTitle"
       FROM notifications n LEFT JOIN workspace_profiles p ON p.workspace_id=n.workspace_id AND p.user_id=n.actor_user_id LEFT JOIN conversations c ON c.workspace_id=n.workspace_id AND c.id=n.conversation_id
       LEFT JOIN messages dm ON dm.workspace_id=n.workspace_id AND dm.id=n.message_id AND dm.deleted_at IS NOT NULL
       WHERE n.workspace_id=$1 AND n.recipient_user_id=$2
@@ -592,6 +600,7 @@ export class PostgresStore extends BasePostgresStore {
         AND (CASE WHEN $3::text='archived' THEN n.archived_at IS NOT NULL ELSE n.archived_at IS NULL END)
         AND ($3::text IS NULL OR $3::text='archived' OR n.status=$3)
         AND ($4::text IS NULL OR n.type=$4)
+        AND ${emailNotificationVisibleSql('n','$2')}
       ORDER BY n.created_at DESC,n.id DESC LIMIT $5`,[session.workspaceId,session.userId,status,typeValue,Math.min(Math.max(Number(limit)||50,1),100)]);
     return rows;
   }
@@ -605,29 +614,29 @@ export class PostgresStore extends BasePostgresStore {
    * есть, — но заполнять её было нечем.
    */
   async archiveNotification(session,id){
-    const{rows}=await this.pool.query(`UPDATE notifications SET archived_at=now(),status=CASE WHEN status='unread' THEN 'read' ELSE status END,
+    const{rows}=await this.pool.query(`UPDATE notifications n SET archived_at=now(),status=CASE WHEN status='unread' THEN 'read' ELSE status END,
       read_at=COALESCE(read_at,now()),updated_at=now()
-      WHERE workspace_id=$1 AND id=$2 AND recipient_user_id=$3 AND archived_at IS NULL
+      WHERE workspace_id=$1 AND id=$2 AND recipient_user_id=$3 AND archived_at IS NULL AND ${emailNotificationVisibleSql('n','$3')}
       RETURNING id,type,status,archived_at "archivedAt"`,[session.workspaceId,id,session.userId]);
     return rows[0]??null;
   }
 
   /** Убрать в архив всё прочитанное разом. */
   async archiveReadNotifications(session){
-    const{rowCount}=await this.pool.query(`UPDATE notifications SET archived_at=now(),updated_at=now()
-      WHERE workspace_id=$1 AND recipient_user_id=$2 AND status='read' AND archived_at IS NULL`,
+    const{rowCount}=await this.pool.query(`UPDATE notifications n SET archived_at=now(),updated_at=now()
+      WHERE workspace_id=$1 AND recipient_user_id=$2 AND status='read' AND archived_at IS NULL AND ${emailNotificationVisibleSql('n','$2')}`,
       [session.workspaceId,session.userId]);
     return rowCount;
   }
 
-  async markNotificationRead(session,id){const{rows}=await this.pool.query(`UPDATE notifications SET status='read',read_at=COALESCE(read_at,now()),read_by=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND recipient_user_id=$3 RETURNING id,type,status,read_at "readAt"`,[session.workspaceId,id,session.userId]);return rows[0]??null}
+  async markNotificationRead(session,id){const{rows}=await this.pool.query(`UPDATE notifications n SET status='read',read_at=COALESCE(read_at,now()),read_by=$3,updated_at=now() WHERE workspace_id=$1 AND id=$2 AND recipient_user_id=$3 AND ${emailNotificationVisibleSql('n','$3')} RETURNING id,type,status,read_at "readAt"`,[session.workspaceId,id,session.userId]);return rows[0]??null}
 
-  async markAllNotificationsRead(session,type=null){const typeValue=type==='mentions'?'message.mentioned':type,{rowCount}=await this.pool.query(`UPDATE notifications SET status='read',read_at=COALESCE(read_at,now()),read_by=$2,updated_at=now() WHERE workspace_id=$1 AND recipient_user_id=$2 AND status='unread' AND archived_at IS NULL AND($3::text IS NULL OR type=$3)`,[session.workspaceId,session.userId,typeValue]);return rowCount}
+  async markAllNotificationsRead(session,type=null){const typeValue=type==='mentions'?'message.mentioned':type,{rowCount}=await this.pool.query(`UPDATE notifications n SET status='read',read_at=COALESCE(read_at,now()),read_by=$2,updated_at=now() WHERE workspace_id=$1 AND recipient_user_id=$2 AND status='unread' AND archived_at IS NULL AND($3::text IS NULL OR type=$3) AND ${emailNotificationVisibleSql('n','$2')}`,[session.workspaceId,session.userId,typeValue]);return rowCount}
 
   async attentionSummary(session){
     const [conversationRows,notificationCounts,taskCounts,decisions]=await Promise.all([
       this.listConversations(session),
-      this.pool.query(`SELECT count(*) FILTER(WHERE status='unread')::int unread,count(*) FILTER(WHERE status='unread' AND type='message.mentioned')::int mentions FROM notifications WHERE workspace_id=$1 AND recipient_user_id=$2 AND archived_at IS NULL`,[session.workspaceId,session.userId]),
+      this.pool.query(`SELECT count(*) FILTER(WHERE status='unread')::int unread,count(*) FILTER(WHERE status='unread' AND type='message.mentioned')::int mentions FROM notifications n WHERE workspace_id=$1 AND recipient_user_id=$2 AND archived_at IS NULL AND ${emailNotificationVisibleSql('n','$2')}`,[session.workspaceId,session.userId]),
       // Считались только задачи, которыми человек владеет. Руководитель
       // задачи раздаёт, а не исполняет, — и видел вечные нули, пока в
       // компании горели шесть просроченных. Обязательство касается троих:

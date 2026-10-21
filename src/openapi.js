@@ -1,3 +1,5 @@
+import { emailOpenapiPaths } from './email/email-openapi.js';
+
 export const openapi = Object.freeze({
   openapi: '3.1.0',
   info: {
@@ -12,6 +14,7 @@ export const openapi = Object.freeze({
     { name: 'Attention' },
     { name: 'Search' },
     { name: 'Messaging' },
+    { name: 'Email' },
     { name: 'Realtime' },
     { name: 'Calls' },
     { name: 'Meeting Intelligence' },
@@ -37,6 +40,7 @@ export const openapi = Object.freeze({
   },
   security: [{ sessionCookie: [] }, { apiKey: [] }],
   paths: {
+    ...emailOpenapiPaths,
     '/api/v1/auth/register-company': { post: { tags: ['Auth'], summary: 'Register a company and owner', responses: { '201': { description: 'Company created' } } } },
     '/api/v1/invitations/accept': { post: { tags: ['Auth', 'Workspace'], summary: 'Accept an employee invitation and create the invited account', responses: { '201': { description: 'Invitation accepted and session created' } } } },
     '/api/v1/auth/login': { post: { tags: ['Auth'], summary: 'Create an authenticated session', responses: { '200': { description: 'Authenticated' }, '401': { description: 'Invalid credentials' } } } },

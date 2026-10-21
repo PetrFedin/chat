@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { createCalendarRepository } from '../calendar/calendar-repository.js';
 
 const KINDS = new Set(['todo', 'note', 'screenshot', 'link']);
 const STATUSES = new Set(['open', 'done', 'dropped']);
@@ -35,8 +36,9 @@ const itemView = (row) => ({
  * Importance, tags and folders are not re-implemented here: they come from
  * the label mechanism, applied to target type 'note'.
  */
-export function createPersonalRepository(pool, store = null, labels = null) {
+export function createPersonalRepository(pool, store = null, labels = null, calendar = null) {
   if (!pool) return null;
+  const scheduling = calendar ?? createCalendarRepository(pool, store);
 
   const tx = async (run) => {
     const client = await pool.connect();
@@ -212,16 +214,17 @@ export function createPersonalRepository(pool, store = null, labels = null) {
       let eventId = null;
       if (item.calendarEventId) {
         const { rows } = await pool.query(
-          `UPDATE calendar_events SET start_at=$3, end_at=$4, title=$5, updated_at=now()
-            WHERE workspace_id=$1 AND id=$2 AND kind='focus' AND owner_id=$6
-            RETURNING id`,
-          [session.workspaceId, item.calendarEventId, new Date(startAt).toISOString(),
-            new Date(endAt).toISOString(), item.title, session.userId],
+          `SELECT id FROM calendar_events
+            WHERE workspace_id=$1 AND id=$2 AND kind='focus' AND owner_id=$3`,
+          [session.workspaceId, item.calendarEventId, session.userId],
         );
         eventId = rows[0]?.id ?? null;
+        if (eventId) await scheduling.updateEvent(session, eventId, {
+          startAt: new Date(startAt).toISOString(), endAt: new Date(endAt).toISOString(), title: item.title,
+        });
       }
       if (!eventId) {
-        const event = await store.createCalendarEvent(session, {
+        const { event } = await scheduling.createWithParticipants(session, {
           kind: 'focus', title: item.title, description: item.body ?? null,
           startAt: new Date(startAt).toISOString(), endAt: new Date(endAt).toISOString(),
           timezone: 'UTC', allDay: false, visibility: 'participants', commitmentId: null, conversationId: null,

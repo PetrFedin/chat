@@ -299,24 +299,14 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
       hub.broadcastUsers(s.workspaceId,[s.userId,...wanted.map(w=>w.userId??w)],'calendar.created',created.event);
       json(res,201,created);return true;
     }
-    // Task block and recurrence use the calendar repository even without invitees:
-    // the repository owns calendar audit/recurrence semantics; the base store does not.
-    if(draft.kind==='task_block'||draft.recurrenceRule){
-      if(!ctx.calendar?.createWithParticipants){
-        if(draft.recurrenceRule)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
-      }else{
-        const created=await ctx.calendar.createWithParticipants(s,draft,[]);
-        hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',created.event);
-        json(res,201,created);return true;
-      }
+    // Ordinary events use the same transaction and schedule lock as bookings,
+    // task blocks and recurring events. A separate preflight check can race.
+    if(ctx.calendar?.createWithParticipants){
+      const created=await ctx.calendar.createWithParticipants(s,draft,[]);
+      hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',created.event);
+      json(res,201,created);return true;
     }
-    if(endAt&&ctx.calendar?.findConflicts&&!draft.allowConflict){
-      const conflicts=await ctx.calendar.findConflicts(s,{startAt,endAt});
-      if(conflicts.length){
-        const names=conflicts.slice(0,3).map(event=>event.title).join(', ');
-        throw Object.assign(new Error(`Время пересекается с календарём: ${names}. Подтвердите сохранение поверх конфликта.`),{code:'CALENDAR_CONFLICT',statusCode:409,expose:true});
-      }
-    }
+    if(draft.recurrenceRule)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
     const event=await store.createCalendarEvent(s,draft);hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',event);
     json(res,201,{event,invited:0});return true}
   /**

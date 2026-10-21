@@ -32,6 +32,8 @@ export const FEATURES = Object.freeze([
   { id: 'decisions', group: 'time', ru: 'Решения', en: 'Decisions',
     descRu: 'Общий список решений, принятых на встречах.', descEn: 'A shared list of decisions made in meetings.', requires: ['meetings'] },
 
+  { id: 'email', group: 'chat', ru: 'Почта', en: 'Email',
+    descRu: 'Личные и общие ящики, ответы, черновики, правила и связи с работой.', descEn: 'Personal and shared mailboxes, replies, drafts, rules and links to work.', requires: [] },
   { id: 'topics', group: 'chat', ru: 'Ветки в беседах', en: 'Topics inside conversations',
     descRu: 'Внутри канала — отдельные ветки-разговоры по темам.', descEn: 'Separate topic threads inside a channel.', requires: [] },
   { id: 'stories', group: 'chat', ru: 'Сторис', en: 'Stories',
@@ -116,6 +118,7 @@ export function planChange(state, id, enable) {
  * Маршрут → функция. Порядок важен: частные правила раньше общих. Пути без сессии (ICS по токену, вход) сюда не попадают.
  */
 const ROUTES = [
+  [/^\/api\/v1\/(?:email|mailbox-connections)(\/|$)/i, 'email'],
   // A Page relation must obey BOTH the source feature and the target feature.
   // Otherwise a disabled Calendar/Meeting module remains writable via Wiki.
   [/^\/api\/v1\/wiki\/pages\/[^/]+\/calendar-meetings(\/|$)/, ['wiki','calendar']],

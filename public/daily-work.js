@@ -85,12 +85,12 @@ document.addEventListener('keydown',(event)=>{
   else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
 });
 
-function notificationTitle(n){if(n.type==='message.mentioned')return tr(`Упоминание${n.actorName?` · ${n.actorName}`:''}`,`Mention${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='message.created')return tr(`Новое сообщение${n.actorName?` · ${n.actorName}`:''}`,`New message${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.assigned')return tr(`Новая задача${n.actorName?` · ${n.actorName}`:''}`,`New task${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.due')return tr('Срок задачи','Task due');// Название встречи и приглашение звонившего доходят от сервера в
+function notificationTitle(n){if(n.type.startsWith('email.'))return ({'email.received':tr('Новое письмо','New email'),'email.assigned':tr('Вам назначена переписка','Email assigned to you'),'email.waiting_due':tr('Пора проверить ответ','Time to follow up'),'email.send_attention':tr('Отправка требует внимания','Sending needs attention')})[n.type]||tr('Почта','Email');if(n.type==='message.mentioned')return tr(`Упоминание${n.actorName?` · ${n.actorName}`:''}`,`Mention${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='message.created')return tr(`Новое сообщение${n.actorName?` · ${n.actorName}`:''}`,`New message${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.assigned')return tr(`Новая задача${n.actorName?` · ${n.actorName}`:''}`,`New task${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='task.due')return tr('Срок задачи','Task due');// Название встречи и приглашение звонившего доходят от сервера в
 // `n.title`/`n.actorName` с первого дня, но заголовок был захардкожен
 // как общая фраза — карточка читалась одинаково для любой встречи, а
 // пропущенный звонок не называл, кто звонил, хотя знает.
 if(n.type==='calendar.invited')return tr(`${n.title||'Встреча'}${n.actorName?` · ${n.actorName}`:''}`,`${n.title||'Meeting'}${n.actorName?` · ${n.actorName}`:''}`);if(n.type==='calendar.reminder')return n.title||tr('Напоминание','Reminder');if(n.type==='call.missed')return n.actorName?tr(`Пропущенный звонок · ${n.actorName}`,`Missed call · ${n.actorName}`):(n.title||tr('Пропущенный звонок','Missed call'));return n.title||tr('Уведомление','Notification')}
-function notificationIcon(n){return n.type==='message.mentioned'?'@':n.type.startsWith('message.')?'●':n.type.startsWith('task.')?'✓':n.type==='calendar.reminder'?'◔':n.type.startsWith('calendar.')?'□':n.type.startsWith('call.')?'☎':'◎'}
+function notificationIcon(n){return n.type.startsWith('email.')?'✉':n.type==='message.mentioned'?'@':n.type.startsWith('message.')?'●':n.type.startsWith('task.')?'✓':n.type==='calendar.reminder'?'◔':n.type.startsWith('calendar.')?'□':n.type.startsWith('call.')?'☎':'◎'}
 
 async function loadNotifications(){
   const type=D.notificationFilter==='mentions'?'mentions':null;
@@ -149,6 +149,12 @@ async function openNotificationItem(id){
   const n=D.notifications.find(x=>x.id===id);
   if(!n)return;
   if(n.status==='unread')await api(`/api/v1/notifications/${id}/read`,{method:'POST',body:'{}'}).catch(()=>{});
+  if(n.type.startsWith('email.')&&window.ChatApp?.openEmailThread){
+    leaveOverlay();
+    await window.ChatApp.openEmailThread(n.emailThreadId||null,{messageId:n.emailMessageId||null});
+    if(n.emailSendIntentId)await window.ChatEmail?.openQueue?.({intentId:n.emailSendIntentId,mailboxId:n.emailMailboxId});
+    return;
+  }
   if(n.conversationId)return openConversation(n.conversationId,n.messageId);
   if(n.commitmentId&&window.ChatApp?.openTask){leaveOverlay();return window.ChatApp.openTask(n.commitmentId)}
   if(n.calendarEventId&&window.ChatApp?.openEvent){leaveOverlay();return window.ChatApp.openEvent(n.calendarEventId)}
