@@ -33,3 +33,13 @@ test('More uses compact work-catalogue styling instead of oversized presentation
   assert.match(css,/More is a work catalogue/);
   assert.match(css,/\.module-card\{display:grid;grid-template-columns:36px minmax\(0,1fr\)/);
 });
+
+
+test('email surface exposes operational communication facts rather than unread-only control',async()=>{
+  const email=await readFile(new URL('../public/email.js',import.meta.url),'utf8');
+  assert.match(email,/Контроль коммуникаций/);
+  assert.match(email,/medianFirstResponseMinutes/);
+  assert.match(email,/unassignedSharedCount/);
+  assert.match(email,/overdueWaitingCount/);
+  assert.match(email,/not a performance rating|не означает/);
+});
