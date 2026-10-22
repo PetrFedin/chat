@@ -327,3 +327,13 @@
   .cx-email-slot-row>.cx-email-button{justify-self:start}
 }
 @media(prefers-reduced-motion:reduce){.cx-email *,.cx-email-sheet-backdrop *{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
+
+
+.cx-email-analytics-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:16px 0}
+.cx-email-analytics-grid article{display:flex;flex-direction:column;gap:6px;min-width:0;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--surface-2)}
+.cx-email-analytics-grid small{color:var(--muted);font-size:11px;line-height:1.35}
+.cx-email-analytics-grid strong{font-size:22px;letter-spacing:-.03em;overflow-wrap:anywhere}
+.cx-email-analytics-method{margin:18px 0 14px;padding-top:15px;border-top:1px solid var(--line)}
+.cx-email-analytics-method h3{font-size:14px;margin:0 0 8px}
+.cx-email-analytics-method p{font-size:12px;line-height:1.6;color:var(--muted);margin:7px 0}
+@media(max-width:760px){.cx-email-analytics-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
