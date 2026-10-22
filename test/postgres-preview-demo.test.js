@@ -162,7 +162,7 @@ test('Postgres preview demo survives restart without duplication and rehydrates 
   const page=await browser.newPage({viewport:{width:390,height:844}});
   const pageErrors=[];
   page.on('pageerror',error=>pageErrors.push(String(error)));
-  await page.goto(first.base);
+  await page.goto(first.base+'/?preview=1');
   await page.locator('#demo-login').waitFor({state:'visible'});
   await page.locator('#demo-login').click();
   await page.locator('#app-view').waitFor({state:'visible'});
