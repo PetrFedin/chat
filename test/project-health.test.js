@@ -45,3 +45,14 @@ test('completed-only and empty visible scopes stay distinguishable',()=>{
   assert.equal(empty.band,'empty');
   assert.throws(()=>computeProjectHealth([],{asOf:'not-a-date'}),TypeError);
 });
+
+
+test('accepted result remains inside the active project scope until canonical closure',()=>{
+  const health=computeProjectHealth([
+    {status:'accepted_result',promisedAt:'2026-10-30T00:00:00.000Z'},
+    {status:'closed',promisedAt:'2026-10-20T00:00:00.000Z'},
+  ],{asOf});
+  assert.equal(health.visibleCount,2);
+  assert.equal(health.activeCount,1);
+  assert.equal(health.score,100);
+});
