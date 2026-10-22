@@ -928,6 +928,46 @@ function emailBridge(){return {api,toast,user:me(),people:S.people,can,openTask,
 function emailSourcesSlot(kind,id){
   return guestShell()||!feat('email')?'':`<div data-email-source-kind="${esc(kind)}" data-email-source-id="${esc(id)}" hidden></div>`;
 }
+function taskContextSlot(id){
+  return guestShell()?'':`<div data-task-context="${esc(id)}" hidden></div>`;
+}
+function loadTaskContexts(){
+  for(const slot of $$('[data-task-context]')){
+    const taskId=slot.dataset.taskContext;
+    api(`/api/v1/tasks/${encodeURIComponent(taskId)}/context`).then(({context})=>{
+      if(!slot.isConnected||!context)return;
+      const groups=[
+        ['project',T('Проекты','Projects'),context.projects||[]],
+        ['decision',T('Решения','Decisions'),context.decisions||[]],
+        ['page',T('Страницы','Pages'),context.pages||[]],
+        ['email',T('Письма-источники','Email sources'),context.emailSources||[]],
+      ].filter(([, ,items])=>items.length);
+      if(!groups.length)return;
+      const title=(kind,item)=>kind==='project'?(item.name||T('Проект','Project'))
+        :kind==='email'?(item.subject||T('Без темы','No subject'))
+        :(item.title||({decision:T('Решение','Decision'),page:T('Страница','Page')})[kind]);
+      slot.hidden=false;
+      slot.innerHTML=`<section class="surface task-context-surface"><div class="section-head"><div><h3>${T('Контекст задачи','Task context')}</h3><p class="muted">${T('Только связи, которые вы можете открыть сейчас','Only links you can access right now')}</p></div></div>
+        <div class="task-context-grid">${groups.map(([kind,label,items])=>`<div class="task-context-group"><strong>${esc(label)}</strong>${items.map(item=>`<button type="button" class="text-button" data-task-context-kind="${kind}" data-task-context-id="${esc(item.id||item.resourceId||'')}" data-task-context-thread="${esc(item.threadId||'')}" data-task-context-message="${esc(item.messageId||'')}">${esc(title(kind,item))} ↗</button>`).join('')}</div>`).join('')}</div>
+      </section>`;
+      slot.querySelectorAll('[data-task-context-kind]').forEach(button=>button.onclick=()=>{
+        const kind=button.dataset.taskContextKind,id=button.dataset.taskContextId;
+        if(kind==='project'){closeModal();void openProject(id);return}
+        if(kind==='decision'){void decisionDetailModal(id);return}
+        if(kind==='page'){void wikiModal(id);return}
+        if(kind==='email'){
+          overlayStack.length=0;renderOverlay();
+          void openEmailThread(button.dataset.taskContextThread,{messageId:button.dataset.taskContextMessage});
+        }
+      });
+    }).catch(error=>{
+      if(!slot.isConnected)return;
+      if(['FEATURE_DISABLED','EMAIL_UNAVAILABLE','WIKI_UNAVAILABLE','DECISION_TASKS_UNAVAILABLE','PROJECTS_UNAVAILABLE'].includes(error?.code))return;
+      slot.hidden=false;
+      slot.innerHTML=`<p class="muted">${T('Контекст временно недоступен.','Context is temporarily unavailable.')}</p>`;
+    });
+  }
+}
 function loadEmailSources(){
   for(const slot of $$('[data-email-source-kind]')){
     const {emailSourceKind:kind,emailSourceId:id}=slot.dataset;
@@ -6871,6 +6911,7 @@ function renderOverlay(keep){
   bindPeopleAvatars();
   top.after?.();
   loadEmailSources();
+  loadTaskContexts();
   // Move focus into the dialog: the first thing a person types belongs to the
   // sheet they just opened, not to the page behind it.
   const dialog=$('.modal');
@@ -7244,6 +7285,7 @@ function taskDetailModal(task){
       <div class="person-chips" data-task-label-slot><span class="muted">загружаем…</span></div></div>
     ${task.sourceMessageId?`<div class="row"><span><div class="section-title">Из сообщения</div><div class="row-sub">Обсуждение, из которого выросла эта задача</div></span><button class="button small secondary pressable" data-task-source="${esc(task.sourceMessageId)}">Открыть</button></div>`:''}
     ${emailSourcesSlot('task',task.id)}
+    ${taskContextSlot(task.id)}
     <div class="surface"><div class="section-title">Ожидаемый результат</div><p class="muted">${task.outcome?esc(task.outcome):'Не задан. Пока его нет, «сделано» решается спором, а не проверкой.'}</p><div class="row-sub"><span>Ответственный:</span> ${esc(name(task.ownerId))} <span>· Принимает:</span> ${esc(name(task.acceptorId))} <span>· Поставил:</span> ${esc(name(task.requesterId))}</div></div>
     <div><div class="section-title">Время</div><div id="task-time-slot"><span class="muted">загружаем…</span></div></div>
     <div><div class="section-title">Запланированная работа · ${calendarBlocks.length}</div>${blocksAfterDeadline.length?`<div class="away-notice" data-task-schedule-impact><strong>${esc(T('Нужно перепланировать','Rescheduling needed'))}</strong> · ${blocksAfterDeadline.length} ${esc(T('блок(а) заканчиваются после обещанного срока. ChatX может предложить ближайший свободный слот до срока, но перенесёт его только после подтверждения.','block(s) end after the promised deadline. ChatX can suggest the latest free slot before the deadline, but only moves it after approval.'))}</div>`:''}${calendarBlocks.length?`<div class="stack" style="margin-top:8px">${calendarBlocks.map(block=>{const late=blocksAfterDeadline.some(x=>x.id===block.id);return `<div class="row${late?' task-overdue':''}"><button type="button" class="pressable" data-task-calendar-block="${esc(block.id)}" style="border:0;background:transparent;padding:0;text-align:left;flex:1;min-width:0"><div class="row-title">◷ ${esc(block.title)}</div><div class="row-sub">${esc(dateTime(block.startAt))}${block.endAt?` — ${esc(time(block.endAt))}`:''}${late?` · <span class="task-late">${esc(T('после срока','after deadline'))}</span>`:''}</div></button>${late?`<button type="button" class="button small secondary" data-task-reschedule-proposal="${esc(block.id)}">${esc(T('Найти слот','Find slot'))}</button>`:`<span class="chip">Календарь</span>`}</div>`}).join('')}</div>`:`<div class="empty">${esc(T('Время под эту задачу пока не выделено в календаре.','No calendar time has been allocated to this task yet.'))}</div>`}</div>
