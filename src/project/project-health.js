@@ -1,4 +1,4 @@
-const ACTIVE_TASK=new Set(['proposed','accepted','scheduled','in_progress','blocked','in_review','accepted_result','deferred','clarify','inbox']);
+const ACTIVE_TASK=new Set(['proposed','accepted','scheduled','in_progress','blocked','in_review','deferred','clarify','inbox']);
 const DROPPED_TASK=new Set(['cancelled','rejected']);
 
 const finiteDate=value=>{
@@ -15,6 +15,7 @@ export function computeProjectHealth(tasks=[],{projectTargetAt=null,asOf=new Dat
 
   const visible=tasks.filter(task=>task&&!DROPPED_TASK.has(task.status));
   const active=visible.filter(task=>ACTIVE_TASK.has(task.status));
+  const pendingClosure=visible.filter(task=>task.status==='accepted_result');
   const overdue=active.filter(task=>{
     const due=finiteDate(task.promisedAt);
     return due!==null&&due<now;
@@ -57,7 +58,7 @@ export function computeProjectHealth(tasks=[],{projectTargetAt=null,asOf=new Dat
     scope:'visible_active_tasks_only',
     formulaVersion:'v1',
     score,band,weights,
-    visibleCount:visible.length,activeCount,
+    visibleCount:visible.length,activeCount,pendingClosureCount:pendingClosure.length,
     overdueCount:overdue.length,constraintCount:constrained.length,
     forecastRiskCount:forecastRisk.length,unscheduledCount:unscheduled.length,
     reviewEvidenceGapCount:reviewEvidenceGap.length,projectTargetRisk,
