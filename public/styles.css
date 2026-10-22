@@ -871,3 +871,11 @@ h4{font-size:15px;font-weight:700}
 .project-trend-bars>span:hover{opacity:1;background:var(--text)}
 .project-trends>.row-sub{margin-top:10px;white-space:normal}
 @media(max-width:720px){.module-grid{grid-template-columns:1fr}.project-trend-grid{grid-template-columns:1fr}}
+
+
+.task-context-surface{padding:15px}
+.task-context-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.task-context-group{display:flex;flex-direction:column;align-items:flex-start;gap:6px;min-width:0;padding:11px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface-2)}
+.task-context-group>strong{font-size:13px;color:var(--muted)}
+.task-context-group .text-button{max-width:100%;text-align:left;overflow-wrap:anywhere}
+@media(max-width:560px){.task-context-grid{grid-template-columns:1fr}}
