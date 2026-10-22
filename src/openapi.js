@@ -116,6 +116,14 @@ export const openapi = Object.freeze({
     '/api/v1/tasks/{taskId}': {
       get: { tags: ['Workspace'], summary: 'Get authoritative task detail, evidence, acceptance decisions and audit history', responses: { '200': { description: 'Task detail' }, '404': { description: 'Task is not visible' } } }
     },
+    '/api/v1/tasks/{taskId}/context': {
+      get: {
+        tags: ['Workspace'],
+        summary: 'Resolve current-access Project, Decision, Page and Email context for a visible Task',
+        description: 'Read-only inverse references. Each target is reauthorized by its canonical module at read time; a relation never grants access and inaccessible targets are omitted.',
+        responses: { '200': { description: 'Current-access Task context grouped by canonical resource type' }, '404': { description: 'Task is not visible' } }
+      }
+    },
     '/api/v1/tasks/{taskId}/transitions': {
       post: {
         tags: ['Workspace'],
