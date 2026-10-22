@@ -1730,7 +1730,7 @@ function projectProgress(project){
         'Индекс 0–100 — управленческий сигнал по видимым активным задачам, а не вероятность успеха. Штраф: просрочка 30%, блокировки/зависимости 25%, прогноз позже обещания 20%, задачи без срока 10%, приёмка без доказательств 5%, выход за целевую дату проекта 10%.',
         'The 0–100 index is a management signal over visible active Tasks, not a probability of success. Penalties: overdue 30%, blocks/dependencies 25%, forecast beyond promise 20%, unscheduled work 10%, review without evidence 5%, work beyond the project target 10%.'
       )}</p>
-      <p class="row-sub">${T('Область расчёта','Calculation scope')}: ${esc(h.scope||'visible_active_tasks_only')} · ${T('формула','formula')} ${esc(h.formulaVersion||'v1')} · ${T('снимок','snapshot')} ${esc(dateTime(h.asOf))}</p>
+      <p class="row-sub">${T('Принятый результат, ожидает закрытия','Accepted result, pending closure')}: ${Number(h.pendingClosureCount||0)} · ${T('область расчёта','calculation scope')}: ${esc(h.scope||'visible_active_tasks_only')} · ${T('формула','formula')} ${esc(h.formulaVersion||'v1')} · ${T('снимок','snapshot')} ${esc(dateTime(h.asOf))}</p>
     </details>
     <div class="project-kpi-strip"><span><small>${T('Время · 30 дней','Time · 30 days')}</small><strong class="mono">${formatDuration(Number(m.trackedSeconds||0))}</strong></span><span><small>${T('Закрыто · 30 дней','Closed · 30 days')}</small><strong class="mono">${Number(m.throughput30d||0)}</strong></span></div>
   </section>`;
