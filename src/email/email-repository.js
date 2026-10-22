@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { parseEmail, composeEmail, normalizeEmailAddresses, normalizeMessageId } from './email-mime.js';
 import { EMAIL_PROVIDER_PRESETS } from './email-provider.js';
 import { prepareEmailNotifications, insertEmailNotifications } from './email-notifications.js';
+import { summarizeEmailOperations } from './email-analytics.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACTIVE_SEND = new Set(['queued', 'scheduled', 'dispatching', 'unknown_outcome']);
@@ -392,6 +393,19 @@ class EmailRepository {
       const mailboxes = values(state.mailboxes).filter(row => this._role(state, actor, row)).map(row => this._mailboxView(state, actor, row));
       const threads = values(state.threads).filter(row => this._role(state, actor, state.mailboxes.get(row.mailboxId)) && !row.deletedAt).map(row => this._threadView(state, actor, row));
       const capability = kind => Boolean(this.linkResources[kind] && this.linkResources.capabilities?.[kind] !== false);
+      const accessibleMailboxIds = new Set(mailboxes.map(row => row.id));
+      const analyticsMessages = values(state.messages).filter(row => accessibleMailboxIds.has(row.mailboxId));
+      const analyticsWaiting = values(state.waiting).filter(row => accessibleMailboxIds.has(row.mailboxId));
+      const analyticsIntents = values(state.sendIntents).filter(intent => {
+        if (!accessibleMailboxIds.has(intent.mailboxId)) return false;
+        const role = this._role(state, actor, state.mailboxes.get(intent.mailboxId));
+        const draft = state.drafts.get(intent.draftId);
+        return role && role !== 'reader' && draft && (draft.shared || draft.authorId === actor.userId);
+      });
+      const operations = summarizeEmailOperations({
+        mailboxes, threads, messages: analyticsMessages, waiting: analyticsWaiting,
+        sendIntents: analyticsIntents, asOf: this.now(), days: 30,
+      });
       const providerList = typeof this.provider?.listProviders === 'function' ? this.provider.listProviders() : this.provider?.providers ?? Object.entries(EMAIL_PROVIDER_PRESETS).map(([key, value]) => ({ ...value, id: key, label: value.name, configured: Boolean(this.provider && this.secretBox?.configured && this.durable && value.supported !== false), capabilities: { read: value.supported !== false, send: value.supported !== false }, unavailableReason: value.supported === false ? 'Требуется подключение OAuth, оно пока не настроено' : (!this.durable || !this.secretBox?.configured ? 'Администратор должен настроить хранение и ключ шифрования' : null) }));
       return {
         capabilities: {
@@ -407,6 +421,7 @@ class EmailRepository {
         },
         providers: [{ id: 'local', label: 'Локальный архив EML', configured: true, capabilities: { read: false, send: false } }, ...await Promise.resolve(providerList)],
         mailboxes,
+        operations,
         summary: {
           inbox: threads.filter(row => !row.archived && (!row.snoozedUntil || Date.parse(row.snoozedUntil) <= Date.parse(this.now()))).length,
           unread: threads.filter(row => row.unread).length,
