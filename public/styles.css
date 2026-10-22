@@ -847,8 +847,8 @@ h4{font-size:15px;font-weight:700}
 .project-health-item.primary strong{font-size:27px}
 .project-health-item.primary .chip{align-self:flex-start}
 .project-health-method{margin:8px 0 13px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:10px 0}
-.project-health-method summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:650}
-.project-health-method p{font-size:12px;line-height:1.55;color:var(--muted);margin:9px 0 0}
+.project-health-method summary{cursor:pointer;color:var(--muted);font-size:13px;font-weight:600}
+.project-health-method p{font-size:13px;line-height:1.55;color:var(--muted);margin:9px 0 0}
 @media(max-width:980px){.module-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.project-health-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.project-health-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.project-health-item{padding:10px}.project-health-item.primary strong{font-size:21px}}
 
@@ -859,7 +859,7 @@ h4{font-size:15px;font-weight:700}
 .module-card:hover{background:var(--surface-2);border-color:#393c40}
 .module-icon{grid-row:1/3;width:34px;height:34px;margin:0;border-radius:var(--r-1)}
 .module-card>strong{grid-column:2;font-size:15px;line-height:1.3}
-.module-card>span:not(.module-icon){grid-column:2;margin:0;font-size:12px;line-height:1.35}
+.module-card>span:not(.module-icon){grid-column:2;margin:0;font-size:13px;line-height:1.35}
 .project-trend-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
 .project-trend-grid>article{min-width:0;padding:12px;border:1px solid var(--line);border-radius:var(--r-2);background:var(--surface-2)}
 .project-trend-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
