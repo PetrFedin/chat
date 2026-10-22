@@ -47,7 +47,7 @@ const summaryView = (row) => ({
 export function createWikiRepository(pool, projects = null, store = null, meeting = null, calendar = null, calls = null, features = null) {
   if (!pool) {
     const stop = () => { throw fail('Вики работает только с базой данных PostgreSQL', 'WIKI_UNAVAILABLE', 503); };
-    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, restore: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop, getAccess: stop, setVisibility: stop, grantAccess: stop, revokeAccess: stop, transferAccessOwner: stop, recoverAccessOwner: stop, listAccessRecovery: stop };
+    return { enabled: false, list: stop, get: stop, create: stop, update: stop, archive: stop, history: stop, restore: stop, search: stop, linkProject: stop, unlinkProject: stop, linkTask: stop, unlinkTask: stop, linkChannel: stop, unlinkChannel: stop, linkDecision: stop, unlinkDecision: stop, pagesForDecision: stop, pagesForTask: stop, linkCalendarMeeting: stop, unlinkCalendarMeeting: stop, linkCall: stop, unlinkCall: stop, getAccess: stop, setVisibility: stop, grantAccess: stop, revokeAccess: stop, transferAccessOwner: stop, recoverAccessOwner: stop, listAccessRecovery: stop };
   }
 
   const featureOn = async (session, id) => !features?.isEnabled || await features.isEnabled(session.workspaceId, id);
@@ -685,6 +685,23 @@ export function createWikiRepository(pool, projects = null, store = null, meetin
         throw error;
       } finally { client.release(); }
       return this.get(session, id);
+    },
+
+    async pagesForTask(session, taskId) {
+      if (!store?.getTask || !await featureOn(session, 'tasks')) return [];
+      const task = await store.getTask(session, taskId);
+      if (!task) throw fail('Задача не найдена', 'TASK_NOT_FOUND', 404);
+      const { rows } = await pool.query(
+        `SELECT p.${SUMMARY_COLUMNS}, l.linked_by "linkedBy", l.linked_at "linkedAt"
+           FROM wiki_page_tasks l
+           JOIN wiki_pages p ON p.workspace_id=l.workspace_id AND p.id=l.page_id
+          WHERE l.workspace_id=$1 AND l.commitment_id=$2 AND p.archived_at IS NULL
+          ORDER BY l.linked_at DESC,p.id
+          LIMIT 100`,
+        [session.workspaceId, taskId],
+      );
+      const visible = await visibleRows(session, rows);
+      return visible.map(row => ({ ...summaryView(row), linkedBy: row.linkedBy, linkedAt: row.linkedAt }));
     },
 
     async pagesForDecision(session, decisionId) {
