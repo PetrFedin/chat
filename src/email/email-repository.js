@@ -1326,24 +1326,32 @@ class EmailRepository {
       "SELECT id,organization_id \"organizationId\",workspace_id \"workspaceId\",actor_id \"userId\" FROM email_send_intents si WHERE ((status IN ('queued','scheduled') AND (data->>'scheduledAt')::timestamptz<=$1 AND NOT EXISTS(SELECT 1 FROM workspace_features wf WHERE wf.workspace_id=si.workspace_id AND wf.feature='email' AND wf.enabled=false)) OR (status='dispatching' AND (data->>'leaseUntil')::timestamptz<=$1)) AND ($3::uuid IS NULL OR si.workspace_id=$3) ORDER BY (data->>'createdAt') LIMIT $2",
       [now, Math.min(100, Math.max(1, Math.trunc(limit))), workspaceFilter],
     );
-    let processed = 0;
+    let processed = 0, failedOperations = 0;
     for (const row of rows) {
-      const claim = await this._claimSend(row, row.id);
-      if (!claim) continue;
-      this.metrics.dispatched++; processed++;
-      let result;
-      try { result = await this.provider.send(claim.config, claim.payload); }
-      catch { result = { status: 'unknown_outcome', errorCode: 'EMAIL_SEND_UNKNOWN' }; }
-      await this._finishSend(claim, result);
+      try {
+        const claim = await this._claimSend(row, row.id);
+        if (!claim) continue;
+        this.metrics.dispatched++; processed++;
+        let result;
+        try { result = await this.provider.send(claim.config, claim.payload); }
+        catch { result = { status: 'unknown_outcome', errorCode: 'EMAIL_SEND_UNKNOWN' }; }
+        await this._finishSend(claim, result);
+      } catch {
+        // One unavailable record/workspace must not suppress unrelated queued
+        // mail. Never retry SMTP here: if outcome persistence failed, the
+        // durable dispatch lease is later recovered as unknown_outcome.
+        failedOperations++;
+      }
     }
-    return { processed };
+    return { processed, ...(failedOperations ? { failedOperations, errorCode: 'EMAIL_OUTBOX_PARTIAL_FAILURE' } : {}) };
   }
 
-  async processSync({ limit = 2, intervalMs = 60000 } = {}) {
+  async processSync({ limit = 2, intervalMs = 60000, workspaceId = null } = {}) {
+    const workspaceFilter = workspaceId === null ? null : id(workspaceId);
     if (!this.pool || !this.provider || !this.secretBox?.configured) return { processed: 0 };
     const { rows } = await this.pool.query(
-      "SELECT mb.id,mb.organization_id \"organizationId\",mb.workspace_id \"workspaceId\",mb.owner_id \"userId\" FROM email_mailboxes mb JOIN memberships wm ON wm.workspace_id=mb.workspace_id AND wm.user_id=mb.owner_id JOIN users u ON u.id=wm.user_id WHERE mb.deleted_at IS NULL AND mb.data->>'connectionState'='connected' AND COALESCE((mb.data->>'paused')::boolean,false)=false AND wm.role<>'guest' AND u.disabled_at IS NULL AND (wm.access_until IS NULL OR wm.access_until>now()) AND NOT EXISTS(SELECT 1 FROM workspace_features wf WHERE wf.workspace_id=mb.workspace_id AND wf.feature='email' AND wf.enabled=false) AND (COALESCE(mb.data->>'lastSyncAttemptAt',mb.data->>'lastSyncedAt') IS NULL OR COALESCE(mb.data->>'lastSyncAttemptAt',mb.data->>'lastSyncedAt')::timestamptz<$1 OR ((mb.data->>'syncHasMore')::boolean=true AND mb.data->>'lastSyncError' IS NULL)) ORDER BY COALESCE(mb.data->>'lastSyncAttemptAt',mb.data->>'lastSyncedAt','') LIMIT $2",
-      [new Date(Date.parse(this.now()) - Math.max(1000, intervalMs)).toISOString(), Math.min(10, Math.max(1, Math.trunc(limit)))],
+      "SELECT mb.id,mb.organization_id \"organizationId\",mb.workspace_id \"workspaceId\",mb.owner_id \"userId\" FROM email_mailboxes mb JOIN memberships wm ON wm.workspace_id=mb.workspace_id AND wm.user_id=mb.owner_id JOIN users u ON u.id=wm.user_id WHERE mb.deleted_at IS NULL AND mb.data->>'connectionState'='connected' AND COALESCE((mb.data->>'paused')::boolean,false)=false AND wm.role<>'guest' AND u.disabled_at IS NULL AND (wm.access_until IS NULL OR wm.access_until>now()) AND NOT EXISTS(SELECT 1 FROM workspace_features wf WHERE wf.workspace_id=mb.workspace_id AND wf.feature='email' AND wf.enabled=false) AND (COALESCE(mb.data->>'lastSyncAttemptAt',mb.data->>'lastSyncedAt') IS NULL OR COALESCE(mb.data->>'lastSyncAttemptAt',mb.data->>'lastSyncedAt')::timestamptz<$1 OR ((mb.data->>'syncHasMore')::boolean=true AND mb.data->>'lastSyncError' IS NULL)) AND ($3::uuid IS NULL OR mb.workspace_id=$3) ORDER BY COALESCE(mb.data->>'lastSyncAttemptAt',mb.data->>'lastSyncedAt',''),mb.id LIMIT $2",
+      [new Date(Date.parse(this.now()) - Math.max(1000, intervalMs)).toISOString(), Math.min(10, Math.max(1, Math.trunc(limit))), workspaceFilter],
     );
     let processed = 0;
     for (const row of rows) {

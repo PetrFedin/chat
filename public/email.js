@@ -1104,12 +1104,39 @@ async function openMailboxSettings(id) {
 
 function settingsPreferences() {
   const prefs = E.preferences || {};
-  return `<form class="cx-email-form" data-email-preferences-form>${textField('signature',tr('Личная подпись','Personal signature'),{value:prefs.signature || '',textarea:true,hint:tr('Добавляется в письмо только вашей командой «Подпись».','Inserted only when you choose Signature.')})}<label class="cx-email-field"><span>${tr('Язык интерфейса','Interface language')}</span><select name="language"><option value="ru" ${window.ChatPreferences?.locale !== 'en' ? 'selected' : ''}>Русский</option><option value="en" ${window.ChatPreferences?.locale === 'en' ? 'selected' : ''}>English</option></select></label><fieldset><legend>${tr('Уведомления','Notifications')}</legend>${[['reply',tr('Новый внешний ответ','New external reply')],['assignment',tr('Мне назначили переписку','Conversation assigned to me')],['waiting',tr('Подошёл срок внешнего ответа','External reply is due')],['sendFailure',tr('Ошибка или неопределённость отправки','Send failure or unknown outcome')]].map(([id,title]) => `<label class="cx-email-check"><input type="checkbox" name="${id}" ${prefs.notifications?.[id] !== false ? 'checked' : ''}><span>${title}</span></label>`).join('')}</fieldset><label class="cx-email-check"><input type="checkbox" name="localRecovery" ${recoveryEnabled() ? 'checked' : ''}><span>${tr('Сохранять незавершённые письма на этом устройстве до 24 часов','Keep unfinished email on this device for up to 24 hours')}</span></label><p class="cx-email-caption">${tr('По умолчанию письма и черновики находятся только в памяти открытой вкладки. При включении восстановления на устройстве сохраняются текст черновика и адресаты. Выход из аккаунта удаляет локальную копию; восстановление никогда не отправляет письмо.','By default, email and unfinished drafts remain only in the open tab’s memory. Recovery stores draft text and recipients on this device. Signing out removes the local copy; recovery never sends email.')}</p><button type="submit" class="cx-email-button is-primary">${tr('Сохранить','Save')}</button></form>`;
+  const notifications = prefs.notifications || {};
+  return `<form class="cx-email-form" data-email-preferences-form>
+    <fieldset class="cx-email-notification-settings" data-email-notification-settings>
+      <legend>${tr('Уведомления о почте','Email notifications')}</legend>
+      <label class="cx-email-check"><input type="checkbox" name="notificationsEnabled" aria-describedby="cx-email-notification-scope" ${notifications.enabled !== false ? 'checked' : ''}><span>${tr('Получать уведомления о почте в ChatX','Receive email notifications in ChatX')}</span></label>
+      <p class="cx-email-caption" id="cx-email-notification-scope">${tr('Для вас в этом рабочем пространстве. Изменения действуют после сохранения; уже полученные уведомления останутся в списке.','For you in this workspace. Changes take effect after saving; existing notifications stay in your inbox.')}</p>
+      <div class="cx-email-notification-options" data-email-notification-options>
+        <label class="cx-email-field"><span>${tr('Новые письма в общих ящиках','New email in shared mailboxes')}</span><select name="notificationsFocus" aria-describedby="cx-email-notification-focus-hint"><option value="all" ${notifications.focus !== 'assigned' ? 'selected' : ''}>${tr('Во всех доступных мне переписках','In all conversations I can access')}</option><option value="assigned" ${notifications.focus === 'assigned' ? 'selected' : ''}>${tr('Только в назначенных мне','Only in conversations assigned to me')}</option></select></label>
+        <p class="cx-email-caption" id="cx-email-notification-focus-hint">${tr('Фильтр относится к новым письмам в общих ящиках. Личные письма и выбранные уведомления о назначениях, сроках и отправке приходят независимо от него.','This filter applies to new email in shared mailboxes. Personal email and the selected assignment, due-date and sending notifications are unaffected.')}</p>
+        <div class="cx-email-checkbox-list" role="group" aria-label="${esc(tr('Типы уведомлений','Notification types'))}">${[['reply',tr('Новое входящее письмо','New incoming email')],['assignment',tr('Мне назначили переписку','Conversation assigned to me')],['waiting',tr('Подошёл срок внешнего ответа','External reply is due')],['sendFailure',tr('Ошибка или неопределённость отправки','Send failure or unknown outcome')]].map(([id,title]) => `<label class="cx-email-check"><input type="checkbox" name="${id}" ${notifications[id] !== false ? 'checked' : ''}><span>${title}</span></label>`).join('')}</div>
+      </div>
+      <p class="cx-email-caption" data-email-notifications-paused ${notifications.enabled !== false ? 'hidden' : ''}>${tr('Новые уведомления о почте будут выключены. Выбранные типы и фильтр сохранятся.','New email notifications will be turned off. Your selected types and filter will be kept.')}</p>
+    </fieldset>
+    ${textField('signature',tr('Личная подпись','Personal signature'),{value:prefs.signature || '',textarea:true,hint:tr('Добавляется в письмо только вашей командой «Подпись».','Inserted only when you choose Signature.')})}
+    <label class="cx-email-field"><span>${tr('Язык интерфейса','Interface language')}</span><select name="language"><option value="ru" ${window.ChatPreferences?.locale !== 'en' ? 'selected' : ''}>Русский</option><option value="en" ${window.ChatPreferences?.locale === 'en' ? 'selected' : ''}>English</option></select></label>
+    <label class="cx-email-check"><input type="checkbox" name="localRecovery" ${recoveryEnabled() ? 'checked' : ''}><span>${tr('Сохранять незавершённые письма на этом устройстве до 24 часов','Keep unfinished email on this device for up to 24 hours')}</span></label><p class="cx-email-caption">${tr('По умолчанию письма и черновики находятся только в памяти открытой вкладки. При включении восстановления на устройстве сохраняются текст черновика и адресаты. Выход из аккаунта удаляет локальную копию; восстановление никогда не отправляет письмо.','By default, email and unfinished drafts remain only in the open tab’s memory. Recovery stores draft text and recipients on this device. Signing out removes the local copy; recovery never sends email.')}</p><button type="submit" class="cx-email-button is-primary">${tr('Сохранить','Save')}</button></form>`;
 }
 
 function bindPreferenceSettings(root) {
-  bindForm(root.querySelector('[data-email-preferences-form]'),async data => {
-    const preferences = {signature:data.get('signature'),language:data.get('language'),notifications:Object.fromEntries(['reply','assignment','waiting','sendFailure'].map(name => [name,data.has(name)]))};
+  const form = root.querySelector('[data-email-preferences-form]');
+  const syncNotificationControls = () => {
+    const enabled = form.elements.notificationsEnabled.checked;
+    form.querySelectorAll('[data-email-notification-options] input, [data-email-notification-options] select').forEach(control => { control.disabled = !enabled; });
+    form.querySelector('[data-email-notifications-paused]').hidden = enabled;
+    form.querySelector('[data-email-notification-options]').classList.toggle('is-paused',!enabled);
+  };
+  form.elements.notificationsEnabled.addEventListener('change',syncNotificationControls);
+  syncNotificationControls();
+  bindForm(form,async data => {
+    // Disabled controls are omitted by FormData. Read their retained values so
+    // muting email never clears the user's selected types or shared-mail filter.
+    const notifications = {...Object.fromEntries(['reply','assignment','waiting','sendFailure'].map(name => [name,form.elements[name].checked])),enabled:form.elements.notificationsEnabled.checked,focus:form.elements.notificationsFocus.value};
+    const preferences = {signature:data.get('signature'),language:data.get('language'),notifications};
     const result = await api('/preferences',{method:'PUT',body:preferences});
     E.preferences = result.preferences || preferences;
     setRecoveryEnabled(data.has('localRecovery'));

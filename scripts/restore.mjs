@@ -37,6 +37,74 @@ function run(command, args, { capture = false } = {}) {
   });
 }
 
+// A database snapshot cannot know whether SMTP accepted a queued message after
+// that snapshot was taken. Keep the original intent and evidence, but require a
+// human to reconcile it with Sent before any further decision about sending.
+const EMAIL_RESTORE_GUARD = `
+DO $chatx_email_restore$
+DECLARE held bigint;
+BEGIN
+  IF to_regclass('public.email_send_intents') IS NULL THEN RETURN; END IF;
+  UPDATE public.email_send_intents
+  SET status='unknown_outcome',
+      data=data || jsonb_build_object(
+        'status','unknown_outcome',
+        'lastError','EMAIL_BACKUP_RESTORED',
+        'restoredFromStatus',status,
+        'restoredAt',clock_timestamp(),
+        'updatedAt',clock_timestamp(),
+        'version',COALESCE((data->>'version')::integer,1)+1,
+        'leaseToken',NULL,
+        'leaseUntil',NULL
+      )
+  WHERE status IN ('queued','scheduled','dispatching');
+  GET DIAGNOSTICS held = ROW_COUNT;
+  RAISE NOTICE 'Email outbox: % restored intent(s) held for explicit Sent reconciliation; automatic resend is disabled.', held;
+END
+$chatx_email_restore$;
+`;
+
+/** Restore and quarantine commit together; neither producer nor SQL failure can expose an active restored queue. */
+async function restoreDatabase(target, dumpPath) {
+  return new Promise((done, fail) => {
+    // Stream the archive directly: a second unencrypted SQL file is unnecessary.
+    const producer = spawn('pg_restore', ['--no-owner', '--no-privileges', '--clean', '--if-exists', '--file=-', dumpPath], { stdio: ['ignore', 'pipe', 'inherit'] });
+    const consumer = spawn('psql', ['--no-psqlrc', '--quiet', '--set=ON_ERROR_STOP=1', '--file=-', '--dbname', target], { stdio: ['pipe', 'inherit', 'inherit'] });
+    let producerClosed = false, consumerClosed = false, failure = null;
+    const finish = () => {
+      if (producerClosed && consumerClosed) failure ? fail(failure) : done();
+    };
+    const abort = error => {
+      failure ??= error;
+      producer.stdout.unpipe(consumer.stdin);
+      producer.kill('SIGTERM');
+      consumer.kill('SIGTERM');
+      consumer.stdin.destroy();
+      finish();
+    };
+    const spawnFailure = (command, error) => abort(error.code === 'ENOENT' ? new Error(`${command} не найден. Установите клиент PostgreSQL.`) : error);
+    producer.on('error', error => spawnFailure('pg_restore', error));
+    consumer.on('error', error => spawnFailure('psql', error));
+    consumer.stdin.on('error', error => abort(error));
+    // psql --single-transaction commits on EOF, including when this controller
+    // crashes. Explicit BEGIN keeps an unexpected EOF fail-closed instead.
+    consumer.stdin.write('BEGIN;\n');
+    producer.stdout.pipe(consumer.stdin, { end: false });
+    producer.on('close', code => {
+      producerClosed = true;
+      if (code !== 0) abort(new Error(`pg_restore завершился с кодом ${code}; восстановление отменено`));
+      else if (!failure) consumer.stdin.end('\n' + EMAIL_RESTORE_GUARD + '\nCOMMIT;\n');
+      finish();
+    });
+    consumer.on('close', code => {
+      consumerClosed = true;
+      if (code !== 0) abort(new Error(`psql завершился с кодом ${code}; восстановление отменено`));
+      else if (!producerClosed) abort(new Error('psql завершился до окончания архива; восстановление отменено'));
+      finish();
+    });
+  });
+}
+
 const sha256 = (path) => new Promise((done, fail) => {
   const hash = createHash('sha256');
   createReadStream(path).on('data', (chunk) => hash.update(chunk)).on('error', fail)
@@ -110,7 +178,7 @@ async function main() {
   }
 
   try {
-    await run('pg_restore', ['--no-owner', '--no-privileges', '--clean', '--if-exists', '--dbname', target, dumpPath]);
+    await restoreDatabase(target, dumpPath);
     const restored = await counts(target);
     console.log('Восстановлено:');
     for (const table of COUNTED) console.log(`  ${table}: ${restored[table] ?? 0}`);
