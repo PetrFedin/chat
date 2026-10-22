@@ -1,4 +1,4 @@
-const ACTIVE_TASK=new Set(['proposed','accepted','scheduled','in_progress','blocked','in_review','deferred','clarify','inbox']);
+const ACTIVE_TASK=new Set(['proposed','accepted','scheduled','in_progress','blocked','in_review','accepted_result','deferred','clarify','inbox']);
 const DROPPED_TASK=new Set(['cancelled','rejected']);
 
 const finiteDate=value=>{
