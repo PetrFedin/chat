@@ -322,10 +322,10 @@ function renderSidebar() {
 
 function renderList() {
   const listHeading = E.folder === 'drafts' ? tr('Черновики','Drafts') : E.folder === 'outbox' ? tr('Очередь отправки','Outbox') : E.query ? tr('Результаты поиска','Search results') : tr('Переписка','Conversations');
-  return `<div class="cx-email-list-toolbar"><div class="cx-email-section-heading"><h2>${listHeading}</h2>${button('settings',tr('Ящики','Mailboxes'),'','is-mobile-settings')}</div>
+  return `<div class="cx-email-list-toolbar"><div class="cx-email-section-heading"><h2>${listHeading}</h2><div class="cx-email-actions">${button('analytics',tr('Контроль','Operations'))}${button('settings',tr('Ящики','Mailboxes'),'','is-mobile-settings')}</div></div>
     <form class="cx-email-search" data-email-search><label class="cx-email-sr-only" for="cx-email-search">${tr('Поиск по почте','Search email')}</label><input id="cx-email-search" data-email-field="search" name="q" type="search" value="${esc(E.query)}" placeholder="${esc(tr('Поиск писем и адресов','Search email and addresses'))}"><button type="submit" class="cx-email-button">${tr('Найти','Search')}</button></form>
     ${!['drafts','outbox'].includes(E.folder) ? `<div class="cx-email-view-tabs"><button type="button" data-email-action="threads-view" aria-pressed="${!E.peopleView}">${tr('По темам','By topic')}</button><button type="button" data-email-action="people-view" aria-pressed="${E.peopleView}">${tr('Люди в выборке','People in this selection')}</button></div>` : ''}
-    <div class="cx-email-mobile-tools">${button('new',tr('Написать','Compose'),disabled(!arr(E.boot?.mailboxes).length),'is-primary')}${button('filters',tr('Папки и ящики','Folders and mailboxes'))}${button('refresh',tr('Обновить','Refresh'))}</div>
+    <div class="cx-email-mobile-tools">${button('new',tr('Написать','Compose'),disabled(!arr(E.boot?.mailboxes).length),'is-primary')}${button('analytics',tr('Контроль','Operations'))}${button('filters',tr('Папки и ящики','Folders and mailboxes'))}${button('refresh',tr('Обновить','Refresh'))}</div>
     ${offline() ? `<p class="cx-email-notice" role="status">${tr('Нет сети. На экране сохранённая в этой вкладке копия.','Offline. You are viewing the copy kept in this tab.')}</p>` : ''}${renderRecovery()}
     ${E.boot?.capabilities?.mode === 'demo' || E.boot?.capabilities?.durable === false ? `<p class="cx-email-notice">${tr('Данные этого окружения временные.','Data in this environment is temporary.')}</p>` : ''}
   </div>
@@ -543,7 +543,7 @@ function onClick(event) {
   if (!action) return;
   event.preventDefault();
   const actions = {
-    settings:openSettings, filters:openFilters, new:() => openComposer('external', false),
+    settings:openSettings, analytics:openAnalytics, filters:openFilters, new:() => openComposer('external', false),
     refresh, 'load-more':() => loadThreads({append:true}),
     'threads-view':() => { E.peopleView = false; render(); }, 'people-view':() => { E.peopleView = true; render(); },
     back:() => { captureComposer(); E.selected = null; E.detail = null; E.compose = null; E.detailError = ''; E.activeIntentId = null; try { history.replaceState(null,'','#/chats/email'); } catch {} render(); },
@@ -1000,6 +1000,49 @@ async function cancelSend(id) {
   const intent = E.intents.get(id); if (!intent) return;
   const result = await api(`/send-intents/${idPath(id)}/cancel`,{method:'POST',body:{expectedVersion:intent.version}});
   if (result.sendIntent) E.intents.set(id,result.sendIntent); render();
+}
+
+function emailAnalyticsDuration(value){
+  if(value===null||value===undefined||!Number.isFinite(Number(value)))return '—';
+  const minutes=Math.max(0,Math.round(Number(value)));
+  if(minutes<60)return tr(`${minutes} мин`,`${minutes} min`);
+  const hours=Math.floor(minutes/60),rest=minutes%60;
+  return rest?tr(`${hours} ч ${rest} мин`,`${hours}h ${rest}m`):tr(`${hours} ч`,`${hours}h`);
+}
+
+function openAnalytics(){
+  const o=E.boot?.operations;
+  if(!o){
+    sheet(tr('Контроль коммуникаций','Communication operations'),`<p class="cx-email-empty">${tr('Операционный снимок пока недоступен. Обновите почту после обновления сервера.','The operational snapshot is not available yet. Refresh email after the server is updated.')}</p>`);
+    return;
+  }
+  const coverage=o.responseCoveragePercent===null||o.responseCoveragePercent===undefined?'—':`${o.responseCoveragePercent}%`;
+  sheet(tr('Контроль коммуникаций','Communication operations'),`
+    <p class="cx-email-caption">${tr('Только доступные вам сейчас ящики. Непрочитанное, выполнение задач и доставка письма считаются отдельно.','Only mailboxes you can access now. Unread state, Task completion and email delivery are separate signals.')}</p>
+    <div class="cx-email-analytics-grid">
+      <article><small>${tr('Входящие · 30 дней','Incoming · 30 days')}</small><strong class="mono">${Number(o.incomingCount||0)}</strong></article>
+      <article><small>${tr('Требуют ответа сейчас','Need a reply now')}</small><strong class="mono">${Number(o.needsReplyCount||0)}</strong></article>
+      <article><small>${tr('Без ответственного · общий ящик','Unassigned · shared mailbox')}</small><strong class="mono">${Number(o.unassignedSharedCount||0)}</strong></article>
+      <article><small>${tr('Просрочены внешние ожидания','Overdue external waits')}</small><strong class="mono">${Number(o.overdueWaitingCount||0)}</strong></article>
+      <article><small>${tr('Отправки требуют проверки','Sends needing review')}</small><strong class="mono">${Number(o.sendAttentionCount||0)}</strong></article>
+      <article><small>${tr('Ответ получили в окне','Response coverage')}</small><strong class="mono">${esc(coverage)}</strong></article>
+      <article><small>${tr('Медиана первого ответа','Median first response')}</small><strong class="mono">${esc(emailAnalyticsDuration(o.medianFirstResponseMinutes))}</strong></article>
+      <article><small>P75 ${tr('первого ответа','first response')}</small><strong class="mono">${esc(emailAnalyticsDuration(o.p75FirstResponseMinutes))}</strong></article>
+    </div>
+    <section class="cx-email-analytics-method">
+      <h3>${tr('Как считаем','Definitions')}</h3>
+      <p>${tr('«Требует ответа» — последняя видимая запись темы является входящим письмом; архивированные и отложенные до будущего темы исключены.','“Need a reply” means the latest visible item in a thread is inbound; archived and future-snoozed threads are excluded.')}</p>
+      <p>${tr('Время первого ответа — от первого входящего письма темы в 30-дневном окне до первого исходящего после него. Темы без ответа остаются в покрытии, но не входят в медиану/P75.','First-response time runs from the first inbound email in the 30-day window to the first outbound after it. Unanswered threads stay in coverage but are excluded from median/P75.')}</p>
+      <p class="cx-email-caption">${tr('Кандидатов на измерение','Response candidates')}: ${Number(o.responseCandidates||0)} · ${tr('с ответом','responded')}: ${Number(o.respondedThreads||0)} · ${tr('активных ожиданий','active waits')}: ${Number(o.activeWaitingCount||0)}</p>
+      <p class="cx-email-caption">${tr('Область','Scope')}: ${esc(o.scope)} · ${tr('формула','formula')} ${esc(o.formulaVersion)} · ${tr('снимок','snapshot')} ${esc(dateText(o.asOf))}</p>
+    </section>
+    <div class="cx-email-actions">${button('analytics-refresh',tr('Обновить снимок','Refresh snapshot'))}</div>
+  `,root=>{
+    root.querySelector('[data-email-action="analytics-refresh"]')?.addEventListener('click',async event=>{
+      event.currentTarget.disabled=true;
+      try{await reloadBootstrap();openAnalytics();render()}catch(error){report(error);event.currentTarget.disabled=false}
+    });
+  },{wide:true});
 }
 
 async function openSettings(tab = 'connections') {
