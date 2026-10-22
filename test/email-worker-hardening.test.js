@@ -54,3 +54,27 @@ test('email notification mute keeps selected types and shared-mail focus',async(
   assert.equal(read.preferences.notifications.focus,'assigned');
   assert.equal(read.preferences.notifications.assignment,true);
 });
+
+
+test('email bootstrap exposes the operational snapshot for currently accessible mailboxes',async()=>{
+  const email=createEmailRepository({demo:true});
+  const session={organizationId:randomUUID(),workspaceId:randomUUID(),userId:randomUUID(),role:'owner'};
+  const mailbox=(await email.createMailbox(session,{providerId:'local',kind:'personal',address:'owner@example.test'})).mailbox;
+  const raw=[
+    'From: Supplier <supplier@example.test>',
+    'To: Owner <owner@example.test>',
+    'Subject: Operational snapshot',
+    'Message-ID: <'+randomUUID()+'@example.test>',
+    'Date: '+new Date().toUTCString(),
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    'Please review the delivery window.',
+  ].join('\r\n');
+  await email.importMessage(session,mailbox.id,{raw});
+  const boot=await email.bootstrap(session);
+  assert.equal(boot.operations.scope,'current_accessible_mailboxes_only');
+  assert.equal(boot.operations.incomingCount,1);
+  assert.equal(boot.operations.needsReplyCount,1);
+  assert.equal(boot.operations.responseCandidates,1);
+  assert.equal(boot.operations.respondedThreads,0);
+});
