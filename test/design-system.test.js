@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), 'utf8');
 const SHEETS = ['public/styles.css', 'public/daily-work.css', 'public/meeting-intelligence.css',
-  'public/calls.css', 'public/preferences.css'];
+  'public/calls.css', 'public/preferences.css', 'public/email.css'];
 
 // Нажатие подтверждается в момент нажатия, а не тем, что экран потом
 // меняется. Раньше это умели только элементы с классом .pressable.
