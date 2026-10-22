@@ -9,7 +9,7 @@ test('task context is a read-only current-access composition of canonical module
   const wiki=await readFile(new URL('../src/wiki/wiki-repository.js',import.meta.url),'utf8');
   const decisions=await readFile(new URL('../src/decisions/decision-task-links.js',import.meta.url),'utf8');
 
-  assert.match(workspace,/tasks\/\$\{TASK_ID\}\/context/);
+  assert.match(workspace,/TASK_ID\+'\/context\$'/);
   assert.match(workspace,/scope:'current_access_only'/);
   assert.match(workspace,/projectsForTask/);
   assert.match(workspace,/pagesForTask/);
