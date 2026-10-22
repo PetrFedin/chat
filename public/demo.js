@@ -1,9 +1,10 @@
 const access = document.getElementById('demo-access');
 const button = document.getElementById('demo-login');
 const errorNode = document.getElementById('auth-error');
+const previewMode = new URLSearchParams(location.search).get('preview') === '1';
 
 async function checkDemo() {
-  if (!access || !button || new URLSearchParams(location.search).has('invite')) return;
+  if (!previewMode || !access || !button || new URLSearchParams(location.search).has('invite')) return;
   try {
     const response = await fetch('/api/v1/demo', { credentials: 'same-origin' });
     if (!response.ok) return;
@@ -15,7 +16,7 @@ async function checkDemo() {
 button?.addEventListener('click', async () => {
   const original = button.textContent;
   button.disabled = true;
-  button.textContent = 'Открываем демо…';
+  button.textContent = 'Открываем пространство…';
   if (errorNode) errorNode.textContent = '';
   try {
     const response = await fetch('/api/v1/auth/demo', {
@@ -25,7 +26,7 @@ button?.addEventListener('click', async () => {
       body: '{}',
     });
     const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload?.error?.message || 'Не удалось открыть демо');
+    if (!response.ok) throw new Error(payload?.error?.message || 'Не удалось открыть презентационное пространство');
     location.assign('/');
   } catch (error) {
     button.disabled = false;
