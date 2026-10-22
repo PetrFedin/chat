@@ -325,6 +325,28 @@ export function createProjectRepository({pool,store,meeting,features}={}){
       return rows.map(row=>({type:'project',...row}));
     },
 
+    async projectsForTask(session,taskId){
+      const task=await store.getTask(session,taskId);
+      if(!task)throw fail('Task not found','TASK_NOT_FOUND',404);
+      const {rows}=await pool.query(
+        `SELECT project_id "projectId",linked_by "linkedBy",linked_at "linkedAt"
+           FROM project_tasks
+          WHERE workspace_id=$1 AND commitment_id=$2
+          ORDER BY linked_at DESC,project_id
+          LIMIT 20`,
+        [session.workspaceId,taskId],
+      );
+      const projected=await Promise.all(rows.map(async link=>{
+        const project=await row(session,link.projectId);
+        return project?{
+          id:project.id,name:project.name,status:project.status,visibility:project.visibility,
+          ownerId:project.ownerId,targetAt:project.targetAt??null,
+          linkedBy:link.linkedBy,linkedAt:link.linkedAt,
+        }:null;
+      }));
+      return projected.filter(Boolean);
+    },
+
     async list(session,{includeArchived=false}={}){
       const{rows}=await pool.query(
         `SELECT p.id,p.name,p.goal,p.status,p.visibility,p.owner_id "ownerId",p.start_at "startAt",p.target_at "targetAt",
