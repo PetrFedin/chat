@@ -7284,7 +7284,6 @@ function taskDetailModal(task){
     <div><div class="section-title">Метки <button class="text-button" data-task-labels data-skip-autofocus>изменить</button></div>
       <div class="person-chips" data-task-label-slot><span class="muted">загружаем…</span></div></div>
     ${task.sourceMessageId?`<div class="row"><span><div class="section-title">Из сообщения</div><div class="row-sub">Обсуждение, из которого выросла эта задача</div></span><button class="button small secondary pressable" data-task-source="${esc(task.sourceMessageId)}">Открыть</button></div>`:''}
-    ${emailSourcesSlot('task',task.id)}
     ${taskContextSlot(task.id)}
     <div class="surface"><div class="section-title">Ожидаемый результат</div><p class="muted">${task.outcome?esc(task.outcome):'Не задан. Пока его нет, «сделано» решается спором, а не проверкой.'}</p><div class="row-sub"><span>Ответственный:</span> ${esc(name(task.ownerId))} <span>· Принимает:</span> ${esc(name(task.acceptorId))} <span>· Поставил:</span> ${esc(name(task.requesterId))}</div></div>
     <div><div class="section-title">Время</div><div id="task-time-slot"><span class="muted">загружаем…</span></div></div>
