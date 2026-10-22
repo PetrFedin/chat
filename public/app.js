@@ -989,10 +989,12 @@ function todayEmailSection(){
 function loadTodayEmail(){
   const slot=$('[data-today-email]');if(!slot)return;
   slot.querySelector('[data-open-today-email]').onclick=()=>openEmailThread();
-  api('/api/v1/email/bootstrap').then(({summary={},mailboxes=[]})=>{
+  api('/api/v1/email/bootstrap').then(({summary={},operations={},mailboxes=[]})=>{
     if(!slot.isConnected)return;
     const body=slot.querySelector('[data-email-summary]');
-    body.innerHTML=mailboxes.length?`${T('Непрочитанные','Unread')}: <strong>${Number(summary.unread)||0}</strong> · ${T('Черновики','Drafts')}: <strong>${Number(summary.drafts)||0}</strong> · ${T('Ждём ответа','Waiting')}: <strong>${Number(summary.waiting)||0}</strong>`:T('Подключите почтовый ящик, чтобы читать письма и отвечать здесь.','Connect a mailbox to read and reply here.');
+    body.innerHTML=mailboxes.length
+      ?`${T('Нужно ответить','Need reply')}: <strong>${Number(operations.needsReplyCount)||0}</strong> · ${T('Просрочено ожиданий','Overdue waits')}: <strong>${Number(operations.overdueWaitingCount)||0}</strong> · ${T('Проверить отправки','Review sends')}: <strong>${Number(operations.sendAttentionCount)||0}</strong>${Number(operations.unassignedSharedCount)?` · ${T('Без ответственного','Unassigned')}: <strong>${Number(operations.unassignedSharedCount)}</strong>`:''}<br><span class="row-sub">${T('Непрочитанные','Unread')}: ${Number(summary.unread)||0} · ${T('Черновики','Drafts')}: ${Number(summary.drafts)||0}</span>`
+      :T('Подключите почтовый ящик, чтобы читать письма и отвечать здесь.','Connect a mailbox to read and reply here.');
   }).catch(()=>{if(slot.isConnected)slot.querySelector('[data-email-summary]').textContent=T('Сводка временно недоступна. Откройте почту, чтобы повторить.','Summary is temporarily unavailable. Open email to retry.');});
 }
 async function openEmailThread(id=null,{silent=false,settings=false,messageId=null}={}){
