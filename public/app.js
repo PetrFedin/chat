@@ -1693,6 +1693,44 @@ function projectProgress(project){
     <div class="project-kpi-strip"><span><small>${T('Время · 30 дней','Time · 30 days')}</small><strong class="mono">${formatDuration(Number(m.trackedSeconds||0))}</strong></span><span><small>${T('Закрыто · 30 дней','Closed · 30 days')}</small><strong class="mono">${Number(m.throughput30d||0)}</strong></span></div>
   </section>`;
 }
+function projectTrend(project){
+  const analytics=project.analytics||{};
+  const timeRows=Array.isArray(analytics.time30d)?analytics.time30d:[];
+  const closedRows=Array.isArray(analytics.closed30d)?analytics.closed30d:[];
+  const tail=(rows,count,offset=0)=>rows.slice(Math.max(0,rows.length-count-offset),Math.max(0,rows.length-offset));
+  const sum=(rows,key)=>rows.reduce((total,row)=>total+Number(row?.[key]||0),0);
+  const time7=sum(tail(timeRows,7),'seconds'),timePrev7=sum(tail(timeRows,7,7),'seconds');
+  const closed7=sum(tail(closedRows,7),'closed'),closedPrev7=sum(tail(closedRows,7,7),'closed');
+  const delta=(current,previous,format)=>current===previous
+    ?T('без изменения','no change')
+    :`${current>previous?'+':'−'}${format(Math.abs(current-previous))}`;
+  const bars=(rows,key,format)=>{
+    const values=rows.map(row=>Number(row?.[key]||0));
+    const max=Math.max(1,...values);
+    return `<div class="project-trend-bars" role="img" aria-label="${esc(T('Динамика за 30 дней','30-day trend'))}">${rows.map((row,index)=>{
+      const value=values[index];
+      const height=value?Math.max(8,Math.round(value/max*100)):3;
+      const label=`${String(row.date||'').slice(0,10)} · ${format(value)}`;
+      return `<span style="--trend-height:${height}%" title="${esc(label)}" aria-label="${esc(label)}"></span>`;
+    }).join('')}</div>`;
+  };
+  return `<section class="surface project-trends">
+    <div class="section-head"><div><h3>${T('Динамика исполнения','Execution trend')}</h3><p class="muted">${T('Фактические события за 30 дней; сравнение последних 7 дней с предыдущими 7','Actual events over 30 days; last 7 days compared with the previous 7')}</p></div></div>
+    <div class="project-trend-grid">
+      <article>
+        <div class="project-trend-head"><span><small>${T('Учтённое время · 7 дней','Tracked time · 7 days')}</small><strong class="mono">${formatDuration(time7)}</strong></span><span class="chip">${esc(delta(time7,timePrev7,value=>formatDuration(value)))}</span></div>
+        ${bars(timeRows,'seconds',value=>formatDuration(value))}
+        <p class="row-sub">${T('Предыдущие 7 дней','Previous 7 days')}: ${formatDuration(timePrev7)}</p>
+      </article>
+      <article>
+        <div class="project-trend-head"><span><small>${T('Закрыто задач · 7 дней','Tasks closed · 7 days')}</small><strong class="mono">${closed7}</strong></span><span class="chip">${esc(delta(closed7,closedPrev7,value=>String(value)))}</span></div>
+        ${bars(closedRows,'closed',value=>String(value))}
+        <p class="row-sub">${T('Предыдущие 7 дней','Previous 7 days')}: ${closedPrev7}</p>
+      </article>
+    </div>
+    <p class="row-sub">${T('Изменение — только сравнение периодов, не оценка эффективности и не прогноз.','The change is only a period comparison, not a performance rating or forecast.')}</p>
+  </section>`;
+}
 function projectRisk(project){
   const m=project.metrics||{},next=m.nextMilestone;
   const signals=[
@@ -2086,6 +2124,7 @@ function projects(){
     <section class="surface project-hero"><div class="section-head"><div><button class="text-button" data-project-back>← ${T('Все проекты','All projects')}</button><h2>${esc(p.name)}</h2><p class="muted">${esc(p.goal||T('Цель не описана','No goal set'))}</p></div><div class="inline-actions"><span class="chip">${esc(p.status)}</span>${p.canContribute?`<button class="button secondary small" data-project-task-new>＋ ${T('Задача','Task')}</button><button class="button secondary small" data-project-milestone-new>＋ ${T('Веха','Milestone')}</button>`:''}${p.canManage?`<button class="button secondary small" data-project-member-new>＋ ${T('Участник','Member')}</button>`:''}</div></div></section>
     <div class="project-operating-grid">${projectProgress(p)}${projectWorkload(p)}</div>
     ${projectRisk(p)}
+    ${projectTrend(p)}
     ${projectRoadmap(p)}
     ${projectBoard(p)}
     ${projectFiles(p)}
