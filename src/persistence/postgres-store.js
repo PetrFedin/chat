@@ -1208,7 +1208,7 @@ export class PostgresStore {
     return rows[0]??{};
   }
 
-  async getTask(s,id){const{rows}=await this.pool.query(`${this.taskSelect()} WHERE c.workspace_id=$1 AND c.id=$2`,[s.workspaceId,id]);return this.taskView(s,rows[0])}
+  async getTask(s,id,{client=null}={}){const{rows}=await(client??this.pool).query(`${this.taskSelect()} WHERE c.workspace_id=$1 AND c.id=$2`,[s.workspaceId,id]);return this.taskView(s,rows[0])}
   async createTaskInDb(c,s,v){
     const ownerId=v.ownerId||s.userId,acceptorId=v.acceptorId||s.userId;
     for(const userId of new Set([ownerId,acceptorId,s.userId])){

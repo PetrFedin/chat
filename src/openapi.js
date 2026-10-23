@@ -1,3 +1,5 @@
+import { emailOpenapiPaths } from './email/email-openapi.js';
+
 export const openapi = Object.freeze({
   openapi: '3.1.0',
   info: {
@@ -12,6 +14,7 @@ export const openapi = Object.freeze({
     { name: 'Attention' },
     { name: 'Search' },
     { name: 'Messaging' },
+    { name: 'Email' },
     { name: 'Realtime' },
     { name: 'Calls' },
     { name: 'Meeting Intelligence' },
@@ -37,6 +40,7 @@ export const openapi = Object.freeze({
   },
   security: [{ sessionCookie: [] }, { apiKey: [] }],
   paths: {
+    ...emailOpenapiPaths,
     '/api/v1/auth/register-company': { post: { tags: ['Auth'], summary: 'Register a company and owner', responses: { '201': { description: 'Company created' } } } },
     '/api/v1/invitations/accept': { post: { tags: ['Auth', 'Workspace'], summary: 'Accept an employee invitation and create the invited account', responses: { '201': { description: 'Invitation accepted and session created' } } } },
     '/api/v1/auth/login': { post: { tags: ['Auth'], summary: 'Create an authenticated session', responses: { '200': { description: 'Authenticated' }, '401': { description: 'Invalid credentials' } } } },
@@ -111,6 +115,14 @@ export const openapi = Object.freeze({
     },
     '/api/v1/tasks/{taskId}': {
       get: { tags: ['Workspace'], summary: 'Get authoritative task detail, evidence, acceptance decisions and audit history', responses: { '200': { description: 'Task detail' }, '404': { description: 'Task is not visible' } } }
+    },
+    '/api/v1/tasks/{taskId}/context': {
+      get: {
+        tags: ['Workspace'],
+        summary: 'Resolve current-access Project, Decision, Page and Email context for a visible Task',
+        description: 'Read-only inverse references. Each target is reauthorized by its canonical module at read time; a relation never grants access and inaccessible targets are omitted.',
+        responses: { '200': { description: 'Current-access Task context grouped by canonical resource type' }, '404': { description: 'Task is not visible' } }
+      }
     },
     '/api/v1/tasks/{taskId}/transitions': {
       post: {

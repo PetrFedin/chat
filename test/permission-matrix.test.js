@@ -108,6 +108,15 @@ async function buildWorld(base, actors, stranger, actor) {
   const S = as(stranger);
   const A = as(actor);
   const staff = [actors.admin.userId, actors.manager.userId, actors.member.userId, stranger.userId];
+  // Every role shares the same company, so an invitation from an earlier
+  // world still occupies its invitee. Keep independent authorization fixtures
+  // in separate intervals instead of disabling real scheduling constraints.
+  const calendarBase = Date.now() + (ROLES.indexOf(actor.role) + 1) * 7 * 864e5;
+  const calendarSlot = hours => ({
+    startAt: new Date(calendarBase + hours * 36e5).toISOString(),
+    endAt: new Date(calendarBase + (hours + 1) * 36e5).toISOString(),
+  });
+  const calendarSlots = { reply: calendarSlot(0), cancel: calendarSlot(2), participants: calendarSlot(4), own: calendarSlot(6), personal: calendarSlot(8) };
 
   const conversation = async (title, extra = {}) =>
     (await O('/api/v1/conversations', {
@@ -148,17 +157,14 @@ async function buildWorld(base, actors, stranger, actor) {
   review = (await S(`/api/v1/tasks/${review.id}/evidence`, { method: 'POST', body: { type: 'note', value: 'результат готов', expectedVersion: review.version } })).payload.task;
   const foreignTaskInReview = await drive(review.id, 'in_review', review.version);
 
-  const event = async (title) =>
+  const event = async (title, interval) =>
     (await S('/api/v1/calendar-events', {
       method: 'POST',
-      // Permission fixtures intentionally share a slot: this matrix tests
-      // authorization, not scheduling. Explicitly bypass the product's
-      // double-booking guard instead of weakening that guard globally.
-      body: { title, startAt: iso(864e5), endAt: iso(864e5 + 36e5), visibility: 'workspace', allowConflict: true },
+      body: { title, ...interval, visibility: 'workspace' },
     })).payload?.event ?? null;
-  const foreignEvent = await event(`Чужая встреча ${rnd()}`);
-  const foreignEventToCancel = await event(`Чужая встреча отмена ${rnd()}`);
-  const foreignEventGuests = await event(`Чужая встреча участники ${rnd()}`);
+  const foreignEvent = await event(`Чужая встреча ${rnd()}`, calendarSlots.reply);
+  const foreignEventToCancel = await event(`Чужая встреча отмена ${rnd()}`, calendarSlots.cancel);
+  const foreignEventGuests = await event(`Чужая встреча участники ${rnd()}`, calendarSlots.participants);
   // Роль должна иметь, на что отвечать: приглашение делает организатор.
   await S(`/api/v1/calendar-events/${foreignEvent.id}/participants`, { method: 'POST', body: { userIds: [actor.userId] } });
 
@@ -197,7 +203,7 @@ async function buildWorld(base, actors, stranger, actor) {
     foreignTask, foreignTaskToCancel, foreignTaskToSchedule, foreignTaskToReassign, foreignTaskForEvidence, foreignTaskInReview,
     foreignEvent, foreignEventToCancel, foreignEventGuests, unit, unitToDelete, sharedLabel, sharedLabelToRename, sharedLabelToDelete,
     personalItem, personalItemToDelete, reminder, reminderToDelete, note, highlight, foreignCall, webhook, webhookToDelete,
-    foreignGame, ownFile, actor, actors, stranger,
+    foreignGame, ownFile, actor, actors, stranger, calendarSlots,
   };
 }
 
@@ -282,7 +288,7 @@ const ROUTES = [
   { route: 'GET /api/v1/calendar-events', path: () => '/api/v1/calendar-events', expect: 200 },
   {
     route: 'POST /api/v1/calendar-events', method: 'POST', path: () => '/api/v1/calendar-events',
-    body: () => ({ title: `Своя встреча ${rnd()}`, startAt: iso(2 * 864e5), endAt: iso(2 * 864e5 + 36e5) }),
+    body: (w) => ({ title: `Своя встреча ${rnd()}`, ...w.calendarSlots.own }),
     expect: { owner: 201, admin: 201, manager: 201, member: 201, guest: 403 },
   },
   { route: 'GET /api/v1/calendar-invitations', path: () => '/api/v1/calendar-invitations', expect: 200 },
@@ -587,7 +593,7 @@ const ROUTES = [
   },
   {
     route: 'POST /api/v1/personal-items/{своё}/schedule', method: 'POST', path: (w) => `/api/v1/personal-items/${id(w.personalItem)}/schedule`,
-    body: () => ({ startAt: iso(864e5), endAt: iso(864e5 + 36e5) }), expect: 200,
+    body: (w) => ({ ...w.calendarSlots.personal }), expect: 200,
   },
   { route: 'DELETE /api/v1/personal-items/{своё}', method: 'DELETE', path: (w) => `/api/v1/personal-items/${id(w.personalItemToDelete)}`, expect: 204 },
 

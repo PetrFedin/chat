@@ -8,7 +8,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const read = (path) => readFileSync(join(root, path), 'utf8');
 const ID = '00000000-0000-4000-8000-000000000000';
 
-const FRONT = ['app.js', 'daily-work.js', 'meeting-intelligence.js', 'meeting-operations.js', 'calls-ui.js', 'demo.js'];
+const FRONT = ['app.js', 'email.js', 'email-booking.js', 'daily-work.js', 'meeting-intelligence.js', 'meeting-operations.js', 'calls-ui.js', 'demo.js'];
 
 function frontendPaths() {
   const paths = new Map();
@@ -40,16 +40,22 @@ function serverRoutes() {
     let source;
     try { source = read(file); } catch { continue; }
     for (const m of source.matchAll(/\/api\\?\/?v1[^'"`\s]*/g)) {
+      const choices = [];
       const raw = m[0]
         .replace(/\\\//g, '/')                    // \/ → /
         .replace(/\$\{[^}]*\}/g, '<id>')           // ${ID} и прочие подстановки
         .replace(/\(\[[^\]]*\][^)]*\)/g, '<id>')    // ([0-9a-f-]{36})
-        .replace(/\$$/, '');
+        .replace(/\(([a-z_-]+(?:\|[a-z_-]+)+)\)/gi, (_, value) => { choices.push(value); return `<choice${choices.length - 1}>`; })
+        .replace(/\$\/[gimsuy]*[;,]?$/, '')       // literal RegExp terminator
+        .replace(/\$$/, '')
+        .replace(/\/+$/, '');                    // a composed route prefix
       if (!raw.startsWith('/api/v1/')) continue;
       const pattern = raw
-        .split('<id>')
-        .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
-        .join('[0-9a-zA-Z-]+');
+        .split(/(<id>|<choice\d+>)/)
+        .map((part) => part === '<id>' ? '[0-9a-zA-Z-]+' : /^<choice\d+>$/.test(part)
+          ? `(?:${choices[Number(part.slice(7, -1))]})`
+          : part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('');
       try { routes.push({ re: new RegExp(`^${pattern}(/|$)`, 'i'), file }); } catch { /* не адрес */ }
     }
   }

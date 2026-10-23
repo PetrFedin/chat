@@ -137,6 +137,25 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
   }
   let m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}$`,'i'));
   if(m&&method==='GET'){const s=await requireSession(req),task=await store.getTaskDetail(s,m[1]);if(!task)throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});json(res,200,{task});return true}
+  m=path.match(new RegExp('^/api/v1/tasks/'+TASK_ID+'/context$','i'));
+  if(m&&method==='GET'){
+    const session=await requireSession(req);
+    const task=await store.getTask(session,m[1]);
+    if(!task)throw Object.assign(new Error('Task not found'),{code:'TASK_NOT_FOUND',statusCode:404});
+    const optional=async(fn,codes=[])=>{
+      if(!fn)return[];
+      try{return await fn()}
+      catch(error){if(codes.includes(error?.code))return[];throw error}
+    };
+    const [projects,pages,decisions,emailSources]=await Promise.all([
+      optional(ctx.projects?.projectsForTask?()=>ctx.projects.projectsForTask(session,task.id):null,['PROJECTS_UNAVAILABLE','FEATURE_DISABLED']),
+      optional(ctx.wiki?.pagesForTask?()=>ctx.wiki.pagesForTask(session,task.id):null,['WIKI_UNAVAILABLE','FEATURE_DISABLED']),
+      optional(ctx.decisionTasks?.decisionsForTask?()=>ctx.decisionTasks.decisionsForTask(session,task.id):null,['DECISION_TASKS_UNAVAILABLE','FEATURE_DISABLED']),
+      optional(ctx.email?.getResourceLinks?()=>ctx.email.getResourceLinks(session,'task',task.id):null,['EMAIL_UNAVAILABLE','FEATURE_DISABLED']),
+    ]);
+    json(res,200,{context:{taskId:task.id,scope:'current_access_only',projects,pages,decisions,emailSources}});
+    return true;
+  }
   m=path.match(new RegExp(`^/api/v1/tasks/${TASK_ID}/transitions$`,'i'));
   if(m&&method==='POST'){
     const s=await requireSession(req),b=await readJson(req),task=await store.transitionTask(s,m[1],{to:String(b.to??''),reason:b.reason??null,expectedVersion:b.expectedVersion});
@@ -299,24 +318,14 @@ export async function handleWorkspace(req,res,ctx,url,path,method){
       hub.broadcastUsers(s.workspaceId,[s.userId,...wanted.map(w=>w.userId??w)],'calendar.created',created.event);
       json(res,201,created);return true;
     }
-    // Task block and recurrence use the calendar repository even without invitees:
-    // the repository owns calendar audit/recurrence semantics; the base store does not.
-    if(draft.kind==='task_block'||draft.recurrenceRule){
-      if(!ctx.calendar?.createWithParticipants){
-        if(draft.recurrenceRule)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
-      }else{
-        const created=await ctx.calendar.createWithParticipants(s,draft,[]);
-        hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',created.event);
-        json(res,201,created);return true;
-      }
+    // Ordinary events use the same transaction and schedule lock as bookings,
+    // task blocks and recurring events. A separate preflight check can race.
+    if(ctx.calendar?.createWithParticipants){
+      const created=await ctx.calendar.createWithParticipants(s,draft,[]);
+      hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',created.event);
+      json(res,201,created);return true;
     }
-    if(endAt&&ctx.calendar?.findConflicts&&!draft.allowConflict){
-      const conflicts=await ctx.calendar.findConflicts(s,{startAt,endAt});
-      if(conflicts.length){
-        const names=conflicts.slice(0,3).map(event=>event.title).join(', ');
-        throw Object.assign(new Error(`Время пересекается с календарём: ${names}. Подтвердите сохранение поверх конфликта.`),{code:'CALENDAR_CONFLICT',statusCode:409,expose:true});
-      }
-    }
+    if(draft.recurrenceRule)throw Object.assign(new Error('Повторяющиеся встречи доступны в режиме с базой данных'),{code:'CALENDAR_UNAVAILABLE',statusCode:503,expose:true});
     const event=await store.createCalendarEvent(s,draft);hub.broadcastUsers(s.workspaceId,[s.userId],'calendar.created',event);
     json(res,201,{event,invited:0});return true}
   /**

@@ -1,4 +1,5 @@
 import { previewProjectShift } from './project-plan-forecast.js';
+import { computeProjectHealth } from './project-health.js';
 import { randomUUID } from 'node:crypto';
 import { normalizeProject,normalizeProjectMember,normalizeMilestone,canViewProject,assertProjectManage,assertProjectContribute } from './project-authority.js';
 import { createProjectPlanning } from './project-plan-repository.js';
@@ -256,10 +257,8 @@ export function createProjectRepository({pool,store,meeting,features}={}){
     const progress=tasks.length?Math.round(done.length/(tasks.filter(t=>!['cancelled','rejected'].includes(t.status)).length||1)*100):0;
     const plannedMilestones=marks.filter(m=>m.status==='planned').sort((a,b)=>Date.parse(a.targetAt)-Date.parse(b.targetAt));
     const nextMilestone=plannedMilestones[0]??null;
-    const projectTargetRisk=Boolean(project.targetAt&&active.some(t=>{
-      const date=t.forecastAt||t.promisedAt;
-      return date&&Date.parse(date)>Date.parse(project.targetAt);
-    }));
+    const health=computeProjectHealth(tasks,{projectTargetAt:project.targetAt,asOf:new Date().toISOString()});
+    const projectTargetRisk=health.projectTargetRisk;
     const workload=new Map();
     for(const task of active){
       const key=task.ownerId||'unassigned';
@@ -272,7 +271,7 @@ export function createProjectRepository({pool,store,meeting,features}={}){
     const projectAnalytics=await analytics(session,project.id,tasks.map(t=>t.id));
     return{...project,members:team,milestones:marks,tasks,files,discussions,decisions,plan,
       metrics:{visibleTasks:tasks.length,active:active.length,done:done.length,blocked:blocked.length,dependencyBlocked:dependencyBlocked.length,
-        overdue:overdue.length,forecastRisk:forecastRisk.length,projectTargetRisk,progress,nextMilestone,
+        overdue:overdue.length,forecastRisk:forecastRisk.length,projectTargetRisk,progress,nextMilestone,health,
         trackedSeconds:projectAnalytics.trackedSeconds,throughput30d:projectAnalytics.throughput30d},
       analytics:projectAnalytics,
       workload:[...workload.values()].map(item=>({...item,displayName:item.userId==='unassigned'?'':(team.find(m=>m.userId===item.userId)?.displayName??item.userId)})),
@@ -324,6 +323,28 @@ export function createProjectRepository({pool,store,meeting,features}={}){
         [session.workspaceId,session.userId,q,like,from,to,size],
       );
       return rows.map(row=>({type:'project',...row}));
+    },
+
+    async projectsForTask(session,taskId){
+      const task=await store.getTask(session,taskId);
+      if(!task)throw fail('Task not found','TASK_NOT_FOUND',404);
+      const {rows}=await pool.query(
+        `SELECT project_id "projectId",linked_by "linkedBy",linked_at "linkedAt"
+           FROM project_tasks
+          WHERE workspace_id=$1 AND commitment_id=$2
+          ORDER BY linked_at DESC,project_id
+          LIMIT 20`,
+        [session.workspaceId,taskId],
+      );
+      const projected=await Promise.all(rows.map(async link=>{
+        const project=await row(session,link.projectId);
+        return project?{
+          id:project.id,name:project.name,status:project.status,visibility:project.visibility,
+          ownerId:project.ownerId,targetAt:project.targetAt??null,
+          linkedBy:link.linkedBy,linkedAt:link.linkedAt,
+        }:null;
+      }));
+      return projected.filter(Boolean);
     },
 
     async list(session,{includeArchived=false}={}){

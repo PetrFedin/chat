@@ -5,7 +5,7 @@ const fail=(message,code,statusCode=400)=>Object.assign(new Error(message),{code
 export function createDecisionTaskLinks({pool,store,meeting}={}){
   if(!pool || !store?.getTask || !meeting?.getDecision){
     const stop=()=>{throw fail('Связи решений и задач требуют PostgreSQL и канонические модули','DECISION_TASKS_UNAVAILABLE',503)};
-    return {enabled:false,list:stop,link:stop,unlink:stop};
+    return {enabled:false,list:stop,decisionsForTask:stop,link:stop,unlink:stop};
   }
 
   const requireDecision=async(session,decisionId)=>{
@@ -56,6 +56,22 @@ export function createDecisionTaskLinks({pool,store,meeting}={}){
       const visible=await Promise.all(rows.map(async row=>{
         const task=await store.getTask(session,row.taskId);
         return task?project(task,row):null;
+      }));
+      return visible.filter(Boolean);
+    },
+    async decisionsForTask(session,taskId){
+      await requireTask(session,taskId);
+      const {rows}=await pool.query(
+        'SELECT decision_id "decisionId",linked_by "linkedBy",linked_at "linkedAt",reason FROM decision_task_links WHERE workspace_id=$1 AND commitment_id=$2 ORDER BY linked_at DESC,decision_id LIMIT 100',
+        [session.workspaceId,taskId],
+      );
+      const visible=await Promise.all(rows.map(async link=>{
+        const decision=await meeting.getDecision(session,link.decisionId);
+        return decision?{
+          id:decision.id,title:decision.title,acceptedAt:decision.acceptedAt??null,
+          sourceKind:decision.sourceKind??null,linkedBy:link.linkedBy,
+          linkedAt:link.linkedAt,reason:link.reason,
+        }:null;
       }));
       return visible.filter(Boolean);
     },

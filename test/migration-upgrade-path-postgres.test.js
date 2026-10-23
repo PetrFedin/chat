@@ -12,7 +12,7 @@ function schemaUrl(base, schema) {
   return url.toString();
 }
 
-test('upgrade path 001-070 applies the integrated tail and project planning migration',
+test('upgrade path 001-070 applies the integrated tail, project planning and email migrations',
   { skip: !databaseUrl, timeout: 120000 }, async () => {
     const schema = 'upgrade_' + randomUUID().replaceAll('-', '').slice(0, 16);
     const admin = new pg.Pool({ connectionString: databaseUrl, max: 1 });
@@ -21,8 +21,12 @@ test('upgrade path 001-070 applies the integrated tail and project planning migr
     const tail = all.filter((m) => Number(m.name.slice(0, 3)) >= 71);
     assert.equal(tail[0]?.name, '071_workspace_features.sql');
     assert.equal(tail[1]?.name, '072_conversation_topics.sql');
-    assert.equal(tail.at(-2)?.name, '088_project_planning.sql');
-    assert.equal(tail.at(-1)?.name, '089_decision_task_links.sql');
+    assert.ok(tail.some(m => m.name === '088_project_planning.sql'));
+    assert.ok(tail.some(m => m.name === '089_decision_task_links.sql'));
+    assert.deepEqual(tail.slice(-4).map(m => m.name), [
+      '090_email_workspace.sql', '091_email_decision_sources.sql',
+      '092_email_rules_booking.sql', '093_email_notifications.sql',
+    ]);
     assert.equal(tail.filter(m=>m.name.startsWith('088_')).length,1,
       'migration 088 remains the published Project Planning schema');
     assert.equal(tail.filter(m=>m.name.startsWith('089_')).length,1,

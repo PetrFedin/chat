@@ -687,9 +687,9 @@ export class PostgresMeetingRepository {
    * Только принятые и только решения: предложенное — это ещё не
    * решение, а отклонённое им и не стало.
    */
-  async getDecision(session, decisionId) {
-    const { rows } = await this.pool.query(`SELECT
-        d.id,d.source_kind "sourceKind",d.source_id "sourceId",d.title,d.body,
+  async getDecision(session, decisionId, { client = null } = {}) {
+    const { rows } = await (client ?? this.pool).query(`SELECT
+        d.id,d.source_kind "sourceKind",d.source_id "sourceId",d.email_message_id "emailMessageId",d.title,d.body,
         d.accepted_at "acceptedAt",d.accepted_by "acceptedBy",
         COALESCE(ap.display_name,au.email) "acceptedByName",
         d.call_id "callId",d.calendar_event_id "calendarEventId",
@@ -711,6 +711,19 @@ export class PostgresMeetingRepository {
             ce.owner_id=$3 OR EXISTS (
               SELECT 1 FROM calendar_event_participants ep
                WHERE ep.workspace_id=ce.workspace_id AND ep.calendar_event_id=ce.id AND ep.user_id=$3)))
+          OR
+          (d.email_message_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM email_messages em
+            JOIN email_mailboxes mb ON mb.workspace_id=em.workspace_id AND mb.id=em.mailbox_id
+            JOIN memberships member ON member.workspace_id=mb.workspace_id AND member.user_id=$3
+            JOIN users email_reader ON email_reader.id=member.user_id
+            WHERE em.workspace_id=d.workspace_id AND em.id=d.email_message_id
+              AND em.deleted_at IS NULL AND mb.deleted_at IS NULL
+              AND member.role<>'guest' AND email_reader.disabled_at IS NULL
+              AND (member.access_until IS NULL OR member.access_until>now())
+              AND (mb.owner_id=$3 OR (mb.kind='shared' AND EXISTS (
+                SELECT 1 FROM email_mailbox_members mm WHERE mm.workspace_id=mb.workspace_id
+                  AND mm.mailbox_id=mb.id AND mm.user_id=$3 AND mm.revoked_at IS NULL)))))
         )`,
       [session.workspaceId,decisionId,session.userId]);
     return rows[0] ?? null;
@@ -731,7 +744,7 @@ export class PostgresMeetingRepository {
     const like = query ? `%${String(query).replace(/[\\%_]/g, (ch) => `\\${ch}`)}%` : null;
 
     const { rows } = await this.pool.query(`SELECT
-        d.id,d.source_kind "sourceKind",d.source_id "sourceId",d.title,d.body,
+        d.id,d.source_kind "sourceKind",d.source_id "sourceId",d.email_message_id "emailMessageId",d.title,d.body,
         d.accepted_at "acceptedAt",d.accepted_by "acceptedBy",
         COALESCE(ap.display_name,au.email) "acceptedByName",
         d.call_id "callId",d.calendar_event_id "calendarEventId",
@@ -753,6 +766,19 @@ export class PostgresMeetingRepository {
             ce.owner_id=$2 OR EXISTS (
               SELECT 1 FROM calendar_event_participants ep
                WHERE ep.workspace_id=ce.workspace_id AND ep.calendar_event_id=ce.id AND ep.user_id=$2)))
+          OR
+          (d.email_message_id IS NOT NULL AND EXISTS (
+            SELECT 1 FROM email_messages em
+            JOIN email_mailboxes mb ON mb.workspace_id=em.workspace_id AND mb.id=em.mailbox_id
+            JOIN memberships member ON member.workspace_id=mb.workspace_id AND member.user_id=$2
+            JOIN users email_reader ON email_reader.id=member.user_id
+            WHERE em.workspace_id=d.workspace_id AND em.id=d.email_message_id
+              AND em.deleted_at IS NULL AND mb.deleted_at IS NULL
+              AND member.role<>'guest' AND email_reader.disabled_at IS NULL
+              AND (member.access_until IS NULL OR member.access_until>now())
+              AND (mb.owner_id=$2 OR (mb.kind='shared' AND EXISTS (
+                SELECT 1 FROM email_mailbox_members mm WHERE mm.workspace_id=mb.workspace_id
+                  AND mm.mailbox_id=mb.id AND mm.user_id=$2 AND mm.revoked_at IS NULL)))))
         )
         AND ($3::text IS NULL OR d.title ILIKE $3 OR d.body ILIKE $3)
         AND ($4::timestamptz IS NULL OR d.accepted_at >= $4)

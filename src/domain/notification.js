@@ -7,7 +7,11 @@ export const NotificationType = Object.freeze({
   TASK_DUE: 'task.due',
   CALENDAR_INVITED: 'calendar.invited',
   CALENDAR_REMINDER: 'calendar.reminder',
-  REVIEW_REQUESTED: 'review.requested'
+  REVIEW_REQUESTED: 'review.requested',
+  EMAIL_RECEIVED: 'email.received',
+  EMAIL_ASSIGNED: 'email.assigned',
+  EMAIL_WAITING_DUE: 'email.waiting_due',
+  EMAIL_SEND_ATTENTION: 'email.send_attention'
 });
 
 const TYPES = new Set(Object.values(NotificationType));

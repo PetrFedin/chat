@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/calls.css">
   <link rel="stylesheet" href="/preferences.css">
   <link rel="stylesheet" href="/daily-work.css">
+  <link rel="stylesheet" href="/email.css">
   <link rel="stylesheet" href="/meeting-intelligence.css">
   <link rel="stylesheet" href="/project-roadmap.css">
 </head>
@@ -59,9 +60,9 @@
         <button id="join-back" class="text-button pressable" type="button">Назад ко входу</button>
       </form>
       <div id="demo-access" class="form-stack" hidden>
-        <p class="muted auth-copy" style="margin:4px 0 0;text-align:center">или сразу посмотреть наполненное пространство</p>
-        <button id="demo-login" class="button secondary pressable" type="button">Открыть готовое демо</button>
-        <p class="muted" style="margin:0;text-align:center;font-size:12px">Компания, сотрудники, каналы, задачи, календарь и история работы уже заполнены.</p>
+        <p class="muted auth-copy" style="margin:4px 0 0;text-align:center">Презентационный контур</p>
+        <button id="demo-login" class="button secondary pressable" type="button">Открыть презентационное пространство</button>
+        <p class="muted" style="margin:0;text-align:center;font-size:12px">Изолированная среда с тестовыми данными для показа продукта. В обычном входе этот блок скрыт.</p>
       </div>
       <form id="register-form" class="form-stack" hidden>
         <label>Компания<input name="companyName" autocomplete="organization" placeholder="Название компании" required></label>
@@ -140,6 +141,7 @@
   <script src="/vendor/livekit-client.js"></script>
   <script src="/calls-ui.js"></script>
   <script src="/project-roadmap.js"></script>
+  <script type="module" src="/email.js"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/meeting-intelligence.js"></script>
   <script type="module" src="/meeting-operations.js"></script>

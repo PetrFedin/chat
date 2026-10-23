@@ -1,5 +1,8 @@
-const CACHE='chat-shell-v30';
-// The Tiptap bundle is built for CI/deploy, but may be absent in plain npm start.\n// Do not make the entire PWA install fail when this optional editor asset is missing.\n// Successful fetches are cached by the runtime fetch handler after first load.\nconst SHELL=['/','/styles.css','/calls.css','/preferences.css','/daily-work.css','/meeting-intelligence.css','/project-roadmap.css','/preferences.js','/preferences-context.js','/app.js','/project-roadmap.js','/wiki-document-view.js','/meeting-intelligence.js','/meeting-operations.js','/daily-work.js','/requests.js','/calls-ui.js','/demo.js','/investor-tour.js','/manifest.webmanifest','/icon.svg','/icon-192.png','/icon-512.png','/apple-touch-icon.png'];
+const CACHE='chat-shell-v32';
+// The Tiptap bundle is built for CI/deploy, but may be absent in plain npm start.
+// Do not make the entire PWA install fail when this optional editor asset is missing.
+// Successful fetches are cached by the runtime fetch handler after first load.
+const SHELL=['/','/styles.css','/calls.css','/preferences.css','/daily-work.css','/email.css','/meeting-intelligence.css','/project-roadmap.css','/preferences.js','/preferences-context.js','/app.js','/project-roadmap.js','/wiki-document-view.js','/meeting-intelligence.js','/meeting-operations.js','/daily-work.js','/email.js','/requests.js','/calls-ui.js','/demo.js','/investor-tour.js','/manifest.webmanifest','/icon.svg','/icon-192.png','/icon-512.png','/apple-touch-icon.png'];
 
 self.addEventListener('install',(event)=>event.waitUntil(
   caches.open(CACHE).then((cache)=>cache.addAll(SHELL)).then(()=>self.skipWaiting())
@@ -31,10 +34,13 @@ self.addEventListener('activate',(event)=>event.waitUntil(
 self.addEventListener('fetch',(event)=>{
   const request=event.request;
   const url=new URL(request.url);
-  if(request.method!=='GET'||url.origin!==location.origin||url.pathname.startsWith('/api/')) return;
+  // The HTTP router accepts case-insensitive API paths. Never preserve
+  // authenticated responses or public booking tokens in the offline cache.
+  if(request.method!=='GET'||url.origin!==location.origin||/^\/(?:api|email-booking)(?:\/|$)/i.test(url.pathname)) return;
   event.respondWith(
     fetch(request).then((response)=>{
-      if(response.ok&&response.type==='basic'){
+      const cacheControl=response.headers.get('cache-control')||'';
+      if(response.ok&&response.type==='basic'&&!/\b(?:no-store|private)\b/i.test(cacheControl)){
         const copy=response.clone();
         caches.open(CACHE).then((cache)=>cache.put(request,copy)).catch(()=>{});
       }

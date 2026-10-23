@@ -31,10 +31,11 @@ test('economics contains no fabricated defaults and rejects invalid assumptions'
   assert.equal(hypotheticalEconomics({...valid,platformPerMonth:5000}).paybackMonths,null);
 });
 
-test('investor walkthrough is present only as non-guest action in navigation',async()=>{
+test('investor walkthrough is isolated behind explicit presentation mode',async()=>{
   const {readFile}=await import('node:fs/promises');
   const src=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
-  assert.match(src,/staff\?\x60<button class="module-card pressable" data-action="investor-tour"/);
+  assert.match(src,/presentationMode=.*preview/);
+  assert.match(src,/staff&&presentationMode\(\)\?\x60<button class="module-card pressable" data-action="investor-tour"/);
   assert.match(src,/if\(guestShell\(\)\)return;/);
   assert.match(src,/async function investorTourModal\(/);
 });

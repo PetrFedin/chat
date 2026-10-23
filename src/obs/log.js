@@ -31,4 +31,6 @@ export const errorFields = (error, { stack = false } = {}) => ({
 
 /** Путь без идентификаторов: иначе маршруты не сгруппировать. */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
-export const routeOf = (path) => String(path ?? '').split('?')[0].replace(UUID, ':id');
+export const routeOf = (path) => String(path ?? '').split('?')[0]
+  .replace(/(\/email-booking\/)[A-Za-z0-9_-]{43}(?=\/|$)/gi, '$1:token')
+  .replace(UUID, ':id');

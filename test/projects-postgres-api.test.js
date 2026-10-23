@@ -114,6 +114,10 @@ test('Projects are a native work context over canonical Task authority',{skip:!d
   assert.equal(detail.payload.project.metrics.dependencyBlocked,0);
   assert.equal(detail.payload.project.metrics.forecastRisk,0);
   assert.equal(detail.payload.project.metrics.projectTargetRisk,false);
+  assert.equal(detail.payload.project.metrics.health.formulaVersion,'v1');
+  assert.equal(detail.payload.project.metrics.health.scope,'visible_active_tasks_only');
+  assert.ok(Number.isInteger(detail.payload.project.metrics.health.score));
+  assert.ok(detail.payload.project.metrics.health.score>=0&&detail.payload.project.metrics.health.score<=100);
   assert.equal(detail.payload.project.metrics.nextMilestone.id,milestone.payload.milestone.id);
   assert.equal(detail.payload.project.analytics.time30d.length,30);
   assert.equal(detail.payload.project.analytics.closed30d.length,30);
